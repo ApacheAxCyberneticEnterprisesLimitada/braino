@@ -1,0 +1,269 @@
+import type { Database } from "better-sqlite3";
+import type { Entity } from "@evalo/shared";
+import { deriveEdges } from "./edges.js";
+
+/**
+ * Insert one entity into the index. Routes to the right table based on
+ * `node_type`, also re-emits edges and FTS rows.
+ *
+ * Designed to be called inside a transaction by the caller.
+ */
+export function insertEntity(db: Database, entity: Entity, body: string): void {
+  const e = entity as unknown as Record<string, unknown>;
+  const raw = JSON.stringify(entity);
+  const id = entity.id;
+  const evaloId = (e.evalo_id as string) ?? "";
+  const sv = (e.schema_version as string) ?? "0.1";
+  const summary = (e.summary as string) ?? "";
+  const createdAt = (e.created_at as string) ?? "";
+  const createdBy = (e.created_by as string) ?? "";
+  const lifecycle = (e.lifecycle as string | null) ?? null;
+  const status = (e.status as string | null) ?? null;
+
+  switch (entity.node_type) {
+    case "evalo":
+      db.prepare(
+        `INSERT OR REPLACE INTO evalo_root (id, schema_version, slug, display_name, visibility, default_branch, owner_id, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        sv,
+        e.slug as string,
+        e.display_name as string,
+        e.visibility as string,
+        (e.default_branch as string) ?? null,
+        e.owner_id as string,
+        (e.description as string) ?? null,
+        (e.summary as string) ?? null,
+        raw,
+      );
+      break;
+
+    case "principal":
+      db.prepare(
+        `INSERT OR REPLACE INTO principal (id, evalo_id, schema_version, summary, type, username, display_name, owner_id, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.type as string,
+        e.username as string,
+        e.display_name as string,
+        (e.owner_id as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
+    case "intent":
+      db.prepare(
+        `INSERT OR REPLACE INTO intent (id, evalo_id, schema_version, summary, slug, title, parent_intent_id, priority, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        (e.slug as string) ?? null,
+        e.title as string,
+        (e.parent_intent_id as string | null) ?? null,
+        (e.priority as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
+    case "rule":
+      db.prepare(
+        `INSERT OR REPLACE INTO rule (id, evalo_id, schema_version, summary, slug, modality, severity, phase, on_violation, predicate, created_at, created_by, lifecycle, status, born_from, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        (e.slug as string) ?? null,
+        e.modality as string,
+        (e.severity as string) ?? null,
+        e.phase as string,
+        (e.on_violation as string) ?? null,
+        (e.predicate as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        (e.born_from as string) ?? null,
+        raw,
+      );
+      break;
+
+    case "decision":
+      db.prepare(
+        `INSERT OR REPLACE INTO decision (id, evalo_id, schema_version, summary, slug, number, question, chosen, decided_by, decided_at, superseded_by, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        (e.slug as string) ?? null,
+        (e.number as string) ?? null,
+        e.question as string,
+        (e.chosen as string | null) ?? null,
+        e.decided_by as string,
+        e.decided_at as string,
+        (e.superseded_by as string | null) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
+    case "action":
+      db.prepare(
+        `INSERT OR REPLACE INTO action (id, evalo_id, schema_version, summary, actor_id, verb, target, started_at, ended_at, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.actor_id as string,
+        e.verb as string,
+        (e.target as string) ?? null,
+        (e.started_at as string) ?? null,
+        (e.ended_at as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
+    case "reasoning":
+      db.prepare(
+        `INSERT OR REPLACE INTO reasoning (id, evalo_id, schema_version, summary, author_id, conclusion_ref, confidence, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.author_id as string,
+        (e.conclusion_ref as string) ?? null,
+        (e.confidence as number) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
+    case "evaluation":
+      db.prepare(
+        `INSERT OR REPLACE INTO evaluation (id, evalo_id, schema_version, summary, rule_id, target_id, result, ran_at, ran_by, duration_ms, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.rule_id as string,
+        (e.target_id as string) ?? null,
+        e.result as string,
+        e.ran_at as string,
+        e.ran_by as string,
+        (e.duration_ms as number) ?? null,
+        createdAt,
+        createdBy,
+        raw,
+      );
+      break;
+
+    case "reference":
+      db.prepare(
+        `INSERT OR REPLACE INTO reference (id, evalo_id, schema_version, summary, ref_type, locator, content_hash, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.ref_type as string,
+        e.locator as string,
+        (e.content_hash as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
+    case "tag":
+      db.prepare(
+        `INSERT OR REPLACE INTO tag (id, evalo_id, schema_version, summary, name, description, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.name as string,
+        (e.description as string) ?? null,
+        createdAt,
+        createdBy,
+        raw,
+      );
+      break;
+  }
+
+  // FTS row
+  db.prepare(`INSERT INTO fts (id, node_type, summary, body) VALUES (?, ?, ?, ?)`).run(
+    id,
+    entity.node_type,
+    summary,
+    body,
+  );
+
+  // Edges
+  const edges = deriveEdges(entity);
+  if (edges.length > 0) {
+    const stmt = db.prepare(
+      `INSERT OR REPLACE INTO edges (from_id, from_node_type, to_id, to_node_type, edge_type, edge_props_json) VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    for (const edge of edges) {
+      stmt.run(
+        edge.from_id,
+        edge.from_node_type,
+        edge.to_id,
+        edge.to_node_type,
+        edge.edge_type,
+        edge.edge_props ? JSON.stringify(edge.edge_props) : null,
+      );
+    }
+  }
+}
+
+/** Remove all rows for one entity ID across all tables (for incremental updates / deletes). */
+export function deleteEntity(db: Database, id: string): void {
+  for (const table of [
+    "evalo_root",
+    "principal",
+    "intent",
+    "rule",
+    "decision",
+    "action",
+    "reasoning",
+    "evaluation",
+    "reference",
+    "tag",
+  ]) {
+    db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
+  }
+  db.prepare(`DELETE FROM fts WHERE id = ?`).run(id);
+  db.prepare(`DELETE FROM edges WHERE from_id = ? OR to_id = ?`).run(id, id);
+  db.prepare(`DELETE FROM scope_match WHERE source_id = ? OR target_id = ?`).run(id, id);
+}
