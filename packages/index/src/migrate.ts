@@ -179,6 +179,23 @@ CREATE TABLE tag (
   raw_json        TEXT NOT NULL
 );
 
+CREATE TABLE organization (
+  id              TEXT PRIMARY KEY,
+  evalo_id        TEXT NOT NULL,
+  schema_version  TEXT NOT NULL,
+  summary         TEXT NOT NULL,
+  slug            TEXT NOT NULL,
+  display_name    TEXT NOT NULL,
+  description     TEXT,
+  visibility      TEXT,
+  created_at      TEXT NOT NULL,
+  created_by      TEXT NOT NULL,
+  lifecycle       TEXT,
+  status          TEXT,
+  raw_json        TEXT NOT NULL
+);
+CREATE INDEX organization_slug_idx ON organization(slug);
+
 -- Indexes for common queries
 CREATE INDEX intent_lifecycle_idx ON intent(lifecycle);
 CREATE INDEX rule_phase_idx ON rule(phase, modality);

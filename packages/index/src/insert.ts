@@ -218,6 +218,26 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         raw,
       );
       break;
+
+    case "organization":
+      db.prepare(
+        `INSERT OR REPLACE INTO organization (id, evalo_id, schema_version, summary, slug, display_name, description, visibility, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        evaloId,
+        sv,
+        summary,
+        e.slug as string,
+        e.display_name as string,
+        (e.description as string) ?? null,
+        (e.visibility as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
   }
 
   // FTS row
@@ -252,6 +272,7 @@ export function deleteEntity(db: Database, id: string): void {
   for (const table of [
     "evalo_root",
     "principal",
+    "organization",
     "intent",
     "rule",
     "decision",

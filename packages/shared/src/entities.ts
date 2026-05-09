@@ -78,6 +78,9 @@ export interface EvaloImport {
   include?: string[];
 }
 
+/** Evalo.owner_id is polymorphic per ADR-063: Principal (user/agent) OR Organization. */
+export type OwnerRef = EntityId<"principal"> | EntityId<"organization">;
+
 export interface Evalo {
   id: EntityId<"evalo">;
   node_type: "evalo";
@@ -86,7 +89,7 @@ export interface Evalo {
   display_name: string;
   visibility: "private" | "public";
   default_branch?: string;
-  owner_id: EntityId<"principal">;
+  owner_id: OwnerRef;
   description?: string;
   summary?: string;
   created_at?: string;
@@ -214,11 +217,29 @@ export interface Tag extends CommonFields {
   description?: string;
 }
 
+// ─── Organization (ADR-062) ──────────────────────────────────────────────
+
+export interface OrganizationMember {
+  principal_id: EntityId<"principal">;
+  role: "owner" | "admin" | "member" | "viewer";
+  permissions?: ("read" | "write" | "execute" | "admin")[];
+}
+
+export interface Organization extends CommonFields {
+  node_type: "organization";
+  slug: string;
+  display_name: string;
+  description?: string;
+  visibility?: "private" | "public";
+  members?: OrganizationMember[];
+}
+
 // ─── Discriminated union of all entities ──────────────────────────────────
 
 export type Entity =
   | Principal
   | Evalo
+  | Organization
   | Intent
   | Rule
   | Decision

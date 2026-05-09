@@ -11,6 +11,7 @@ export type Ulid = Brand<string, "Ulid">;
 export const NODE_TYPES = [
   "evalo",
   "principal",
+  "organization",
   "intent",
   "rule",
   "decision",
