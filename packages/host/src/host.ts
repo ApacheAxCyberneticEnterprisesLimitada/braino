@@ -189,7 +189,51 @@ export async function resolveOwnerSlug(root: string, slug: string): Promise<Owne
   return users.find((p) => p.slug === slug) ?? orgs.find((o) => o.slug === slug) ?? null;
 }
 
+/**
+ * Slugs that name top-level @evalo/web routes — rejected by addPrincipal /
+ * addOrganization / createEvaloInHost so a User or Org can never collide
+ * with the URL routing layer (ADR-067).
+ */
+export const RESERVED_SLUGS = new Set([
+  "e",
+  "host",
+  "api",
+  "search",
+  "lint",
+  "find-rules",
+  "sign-in",
+  "sign-out",
+  "sign-up",
+  "new-evalo",
+  "new-org",
+  "new",
+  "admin",
+  "settings",
+  "profile",
+  "help",
+  "about",
+  "_",
+  ".",
+  "..",
+]);
+
+const SLUG_PATTERN = /^[a-z0-9_-]+$/;
+
+function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "evalo"): void {
+  if (!SLUG_PATTERN.test(slug)) {
+    throw new Error(
+      `Invalid ${kind} slug "${slug}" — expected kebab-case [a-z0-9_-]+ (ADR-067).`,
+    );
+  }
+  if (RESERVED_SLUGS.has(slug)) {
+    throw new Error(
+      `Slug "${slug}" is reserved by Evalo's URL routing (ADR-067). Pick a different name.`,
+    );
+  }
+}
+
 async function assertSlugFree(root: string, slug: string, kind: "principal" | "organization"): Promise<void> {
+  assertSlugAllowed(slug, kind);
   const existing = await resolveOwnerSlug(root, slug);
   if (existing) {
     throw new Error(
@@ -197,7 +241,6 @@ async function assertSlugFree(root: string, slug: string, kind: "principal" | "o
         `Within a host, Principal.username and Organization.slug share one namespace (ADR-064).`,
     );
   }
-  void kind;
 }
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -318,9 +361,7 @@ export async function createEvaloInHost(
   opts: CreateEvaloInHostOptions,
 ): Promise<EvaloRecord> {
   if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-  if (!/^[a-z0-9_-]+$/.test(opts.evaloSlug)) {
-    throw new Error(`Invalid evalo slug "${opts.evaloSlug}" — expected kebab-case [a-z0-9_-]+.`);
-  }
+  assertSlugAllowed(opts.evaloSlug, "evalo");
   const owner = await resolveOwnerSlug(root, opts.ownerSlug);
   if (!owner) {
     throw new Error(`Owner "${opts.ownerSlug}" not found in this host.`);

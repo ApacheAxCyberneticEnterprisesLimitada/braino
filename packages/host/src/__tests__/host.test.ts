@@ -65,6 +65,21 @@ describe("host lifecycle", () => {
     );
   });
 
+  it("ADR-067 reserved slugs: refuses 'sign-in' as a username and 'new' as an org slug", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await expect(addPrincipal(root, { username: "sign-in" })).rejects.toThrow(/reserved/);
+    await addPrincipal(root, { username: "carol" });
+    await expect(addOrganization(root, { slug: "new", ownerUsername: "carol" })).rejects.toThrow(/reserved/);
+  });
+
+  it("ADR-067 slug pattern: refuses uppercase / spaces / special chars", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await expect(addPrincipal(root, { username: "Alice" })).rejects.toThrow(/kebab-case/);
+    await expect(addPrincipal(root, { username: "ali ce" })).rejects.toThrow(/kebab-case/);
+  });
+
   it("creates an Evalo owned by a Principal (user-owned)", async () => {
     const root = join(tmp, "host");
     await createHost(root, { name: "Test" });
