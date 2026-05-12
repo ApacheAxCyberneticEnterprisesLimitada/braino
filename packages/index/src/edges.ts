@@ -86,12 +86,17 @@ function handleObject(
 }
 
 /**
- * Fields that look ID-shaped but are NOT relationships:
- * - `id`: the entity's own id; emitting it would create a self-edge.
- * - `doco_id`: structural Doco membership; every entity has one, no value
- *   in surfacing it as an edge on every page.
+ * Fields whose values are NOT relationships, even if they happen to look
+ * ID-shaped. Skipped entirely from the recursive walk.
+ *
+ * - `id` / `doco_id`: structural; emitting them would create noise (self-edge
+ *   or one-per-page).
+ * - `inputs` / `outputs`: free-form bags on Action. Their nested keys are
+ *   ad-hoc descriptive fields ("founder_direction", "asset_files",
+ *   "completion_note") not relationships. Walking them produced noisy
+ *   pseudo-edges like `inputs.assets_provided_by`. Per ADR-091.
  */
-const SKIP_FIELDS = new Set(["id", "doco_id"]);
+const SKIP_FIELDS = new Set(["id", "doco_id", "inputs", "outputs"]);
 
 /** Field name → canonical edge type. Anything not listed defaults to the field name. */
 const FIELD_TO_EDGE_TYPE: Record<string, string> = {
