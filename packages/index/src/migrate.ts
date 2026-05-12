@@ -21,16 +21,32 @@ CREATE TABLE meta (
 
 INSERT INTO meta (key, value) VALUES ('schema_version', '1');
 
--- ADR-087: visibility and default_branch optional; owner_id removed (no Principals).
 CREATE TABLE doco_root (
   id              TEXT PRIMARY KEY,
   schema_version  TEXT NOT NULL,
   slug            TEXT NOT NULL UNIQUE,
   display_name    TEXT NOT NULL,
-  visibility      TEXT,
+  visibility      TEXT NOT NULL,
   default_branch  TEXT,
+  owner_id        TEXT NOT NULL,
   description     TEXT,
   summary         TEXT,
+  raw_json        TEXT NOT NULL
+);
+
+CREATE TABLE principal (
+  id              TEXT PRIMARY KEY,
+  doco_id        TEXT NOT NULL,
+  schema_version  TEXT NOT NULL,
+  summary         TEXT NOT NULL,
+  type            TEXT NOT NULL,
+  username        TEXT NOT NULL,
+  display_name    TEXT NOT NULL,
+  owner_id        TEXT,
+  created_at      TEXT NOT NULL,
+  created_by      TEXT NOT NULL,
+  lifecycle       TEXT,
+  status          TEXT,
   raw_json        TEXT NOT NULL
 );
 
@@ -179,7 +195,22 @@ CREATE TABLE idea (
   raw_json          TEXT NOT NULL
 );
 
--- Principals + Organizations removed by ADR-087 (local-solo collapse).
+CREATE TABLE organization (
+  id              TEXT PRIMARY KEY,
+  doco_id        TEXT NOT NULL,
+  schema_version  TEXT NOT NULL,
+  summary         TEXT NOT NULL,
+  slug            TEXT NOT NULL,
+  display_name    TEXT NOT NULL,
+  description     TEXT,
+  visibility      TEXT,
+  created_at      TEXT NOT NULL,
+  created_by      TEXT NOT NULL,
+  lifecycle       TEXT,
+  status          TEXT,
+  raw_json        TEXT NOT NULL
+);
+CREATE INDEX organization_slug_idx ON organization(slug);
 
 -- Indexes for common queries
 CREATE INDEX intent_lifecycle_idx ON intent(lifecycle);

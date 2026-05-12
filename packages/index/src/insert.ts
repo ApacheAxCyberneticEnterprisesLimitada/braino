@@ -23,16 +23,37 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
   switch (entity.node_type) {
     case "doco":
       db.prepare(
-        `INSERT OR REPLACE INTO doco_root (id, schema_version, slug, display_name, visibility, default_branch, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO doco_root (id, schema_version, slug, display_name, visibility, default_branch, owner_id, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         sv,
         e.slug as string,
         e.display_name as string,
-        (e.visibility as string) ?? null,
+        e.visibility as string,
         (e.default_branch as string) ?? null,
+        e.owner_id as string,
         (e.description as string) ?? null,
         (e.summary as string) ?? null,
+        raw,
+      );
+      break;
+
+    case "principal":
+      db.prepare(
+        `INSERT OR REPLACE INTO principal (id, doco_id, schema_version, summary, type, username, display_name, owner_id, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        docoId,
+        sv,
+        summary,
+        e.type as string,
+        e.username as string,
+        e.display_name as string,
+        (e.owner_id as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
         raw,
       );
       break;
@@ -198,6 +219,26 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
       );
       break;
 
+    case "organization":
+      db.prepare(
+        `INSERT OR REPLACE INTO organization (id, doco_id, schema_version, summary, slug, display_name, description, visibility, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        docoId,
+        sv,
+        summary,
+        e.slug as string,
+        e.display_name as string,
+        (e.description as string) ?? null,
+        (e.visibility as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
+
     case "idea":
       db.prepare(
         `INSERT OR REPLACE INTO idea (id, doco_id, schema_version, summary, body, proposer_id, promoted_to, rejection_reason, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -258,6 +299,8 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 export function deleteEntity(db: Database, id: string): void {
   for (const table of [
     "doco_root",
+    "principal",
+    "organization",
     "intent",
     "idea",
     "rule",

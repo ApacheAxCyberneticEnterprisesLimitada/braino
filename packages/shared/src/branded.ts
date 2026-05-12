@@ -8,9 +8,10 @@ type Brand<T, B> = T & { readonly [__brand]: B };
 
 export type Ulid = Brand<string, "Ulid">;
 
-// Principal + Organization node types removed by ADR-087 (local-solo collapse).
 export const NODE_TYPES = [
   "doco",
+  "principal",
+  "organization",
   "intent",
   "idea",
   "rule",
