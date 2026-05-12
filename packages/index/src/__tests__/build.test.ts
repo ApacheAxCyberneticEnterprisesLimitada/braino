@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { reindex } from "../build.js";
 import { openDb } from "../db.js";
 
-const REPO_ROOT = resolve(__dirname, "../../../..");
+const REPO_ROOT = resolve(__dirname, "../../../../docos/torrenegra/doco");
 
 describe("reindex against the Doco project", () => {
   it("rebuilds the cache and inserts every entity", async () => {
