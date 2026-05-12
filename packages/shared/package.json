@@ -1,9 +1,9 @@
 {
-  "name": "@evalo/shared",
+  "name": "@doco/shared",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Shared types, ULID generation, time helpers used across all Evalo packages.",
+  "description": "Shared types, ULID generation, time helpers used across all Doco packages.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

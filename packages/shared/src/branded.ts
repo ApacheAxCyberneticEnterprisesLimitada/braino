@@ -9,17 +9,18 @@ type Brand<T, B> = T & { readonly [__brand]: B };
 export type Ulid = Brand<string, "Ulid">;
 
 export const NODE_TYPES = [
-  "evalo",
+  "doco",
   "principal",
   "organization",
   "intent",
+  "idea",
   "rule",
   "decision",
   "action",
   "reasoning",
   "evaluation",
   "reference",
-  "tag",
+  "scope",
 ] as const;
 
 export type NodeType = (typeof NODE_TYPES)[number];

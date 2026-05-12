@@ -1,9 +1,9 @@
 /**
- * TypeScript types for Evalo entities.
+ * TypeScript types for Doco entities.
  *
- * The canonical schema is `schema/evalo.schema.json` at the Evalo root —
+ * The canonical schema is `schema/doco.schema.json` at the Doco root —
  * these types mirror that schema for compile-time checking. Runtime validation
- * (against the JSON Schema) lives in @evalo/core.
+ * (against the JSON Schema) lives in @doco/core.
  */
 
 import type { EntityId } from "./branded.js";
@@ -19,7 +19,7 @@ export type Lifecycle =
 /** Common fields present on every entity (D-006, D-007). */
 export interface CommonFields {
   id: EntityId;
-  evalo_id: EntityId<"evalo">;
+  doco_id: EntityId<"doco">;
   node_type: string;
   schema_version: string;
   summary: string;
@@ -30,8 +30,10 @@ export interface CommonFields {
   revision?: number;
   lifecycle?: Lifecycle;
   status?: string;
-  tags?: EntityId<"tag">[];
+  scopes?: EntityId<"scope">[];
   born_from?: EntityId;
+  /** Ordering / dependency. This entity comes after the listed ones. Lint forbids cycles. ADR-077. */
+  follows?: EntityId[];
 }
 
 /** A scope selector predicate — see SCHEMA.md §5. Free-form for v0.1. */
@@ -63,27 +65,27 @@ export interface Principal extends CommonFields {
   public_key?: string;
 }
 
-// ─── Evalo (root entity) ─────────────────────────────────────────────────
+// ─── Doco (root entity) ─────────────────────────────────────────────────
 
-export interface EvaloMember {
+export interface DocoMember {
   principal_id: EntityId<"principal">;
   role: "owner" | "maintainer" | "contributor" | "viewer";
   permissions: ("read" | "write" | "execute" | "admin")[];
 }
 
-export interface EvaloImport {
-  evalo: string;
+export interface DocoImport {
+  doco: string;
   ref: string;
   as: string;
   include?: string[];
 }
 
-/** Evalo.owner_id is polymorphic per ADR-063: Principal (user/agent) OR Organization. */
+/** Doco.owner_id is polymorphic per ADR-063: Principal (user/agent) OR Organization. */
 export type OwnerRef = EntityId<"principal"> | EntityId<"organization">;
 
-export interface Evalo {
-  id: EntityId<"evalo">;
-  node_type: "evalo";
+export interface Doco {
+  id: EntityId<"doco">;
+  node_type: "doco";
   schema_version: string;
   slug: string;
   display_name: string;
@@ -99,9 +101,9 @@ export interface Evalo {
   revision?: number;
   lifecycle?: Lifecycle;
   status?: string;
-  tags?: EntityId<"tag">[];
-  members?: EvaloMember[];
-  imports?: EvaloImport[];
+  scopes?: EntityId<"scope">[];
+  members?: DocoMember[];
+  imports?: DocoImport[];
 }
 
 // ─── Intent ───────────────────────────────────────────────────────────────
@@ -116,6 +118,18 @@ export interface Intent extends CommonFields {
   acceptance?: string[];
   stakeholders?: EntityId<"principal">[];
   applies_to?: ScopeSelector;
+}
+
+// ─── Idea ─────────────────────────────────────────────────────────────────
+// Speculative thought before it crystallizes into an Intent / Decision /
+// Action. Per ADR-074. Lightweight on purpose.
+
+export interface Idea extends CommonFields {
+  node_type: "idea";
+  proposer_id?: EntityId<"principal">;
+  body?: string;
+  promoted_to?: EntityId; // Intent / Decision / Action when picked up
+  rejection_reason?: string;
 }
 
 // ─── Rule ─────────────────────────────────────────────────────────────────
@@ -209,12 +223,21 @@ export interface Reference extends CommonFields {
   content_hash?: string | null;
 }
 
-// ─── Tag ──────────────────────────────────────────────────────────────────
+// ─── Scope ────────────────────────────────────────────────────────────────
+// Topical neighborhood. Renamed from Tag (ADR-078). Edge-hierarchical: parent
+// scopes live in `scopes: []` (the common field) — no slash-in-name. Per
+// ADR-081. Self-explaining: `purpose` says why this scope exists, `guidelines`
+// says how nodes inside it should be authored. Per ADR-082.
 
-export interface Tag extends CommonFields {
-  node_type: "tag";
+export interface Scope extends CommonFields {
+  node_type: "scope";
+  /** Flat token: ^[a-z][a-z0-9_-]*$ */
   name: string;
   description?: string;
+  /** Why this scope exists; what nodes belong here. */
+  purpose?: string;
+  /** Markdown guidance on how to author nodes in this scope. */
+  guidelines?: string;
 }
 
 // ─── Organization (ADR-062) ──────────────────────────────────────────────
@@ -238,15 +261,16 @@ export interface Organization extends CommonFields {
 
 export type Entity =
   | Principal
-  | Evalo
+  | Doco
   | Organization
   | Intent
+  | Idea
   | Rule
   | Decision
   | Action
   | Reasoning
   | Evaluation
   | Reference
-  | Tag;
+  | Scope;
 
 export type EntityByType<T extends Entity["node_type"]> = Extract<Entity, { node_type: T }>;

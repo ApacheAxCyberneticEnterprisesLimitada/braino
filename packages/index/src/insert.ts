@@ -1,5 +1,5 @@
 import type { Database } from "better-sqlite3";
-import type { Entity } from "@evalo/shared";
+import type { Entity } from "@doco/shared";
 import { deriveEdges } from "./edges.js";
 
 /**
@@ -12,7 +12,7 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
   const e = entity as unknown as Record<string, unknown>;
   const raw = JSON.stringify(entity);
   const id = entity.id;
-  const evaloId = (e.evalo_id as string) ?? "";
+  const docoId = (e.doco_id as string) ?? "";
   const sv = (e.schema_version as string) ?? "0.1";
   const summary = (e.summary as string) ?? "";
   const createdAt = (e.created_at as string) ?? "";
@@ -21,9 +21,9 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
   const status = (e.status as string | null) ?? null;
 
   switch (entity.node_type) {
-    case "evalo":
+    case "doco":
       db.prepare(
-        `INSERT OR REPLACE INTO evalo_root (id, schema_version, slug, display_name, visibility, default_branch, owner_id, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO doco_root (id, schema_version, slug, display_name, visibility, default_branch, owner_id, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         sv,
@@ -40,10 +40,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "principal":
       db.prepare(
-        `INSERT OR REPLACE INTO principal (id, evalo_id, schema_version, summary, type, username, display_name, owner_id, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO principal (id, doco_id, schema_version, summary, type, username, display_name, owner_id, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.type as string,
@@ -60,10 +60,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "intent":
       db.prepare(
-        `INSERT OR REPLACE INTO intent (id, evalo_id, schema_version, summary, slug, title, parent_intent_id, priority, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO intent (id, doco_id, schema_version, summary, slug, title, parent_intent_id, priority, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         (e.slug as string) ?? null,
@@ -80,10 +80,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "rule":
       db.prepare(
-        `INSERT OR REPLACE INTO rule (id, evalo_id, schema_version, summary, slug, modality, severity, phase, on_violation, predicate, created_at, created_by, lifecycle, status, born_from, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO rule (id, doco_id, schema_version, summary, slug, modality, severity, phase, on_violation, predicate, created_at, created_by, lifecycle, status, born_from, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         (e.slug as string) ?? null,
@@ -103,10 +103,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "decision":
       db.prepare(
-        `INSERT OR REPLACE INTO decision (id, evalo_id, schema_version, summary, slug, number, question, chosen, decided_by, decided_at, superseded_by, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO decision (id, doco_id, schema_version, summary, slug, number, question, chosen, decided_by, decided_at, superseded_by, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         (e.slug as string) ?? null,
@@ -126,10 +126,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "action":
       db.prepare(
-        `INSERT OR REPLACE INTO action (id, evalo_id, schema_version, summary, actor_id, verb, target, started_at, ended_at, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO action (id, doco_id, schema_version, summary, actor_id, verb, target, started_at, ended_at, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.actor_id as string,
@@ -147,10 +147,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "reasoning":
       db.prepare(
-        `INSERT OR REPLACE INTO reasoning (id, evalo_id, schema_version, summary, author_id, conclusion_ref, confidence, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO reasoning (id, doco_id, schema_version, summary, author_id, conclusion_ref, confidence, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.author_id as string,
@@ -166,10 +166,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "evaluation":
       db.prepare(
-        `INSERT OR REPLACE INTO evaluation (id, evalo_id, schema_version, summary, rule_id, target_id, result, ran_at, ran_by, duration_ms, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO evaluation (id, doco_id, schema_version, summary, rule_id, target_id, result, ran_at, ran_by, duration_ms, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.rule_id as string,
@@ -186,10 +186,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "reference":
       db.prepare(
-        `INSERT OR REPLACE INTO reference (id, evalo_id, schema_version, summary, ref_type, locator, content_hash, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO reference (id, doco_id, schema_version, summary, ref_type, locator, content_hash, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.ref_type as string,
@@ -203,12 +203,12 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
       );
       break;
 
-    case "tag":
+    case "scope":
       db.prepare(
-        `INSERT OR REPLACE INTO tag (id, evalo_id, schema_version, summary, name, description, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO scope (id, doco_id, schema_version, summary, name, description, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.name as string,
@@ -221,10 +221,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "organization":
       db.prepare(
-        `INSERT OR REPLACE INTO organization (id, evalo_id, schema_version, summary, slug, display_name, description, visibility, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO organization (id, doco_id, schema_version, summary, slug, display_name, description, visibility, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        evaloId,
+        docoId,
         sv,
         summary,
         e.slug as string,
@@ -238,14 +238,42 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         raw,
       );
       break;
+
+    case "idea":
+      db.prepare(
+        `INSERT OR REPLACE INTO idea (id, doco_id, schema_version, summary, body, proposer_id, promoted_to, rejection_reason, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        docoId,
+        sv,
+        summary,
+        (e.body as string) ?? null,
+        (e.proposer_id as string) ?? null,
+        (e.promoted_to as string) ?? null,
+        (e.rejection_reason as string) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        status,
+        raw,
+      );
+      break;
   }
 
-  // FTS row
+  // FTS row. For scopes, fold purpose + guidelines + description into the body
+  // so FTS5 search can match on them. (ADR-082.)
+  let ftsBody = body;
+  if (entity.node_type === "scope") {
+    const extras = [e.purpose, e.guidelines, e.description]
+      .filter((s): s is string => typeof s === "string" && s.length > 0)
+      .join("\n\n");
+    ftsBody = ftsBody ? `${ftsBody}\n\n${extras}` : extras;
+  }
   db.prepare(`INSERT INTO fts (id, node_type, summary, body) VALUES (?, ?, ?, ?)`).run(
     id,
     entity.node_type,
     summary,
-    body,
+    ftsBody,
   );
 
   // Edges
@@ -270,17 +298,18 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 /** Remove all rows for one entity ID across all tables (for incremental updates / deletes). */
 export function deleteEntity(db: Database, id: string): void {
   for (const table of [
-    "evalo_root",
+    "doco_root",
     "principal",
     "organization",
     "intent",
+    "idea",
     "rule",
     "decision",
     "action",
     "reasoning",
     "evaluation",
     "reference",
-    "tag",
+    "scope",
   ]) {
     db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id);
   }

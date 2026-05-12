@@ -5,10 +5,10 @@ import { openDb } from "../db.js";
 
 const REPO_ROOT = resolve(__dirname, "../../../..");
 
-describe("reindex against the Evalo project", () => {
+describe("reindex against the Doco project", () => {
   it("rebuilds the cache and inserts every entity", async () => {
     const report = await reindex(REPO_ROOT);
-    // 78 entities + 1 evalo root = 79
+    // 78 entities + 1 doco root = 79
     expect(report.inserted).toBeGreaterThanOrEqual(70);
     expect(report.durationMs).toBeLessThan(5_000);
   });
@@ -20,22 +20,24 @@ describe("reindex against the Evalo project", () => {
       const counts = {
         principal: (db.prepare("SELECT COUNT(*) as n FROM principal").get() as { n: number }).n,
         intent: (db.prepare("SELECT COUNT(*) as n FROM intent").get() as { n: number }).n,
+        idea: (db.prepare("SELECT COUNT(*) as n FROM idea").get() as { n: number }).n,
         rule: (db.prepare("SELECT COUNT(*) as n FROM rule").get() as { n: number }).n,
         decision: (db.prepare("SELECT COUNT(*) as n FROM decision").get() as { n: number }).n,
         action: (db.prepare("SELECT COUNT(*) as n FROM action").get() as { n: number }).n,
         reasoning: (db.prepare("SELECT COUNT(*) as n FROM reasoning").get() as { n: number }).n,
         reference: (db.prepare("SELECT COUNT(*) as n FROM reference").get() as { n: number }).n,
-        tag: (db.prepare("SELECT COUNT(*) as n FROM tag").get() as { n: number }).n,
+        scope: (db.prepare("SELECT COUNT(*) as n FROM scope").get() as { n: number }).n,
       };
       expect(counts).toEqual({
         principal: 2,
-        intent: 6,
-        rule: 5,
-        decision: 54,
-        action: 1,
-        reasoning: 1,
+        intent: 7,
+        idea: 1,
+        rule: 8,
+        decision: 85,
+        action: 50,
+        reasoning: 2,
         reference: 3,
-        tag: 6,
+        scope: 6,
       });
     } finally {
       db.close();

@@ -1,9 +1,9 @@
 {
-  "name": "@evalo/index",
+  "name": "@doco/index",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "SQLite + FTS5 cache for Evalo entities. Per-clone, regenerable, never source-of-truth (D-023).",
+  "description": "SQLite + FTS5 cache for Doco entities. Per-clone, regenerable, never source-of-truth (D-023).",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,8 +21,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@evalo/core": "workspace:*",
-    "@evalo/shared": "workspace:*",
+    "@doco/core": "workspace:*",
+    "@doco/shared": "workspace:*",
     "better-sqlite3": "^11.7.0"
   },
   "devDependencies": {

@@ -1,4 +1,4 @@
-import { type Entity, isEntityId } from "@evalo/shared";
+import { type Entity, isEntityId } from "@doco/shared";
 
 export interface Edge {
   from_id: string;
@@ -20,8 +20,9 @@ export function deriveEdges(entity: Entity): Edge[] {
 
   function emit(field: string, target: unknown, props?: Record<string, unknown>): void {
     if (typeof target !== "string") return;
-    if (target.includes(":")) return; // cross-Evalo, skip for now
+    if (target.includes(":")) return; // cross-Doco, skip for now
     if (!isEntityId(target)) return;
+    if (target === fromId) return; // self-edges add no graph info (e.g. bootstrap principal's `created_by`)
     const m = /^(\w+)_/.exec(target);
     if (!m) return;
     const toType = m[1] as string;
@@ -39,11 +40,12 @@ export function deriveEdges(entity: Entity): Edge[] {
   const obj = entity as unknown as Record<string, unknown>;
   for (const [field, value] of Object.entries(obj)) {
     if (value === null || value === undefined) continue;
+    if (SKIP_FIELDS.has(field)) continue; // structural metadata, not a relationship
     if (Array.isArray(value)) {
       for (const v of value) {
         if (typeof v === "string") emit(field, v);
         else if (v && typeof v === "object") {
-          // E.g. Reasoning.premises[].ref, Evalo.members[].principal_id, Evalo.imports[]
+          // E.g. Reasoning.premises[].ref, Doco.members[].principal_id, Doco.imports[]
           handleObject(field, v as Record<string, unknown>, emit);
         }
       }
@@ -67,14 +69,14 @@ function handleObject(
     emit("premise", obj.ref, { as: obj.as });
     return;
   }
-  // Evalo.members[]: { principal_id, role, permissions }
+  // Doco.members[]: { principal_id, role, permissions }
   if (typeof obj.principal_id === "string") {
     emit("member", obj.principal_id, { role: obj.role, permissions: obj.permissions });
     return;
   }
-  // Evalo.imports[]: { evalo, ref, as, include }
-  if (typeof obj.evalo === "string" && parentField === "imports") {
-    // Cross-Evalo, skip
+  // Doco.imports[]: { doco, ref, as, include }
+  if (typeof obj.doco === "string" && parentField === "imports") {
+    // Cross-Doco, skip
     return;
   }
   // Generic: emit any direct ID-valued sub-fields
@@ -82,6 +84,14 @@ function handleObject(
     if (typeof v === "string") emit(`${parentField}.${k}`, v);
   }
 }
+
+/**
+ * Fields that look ID-shaped but are NOT relationships:
+ * - `id`: the entity's own id; emitting it would create a self-edge.
+ * - `doco_id`: structural Doco membership; every entity has one, no value
+ *   in surfacing it as an edge on every page.
+ */
+const SKIP_FIELDS = new Set(["id", "doco_id"]);
 
 /** Field name → canonical edge type. Anything not listed defaults to the field name. */
 const FIELD_TO_EDGE_TYPE: Record<string, string> = {
@@ -102,6 +112,7 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   superseded_by: "superseded_by",
   rule_id: "evaluates_rule",
   target_id: "evaluated_on",
-  tags: "tagged",
+  scopes: "in_scope_of", // ADR-078: was tags → "tagged"
   member: "member_of",
+  follows: "follows", // ADR-077: BPMN ordering / dependency
 };

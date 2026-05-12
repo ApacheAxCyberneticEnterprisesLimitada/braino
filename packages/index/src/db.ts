@@ -4,11 +4,11 @@ import Database from "better-sqlite3";
 import type { Database as DB } from "better-sqlite3";
 import { migrate } from "./migrate.js";
 
-export const CACHE_DIR = ".evalo";
+export const CACHE_DIR = ".doco";
 export const CACHE_FILE = "cache.db";
 
-export function cachePath(evaloRoot: string): string {
-  return join(evaloRoot, CACHE_DIR, CACHE_FILE);
+export function cachePath(docoRoot: string): string {
+  return join(docoRoot, CACHE_DIR, CACHE_FILE);
 }
 
 export interface OpenDbOptions {
@@ -16,8 +16,8 @@ export interface OpenDbOptions {
   fileMustExist?: boolean;
 }
 
-export async function openDb(evaloRoot: string, opts: OpenDbOptions = {}): Promise<DB> {
-  const path = cachePath(evaloRoot);
+export async function openDb(docoRoot: string, opts: OpenDbOptions = {}): Promise<DB> {
+  const path = cachePath(docoRoot);
   await mkdir(dirname(path), { recursive: true });
   const db = new Database(path, {
     readonly: opts.readonly ?? false,

@@ -21,7 +21,7 @@ CREATE TABLE meta (
 
 INSERT INTO meta (key, value) VALUES ('schema_version', '1');
 
-CREATE TABLE evalo_root (
+CREATE TABLE doco_root (
   id              TEXT PRIMARY KEY,
   schema_version  TEXT NOT NULL,
   slug            TEXT NOT NULL UNIQUE,
@@ -36,7 +36,7 @@ CREATE TABLE evalo_root (
 
 CREATE TABLE principal (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   type            TEXT NOT NULL,
@@ -52,7 +52,7 @@ CREATE TABLE principal (
 
 CREATE TABLE intent (
   id                TEXT PRIMARY KEY,
-  evalo_id          TEXT NOT NULL,
+  doco_id          TEXT NOT NULL,
   schema_version    TEXT NOT NULL,
   summary           TEXT NOT NULL,
   slug              TEXT,
@@ -68,7 +68,7 @@ CREATE TABLE intent (
 
 CREATE TABLE rule (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   slug            TEXT,
@@ -87,7 +87,7 @@ CREATE TABLE rule (
 
 CREATE TABLE decision (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   slug            TEXT,
@@ -106,7 +106,7 @@ CREATE TABLE decision (
 
 CREATE TABLE action (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   actor_id        TEXT NOT NULL,
@@ -123,7 +123,7 @@ CREATE TABLE action (
 
 CREATE TABLE reasoning (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   author_id       TEXT NOT NULL,
@@ -138,7 +138,7 @@ CREATE TABLE reasoning (
 
 CREATE TABLE evaluation (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   rule_id         TEXT NOT NULL,
@@ -154,7 +154,7 @@ CREATE TABLE evaluation (
 
 CREATE TABLE reference (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   ref_type        TEXT NOT NULL,
@@ -167,9 +167,9 @@ CREATE TABLE reference (
   raw_json        TEXT NOT NULL
 );
 
-CREATE TABLE tag (
+CREATE TABLE scope (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   name            TEXT NOT NULL UNIQUE,
@@ -179,9 +179,25 @@ CREATE TABLE tag (
   raw_json        TEXT NOT NULL
 );
 
+CREATE TABLE idea (
+  id                TEXT PRIMARY KEY,
+  doco_id          TEXT NOT NULL,
+  schema_version    TEXT NOT NULL,
+  summary           TEXT NOT NULL,
+  body              TEXT,
+  proposer_id       TEXT,
+  promoted_to       TEXT,
+  rejection_reason  TEXT,
+  created_at        TEXT NOT NULL,
+  created_by        TEXT NOT NULL,
+  lifecycle         TEXT,
+  status            TEXT,
+  raw_json          TEXT NOT NULL
+);
+
 CREATE TABLE organization (
   id              TEXT PRIMARY KEY,
-  evalo_id        TEXT NOT NULL,
+  doco_id        TEXT NOT NULL,
   schema_version  TEXT NOT NULL,
   summary         TEXT NOT NULL,
   slug            TEXT NOT NULL,
@@ -206,6 +222,11 @@ CREATE INDEX action_verb_idx ON action(verb);
 CREATE INDEX evaluation_rule_idx ON evaluation(rule_id, ran_at);
 
 -- Cross-cutting: edges derived from ID-shaped fields (D-017 fields-as-edges).
+-- edge_type values include: serves, consults, enacts, performed_by, acts_on,
+--   authored_by, premise, concludes, has_parent, has_stakeholder, owned_by,
+--   created_by, updated_by, born_from, superseded_by, evaluates_rule,
+--   evaluated_on, in_scope_of (was 'tagged' pre-ADR-078), member_of,
+--   follows  (ADR-077: BPMN ordering).
 CREATE TABLE edges (
   from_id         TEXT NOT NULL,
   from_node_type  TEXT NOT NULL,

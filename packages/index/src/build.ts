@@ -1,6 +1,6 @@
 import { rm, stat } from "node:fs/promises";
 import type { Database } from "better-sqlite3";
-import { type LoadedEvalo, loadEvalo } from "@evalo/core";
+import { type LoadedDoco, loadDoco } from "@doco/core";
 import { CACHE_DIR, cachePath, openDb } from "./db.js";
 import { join } from "node:path";
 import { insertEntity } from "./insert.js";
@@ -10,12 +10,12 @@ export interface BuildReport {
   durationMs: number;
 }
 
-/** Insert every entity from a freshly-loaded Evalo. Caller manages the transaction. */
-export function indexEvalo(db: Database, loaded: LoadedEvalo): BuildReport {
+/** Insert every entity from a freshly-loaded Doco. Caller manages the transaction. */
+export function indexDoco(db: Database, loaded: LoadedDoco): BuildReport {
   const start = performance.now();
   let inserted = 0;
   const tx = db.transaction(() => {
-    insertEntity(db, loaded.evalo as never, "");
+    insertEntity(db, loaded.doco as never, "");
     inserted++;
     for (const le of loaded.entities.values()) {
       insertEntity(db, le.entity, le.parsed.body);
@@ -28,21 +28,21 @@ export function indexEvalo(db: Database, loaded: LoadedEvalo): BuildReport {
 }
 
 /**
- * Wipe `.evalo/` and rebuild the index from the current source files.
+ * Wipe `.doco/` and rebuild the index from the current source files.
  */
-export async function reindex(evaloRoot: string): Promise<BuildReport> {
-  await wipeCache(evaloRoot);
-  const loaded = await loadEvalo(evaloRoot);
-  const db = await openDb(evaloRoot);
+export async function reindex(docoRoot: string): Promise<BuildReport> {
+  await wipeCache(docoRoot);
+  const loaded = await loadDoco(docoRoot);
+  const db = await openDb(docoRoot);
   try {
-    return indexEvalo(db, loaded);
+    return indexDoco(db, loaded);
   } finally {
     db.close();
   }
 }
 
-async function wipeCache(evaloRoot: string): Promise<void> {
-  const cacheDir = join(evaloRoot, CACHE_DIR);
+async function wipeCache(docoRoot: string): Promise<void> {
+  const cacheDir = join(docoRoot, CACHE_DIR);
   try {
     await stat(cacheDir);
     await rm(cacheDir, { recursive: true, force: true });

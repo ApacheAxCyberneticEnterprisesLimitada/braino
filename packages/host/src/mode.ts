@@ -1,15 +1,15 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-export type EvaloRootMode = "host" | "single-evalo" | "empty";
+export type DocoRootMode = "host" | "single-doco" | "empty";
 
 /**
  * ADR-061 dual-mode detection. A directory is a Host if it has `host.yaml` at
- * the root; a single Evalo if it has `evalo.yaml`; otherwise undetermined.
+ * the root; a single Doco if it has `doco.yaml`; otherwise undetermined.
  */
-export function detectMode(root: string): EvaloRootMode {
+export function detectMode(root: string): DocoRootMode {
   if (existsSync(join(root, "host.yaml"))) return "host";
-  if (existsSync(join(root, "evalo.yaml"))) return "single-evalo";
+  if (existsSync(join(root, "doco.yaml"))) return "single-doco";
   return "empty";
 }
 
@@ -25,14 +25,14 @@ export function hostOrganizationsDir(root: string): string {
   return join(root, "organizations");
 }
 
-export function hostEvalosDir(root: string): string {
-  return join(root, "evalos");
+export function hostDocosDir(root: string): string {
+  return join(root, "docos");
 }
 
 export function hostSchemaPath(root: string): string {
-  return join(root, "schema", "evalo.schema.json");
+  return join(root, "schema", "doco.schema.json");
 }
 
-export function hostEvaloDir(root: string, ownerSlug: string, evaloSlug: string): string {
-  return join(root, "evalos", ownerSlug, evaloSlug);
+export function hostDocoDir(root: string, ownerSlug: string, docoSlug: string): string {
+  return join(root, "docos", ownerSlug, docoSlug);
 }

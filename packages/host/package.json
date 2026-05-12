@@ -1,9 +1,9 @@
 {
-  "name": "@evalo/host",
+  "name": "@doco/host",
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Multi-tenant host: many Evalos owned by Users (Principals) or Organizations. ADR-061.",
+  "description": "Multi-tenant host: many Docos owned by Users (Principals) or Organizations. ADR-061.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -21,8 +21,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@evalo/core": "workspace:*",
-    "@evalo/shared": "workspace:*",
+    "@doco/core": "workspace:*",
+    "@doco/shared": "workspace:*",
     "yaml": "^2.6.1"
   }
 }

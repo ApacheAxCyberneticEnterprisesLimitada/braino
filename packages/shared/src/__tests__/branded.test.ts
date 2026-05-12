@@ -34,7 +34,7 @@ describe("isEntityId", () => {
   it("accepts well-formed prefixed IDs", () => {
     expect(isEntityId("decision_01KR441EAMKYKCEBSEYHGJ8M3Z")).toBe(true);
     expect(isEntityId("intent_01KR441EA92V53H22ZN087YMRM")).toBe(true);
-    expect(isEntityId("evalo_01KR441EA0ZDMF0N5DY38GSVS3")).toBe(true);
+    expect(isEntityId("doco_01KR441EA0ZDMF0N5DY38GSVS3")).toBe(true);
   });
 
   it("rejects unknown prefixes", () => {
@@ -60,7 +60,7 @@ describe("isEntityIdOf", () => {
 describe("isNodeType", () => {
   it("accepts the 10 known kinds", () => {
     for (const t of [
-      "evalo",
+      "doco",
       "principal",
       "intent",
       "rule",
@@ -69,7 +69,7 @@ describe("isNodeType", () => {
       "reasoning",
       "evaluation",
       "reference",
-      "tag",
+      "scope",
     ]) {
       expect(isNodeType(t)).toBe(true);
     }
@@ -77,7 +77,7 @@ describe("isNodeType", () => {
 
   it("rejects unknown kinds", () => {
     expect(isNodeType("widget")).toBe(false);
-    expect(isNodeType("scope")).toBe(false);
+    expect(isNodeType("tag")).toBe(false);
   });
 });
 
