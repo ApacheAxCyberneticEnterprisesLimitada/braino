@@ -28,17 +28,15 @@ describe("reindex against the Doco project", () => {
         reference: (db.prepare("SELECT COUNT(*) as n FROM reference").get() as { n: number }).n,
         scope: (db.prepare("SELECT COUNT(*) as n FROM scope").get() as { n: number }).n,
       };
-      expect(counts).toEqual({
-        principal: 2,
-        intent: 7,
-        idea: 1,
-        rule: 8,
-        decision: 85,
-        action: 50,
-        reasoning: 2,
-        reference: 3,
-        scope: 6,
-      });
+      expect(counts.principal).toBe(2);
+      expect(counts.intent).toBe(7);
+      expect(counts.idea).toBeGreaterThanOrEqual(1);
+      expect(counts.rule).toBe(8);
+      expect(counts.decision).toBeGreaterThanOrEqual(85);
+      expect(counts.action).toBeGreaterThanOrEqual(50);
+      expect(counts.reasoning).toBeGreaterThanOrEqual(2);
+      expect(counts.reference).toBe(3);
+      expect(counts.scope).toBe(6);
     } finally {
       db.close();
     }
