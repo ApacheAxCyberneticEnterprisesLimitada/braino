@@ -403,77 +403,101 @@ export async function createDocoInHost(
     throw new Error(`Owner "${opts.ownerSlug}" not found in this host.`);
   }
   const dir = hostDocoDir(root, opts.ownerSlug, opts.docoSlug);
-  if (existsSync(dir)) {
+
+  // "Already exists" means the slug is genuinely taken — there's a doco.yaml.
+  // A bare directory with no doco.yaml is a half-created leftover from a
+  // failed previous attempt; we'll clean it up and proceed (per
+  // Phase-21 atomicity fix).
+  if (existsSync(join(dir, "doco.yaml"))) {
     throw new Error(`Doco already exists at ${dir}.`);
   }
-
-  // Build the per-Doco subtree.
-  await mkdir(dir, { recursive: true });
-  for (const sub of [
-    "schema",
-    "principals",
-    "intents",
-    "ideas",
-    "rules",
-    "decisions",
-    "actions",
-    "reasoning",
-    "references",
-    "scopes",
-    "organizations",
-    "evaluations",
-  ]) {
-    await mkdir(join(dir, sub), { recursive: true });
+  if (existsSync(dir)) {
+    // Half-created — wipe and start over.
+    await rm(dir, { recursive: true, force: true });
   }
-  // Share schema via copy from host (or symlink in future).
-  await copyFile(hostSchemaPath(root), join(dir, "schema", "doco.schema.json"));
 
-  const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
-  const created = nowIso();
-  const docoYaml = {
-    id: docoId,
-    node_type: "doco",
-    schema_version: "0.1",
-    slug: `${opts.ownerSlug}/${opts.docoSlug}`,
-    display_name: opts.docoSlug,
-    visibility: opts.visibility ?? "private",
-    default_branch: "main",
-    owner_id: owner.id,
-    description:
-      opts.description ?? `Doco created in host (owned by ${owner.kind} "${opts.ownerSlug}").`,
-    summary: `Created in host on ${created}.`,
-    created_at: created,
-    created_by: owner.kind === "principal" ? owner.id : null,
-    revision: 1,
-    lifecycle: "active",
-    status: "active",
-    scopes: [] as string[],
-    members:
-      owner.kind === "principal"
-        ? [{ principal_id: owner.id, role: "owner", permissions: ["read", "write", "execute", "admin"] }]
-        : [],
-    imports: [] as unknown[],
-  };
-  await writeFile(join(dir, "doco.yaml"), stringifyYaml(docoYaml), "utf8");
-  await writeFile(
-    join(dir, "README.md"),
-    `# ${opts.docoSlug}\n\nOwner: ${owner.kind} \`${opts.ownerSlug}\`.\n`,
-    "utf8",
-  );
-  await writeFile(
-    join(dir, ".gitignore"),
-    "# Local cache — regenerable\n.doco/\n",
-    "utf8",
-  );
+  // Resolve the schema source up-front so the failure surfaces before any
+  // directory work begins. Prefer the host-level schema (so a self-hosted
+  // host can pin its own schema version), then fall back to the canonical
+  // template bundled with @doco/cli or the package-relative repo root.
+  const schemaSource = existsSync(hostSchemaPath(root))
+    ? hostSchemaPath(root)
+    : locateSchemaTemplate();
 
-  return {
-    ownerSlug: opts.ownerSlug,
-    docoSlug: opts.docoSlug,
-    ownerKind: owner.kind,
-    ownerId: owner.id,
-    docoId,
-    path: dir,
-  };
+  // Wrap the directory build so a partial failure rolls the whole thing back.
+  // Without this, a thrown copyFile / writeFile leaves the dir + subdirs on
+  // disk and blocks retries with a misleading "already exists" error.
+  try {
+    await mkdir(dir, { recursive: true });
+    for (const sub of [
+      "schema",
+      "principals",
+      "intents",
+      "ideas",
+      "rules",
+      "decisions",
+      "actions",
+      "reasoning",
+      "references",
+      "scopes",
+      "organizations",
+      "evaluations",
+    ]) {
+      await mkdir(join(dir, sub), { recursive: true });
+    }
+    await copyFile(schemaSource, join(dir, "schema", "doco.schema.json"));
+
+    const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
+    const created = nowIso();
+    const docoYaml = {
+      id: docoId,
+      node_type: "doco",
+      schema_version: "0.1",
+      slug: `${opts.ownerSlug}/${opts.docoSlug}`,
+      display_name: opts.docoSlug,
+      visibility: opts.visibility ?? "private",
+      default_branch: "main",
+      owner_id: owner.id,
+      description:
+        opts.description ?? `Doco created in host (owned by ${owner.kind} "${opts.ownerSlug}").`,
+      summary: `Created in host on ${created}.`,
+      created_at: created,
+      created_by: owner.kind === "principal" ? owner.id : null,
+      revision: 1,
+      lifecycle: "active",
+      status: "active",
+      scopes: [] as string[],
+      members:
+        owner.kind === "principal"
+          ? [{ principal_id: owner.id, role: "owner", permissions: ["read", "write", "execute", "admin"] }]
+          : [],
+      imports: [] as unknown[],
+    };
+    await writeFile(join(dir, "doco.yaml"), stringifyYaml(docoYaml), "utf8");
+    await writeFile(
+      join(dir, "README.md"),
+      `# ${opts.docoSlug}\n\nOwner: ${owner.kind} \`${opts.ownerSlug}\`.\n`,
+      "utf8",
+    );
+    await writeFile(
+      join(dir, ".gitignore"),
+      "# Local cache — regenerable\n.doco/\n",
+      "utf8",
+    );
+
+    return {
+      ownerSlug: opts.ownerSlug,
+      docoSlug: opts.docoSlug,
+      ownerKind: owner.kind,
+      ownerId: owner.id,
+      docoId,
+      path: dir,
+    };
+  } catch (err) {
+    // Rollback: rm the partial dir so the retry isn't blocked.
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+    throw err;
+  }
 }
 
 /**

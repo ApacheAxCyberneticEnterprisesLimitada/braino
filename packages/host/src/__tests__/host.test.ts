@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { existsSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { parse as parseYaml } from "yaml";
 import {
   addOrganization,
@@ -107,6 +107,40 @@ describe("host lifecycle", () => {
     });
     expect(rec.ownerKind).toBe("organization");
     expect(rec.ownerId).toMatch(/^organization_/);
+  });
+
+  it("createDocoInHost retries cleanly after a partial-create leftover", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const docoDir = join(root, "docos", "alice", "leftover");
+    // Simulate the leftover that ENOENT used to produce: dir + empty subdirs,
+    // no doco.yaml. createDocoInHost should treat this as recoverable rather
+    // than throwing "Doco already exists".
+    await mkdir(join(docoDir, "schema"), { recursive: true });
+    await mkdir(join(docoDir, "actions"), { recursive: true });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "leftover" });
+    expect(rec.docoId).toMatch(/^doco_/);
+    expect(existsSync(join(docoDir, "doco.yaml"))).toBe(true);
+  });
+
+  it("createDocoInHost refuses when a real doco.yaml already exists at that path", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "real" });
+    await expect(
+      createDocoInHost(root, { ownerSlug: "alice", docoSlug: "real" }),
+    ).rejects.toThrow(/already exists/);
+  });
+
+  it("createDocoInHost falls back to the bundled schema template when the host has none", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    await rm(join(root, "schema"), { recursive: true, force: true });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "no-host-schema" });
+    expect(existsSync(join(rec.path, "schema", "doco.schema.json"))).toBe(true);
   });
 
   it("listDocos returns both user-owned and org-owned", async () => {
