@@ -1,9 +1,13 @@
 /**
- * TypeScript types for Doco entities.
+ * TypeScript types for Doco entities (local-solo shape — ADR-087).
  *
  * The canonical schema is `schema/doco.schema.json` at the Doco root —
  * these types mirror that schema for compile-time checking. Runtime validation
  * (against the JSON Schema) lives in @doco/core.
+ *
+ * Principal + Organization were removed by ADR-087. Actor fields (created_by,
+ * decided_by, actor_id, author_id, ran_by, stakeholders, proposer_id, updated_by)
+ * are now free-form `string` (an ActorString), not Principal IDs.
  */
 
 import type { EntityId } from "./branded.js";
@@ -16,6 +20,14 @@ export type Lifecycle =
   | "superseded"
   | "abandoned";
 
+/**
+ * Free-form actor identifier. Conventions encouraged (not enforced):
+ *   - Humans: bare username (e.g., "torrenegra")
+ *   - Agents: "<provider>-<model>" (e.g., "claude-opus-4-7", "gpt-5-1")
+ *   - Hybrids: "<human>/<agent>" (e.g., "torrenegra/claude-opus-4-7")
+ */
+export type ActorString = string;
+
 /** Common fields present on every entity (D-006, D-007). */
 export interface CommonFields {
   id: EntityId;
@@ -24,9 +36,9 @@ export interface CommonFields {
   schema_version: string;
   summary: string;
   created_at: string; // ISO 8601 UTC
-  created_by: EntityId<"principal">;
+  created_by: ActorString;
   updated_at?: string;
-  updated_by?: EntityId<"principal">;
+  updated_by?: ActorString;
   revision?: number;
   lifecycle?: Lifecycle;
   status?: string;
@@ -39,39 +51,7 @@ export interface CommonFields {
 /** A scope selector predicate — see SCHEMA.md §5. Free-form for v0.1. */
 export type ScopeSelector = Record<string, unknown>;
 
-// ─── Principal ───────────────────────────────────────────────────────────
-
-export interface GitHubIdentity {
-  github_id?: string;
-  github_login: string;
-  email?: string;
-}
-
-export interface AgentMetadata {
-  provider: string;
-  model: string;
-  capabilities?: string[];
-  created_at: string;
-}
-
-export interface Principal extends CommonFields {
-  node_type: "principal";
-  type: "human" | "agent"; // (kept per ADR-054; not renamed to is_agent)
-  username: string;
-  display_name: string;
-  github_identity?: GitHubIdentity;
-  owner_id?: EntityId<"principal">;
-  agent_metadata?: AgentMetadata;
-  public_key?: string;
-}
-
 // ─── Doco (root entity) ─────────────────────────────────────────────────
-
-export interface DocoMember {
-  principal_id: EntityId<"principal">;
-  role: "owner" | "maintainer" | "contributor" | "viewer";
-  permissions: ("read" | "write" | "execute" | "admin")[];
-}
 
 export interface DocoImport {
   doco: string;
@@ -80,29 +60,24 @@ export interface DocoImport {
   include?: string[];
 }
 
-/** Doco.owner_id is polymorphic per ADR-063: Principal (user/agent) OR Organization. */
-export type OwnerRef = EntityId<"principal"> | EntityId<"organization">;
-
 export interface Doco {
   id: EntityId<"doco">;
   node_type: "doco";
   schema_version: string;
   slug: string;
   display_name: string;
-  visibility: "private" | "public";
+  visibility?: "private" | "public";
   default_branch?: string;
-  owner_id: OwnerRef;
   description?: string;
   summary?: string;
   created_at?: string;
-  created_by?: EntityId<"principal">;
+  created_by?: ActorString;
   updated_at?: string;
-  updated_by?: EntityId<"principal">;
+  updated_by?: ActorString;
   revision?: number;
   lifecycle?: Lifecycle;
   status?: string;
   scopes?: EntityId<"scope">[];
-  members?: DocoMember[];
   imports?: DocoImport[];
 }
 
@@ -116,7 +91,7 @@ export interface Intent extends CommonFields {
   priority?: "p0" | "p1" | "p2" | "p3";
   non_goals?: string[];
   acceptance?: string[];
-  stakeholders?: EntityId<"principal">[];
+  stakeholders?: ActorString[];
   applies_to?: ScopeSelector;
 }
 
@@ -126,7 +101,7 @@ export interface Intent extends CommonFields {
 
 export interface Idea extends CommonFields {
   node_type: "idea";
-  proposer_id?: EntityId<"principal">;
+  proposer_id?: ActorString;
   body?: string;
   promoted_to?: EntityId; // Intent / Decision / Action when picked up
   rejection_reason?: string;
@@ -162,7 +137,7 @@ export interface Decision extends CommonFields {
   chosen: string | null; // null when lifecycle is "proposed"
   alternatives?: DecisionAlternative[];
   rules_consulted?: EntityId<"rule">[];
-  decided_by: EntityId<"principal">;
+  decided_by: ActorString;
   decided_at: string;
   superseded_by?: EntityId<"decision"> | null;
 }
@@ -171,7 +146,7 @@ export interface Decision extends CommonFields {
 
 export interface Action extends CommonFields {
   node_type: "action";
-  actor_id: EntityId<"principal">;
+  actor_id: ActorString;
   verb: string;
   target?: EntityId;
   intent_ids?: EntityId<"intent">[];
@@ -193,7 +168,7 @@ export interface ReasoningPremise {
 
 export interface Reasoning extends CommonFields {
   node_type: "reasoning";
-  author_id: EntityId<"principal">;
+  author_id: ActorString;
   premises: ReasoningPremise[];
   inference: string;
   conclusion_ref?: EntityId;
@@ -210,7 +185,7 @@ export interface Evaluation extends CommonFields {
   result: "pass" | "fail" | "error";
   evidence?: Record<string, unknown>;
   ran_at: string;
-  ran_by: EntityId<"principal">;
+  ran_by: ActorString;
   duration_ms?: number;
 }
 
@@ -240,29 +215,10 @@ export interface Scope extends CommonFields {
   guidelines?: string;
 }
 
-// ─── Organization (ADR-062) ──────────────────────────────────────────────
-
-export interface OrganizationMember {
-  principal_id: EntityId<"principal">;
-  role: "owner" | "admin" | "member" | "viewer";
-  permissions?: ("read" | "write" | "execute" | "admin")[];
-}
-
-export interface Organization extends CommonFields {
-  node_type: "organization";
-  slug: string;
-  display_name: string;
-  description?: string;
-  visibility?: "private" | "public";
-  members?: OrganizationMember[];
-}
-
 // ─── Discriminated union of all entities ──────────────────────────────────
 
 export type Entity =
-  | Principal
   | Doco
-  | Organization
   | Intent
   | Idea
   | Rule

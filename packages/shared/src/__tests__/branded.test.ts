@@ -58,11 +58,11 @@ describe("isEntityIdOf", () => {
 });
 
 describe("isNodeType", () => {
-  it("accepts the 10 known kinds", () => {
+  it("accepts the 10 known kinds (post ADR-087: doco + 9 content types; no principal/organization)", () => {
     for (const t of [
       "doco",
-      "principal",
       "intent",
+      "idea",
       "rule",
       "decision",
       "action",
@@ -73,6 +73,11 @@ describe("isNodeType", () => {
     ]) {
       expect(isNodeType(t)).toBe(true);
     }
+  });
+
+  it("rejects removed types", () => {
+    expect(isNodeType("principal")).toBe(false);
+    expect(isNodeType("organization")).toBe(false);
   });
 
   it("rejects unknown kinds", () => {
