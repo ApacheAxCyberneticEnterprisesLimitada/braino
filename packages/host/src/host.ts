@@ -251,6 +251,40 @@ export interface AddPrincipalOptions {
   username: string;
   email?: string;
   display_name?: string;
+  /** GitHub identity captured by the OAuth callback (ADR-095). Optional only for
+   *  tests that don't exercise the OAuth flow; production callers always provide it. */
+  github_identity?: {
+    github_id: string; // numeric ID from GitHub, stable across login renames
+    github_login: string;
+    email?: string;
+  };
+}
+
+/**
+ * Look up a Principal by GitHub login. Returns null if not found.
+ * Used by the OAuth callback to decide create-vs-sign-in.
+ */
+export async function findPrincipalByGitHubLogin(
+  root: string,
+  githubLogin: string,
+): Promise<{ id: EntityId<"principal">; username: string } | null> {
+  if (detectMode(root) !== "host") return null;
+  const { existsSync, readFileSync, readdirSync } = await import("node:fs");
+  const dir = hostPrincipalsDir(root);
+  if (!existsSync(dir)) return null;
+  for (const name of readdirSync(dir)) {
+    if (!name.startsWith("principal_") || !name.endsWith(".yaml")) continue;
+    const text = readFileSync(join(dir, name), "utf8");
+    const e = parseYaml(text) as Record<string, unknown>;
+    const gh = e.github_identity as { github_login?: string } | undefined;
+    if (gh?.github_login && gh.github_login.toLowerCase() === githubLogin.toLowerCase()) {
+      return {
+        id: e.id as EntityId<"principal">,
+        username: e.username as string,
+      };
+    }
+  }
+  return null;
 }
 
 export async function addPrincipal(
@@ -261,6 +295,10 @@ export async function addPrincipal(
   await assertSlugFree(root, opts.username, "principal");
   const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
   const created = nowIso();
+  const gh = opts.github_identity ?? {
+    github_login: opts.username,
+    ...(opts.email ? { email: opts.email } : {}),
+  };
   const yaml: Principal = {
     id,
     doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
@@ -270,9 +308,7 @@ export async function addPrincipal(
     type: "human",
     username: opts.username,
     display_name: opts.display_name ?? opts.username,
-    ...(opts.email
-      ? { github_identity: { github_login: opts.username, email: opts.email } }
-      : { github_identity: { github_login: opts.username } }),
+    github_identity: gh,
     created_at: created,
     created_by: id,
     revision: 1,
