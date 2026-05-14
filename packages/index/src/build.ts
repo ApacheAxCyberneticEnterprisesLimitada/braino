@@ -5,7 +5,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
-import type { LoadedDoco } from "@doco/core";
+import type { LoadedDoco } from "@doco/shared";
 import {
   computeContentHash,
   type EmbeddingProviderLike,

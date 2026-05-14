@@ -4,9 +4,16 @@
 // the filesystem, so the rest of the index pipeline (`indexDoco`) is
 // unchanged.
 
-import type { Doco, Entity, EntityId, NodeType } from "@doco/shared";
+import type {
+  Doco,
+  Entity,
+  EntityId,
+  LoadedDoco,
+  LoadedEntity,
+  LoadFailure,
+  NodeType,
+} from "@doco/shared";
 import { isEntityId, NODE_TYPES } from "@doco/shared";
-import type { LoadedDoco, LoadedEntity, LoadFailure } from "@doco/core";
 import {
   listEntitiesByDoco,
   listIdentityRows,
