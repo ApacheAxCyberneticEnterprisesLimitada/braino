@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@doco/core": "workspace:*",
+    "@doco/db": "workspace:*",
     "@doco/shared": "workspace:*",
     "yaml": "^2.6.1"
   }

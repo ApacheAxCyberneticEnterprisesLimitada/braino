@@ -229,6 +229,20 @@ export async function findPrincipalByGitHubLogin(
   root: string,
   githubLogin: string,
 ): Promise<{ id: EntityId<"principal">; username: string } | null> {
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    const r = await withClient((c) =>
+      c.query<{ id: string; username: string }>(
+        "SELECT id, username FROM principals WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
+        [githubLogin],
+      ),
+    );
+    if (!r.rows[0]) return null;
+    return {
+      id: r.rows[0].id as EntityId<"principal">,
+      username: r.rows[0].username,
+    };
+  }
   if (detectMode(root) !== "host") return null;
   const { existsSync, readFileSync, readdirSync } = await import("node:fs");
   const dir = hostPrincipalsDir(root);
@@ -252,8 +266,6 @@ export async function addPrincipal(
   root: string,
   opts: AddPrincipalOptions,
 ): Promise<EntityId<"principal">> {
-  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-  await assertSlugFree(root, opts.username, "principal");
   const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
   const created = nowIso();
   const gh = opts.github_identity ?? {
@@ -274,6 +286,42 @@ export async function addPrincipal(
     lifecycle: "active",
     scopes: [],
   };
+
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    // Username-unique check at the DB level (UNIQUE constraint on principals.username
+    // will surface a 23505 error if the slug is taken; surface a cleaner error here).
+    await withClient(async (c) => {
+      const dup = await c.query(
+        "SELECT 1 FROM principals WHERE username = $1 LIMIT 1",
+        [opts.username],
+      );
+      if (dup.rows.length > 0) {
+        throw new Error(`Slug "${opts.username}" is already taken.`);
+      }
+      await c.query(
+        `INSERT INTO principals
+          (id, username, type, display_name, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, NULL)`,
+        [
+          id,
+          opts.username,
+          "human",
+          opts.display_name ?? opts.username,
+          opts.email ?? null,
+          gh.github_login ?? null,
+          null,
+          null,
+          stringifyYaml(yaml),
+          created,
+        ],
+      );
+    });
+    return id;
+  }
+
+  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
+  await assertSlugFree(root, opts.username, "principal");
   await writeFile(join(hostPrincipalsDir(root), `${id}.yaml`), stringifyYaml(yaml), "utf8");
   return id;
 }
