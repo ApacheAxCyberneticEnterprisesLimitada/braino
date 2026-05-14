@@ -124,6 +124,20 @@ export type OwnerSummary =
   | { kind: "organization"; id: EntityId<"organization">; slug: string; display_name: string };
 
 export async function listPrincipals(root: string): Promise<OwnerSummary[]> {
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    const r = await withClient((c) =>
+      c.query<{ id: string; username: string; display_name: string | null }>(
+        "SELECT id, username, display_name FROM principals WHERE deactivated_at IS NULL ORDER BY username",
+      ),
+    );
+    return r.rows.map((row) => ({
+      kind: "principal" as const,
+      id: row.id as EntityId<"principal">,
+      slug: row.username,
+      display_name: row.display_name ?? row.username,
+    }));
+  }
   return listEntitiesAs(hostPrincipalsDir(root), "principal", (e) => ({
     kind: "principal",
     id: e.id as EntityId<"principal">,
@@ -133,6 +147,20 @@ export async function listPrincipals(root: string): Promise<OwnerSummary[]> {
 }
 
 export async function listOrganizations(root: string): Promise<OwnerSummary[]> {
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    const r = await withClient((c) =>
+      c.query<{ id: string; slug: string; name: string }>(
+        "SELECT id, slug, name FROM organizations ORDER BY slug",
+      ),
+    );
+    return r.rows.map((row) => ({
+      kind: "organization" as const,
+      id: row.id as EntityId<"organization">,
+      slug: row.slug,
+      display_name: row.name ?? row.slug,
+    }));
+  }
   return listEntitiesAs(hostOrganizationsDir(root), "organization", (e) => ({
     kind: "organization",
     id: e.id as EntityId<"organization">,
@@ -338,8 +366,6 @@ export async function addOrganization(
   root: string,
   opts: AddOrganizationOptions,
 ): Promise<EntityId<"organization">> {
-  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-  await assertSlugFree(root, opts.slug, "organization");
   const owner = await resolveOwnerSlug(root, opts.ownerUsername);
   if (!owner || owner.kind !== "principal") {
     throw new Error(`Owner "${opts.ownerUsername}" not found as a User in this host.`);
@@ -367,6 +393,29 @@ export async function addOrganization(
     lifecycle: "active",
     scopes: [],
   };
+
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    await withClient(async (c) => {
+      const dup = await c.query("SELECT 1 FROM organizations WHERE slug = $1 LIMIT 1", [opts.slug]);
+      if (dup.rows.length > 0) throw new Error(`Slug "${opts.slug}" is already taken.`);
+      await c.query(
+        `INSERT INTO organizations (id, slug, name, raw_yaml, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $5)`,
+        [id, opts.slug, opts.display_name ?? opts.slug, stringifyYaml(yaml), created],
+      );
+      // Owner is automatically a member with `owner` role.
+      await c.query(
+        `INSERT INTO org_members (org_id, principal_id, role, joined_at)
+         VALUES ($1, $2, 'owner', $3)`,
+        [id, owner.id, created],
+      );
+    });
+    return id;
+  }
+
+  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
+  await assertSlugFree(root, opts.slug, "organization");
   await writeFile(
     join(hostOrganizationsDir(root), `${id}.yaml`),
     stringifyYaml(yaml),
