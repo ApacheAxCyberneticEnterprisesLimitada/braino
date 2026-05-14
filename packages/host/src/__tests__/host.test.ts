@@ -117,7 +117,7 @@ describe("host lifecycle", () => {
     // Simulate the leftover that ENOENT used to produce: dir + empty subdirs,
     // no doco.yaml. createDocoInHost should treat this as recoverable rather
     // than throwing "Doco already exists".
-    await mkdir(join(docoDir, "schema"), { recursive: true });
+    await mkdir(join(docoDir, "scopes"), { recursive: true });
     await mkdir(join(docoDir, "actions"), { recursive: true });
     const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "leftover" });
     expect(rec.docoId).toMatch(/^doco_/);
@@ -134,13 +134,41 @@ describe("host lifecycle", () => {
     ).rejects.toThrow(/already exists/);
   });
 
-  it("createDocoInHost falls back to the bundled schema template when the host has none", async () => {
+  it("createDocoInHost auto-suffixes on collision when autoSuffixOnCollision is set", async () => {
+    // Anonymous agent-onboarding case: shouldn't surface that a Doco
+    // already exists at the desired slug (would leak existence to an
+    // unauthorized caller). Server picks the next free `-N` and reports
+    // the actual slug back so the caller can build the right URLs.
     const root = join(tmp, "host");
     await createHost(root, { name: "Test" });
     await addPrincipal(root, { username: "alice" });
-    await rm(join(root, "schema"), { recursive: true, force: true });
-    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "no-host-schema" });
-    expect(existsSync(join(rec.path, "schema", "doco.schema.json"))).toBe(true);
+    const first = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+    expect(first.docoSlug).toBe("demo");
+    const second = await createDocoInHost(root, {
+      ownerSlug: "alice",
+      docoSlug: "demo",
+      autoSuffixOnCollision: true,
+    });
+    expect(second.docoSlug).toBe("demo-2");
+    expect(existsSync(join(second.path, "doco.yaml"))).toBe(true);
+    const third = await createDocoInHost(root, {
+      ownerSlug: "alice",
+      docoSlug: "demo",
+      autoSuffixOnCollision: true,
+    });
+    expect(third.docoSlug).toBe("demo-3");
+  });
+
+  it("createDocoInHost returns the originally requested slug when there is no collision (autoSuffixOnCollision no-op)", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, {
+      ownerSlug: "alice",
+      docoSlug: "fresh",
+      autoSuffixOnCollision: true,
+    });
+    expect(rec.docoSlug).toBe("fresh");
   });
 
   it("listDocos returns both user-owned and org-owned", async () => {
@@ -217,6 +245,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
       docoDir: rec.path,
       docoId: rec.docoId,
       name: "country",
+      watched: false,
       createdBy: null,
     });
     const childId = await createScopeInDoco({
@@ -226,6 +255,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
       purpose: "France-specific work.",
       guidelines: "Cite Décret laws by article.",
       parentScopes: [parentId],
+      watched: false,
       createdBy: null,
     });
     expect(childId.startsWith("scope_")).toBe(true);
@@ -246,10 +276,202 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
       docoDir: rec.path,
       docoId: rec.docoId,
       name: "user-flows",
+      watched: false,
       createdBy: fakePrincipal,
     });
     const text = await readFile(join(rec.path, "scopes", `${id}.yaml`), "utf8");
     expect(text).toContain(`created_by: ${fakePrincipal}`);
+  });
+
+  it("ADR-137bis: when watched=true, writes `watched: true` on the scope YAML", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    const newId = await createScopeInDoco({
+      docoDir: rec.path,
+      docoId: rec.docoId,
+      name: "user-flows",
+      watched: true,
+      createdBy: null,
+    });
+
+    const text = await readFile(join(rec.path, "scopes", `${newId}.yaml`), "utf8");
+    expect(text).toContain("watched: true");
+  });
+
+  it("ADR-137bis: when watched=true, the Constitution is NOT mutated (soft signal only)", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    const { readdir, readFile: rf } = await import("node:fs/promises");
+    const { parse } = await import("yaml");
+    const scopesDir = join(rec.path, "scopes");
+    const filesBefore = await readdir(scopesDir);
+    let constitutionFileBefore: string | null = null;
+    for (const f of filesBefore) {
+      if (!f.endsWith(".yaml")) continue;
+      const e = parse(await rf(join(scopesDir, f), "utf8")) as Record<string, unknown>;
+      if (e.name === "constitution") {
+        constitutionFileBefore = f;
+        break;
+      }
+    }
+    const beforeText = await rf(join(scopesDir, constitutionFileBefore!), "utf8");
+
+    await createScopeInDoco({
+      docoDir: rec.path,
+      docoId: rec.docoId,
+      name: "bugs",
+      watched: true,
+      createdBy: null,
+    });
+
+    const afterText = await rf(join(scopesDir, constitutionFileBefore!), "utf8");
+    expect(afterText).toBe(beforeText);
+  });
+
+  it("ADR-137bis: when watched=false, no `watched` key is written", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    const newId = await createScopeInDoco({
+      docoDir: rec.path,
+      docoId: rec.docoId,
+      name: "bugs",
+      watched: false,
+      createdBy: null,
+    });
+
+    const text = await readFile(join(rec.path, "scopes", `${newId}.yaml`), "utf8");
+    expect(text).not.toContain("watched:");
+  });
+
+  it("ADR-137bis: setScopeWatchedInDoco toggles the flag idempotently", async () => {
+    const { setScopeWatchedInDoco } = await import("../host.js");
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    const id = await createScopeInDoco({
+      docoDir: rec.path,
+      docoId: rec.docoId,
+      name: "user-flows",
+      watched: false,
+      createdBy: null,
+    });
+
+    await setScopeWatchedInDoco({ docoDir: rec.path, targetScopeId: id, watched: true });
+    let text = await readFile(join(rec.path, "scopes", `${id}.yaml`), "utf8");
+    expect(text).toContain("watched: true");
+
+    // Setting it again should be idempotent (no rev bump expected, but no error).
+    await setScopeWatchedInDoco({ docoDir: rec.path, targetScopeId: id, watched: true });
+
+    await setScopeWatchedInDoco({ docoDir: rec.path, targetScopeId: id, watched: false });
+    text = await readFile(join(rec.path, "scopes", `${id}.yaml`), "utf8");
+    expect(text).not.toContain("watched:");
+  });
+
+  it("Constitution is always watched: createDocoInHost seeds the Constitution scope with watched: true", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    const scopesDir = join(rec.path, "scopes");
+    const files = await readdir(scopesDir);
+    let constitutionText: string | null = null;
+    for (const f of files) {
+      if (!f.endsWith(".yaml")) continue;
+      const text = await readFile(join(scopesDir, f), "utf8");
+      const e = parseYaml(text) as Record<string, unknown>;
+      if (e.name === "constitution") {
+        constitutionText = text;
+        break;
+      }
+    }
+    expect(constitutionText).not.toBeNull();
+    expect(constitutionText!).toContain("watched: true");
+  });
+
+  it("Constitution is always watched: createScopeInDoco forces watched: true when name === 'constitution'", async () => {
+    // Defense-in-depth: even if a caller passes watched: false for a
+    // scope named 'constitution', the YAML must still land as
+    // watched: true. (The normal seeding path passes watched: true
+    // already; this guards the rare direct-call from a test or
+    // bespoke import script.)
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    // Remove the auto-seeded Constitution to free the name slot,
+    // then re-create with watched: false to verify the force.
+    const scopesDir = join(rec.path, "scopes");
+    for (const f of await readdir(scopesDir)) {
+      if (!f.endsWith(".yaml")) continue;
+      const e = parseYaml(await readFile(join(scopesDir, f), "utf8")) as Record<string, unknown>;
+      if (e.name === "constitution") {
+        await (await import("node:fs/promises")).rm(join(scopesDir, f));
+        break;
+      }
+    }
+    const newId = await createScopeInDoco({
+      docoDir: rec.path,
+      docoId: rec.docoId,
+      name: "constitution",
+      watched: false,
+      createdBy: null,
+    });
+    const text = await readFile(join(scopesDir, `${newId}.yaml`), "utf8");
+    expect(text).toContain("watched: true");
+  });
+
+  it("Constitution is always watched: setScopeWatchedInDoco throws when asked to unwatch the Constitution", async () => {
+    const { setScopeWatchedInDoco } = await import("../host.js");
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    // Locate the auto-seeded Constitution scope's id.
+    const scopesDir = join(rec.path, "scopes");
+    let constitutionId: EntityId<"scope"> | null = null;
+    for (const f of await readdir(scopesDir)) {
+      if (!f.endsWith(".yaml")) continue;
+      const e = parseYaml(await readFile(join(scopesDir, f), "utf8")) as Record<string, unknown>;
+      if (e.name === "constitution") {
+        constitutionId = String(e.id) as EntityId<"scope">;
+        break;
+      }
+    }
+    expect(constitutionId).not.toBeNull();
+
+    await expect(
+      setScopeWatchedInDoco({
+        docoDir: rec.path,
+        targetScopeId: constitutionId!,
+        watched: false,
+      }),
+    ).rejects.toThrow(/always watched/i);
+
+    // And the YAML stayed watched: true (no half-write).
+    const text = await readFile(join(scopesDir, `${constitutionId}.yaml`), "utf8");
+    expect(text).toContain("watched: true");
+
+    // Setting watched: true is a harmless idempotent no-op (no throw).
+    await setScopeWatchedInDoco({
+      docoDir: rec.path,
+      targetScopeId: constitutionId!,
+      watched: true,
+    });
   });
 });
 
@@ -330,7 +552,7 @@ describe("materializeScopeTree (ADR-081)", () => {
   });
 });
 
-describe("updateScopeInDoco / deleteScopeInDoco (ADR-084 follow-up)", () => {
+describe("updateScopeInDoco (ADR-084 follow-up)", () => {
   it("updates purpose + guidelines + parents on an existing scope", async () => {
     const root = join(tmp, "host");
     await createHost(root, { name: "Test" });
@@ -341,12 +563,14 @@ describe("updateScopeInDoco / deleteScopeInDoco (ADR-084 follow-up)", () => {
       docoDir: rec.path,
       docoId: rec.docoId,
       name: "country",
+      watched: false,
       createdBy: null,
     });
     const childId = await createScopeInDoco({
       docoDir: rec.path,
       docoId: rec.docoId,
       name: "france",
+      watched: false,
       createdBy: null,
     });
     await updateScopeInDoco({
@@ -360,7 +584,6 @@ describe("updateScopeInDoco / deleteScopeInDoco (ADR-084 follow-up)", () => {
     expect(text).toContain("purpose: France-specific work.");
     expect(text).toContain("guidelines:");
     expect(text).toContain(parentId);
-    expect(text).toContain("revision: 2");
   });
 
   it("clears purpose/guidelines when passed null", async () => {
@@ -375,6 +598,7 @@ describe("updateScopeInDoco / deleteScopeInDoco (ADR-084 follow-up)", () => {
       name: "user-flows",
       purpose: "to be cleared",
       guidelines: "to be cleared",
+      watched: false,
       createdBy: null,
     });
     await updateScopeInDoco({
@@ -388,22 +612,9 @@ describe("updateScopeInDoco / deleteScopeInDoco (ADR-084 follow-up)", () => {
     expect(text).not.toContain("guidelines:");
   });
 
-  it("deletes the scope yaml file", async () => {
-    const root = join(tmp, "host");
-    await createHost(root, { name: "Test" });
-    await addPrincipal(root, { username: "alice" });
-    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
-    const { deleteScopeInDoco } = await import("../host.js");
-    const id = await createScopeInDoco({
-      docoDir: rec.path,
-      docoId: rec.docoId,
-      name: "doomed",
-      createdBy: null,
-    });
-    expect(existsSync(join(rec.path, "scopes", `${id}.yaml`))).toBe(true);
-    await deleteScopeInDoco({ docoDir: rec.path, scopeId: id });
-    expect(existsSync(join(rec.path, "scopes", `${id}.yaml`))).toBe(false);
-  });
+  // Scope deletion was removed (see rule "scopes-never-deleted"); retirement
+  // happens via `updateScopeInDoco({ lifecycle: 'abandoned' })`. No test
+  // for `deleteScopeInDoco` because the helper no longer exists.
 });
 
 describe("migrateScopesInDoco (ADR-081)", () => {
@@ -424,14 +635,11 @@ describe("migrateScopesInDoco (ADR-081)", () => {
         id: legacyId1,
         doco_id: rec.docoId,
         node_type: "scope",
-        schema_version: "0.1",
         summary: "Scope: country/france/payment",
         name: "country/france/payment",
         created_at: "2026-05-09T00:00:00Z",
         created_by: null,
-        revision: 1,
         lifecycle: "active",
-        status: "active",
         scopes: [],
       }),
       "utf8",
@@ -442,14 +650,11 @@ describe("migrateScopesInDoco (ADR-081)", () => {
         id: legacyId2,
         doco_id: rec.docoId,
         node_type: "scope",
-        schema_version: "0.1",
         summary: "Scope: country/france/shipping",
         name: "country/france/shipping",
         created_at: "2026-05-09T00:00:00Z",
         created_by: null,
-        revision: 1,
         lifecycle: "active",
-        status: "active",
         scopes: [],
       }),
       "utf8",

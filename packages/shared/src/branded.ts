@@ -18,7 +18,7 @@ export const NODE_TYPES = [
   "decision",
   "action",
   "reasoning",
-  "evaluation",
+  "eval",
   "reference",
   "scope",
 ] as const;

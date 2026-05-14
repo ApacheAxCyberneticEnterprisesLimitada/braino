@@ -1,5 +1,7 @@
 import { type Entity, isEntityId } from "@doco/shared";
 
+export type EdgeAttribution = "explicit" | "doco-auto";
+
 export interface Edge {
   from_id: string;
   from_node_type: string;
@@ -7,6 +9,14 @@ export interface Edge {
   to_node_type: string;
   edge_type: string;
   edge_props?: Record<string, unknown>;
+  /**
+   * Where the edge came from: 'explicit' when the source entity declared
+   * the ref in its frontmatter (the normal case); 'doco-auto' when the
+   * LLM auto-detected it (per `llm-auto-edge-detection-on-capture` ADR).
+   * Auto edges are weighted lower in PageRank and rendered differently.
+   * Defaults to 'explicit'.
+   */
+  attribution?: EdgeAttribution;
 }
 
 /**
@@ -18,7 +28,12 @@ export function deriveEdges(entity: Entity): Edge[] {
   const fromId = entity.id;
   const fromType = entity.node_type as string;
 
-  function emit(field: string, target: unknown, props?: Record<string, unknown>): void {
+  function emit(
+    field: string,
+    target: unknown,
+    props?: Record<string, unknown>,
+    attribution: EdgeAttribution = "explicit",
+  ): void {
     if (typeof target !== "string") return;
     if (target.includes(":")) return; // cross-Doco, skip for now
     if (!isEntityId(target)) return;
@@ -32,6 +47,7 @@ export function deriveEdges(entity: Entity): Edge[] {
       to_id: target,
       to_node_type: toType,
       edge_type: FIELD_TO_EDGE_TYPE[field] ?? field,
+      attribution,
       ...(props ? { edge_props: props } : {}),
     });
   }
@@ -41,6 +57,7 @@ export function deriveEdges(entity: Entity): Edge[] {
   for (const [field, value] of Object.entries(obj)) {
     if (value === null || value === undefined) continue;
     if (SKIP_FIELDS.has(field)) continue; // structural metadata, not a relationship
+    if (field === AUTO_EDGES_FIELD) continue; // handled below — needs special attribution
     if (Array.isArray(value)) {
       for (const v of value) {
         if (typeof v === "string") emit(field, v);
@@ -56,8 +73,40 @@ export function deriveEdges(entity: Entity): Edge[] {
       handleObject(field, value as Record<string, unknown>, emit);
     }
   }
+
+  // Auto-detected edges, per the `llm-auto-edge-detection-on-capture` ADR.
+  // The capture/auto-edge helper writes these into the frontmatter as
+  //   auto_edges: [{ to_id, edge_type, reason }]
+  // We emit each as an Edge with attribution: 'doco-auto'. PageRank then
+  // weights them lower than explicit edges.
+  const autoEdges = obj[AUTO_EDGES_FIELD];
+  if (Array.isArray(autoEdges)) {
+    for (const ae of autoEdges) {
+      if (!ae || typeof ae !== "object") continue;
+      const rec = ae as Record<string, unknown>;
+      const toId = rec.to_id;
+      const edgeType = typeof rec.edge_type === "string" ? rec.edge_type : "relates_to";
+      if (typeof toId !== "string" || !isEntityId(toId) || toId === fromId) continue;
+      const m = /^(\w+)_/.exec(toId);
+      if (!m) continue;
+      const toType = m[1] as string;
+      const props: Record<string, unknown> = {};
+      if (typeof rec.reason === "string") props.reason = rec.reason;
+      edges.push({
+        from_id: fromId,
+        from_node_type: fromType,
+        to_id: toId,
+        to_node_type: toType,
+        edge_type: edgeType,
+        attribution: "doco-auto",
+        ...(Object.keys(props).length > 0 ? { edge_props: props } : {}),
+      });
+    }
+  }
   return edges;
 }
+
+const AUTO_EDGES_FIELD = "auto_edges";
 
 function handleObject(
   parentField: string,
@@ -96,7 +145,17 @@ function handleObject(
  *   "completion_note") not relationships. Walking them produced noisy
  *   pseudo-edges like `inputs.assets_provided_by`. Per ADR-091.
  */
-const SKIP_FIELDS = new Set(["id", "doco_id", "inputs", "outputs"]);
+const SKIP_FIELDS = new Set([
+  "id",
+  "doco_id",
+  "inputs",
+  "outputs",
+  // Eval's input/expected/actual carry arbitrary scalars (test fixtures) —
+  // their nested ID-shaped values aren't relationships.
+  "input",
+  "expected",
+  "actual",
+]);
 
 /** Field name → canonical edge type. Anything not listed defaults to the field name. */
 const FIELD_TO_EDGE_TYPE: Record<string, string> = {
@@ -115,9 +174,13 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   updated_by: "updated_by",
   born_from: "born_from",
   superseded_by: "superseded_by",
-  rule_id: "evaluates_rule",
-  target_id: "evaluated_on",
+  // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
+  // evaluated_on). The Evaluation node type is dropped — Eval uses
+  // target_ref → tests instead.
   scopes: "in_scope_of", // ADR-078: was tags → "tagged"
   member: "member_of",
   follows: "follows", // ADR-077: BPMN ordering / dependency
+  // EVO points at the entity it tests. The runner uses this edge to walk
+  // from any node to its evals (and vice-versa for the eval page).
+  target_ref: "tests",
 };

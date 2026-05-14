@@ -11,11 +11,20 @@
  * tolerance; capped at iters.
  */
 
+export type PprEdgeAttribution = "explicit" | "doco-auto";
+
 export interface PprEdge {
   from: string;
   to: string;
   /** Optional edge type; lets `edgeWeight` boost specific kinds (e.g. `in_scope_of`). */
   edge_type?: string;
+  /**
+   * Optional edge attribution: 'explicit' (declared in source frontmatter)
+   * or 'doco-auto' (LLM-detected). Auto edges are down-weighted by default
+   * so a flood of LLM suggestions can't dominate the graph. Per the
+   * `pagerank-weights-explicit-edges-higher` ADR.
+   */
+  attribution?: PprEdgeAttribution;
 }
 
 export interface PprNeighbor {
@@ -36,8 +45,27 @@ export interface PprOptions {
    * Weight per edge type. Default returns 1 for every type. Higher weight =
    * more random-walker mass flows along that edge. Per ADR-079, weighting
    * `in_scope_of` higher pulls scope-shared neighbors closer in the ranking.
+   *
+   * The second arg is the edge attribution — implicit (LLM-detected) edges
+   * default to 1/4 the weight of explicit ones, so a flood of auto-detected
+   * edges can't dominate the ranking.
    */
-  edgeWeight?: (edge_type: string | undefined) => number;
+  edgeWeight?: (edge_type: string | undefined, attribution?: PprEdgeAttribution) => number;
+}
+
+/**
+ * Default weight: 2× for `in_scope_of` (per ADR-079), 1× otherwise. Then
+ * scale by attribution: explicit edges get full weight; doco-auto edges
+ * get `IMPLICIT_EDGE_WEIGHT_FACTOR` (default 0.25). Tunable via the
+ * `edgeWeight` option for callers that want different multipliers.
+ */
+const IMPLICIT_EDGE_WEIGHT_FACTOR = 0.25;
+export function defaultEdgeWeight(
+  edge_type: string | undefined,
+  attribution?: PprEdgeAttribution,
+): number {
+  const base = edge_type === "in_scope_of" ? 2 : 1;
+  return attribution === "doco-auto" ? base * IMPLICIT_EDGE_WEIGHT_FACTOR : base;
 }
 
 export function personalizedPageRank(
@@ -49,7 +77,7 @@ export function personalizedPageRank(
   const iters = options.iters ?? 50;
   const topK = options.topK ?? 30;
   const tol = options.tol ?? 1e-6;
-  const edgeWeight = options.edgeWeight ?? (() => 1);
+  const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
 
   // Build node index. Walk every edge endpoint plus the source.
   const idToIdx = new Map<string, number>();
@@ -82,7 +110,7 @@ export function personalizedPageRank(
     const a = idToIdx.get(e.from)!;
     const b = idToIdx.get(e.to)!;
     if (a === b) continue; // self-edges add nothing
-    const w = edgeWeight(e.edge_type);
+    const w = edgeWeight(e.edge_type, e.attribution);
     if (w <= 0) continue;
     neighbors[a]!.push({ idx: b, w });
     neighbors[b]!.push({ idx: a, w });
@@ -140,4 +168,87 @@ export function personalizedPageRank(
   }
   sorted.sort((a, b) => b.score - a.score);
   return sorted.slice(0, topK);
+}
+
+/**
+ * Global PageRank — same iteration as personalizedPageRank but with a
+ * uniform restart vector (1/N at every node) instead of a single source.
+ * Returns every node's score, no top-K cutoff. Cheap enough at <100k nodes
+ * to compute on every entity-detail page load.
+ */
+export function globalPageRank(
+  edges: PprEdge[],
+  options: Omit<PprOptions, "topK"> = {},
+): PprNeighbor[] {
+  const alpha = options.alpha ?? 0.85;
+  const iters = options.iters ?? 50;
+  const tol = options.tol ?? 1e-6;
+  const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
+
+  const idToIdx = new Map<string, number>();
+  function idx(id: string): number {
+    let i = idToIdx.get(id);
+    if (i === undefined) {
+      i = idToIdx.size;
+      idToIdx.set(id, i);
+    }
+    return i;
+  }
+  for (const e of edges) {
+    idx(e.from);
+    idx(e.to);
+  }
+  const n = idToIdx.size;
+  if (n === 0) return [];
+  const idxToId: string[] = new Array(n);
+  for (const [id, i] of idToIdx) idxToId[i] = id;
+
+  const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
+  for (const e of edges) {
+    const a = idToIdx.get(e.from)!;
+    const b = idToIdx.get(e.to)!;
+    if (a === b) continue;
+    const w = edgeWeight(e.edge_type, e.attribution);
+    if (w <= 0) continue;
+    neighbors[a]!.push({ idx: b, w });
+    neighbors[b]!.push({ idx: a, w });
+  }
+
+  // Uniform personalization: 1/N at every node. Initial rank also uniform.
+  const uniform = 1 / n;
+  const personalization = new Float64Array(n).fill(uniform);
+  let rank = new Float64Array(n).fill(uniform);
+
+  for (let it = 0; it < iters; it++) {
+    const next = new Float64Array(n);
+    let dangling = 0;
+    for (let u = 0; u < n; u++) {
+      const out = neighbors[u]!;
+      if (out.length === 0) {
+        dangling += rank[u]!;
+        continue;
+      }
+      let totalW = 0;
+      for (const e of out) totalW += e.w;
+      const massPerWeight = rank[u]! / totalW;
+      for (const e of out) {
+        next[e.idx]! += massPerWeight * e.w;
+      }
+    }
+    let maxDelta = 0;
+    for (let v = 0; v < n; v++) {
+      const updated =
+        alpha * next[v]! + (1 - alpha) * personalization[v]! + alpha * dangling * personalization[v]!;
+      const d = Math.abs(updated - rank[v]!);
+      if (d > maxDelta) maxDelta = d;
+      next[v] = updated;
+    }
+    rank = next;
+    if (maxDelta < tol) break;
+  }
+
+  const out: PprNeighbor[] = [];
+  for (let i = 0; i < n; i++) out.push({ id: idxToId[i]!, score: rank[i]! });
+  out.sort((a, b) => b.score - a.score);
+  return out;
 }

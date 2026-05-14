@@ -13,20 +13,17 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
   const raw = JSON.stringify(entity);
   const id = entity.id;
   const docoId = (e.doco_id as string) ?? "";
-  const sv = (e.schema_version as string) ?? "0.1";
   const summary = (e.summary as string) ?? "";
   const createdAt = (e.created_at as string) ?? "";
   const createdBy = (e.created_by as string) ?? "";
   const lifecycle = (e.lifecycle as string | null) ?? null;
-  const status = (e.status as string | null) ?? null;
 
   switch (entity.node_type) {
     case "doco":
       db.prepare(
-        `INSERT OR REPLACE INTO doco_root (id, schema_version, slug, display_name, visibility, default_branch, owner_id, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO doco_root (id, slug, display_name, visibility, default_branch, owner_id, description, summary, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
-        sv,
         e.slug as string,
         e.display_name as string,
         e.visibility as string,
@@ -40,11 +37,10 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "principal":
       db.prepare(
-        `INSERT OR REPLACE INTO principal (id, doco_id, schema_version, summary, type, username, display_name, owner_id, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO principal (id, doco_id, summary, type, username, display_name, owner_id, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
         e.type as string,
         e.username as string,
@@ -53,40 +49,34 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
 
     case "intent":
       db.prepare(
-        `INSERT OR REPLACE INTO intent (id, doco_id, schema_version, summary, slug, title, parent_intent_id, priority, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO intent (id, doco_id, summary, title, parent_intent_id, priority, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
-        (e.slug as string) ?? null,
         e.title as string,
         (e.parent_intent_id as string | null) ?? null,
         (e.priority as string) ?? null,
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
 
     case "rule":
       db.prepare(
-        `INSERT OR REPLACE INTO rule (id, doco_id, schema_version, summary, slug, modality, severity, phase, on_violation, predicate, created_at, created_by, lifecycle, status, born_from, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO rule (id, doco_id, summary, modality, severity, phase, on_violation, predicate, created_at, created_by, lifecycle, born_from, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
-        (e.slug as string) ?? null,
         e.modality as string,
         (e.severity as string) ?? null,
         e.phase as string,
@@ -95,7 +85,6 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         (e.born_from as string) ?? null,
         raw,
       );
@@ -103,14 +92,11 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
 
     case "decision":
       db.prepare(
-        `INSERT OR REPLACE INTO decision (id, doco_id, schema_version, summary, slug, number, question, chosen, decided_by, decided_at, superseded_by, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO decision (id, doco_id, summary, question, chosen, decided_by, decided_at, superseded_by, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
-        (e.slug as string) ?? null,
-        (e.number as string) ?? null,
         e.question as string,
         (e.chosen as string | null) ?? null,
         e.decided_by as string,
@@ -119,18 +105,16 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
 
     case "action":
       db.prepare(
-        `INSERT OR REPLACE INTO action (id, doco_id, schema_version, summary, actor_id, verb, target, started_at, ended_at, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO action (id, doco_id, summary, actor_id, verb, target, started_at, ended_at, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
         e.actor_id as string,
         e.verb as string,
@@ -140,18 +124,16 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
 
     case "reasoning":
       db.prepare(
-        `INSERT OR REPLACE INTO reasoning (id, doco_id, schema_version, summary, author_id, conclusion_ref, confidence, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO reasoning (id, doco_id, summary, author_id, conclusion_ref, confidence, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
         e.author_id as string,
         (e.conclusion_ref as string) ?? null,
@@ -159,38 +141,16 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
-        raw,
-      );
-      break;
-
-    case "evaluation":
-      db.prepare(
-        `INSERT OR REPLACE INTO evaluation (id, doco_id, schema_version, summary, rule_id, target_id, result, ran_at, ran_by, duration_ms, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        id,
-        docoId,
-        sv,
-        summary,
-        e.rule_id as string,
-        (e.target_id as string) ?? null,
-        e.result as string,
-        e.ran_at as string,
-        e.ran_by as string,
-        (e.duration_ms as number) ?? null,
-        createdAt,
-        createdBy,
         raw,
       );
       break;
 
     case "reference":
       db.prepare(
-        `INSERT OR REPLACE INTO reference (id, doco_id, schema_version, summary, ref_type, locator, content_hash, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO reference (id, doco_id, summary, ref_type, locator, content_hash, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
         e.ref_type as string,
         e.locator as string,
@@ -198,34 +158,53 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
 
-    case "scope":
+    case "eval": {
+      const criterion = (e.criterion as { kind?: string } | undefined) ?? { kind: "exact" };
       db.prepare(
-        `INSERT OR REPLACE INTO scope (id, doco_id, schema_version, summary, name, description, created_at, created_by, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO eval (id, doco_id, summary, name, target_ref, criterion_kind, last_run_at, last_status, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
+        summary,
+        e.name as string,
+        (e.target_ref as string | undefined) ?? null,
+        criterion.kind ?? "exact",
+        (e.last_run_at as string | undefined) ?? null,
+        (e.last_status as string | undefined) ?? null,
+        createdAt,
+        createdBy,
+        lifecycle,
+        raw,
+      );
+      break;
+    }
+
+    case "scope":
+      db.prepare(
+        `INSERT OR REPLACE INTO scope (id, doco_id, summary, name, description, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        id,
+        docoId,
         summary,
         e.name as string,
         (e.description as string) ?? null,
         createdAt,
         createdBy,
+        lifecycle,
         raw,
       );
       break;
 
     case "organization":
       db.prepare(
-        `INSERT OR REPLACE INTO organization (id, doco_id, schema_version, summary, slug, display_name, description, visibility, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO organization (id, doco_id, summary, slug, display_name, description, visibility, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
         e.slug as string,
         e.display_name as string,
@@ -234,18 +213,16 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
 
     case "idea":
       db.prepare(
-        `INSERT OR REPLACE INTO idea (id, doco_id, schema_version, summary, body, proposer_id, promoted_to, rejection_reason, created_at, created_by, lifecycle, status, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT OR REPLACE INTO idea (id, doco_id, summary, body, proposer_id, promoted_to, rejection_reason, created_at, created_by, lifecycle, raw_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         docoId,
-        sv,
         summary,
         (e.body as string) ?? null,
         (e.proposer_id as string) ?? null,
@@ -254,7 +231,6 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         createdAt,
         createdBy,
         lifecycle,
-        status,
         raw,
       );
       break;
@@ -276,11 +252,15 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
     ftsBody,
   );
 
-  // Edges
+  // Edges. Each edge carries an attribution: 'explicit' if the source
+  // entity declared the ref in its frontmatter (the normal case), or
+  // 'doco-auto' if the LLM auto-detected the relationship (per the
+  // `llm-auto-edge-detection-on-capture` ADR). deriveEdges reads it from
+  // an `auto: true` marker on the ref payload if present.
   const edges = deriveEdges(entity);
   if (edges.length > 0) {
     const stmt = db.prepare(
-      `INSERT OR REPLACE INTO edges (from_id, from_node_type, to_id, to_node_type, edge_type, edge_props_json) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT OR REPLACE INTO edges (from_id, from_node_type, to_id, to_node_type, edge_type, edge_props_json, attribution) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     for (const edge of edges) {
       stmt.run(
@@ -290,6 +270,7 @@ export function insertEntity(db: Database, entity: Entity, body: string): void {
         edge.to_node_type,
         edge.edge_type,
         edge.edge_props ? JSON.stringify(edge.edge_props) : null,
+        edge.attribution ?? "explicit",
       );
     }
   }
@@ -307,7 +288,7 @@ export function deleteEntity(db: Database, id: string): void {
     "decision",
     "action",
     "reasoning",
-    "evaluation",
+    "eval",
     "reference",
     "scope",
   ]) {

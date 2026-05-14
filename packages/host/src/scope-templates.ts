@@ -4,7 +4,7 @@
  * Curated set of scopes most projects benefit from. Each carries a `purpose`
  * (why this scope exists) and `guidelines` (how to author nodes inside it).
  * Both are exposed to agents during Doco onboarding so they author nodes
- * the way the human + the framework expect.
+ * the way the owner + the framework expect.
  *
  * Add to this list sparingly — it's the default surface area users see when
  * creating a Doco. Specialised scopes (e.g. `country/*`, `pii`) should stay
@@ -12,16 +12,69 @@
  */
 export interface ScopeTemplate {
   name: string;
-  /** Short human-readable label for the picker UI. */
+  /** Short readable label for the picker UI. */
   label: string;
+  /** Recommended single-emoji icon. Surfaces in the /scopes list, the
+   * /constitution tab, and the footer lines of captures into this
+   * scope. Owners can change it after creating the scope. */
+  icon: string;
   purpose: string;
   guidelines: string;
 }
 
 export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
   {
+    name: "constitution",
+    label: "Constitution",
+    icon: "⚖️",
+    purpose:
+      "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite. Every Doco has one.",
+    guidelines: `The Constitution is where you put the rules that other rules cite. It's not a list of "nice-to-haves" — it's the schema-shaped commitments the project is held to.
+
+What belongs here:
+- **Rules** that other Rules / Decisions reference. ("Every public endpoint must enforce auth", "ULIDs are the canonical id".)
+- **Decisions** that are load-bearing — those the system as a whole depends on. (ADR-level material per ADR-105.)
+- **Intents** that name the stakeholder behind each Rule / Decision — every Constitution node should trace back to a stakeholder intent.
+
+What does NOT belong:
+- Implementation details (those live in scope_userflow / scope_design_language / scope_coding_style).
+- One-off bug fixes (scope_bugfix).
+- Speculative ideas (scope_meta).
+
+The Constitution has its own deterministic rules (declared in its \`rules\` array):
+- **mandatory_scope** — declare scopes that every node in this Doco must list.
+- **requires_edge to intent** — every Constitution node must reference at least one Intent.
+
+If you need a new invariant, capture it as a Rule in this scope. If it warrants its own ADR, write the Decision here too.`,
+  },
+  {
+    name: "test-evals",
+    label: "Test evals",
+    icon: "🧪",
+    purpose:
+      "Named, executable tests + LLM evals that pin the meaning of load-bearing claims. Inspired by TDD unit tests + the AI eval pattern.",
+    guidelines: `Every load-bearing claim in the Doco should have at least one **Eval** here that re-executes the claim's intent and proves it still holds. The Eval is the unit test of the documentation.
+
+Run history is NOT captured in the Doco. The runner updates each Eval's \`last_run_at\` + \`last_status\` + \`last_reason\` in place. Per-run records live in CI logs or whatever eval tool you point at this scope; if you need a Doco-side audit trail, write a Reference node pointing at the run log.
+
+Eval frontmatter:
+- \`name\` — short identifier ("rejects-reserved-slug").
+- \`target_ref\` — the entity this Eval tests (a Decision, Rule, Action).
+- \`criterion\` — \`{ kind: "exact" | "shape" | "llm-judge", spec?: string }\`.
+- \`input\` — the test's input (any shape).
+- \`expected\` — the expected output. For \`llm-judge\` this is prose ("the response should reject the slug with a useful error citing the reserved list").
+- \`actual\` — last-observed output (the runner writes this).
+- \`last_run_at\`, \`last_status\`, \`last_reason\` — latest-run metadata (mutable; runner overwrites).
+
+Examples that fit this scope:
+- An Eval for ADR-120 reserved slugs: input \`{ slug: "settings" }\` to POST /api/decisions.json → expect 400 with the reserved-list error.
+- An Eval for the Constitution's "every node has an intent" rule: pick a sample Decision with no intent_ids → expect a violation.
+- An LLM-judge Eval for a Design Language requirement: input "render Button with variant=destructive" → judge whether the response describes a red button.`,
+  },
+  {
     name: "user-flows",
     label: "User flows",
+    icon: "🌊",
     purpose:
       "End-to-end user journeys: how a person (or external system) moves through a feature from start to finish.",
     guidelines: `Treat each flow as a sequence. Use BPMN-style decomposition:
@@ -36,6 +89,7 @@ Don't try to capture state diagrams here — Doco is process-centric, not state-
   {
     name: "adrs",
     label: "Architecture decisions (ADRs)",
+    icon: "🏗️",
     purpose:
       "Architecture Decision Records: durable rationale for choices about structure, technology, and tradeoffs.",
     guidelines: `One **Decision** per choice. Required fields: \`question\`, \`chosen\`, \`alternatives\`. Recommended sections:
@@ -50,6 +104,7 @@ Number ADRs sequentially using the \`number\` field ("ADR-042"). Use \`supersede
   {
     name: "apis",
     label: "API contracts",
+    icon: "🔌",
     purpose:
       "External API contracts: the surface other systems depend on. Source of truth for endpoints, payloads, and breaking-change history.",
     guidelines: `One **Decision** per endpoint or per significant contract change. Capture:
@@ -65,6 +120,7 @@ When a contract changes incompatibly, write a new Decision and link it via \`sup
   {
     name: "bugs",
     label: "Bugs",
+    icon: "🐞",
     purpose:
       "Reported defects and their fixes. The bridge between symptoms users see and the rationale behind the fix.",
     guidelines: `Each bug:
@@ -78,8 +134,9 @@ Set \`scope_bugfix\` (or this scope) on both. Optionally tag a \`scope_regressio
   {
     name: "runbooks",
     label: "Runbooks",
+    icon: "📖",
     purpose:
-      "Operational procedures: 'when X happens, do Y.' Read by humans + agents on call.",
+      "Operational procedures: 'when X happens, do Y.' Read by people + agents on call.",
     guidelines: `One **Intent** per scenario ("recover from primary DB failover"). Each step is an **Action** chained with \`follows\` so the order is unambiguous.
 
 For every step that has a non-trivial rollback, link a sibling Action with \`verb: rollback_*\` so the recovery path is also captured. Cross-reference monitoring + alert sources via **Reference** entities.`,
@@ -87,6 +144,7 @@ For every step that has a non-trivial rollback, link a sibling Action with \`ver
   {
     name: "post-mortems",
     label: "Post-mortems",
+    icon: "🪦",
     purpose:
       "Incident analyses: what happened, why, and what changes prevent recurrence.",
     guidelines: `One **Intent** per incident. Sections:
@@ -101,6 +159,7 @@ Avoid blame; focus on the system. The post-mortem is a learning artifact, not a 
   {
     name: "glossary",
     label: "Glossary",
+    icon: "📔",
     purpose:
       "Domain terminology: the canonical definitions of project-specific terms.",
     guidelines: `One **Reference** per term, with \`ref_type: document\` and \`locator\` pointing at the canonical source (or set to "internal" if the term is project-coined).
@@ -112,6 +171,7 @@ When a term is renamed or deprecated, write a new Reference and link to the old 
   {
     name: "roadmap",
     label: "Roadmap",
+    icon: "🗺️",
     purpose:
       "Planned work: commitments and intentions about what will be built next.",
     guidelines: `An **Intent** for each planned outcome. Order intents with \`follows\` to express sequence.
@@ -119,6 +179,93 @@ When a term is renamed or deprecated, write a new Reference and link to the old 
 When the team commits to a date, capture a **Decision** ("ship X by 2026-Q3") referencing the Intent. When the work starts, write an **Action** chained from the commitment Decision. When done, the Action's \`outputs\` close the loop.
 
 Roadmap items that get cut should have their lifecycle set to \`abandoned\` rather than be deleted — the trail of "what we considered + dropped" is part of the rationale.`,
+  },
+  {
+    name: "design-language",
+    label: "Design language",
+    icon: "🎨",
+    purpose:
+      "The design vocabulary of this product — tokens, components, conventions, and concrete usage examples. Every UI Decision in the Doco should reference this scope.",
+    guidelines: `Follow this three-section structure so the scope stays a usable reference and not a soup of opinions.
+
+## Requirements
+
+The MUST/SHOULD properties that bind every UI element. Examples:
+- All text MUST be readable at 200% zoom.
+- Primary actions SHOULD be reachable from any context in ≤2 clicks.
+- Destructive actions MUST require two-step confirmation (per ADR-124).
+
+Capture each as a **Rule** in this scope with \`modality: must | must_not | should | should_not\`.
+
+## How each element is used
+
+For each component (Button, Card, Input, Badge, Modal, …), a **Decision** with:
+- **Name** + visual reference (a Reference node pointing at a screenshot or Storybook URL).
+- **Contract** — what props it takes, what variants exist, what semantics each variant has.
+- **When to use** — the situations where this is the right element.
+- **When NOT to use** — the situations where another element is right.
+- **Links to examples** — Reference nodes pointing at concrete usages in the product.
+
+## Examples
+
+A **Reference** for each rendered usage in the product. Each example links back to the component Decision via \`scopes: [scope_design_language]\` and (optionally) \`born_from\` pointing at the Decision.
+
+## Rule the engine should enforce (membership)
+
+Any Decision tagged with this scope should reference at least one element described above. The scope's \`rules\` can capture this declaratively once we author the elements.
+
+## PATCH the governing Decision, don't open a sibling
+
+For copy / affordance / interaction tweaks to a component already governed by a \`design-language\` Decision, **PATCH that Decision** rather than opening a sibling node. The Decision tracks the element's reasoning over its lifetime — a 2-line helper-text removal that reverses part of an earlier rollout belongs as an appended note on the original, not as a new Decision.
+
+The one-liner: \`doco patch decision <id> --append-body "Update YYYY-MM-DD: <what changed + why>"\`. If the search hits at the top of your reply named the governing Decision at vector_score > ~0.45, that's the one to patch.`,
+  },
+  {
+    name: "framework",
+    label: "Framework",
+    icon: "⚙️",
+    purpose:
+      "Internal framework refinements — CLI templates, hook scripts, bootstrap pipeline, canonical instructions, scope templates, and the build that propagates them. Changes here flow to every Doco that installs this framework.",
+    guidelines: `Use this scope for any change to the framework itself (the code that ships *to* every Doco, not the content of any single Doco). Concrete examples:
+
+- Edits to \`packages/api/src/instructions.ts\` (the canonical served at \`/api/v1/agent-bootstrap\`).
+- Edits to the agent bootstrap hooks (\`packages/cli/templates/agent-bootstrap/.claude/\`) — SessionStart, UserPromptSubmit, PostToolUse, Stop.
+- New or modified default scope templates (\`packages/host/src/scope-templates.ts\`).
+- New or modified \`doco\` CLI subcommands (\`doco capture\`, \`doco patch\`, \`doco coverage\`, …).
+- New or modified API endpoints under \`/api/*\`.
+
+## Capture in this scope, on top of whatever else applies
+
+\`framework\` stacks. A bug fix in the framework gets \`bugs\` + \`framework\`; a UI tweak to the framework's own admin pages gets \`design-language\` + \`framework\`. The \`framework\` tag is how a Doco's owner tells "this change ripples out" apart from "this is project-internal."
+
+## Recommended: watched=true
+
+When the project owner installs this template, they typically set \`watched: true\` (the soft attention signal). Framework changes are high-leverage and high-blast-radius — the watched flag nudges agents to consider tagging \`framework\` whenever they touch the relevant code, instead of silently missing it. ADR-137bis blocks a hard default, so the installer must say \`--watched true\` explicitly. Recommended phrasing in onboarding prose: *"Framework scope is high-leverage; default it watched=true so future agents notice when they're touching the propagation surface."*
+
+## PATCH the governing Decision, don't open a sibling
+
+The framework's own changes obey the same rule \`design-language\` calls out: when a search hit at vector_score > ~0.45 names the file or the territory you're touching, **PATCH that Decision** with \`doco patch decision <id> --append-body "..."\` rather than writing a sibling. Framework Decisions are the canonical record of how the framework's behavior evolved — fragmenting them across near-duplicates makes the trail unreadable.
+
+## Watched-scope dual citizenship
+
+A Decision can sit in \`framework\` + a subject scope (\`design-language\`, \`adrs\`, \`bugs\`, …) at the same time; that's the normal shape. The \`framework\` tag is rarely the *only* scope on a node.`,
+  },
+  {
+    name: "coding-style",
+    label: "Coding style",
+    icon: "💻",
+    purpose:
+      "How code is written in this project. Naming, imports, errors, comments, file shape.",
+    guidelines: `One **Rule** per coding convention. Examples:
+
+- "Use named imports, not default imports" — \`modality: must\`, \`phase: pre\`.
+- "Prefer single-quoted strings unless the string contains a quote" — \`modality: should\`.
+- "Never use \`console.log\` in production code" — \`modality: must_not\`.
+- "Comments explain WHY, not WHAT" — \`modality: should\`.
+- "Every public function has a JSDoc comment with at least one example" — \`modality: should\`.
+- "Test files mirror the source structure: \`x/y.ts\` ↔ \`x/__tests__/y.test.ts\`" — \`modality: must\`.
+
+Group related rules by referencing a parent scope or by sharing \`born_from\` — the lint engine can then surface them as a unit. When a convention changes, write a new Rule and link to the old via \`superseded_by\` so the trail of "what we used to do" survives.`,
   },
 ];
 

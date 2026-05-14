@@ -1,7 +1,6 @@
-import { copyFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   type EntityId,
   type Organization,
@@ -9,6 +8,8 @@ import {
   generateUlid,
   makeEntityId,
   nowIso,
+  HOST_RESERVED_SLUGS,
+  validateDocoSlug,
 } from "@doco/shared";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
@@ -17,9 +18,9 @@ import {
   hostDocosDir,
   hostOrganizationsDir,
   hostPrincipalsDir,
-  hostSchemaPath,
   hostYamlPath,
 } from "./mode.js";
+import { findScopeTemplate } from "./scope-templates.js";
 
 export interface HostConfig {
   id: string; // host_<ulid> — meta-Doco style
@@ -28,26 +29,6 @@ export interface HostConfig {
   created_at: string;
   created_by: EntityId<"principal"> | null;
   visibility: "private" | "public";
-}
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-// templates/ ships in @doco/cli; @doco/host pulls the schema from the canonical location.
-// Resolution order: explicit override (env), bundled with cli (../../cli/templates), fallback to repo schema/.
-function locateSchemaTemplate(): string {
-  const env = process.env.DOCO_SCHEMA_TEMPLATE;
-  if (env && existsSync(env)) return env;
-  const cliTemplate = join(__dirname, "..", "..", "cli", "templates", "doco.schema.json");
-  if (existsSync(cliTemplate)) return cliTemplate;
-  // Fallback: walk up to find the repo's canonical schema.
-  let cur = __dirname;
-  for (let i = 0; i < 10; i++) {
-    const candidate = join(cur, "schema", "doco.schema.json");
-    if (existsSync(candidate)) return candidate;
-    const parent = dirname(cur);
-    if (parent === cur) break;
-    cur = parent;
-  }
-  throw new Error("Cannot locate doco.schema.json template");
 }
 
 export interface CreateHostOptions {
@@ -68,10 +49,6 @@ export async function createHost(
   await mkdir(hostPrincipalsDir(root), { recursive: true });
   await mkdir(hostOrganizationsDir(root), { recursive: true });
   await mkdir(hostDocosDir(root), { recursive: true });
-  await mkdir(join(root, "schema"), { recursive: true });
-
-  // Copy the canonical schema.
-  await copyFile(locateSchemaTemplate(), hostSchemaPath(root));
 
   // Optional bootstrap Principal.
   let bootstrapId: EntityId<"principal"> | null = null;
@@ -84,9 +61,8 @@ export async function createHost(
       // we synthesize a host self-id below for the schema's required field.
       doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
       node_type: "principal",
-      schema_version: "0.1",
       summary: `Host owner ${opts.ownerUsername}.`,
-      type: "human",
+      type: "person",
       username: opts.ownerUsername,
       display_name: opts.ownerUsername,
       ...(opts.ownerEmail
@@ -94,9 +70,7 @@ export async function createHost(
         : { github_identity: { github_login: opts.ownerUsername } }),
       created_at: created,
       created_by: id,
-      revision: 1,
       lifecycle: "active",
-      status: "active",
       scopes: [],
     };
     await writeFile(
@@ -192,40 +166,27 @@ export async function resolveOwnerSlug(root: string, slug: string): Promise<Owne
 /**
  * Slugs that name top-level @doco/web routes — rejected by addPrincipal /
  * addOrganization / createDocoInHost so a User or Org can never collide
- * with the URL routing layer (ADR-067).
+ * with the URL routing layer (ADR-067). Re-exported for back-compat;
+ * canonical source is `HOST_RESERVED_SLUGS` in @doco/shared.
  */
-export const RESERVED_SLUGS = new Set([
-  "e",
-  "host",
-  "api",
-  "search",
-  "lint",
-  "find-rules",
-  "sign-in",
-  "sign-out",
-  "sign-up",
-  "new-doco",
-  "new-org",
-  "new",
-  "admin",
-  "settings",
-  "profile",
-  "help",
-  "about",
-  "_",
-  ".",
-  "..",
-]);
+export const RESERVED_SLUGS = HOST_RESERVED_SLUGS;
 
 const SLUG_PATTERN = /^[a-z0-9_-]+$/;
 
 function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "doco"): void {
+  if (kind === "doco") {
+    // Doco slugs use the stricter `validateDocoSlug` from @doco/shared
+    // (which also rejects `/` and enforces a length cap).
+    const err = validateDocoSlug(slug);
+    if (err) throw new Error(err);
+    return;
+  }
   if (!SLUG_PATTERN.test(slug)) {
     throw new Error(
       `Invalid ${kind} slug "${slug}" — expected kebab-case [a-z0-9_-]+ (ADR-067).`,
     );
   }
-  if (RESERVED_SLUGS.has(slug)) {
+  if (HOST_RESERVED_SLUGS.has(slug)) {
     throw new Error(
       `Slug "${slug}" is reserved by Doco's URL routing (ADR-067). Pick a different name.`,
     );
@@ -303,17 +264,14 @@ export async function addPrincipal(
     id,
     doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
     node_type: "principal",
-    schema_version: "0.1",
     summary: `User ${opts.username}.`,
-    type: "human",
+    type: "person",
     username: opts.username,
     display_name: opts.display_name ?? opts.username,
     github_identity: gh,
     created_at: created,
     created_by: id,
-    revision: 1,
     lifecycle: "active",
-    status: "active",
     scopes: [],
   };
   await writeFile(join(hostPrincipalsDir(root), `${id}.yaml`), stringifyYaml(yaml), "utf8");
@@ -344,7 +302,6 @@ export async function addOrganization(
     id,
     doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
     node_type: "organization",
-    schema_version: "0.1",
     summary: `Organization ${opts.slug}.`,
     slug: opts.slug,
     display_name: opts.display_name ?? opts.slug,
@@ -359,9 +316,7 @@ export async function addOrganization(
     ],
     created_at: created,
     created_by: owner.id,
-    revision: 1,
     lifecycle: "active",
-    status: "active",
     scopes: [],
   };
   await writeFile(
@@ -381,6 +336,23 @@ export interface CreateDocoInHostOptions {
   docoSlug: string;
   description?: string;
   visibility?: "private" | "public";
+  /**
+   * If true and `docoSlug` is already taken, silently try `<slug>-2`,
+   * `<slug>-3`, … until a free slot is found and create there. The
+   * actually-used slug comes back on the returned record. Caller MUST
+   * read `record.docoSlug` (don't reuse `opts.docoSlug`) when building
+   * URLs.
+   *
+   * Use this when the caller may not have visibility into the existing
+   * Doco — e.g. the anonymous agent-onboarding flow. Surfacing
+   * "<slug> already exists" in that context would leak the existence
+   * of a private Doco to an unauthorized caller (intent
+   * `private-docos-actually-private`). In owner-authorized flows
+   * (`new-doco`, `claim/<token>`) keep this `false` and surface the
+   * collision explicitly — the caller can see the collider and needs
+   * to choose.
+   */
+  autoSuffixOnCollision?: boolean;
 }
 
 export interface DocoRecord {
@@ -402,7 +374,24 @@ export async function createDocoInHost(
   if (!owner) {
     throw new Error(`Owner "${opts.ownerSlug}" not found in this host.`);
   }
-  const dir = hostDocoDir(root, opts.ownerSlug, opts.docoSlug);
+
+  // Resolve the actual slug to use, applying auto-suffix if requested
+  // and the desired slot is taken. `<slug>-2`, `<slug>-3`, … — cap at
+  // 999 so a permission-failure-as-collision can't loop forever.
+  let docoSlug = opts.docoSlug;
+  if (opts.autoSuffixOnCollision) {
+    let n = 2;
+    while (existsSync(join(hostDocoDir(root, opts.ownerSlug, docoSlug), "doco.yaml"))) {
+      docoSlug = `${opts.docoSlug}-${n}`;
+      n++;
+      if (n > 999) {
+        throw new Error(
+          `Auto-suffix exhausted: ${opts.ownerSlug}/${opts.docoSlug}-2 … -999 are all taken.`,
+        );
+      }
+    }
+  }
+  const dir = hostDocoDir(root, opts.ownerSlug, docoSlug);
 
   // "Already exists" means the slug is genuinely taken — there's a doco.yaml.
   // A bare directory with no doco.yaml is a half-created leftover from a
@@ -416,21 +405,12 @@ export async function createDocoInHost(
     await rm(dir, { recursive: true, force: true });
   }
 
-  // Resolve the schema source up-front so the failure surfaces before any
-  // directory work begins. Prefer the host-level schema (so a self-hosted
-  // host can pin its own schema version), then fall back to the canonical
-  // template bundled with @doco/cli or the package-relative repo root.
-  const schemaSource = existsSync(hostSchemaPath(root))
-    ? hostSchemaPath(root)
-    : locateSchemaTemplate();
-
   // Wrap the directory build so a partial failure rolls the whole thing back.
-  // Without this, a thrown copyFile / writeFile leaves the dir + subdirs on
-  // disk and blocks retries with a misleading "already exists" error.
+  // Without this, a thrown writeFile leaves the dir + subdirs on disk and
+  // blocks retries with a misleading "already exists" error.
   try {
     await mkdir(dir, { recursive: true });
     for (const sub of [
-      "schema",
       "principals",
       "intents",
       "ideas",
@@ -441,20 +421,21 @@ export async function createDocoInHost(
       "references",
       "scopes",
       "organizations",
-      "evaluations",
+      "evals",
     ]) {
       await mkdir(join(dir, sub), { recursive: true });
     }
-    await copyFile(schemaSource, join(dir, "schema", "doco.schema.json"));
 
     const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
     const created = nowIso();
     const docoYaml = {
       id: docoId,
       node_type: "doco",
-      schema_version: "0.1",
-      slug: `${opts.ownerSlug}/${opts.docoSlug}`,
-      display_name: opts.docoSlug,
+      // Bare slug only — the owner segment is implied by the parent directory.
+      // (`<owner>/<doco>` is reconstructible; storing the compound here led to
+      // /<owner>/<owner>/<doco> URLs. Per `fix-owner-prefix-duplicated-in-doco-slug`.)
+      slug: docoSlug,
+      display_name: docoSlug,
       visibility: opts.visibility ?? "private",
       default_branch: "main",
       owner_id: owner.id,
@@ -463,9 +444,7 @@ export async function createDocoInHost(
       summary: `Created in host on ${created}.`,
       created_at: created,
       created_by: owner.kind === "principal" ? owner.id : null,
-      revision: 1,
       lifecycle: "active",
-      status: "active",
       scopes: [] as string[],
       members:
         owner.kind === "principal"
@@ -476,7 +455,7 @@ export async function createDocoInHost(
     await writeFile(join(dir, "doco.yaml"), stringifyYaml(docoYaml), "utf8");
     await writeFile(
       join(dir, "README.md"),
-      `# ${opts.docoSlug}\n\nOwner: ${owner.kind} \`${opts.ownerSlug}\`.\n`,
+      `# ${docoSlug}\n\nOwner: ${owner.kind} \`${opts.ownerSlug}\`.\n`,
       "utf8",
     );
     await writeFile(
@@ -485,9 +464,50 @@ export async function createDocoInHost(
       "utf8",
     );
 
+    // Seed the Constitution scope — every Doco has one per the
+    // `constitution-scope-default-and-tab` ADR. The scope ships pre-loaded
+    // with two framework-seeded rules: a deterministic `requires_edge`
+    // demanding every Constitution node trace back to an Intent, and a
+    // probabilistic scope-manifest-visibility rule that obliges agents
+    // to keep the project owner current on the manifest (watched scopes
+    // especially). Both are seeded at creation and therefore non-editable
+    // from the UI — owner-authored rules can be added alongside them
+    // later via /scopes.
+    //
+    // `watched: true` — fifth framework-native behavior of the
+    // Constitution (decision_01KRKS5H2A5QER84CJ8R4VD36Z): it is always
+    // watched and cannot be unwatched. Write paths reject watched: false;
+    // readers project is_watched=true regardless of stored state.
+    const constitutionTemplate = findScopeTemplate("constitution");
+    await createScopeInDoco({
+      docoDir: dir,
+      docoId,
+      name: "constitution",
+      ...(constitutionTemplate?.icon ? { icon: constitutionTemplate.icon } : {}),
+      ...(constitutionTemplate?.purpose ? { purpose: constitutionTemplate.purpose } : {}),
+      ...(constitutionTemplate?.guidelines ? { guidelines: constitutionTemplate.guidelines } : {}),
+      rules: [
+        {
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          reason:
+            "Constitution nodes must reference at least one Intent — every load-bearing claim traces back to a stakeholder.",
+        },
+        {
+          kind: "probabilistic",
+          spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
+          reason:
+            "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
+        },
+      ],
+      watched: true,
+      createdBy: owner.kind === "principal" ? owner.id : null,
+    });
+
     return {
       ownerSlug: opts.ownerSlug,
-      docoSlug: opts.docoSlug,
+      docoSlug,
       ownerKind: owner.kind,
       ownerId: owner.id,
       docoId,
@@ -515,6 +535,8 @@ export interface CreateScopeOptions {
   docoDir: string;
   docoId: EntityId<"doco">;
   name: string;
+  /** Single emoji used to identify this scope at a glance. Optional. */
+  icon?: string;
   description?: string;
   /** Why this scope exists (ADR-082). */
   purpose?: string;
@@ -522,6 +544,22 @@ export interface CreateScopeOptions {
   guidelines?: string;
   /** Parent scopes — semantically "this scope belongs to those." (ADR-081) */
   parentScopes?: EntityId<"scope">[];
+  /**
+   * Optional rules — predicates the engine evaluates when a node enters
+   * this scope (on capture / scope-add via update).
+   */
+  rules?: unknown[];
+  /**
+   * Whether this scope is "watched" — a soft attention signal for
+   * contributors (person or agent). When authoring a node, scan against
+   * watched scopes and tag the new node into any that fit. Stored as
+   * `watched: true` on the scope's own YAML. NOT enforced at capture
+   * time — hard enforcement is what `mandatory_scope` Constitution rules
+   * are for (a separate mechanism, accessed via the scope's Rules
+   * editor, not the watched toggle). Required on every scope creation
+   * — no default — so the choice is always explicit.
+   */
+  watched: boolean;
   createdBy: EntityId<"principal"> | null;
 }
 
@@ -530,13 +568,18 @@ export async function createScopeInDoco(
 ): Promise<EntityId<"scope">> {
   const id = makeEntityId("scope", generateUlid()) as EntityId<"scope">;
   const created = nowIso();
+  // Fifth framework-native behavior of the Constitution scope
+  // (decision_01KRKS5H2A5QER84CJ8R4VD36Z, rule_01KRKS60A11YEWDASBT6V3HTE9):
+  // it is always watched and cannot be unwatched. Force watched=true
+  // for any scope named "constitution" regardless of the caller's input.
+  const watched = opts.name === "constitution" ? true : opts.watched;
   const yaml: Record<string, unknown> = {
     id,
     doco_id: opts.docoId,
     node_type: "scope",
-    schema_version: "0.1",
     summary: opts.description?.trim() || opts.purpose?.trim() || `Scope: ${opts.name}`,
     name: opts.name,
+    ...(opts.icon ? { icon: opts.icon } : {}),
     ...(opts.description ? { description: opts.description } : {}),
     ...(opts.purpose ? { purpose: opts.purpose } : {}),
     ...(opts.guidelines ? { guidelines: opts.guidelines } : {}),
@@ -544,13 +587,69 @@ export async function createScopeInDoco(
     created_by: opts.createdBy,
     revision: 1,
     lifecycle: "active",
-    status: "active",
     scopes: opts.parentScopes ?? [],
+    ...(opts.rules && opts.rules.length > 0 ? { rules: opts.rules } : {}),
+    ...(watched ? { watched: true } : {}),
   };
   const dir = join(opts.docoDir, "scopes");
   if (!existsSync(dir)) await mkdir(dir, { recursive: true });
   await writeFile(join(dir, `${id}.yaml`), stringifyYaml(yaml), "utf8");
   return id;
+}
+
+/**
+ * Toggle a scope's "watched" flag — a soft attention signal for
+ * contributors. Sets `watched: true` on the scope's own YAML, or removes
+ * the key when set to false. Idempotent in both directions.
+ *
+ * Unlike the `mandatory_scope` Constitution rule mechanism (a hard
+ * enforcement that blocks capture), this is a pure metadata flag.
+ * Agents and people surface it in their authoring UX so the project's
+ * "topics worth tracking" stays visible at capture time.
+ */
+export async function setScopeWatchedInDoco(opts: {
+  docoDir: string;
+  targetScopeId: EntityId<"scope">;
+  watched: boolean;
+}): Promise<void> {
+  const file = join(opts.docoDir, "scopes", `${opts.targetScopeId}.yaml`);
+  if (!existsSync(file)) throw new Error(`Scope not found: ${opts.targetScopeId}`);
+  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+  // Fifth framework-native behavior of the Constitution scope
+  // (decision_01KRKS5H2A5QER84CJ8R4VD36Z, rule_01KRKS60A11YEWDASBT6V3HTE9):
+  // it is always watched and cannot be unwatched.
+  if (yaml.name === "constitution" && opts.watched === false) {
+    throw new Error(
+      "The Constitution scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
+    );
+  }
+  const wasWatched = yaml.watched === true;
+  if (opts.watched === wasWatched) return;
+  if (opts.watched) {
+    yaml.watched = true;
+  } else {
+    delete yaml.watched;
+  }
+  yaml.revision = (typeof yaml.revision === "number" ? yaml.revision : 1) + 1;
+  await writeFile(file, stringifyYaml(yaml), "utf8");
+}
+
+/**
+ * Read a scope's `watched` flag from its YAML. Returns false if the
+ * scope is missing the flag or the file isn't readable.
+ */
+export async function readScopeWatchedInDoco(opts: {
+  docoDir: string;
+  targetScopeId: EntityId<"scope">;
+}): Promise<boolean> {
+  const file = join(opts.docoDir, "scopes", `${opts.targetScopeId}.yaml`);
+  if (!existsSync(file)) return false;
+  try {
+    const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+    return yaml.watched === true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -607,7 +706,7 @@ export async function materializeScopeTree(opts: {
   existingByName?: Map<string, EntityId<"scope">>;
   templateForLeaf?: (
     leafName: string,
-  ) => { purpose?: string; guidelines?: string } | undefined;
+  ) => { icon?: string; purpose?: string; guidelines?: string } | undefined;
 }): Promise<{ created: EntityId<"scope">[]; byName: Map<string, EntityId<"scope">> }> {
   const byName = new Map(opts.existingByName ?? []);
   const created: EntityId<"scope">[] = [];
@@ -623,9 +722,11 @@ export async function materializeScopeTree(opts: {
           docoDir: opts.docoDir,
           docoId: opts.docoId,
           name,
+          ...(tpl?.icon ? { icon: tpl.icon } : {}),
           ...(tpl?.purpose ? { purpose: tpl.purpose } : {}),
           ...(tpl?.guidelines ? { guidelines: tpl.guidelines } : {}),
           ...(parentId ? { parentScopes: [parentId] } : {}),
+          watched: false,
           createdBy: opts.createdBy,
         });
         byName.set(name, id);
@@ -706,6 +807,7 @@ export async function migrateScopesInDoco(opts: {
           docoId: opts.docoId,
           name: segName,
           ...(parentId ? { parentScopes: [parentId] } : {}),
+          watched: false,
           createdBy: opts.createdBy,
         });
         flatByName.set(segName, segId);
@@ -725,7 +827,6 @@ export async function migrateScopesInDoco(opts: {
     if (typeof s.yaml.summary === "string" && s.yaml.summary === `Scope: ${s.name}`) {
       s.yaml.summary = `Scope: ${leafName}`;
     }
-    s.yaml.revision = (typeof s.yaml.revision === "number" ? s.yaml.revision : 1) + 1;
     await writeFile(join(dir, s.file), stringifyYaml(s.yaml), "utf8");
     flatByName.set(leafName, s.id);
     renamed += 1;
@@ -741,22 +842,37 @@ export async function migrateScopesInDoco(opts: {
  *   - `null` or empty-string to clear the field (delete the YAML key)
  *   - a non-empty value to set it
  *
- * Bumps `revision` on every successful write. Caller is expected to reindex
- * after. Throws if the file doesn't exist.
+ * Caller is expected to reindex after. Throws if the file doesn't exist.
  */
 export interface UpdateScopeOptions {
   docoDir: string;
   scopeId: EntityId<"scope">;
+  /** Single emoji icon. Pass `null` or "" to clear; omit to leave as-is. */
+  icon?: string | null;
   purpose?: string | null;
   guidelines?: string | null;
   /** Replace the entire parent list (not append). Pass [] to clear. */
   parentScopes?: EntityId<"scope">[];
+  /**
+   * Replace the entire rules list. Pass null to clear.
+   */
+  rules?: unknown[] | null;
+  /**
+   * Lifecycle transition. The Danger Zone "Deprecate" button sends
+   * "abandoned"; reactivation sends "active". Per the
+   * `scopes-are-deprecated-not-deleted` Decision.
+   */
+  lifecycle?: "active" | "abandoned" | "superseded";
 }
 
 export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void> {
   const file = join(opts.docoDir, "scopes", `${opts.scopeId}.yaml`);
   if (!existsSync(file)) throw new Error(`Scope not found: ${opts.scopeId}`);
   const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+  if (opts.icon !== undefined) {
+    if (opts.icon === null || opts.icon === "") delete yaml.icon;
+    else yaml.icon = opts.icon;
+  }
   if (opts.purpose !== undefined) {
     if (opts.purpose === null || opts.purpose === "") delete yaml.purpose;
     else yaml.purpose = opts.purpose;
@@ -768,24 +884,127 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
   if (opts.parentScopes !== undefined) {
     yaml.scopes = opts.parentScopes;
   }
-  yaml.revision = (typeof yaml.revision === "number" ? yaml.revision : 1) + 1;
+  if (opts.rules !== undefined) {
+    if (opts.rules === null || opts.rules.length === 0) {
+      delete yaml.rules;
+    } else {
+      yaml.rules = opts.rules;
+    }
+  }
+  if (opts.lifecycle !== undefined) {
+    yaml.lifecycle = opts.lifecycle;
+  }
+  await writeFile(file, stringifyYaml(yaml), "utf8");
+}
+
+// `deleteScopeInDoco` was removed per the
+// `scopes-are-deprecated-not-deleted` Decision. Scopes follow the same
+// six-state lifecycle as every other node — to "deprecate" one,
+// transition it to `abandoned` (no replacement) or `superseded` (a new
+// scope took over). Existing members keep their tag; new captures are
+// rejected. Use `updateScopeInDoco({ scopeId, lifecycle: "abandoned" })`
+// (or "superseded") instead of deletion.
+
+/**
+ * Apply a partial update to a Doco's `doco.yaml` on disk (settings page).
+ *
+ *   - Each field undefined → leave it alone.
+ *   - description / display_name: empty string clears the key.
+ *   - visibility: only "private" or "public" accepted; other values rejected.
+ *
+ * Caller is expected to reindex.
+ */
+export interface UpdateDocoOptions {
+  docoDir: string;
+  description?: string | null;
+  display_name?: string | null;
+  visibility?: "private" | "public";
+}
+
+export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
+  const file = join(opts.docoDir, "doco.yaml");
+  if (!existsSync(file)) throw new Error(`doco.yaml not found in ${opts.docoDir}`);
+  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+  if (opts.description !== undefined) {
+    if (opts.description === null || opts.description === "") delete yaml.description;
+    else yaml.description = opts.description;
+  }
+  if (opts.display_name !== undefined) {
+    if (opts.display_name === null || opts.display_name === "") delete yaml.display_name;
+    else yaml.display_name = opts.display_name;
+  }
+  if (opts.visibility !== undefined) {
+    if (opts.visibility !== "private" && opts.visibility !== "public") {
+      throw new Error(`visibility must be "private" or "public", got: ${opts.visibility}`);
+    }
+    yaml.visibility = opts.visibility;
+  }
   await writeFile(file, stringifyYaml(yaml), "utf8");
 }
 
 /**
- * Delete a Scope's YAML file on disk (ADR-084).
+ * Rename a Doco's slug — moves the directory `docos/<owner>/<old>` →
+ * `docos/<owner>/<new>` and updates the `slug` field in doco.yaml.
+ * Caller is expected to reindex the new location.
  *
- * The caller is responsible for checking refbacks (members + sub-scopes).
- * This helper only removes the file — orphan-ref lint will surface any
- * dangling references after the next reindex.
+ * Fails if a Doco with the target slug already exists. Does not touch
+ * cross-Doco references — broken refs will surface in the next lint pass.
  */
-export async function deleteScopeInDoco(opts: {
-  docoDir: string;
-  scopeId: EntityId<"scope">;
-}): Promise<void> {
-  const file = join(opts.docoDir, "scopes", `${opts.scopeId}.yaml`);
-  if (!existsSync(file)) throw new Error(`Scope not found: ${opts.scopeId}`);
-  await rm(file);
+export async function renameDocoSlug(opts: {
+  root: string;
+  ownerSlug: string;
+  oldSlug: string;
+  newSlug: string;
+}): Promise<{ newDir: string }> {
+  const { root, ownerSlug, oldSlug, newSlug } = opts;
+  const slugError = validateDocoSlug(newSlug);
+  if (slugError) throw new Error(slugError);
+  if (oldSlug === newSlug) {
+    return { newDir: join(hostDocosDir(root), ownerSlug, oldSlug) };
+  }
+  const oldDir = join(hostDocosDir(root), ownerSlug, oldSlug);
+  const newDir = join(hostDocosDir(root), ownerSlug, newSlug);
+  if (!existsSync(oldDir)) throw new Error(`Doco "${ownerSlug}/${oldSlug}" not found.`);
+  if (existsSync(newDir)) throw new Error(`Doco "${ownerSlug}/${newSlug}" already exists.`);
+  await rename(oldDir, newDir);
+  const yamlPath = join(newDir, "doco.yaml");
+  const yaml = parseYaml(await readFile(yamlPath, "utf8")) as Record<string, unknown>;
+  // Bare slug only — the owner segment is implied by the parent directory.
+  // Per `fix-owner-prefix-duplicated-in-doco-slug` Intent.
+  yaml.slug = newSlug;
+  await writeFile(yamlPath, stringifyYaml(yaml), "utf8");
+  return { newDir };
+}
+
+/**
+ * Soft-delete a Doco by moving its directory to `docos/<owner>/.deleted/
+ * <slug>-<timestamp>/`. The directory remains on disk (recoverable by
+ * hand if needed) but is excluded from listings and routing because:
+ *   - dashboard / owner-profile listings skip directories starting with `.`
+ *   - the `.deleted/` parent is not a valid `<owner>` directory either
+ *
+ * Per ADR-040 only people can call this; the route action gates by
+ * `me.type === "person"`. Per `settings-page-delete-doco` Intent.
+ */
+export async function softDeleteDoco(opts: {
+  root: string;
+  ownerSlug: string;
+  docoSlug: string;
+}): Promise<{ deletedPath: string }> {
+  const { root, ownerSlug, docoSlug } = opts;
+  const docosDir = hostDocosDir(root);
+  const src = join(docosDir, ownerSlug, docoSlug);
+  if (!existsSync(src)) {
+    throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
+  }
+  const trashRoot = join(docosDir, ownerSlug, ".deleted");
+  if (!existsSync(trashRoot)) {
+    await mkdir(trashRoot, { recursive: true });
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const dest = join(trashRoot, `${docoSlug}-${stamp}`);
+  await rename(src, dest);
+  return { deletedPath: dest };
 }
 
 export async function listDocos(root: string): Promise<DocoRecord[]> {
@@ -794,10 +1013,12 @@ export async function listDocos(root: string): Promise<DocoRecord[]> {
   const docosDir = hostDocosDir(root);
   if (!existsSync(docosDir)) return out;
   for (const ownerSlug of await readdir(docosDir)) {
+    if (ownerSlug.startsWith(".")) continue; // skip .deleted/, .DS_Store, etc.
     const ownerDir = join(docosDir, ownerSlug);
     const ownerStat = await stat(ownerDir);
     if (!ownerStat.isDirectory()) continue;
     for (const docoSlug of await readdir(ownerDir)) {
+      if (docoSlug.startsWith(".")) continue; // skip .deleted/, .DS_Store, etc.
       const dir = join(ownerDir, docoSlug);
       const ds = await stat(dir);
       if (!ds.isDirectory()) continue;

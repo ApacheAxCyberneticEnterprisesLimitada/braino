@@ -29,10 +29,6 @@ export function hostDocosDir(root: string): string {
   return join(root, "docos");
 }
 
-export function hostSchemaPath(root: string): string {
-  return join(root, "schema", "doco.schema.json");
-}
-
 export function hostDocoDir(root: string, ownerSlug: string, docoSlug: string): string {
   return join(root, "docos", ownerSlug, docoSlug);
 }

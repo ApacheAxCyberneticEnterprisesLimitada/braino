@@ -1,0 +1,29 @@
+{
+  "name": "@doco/db",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Postgres adapter for Doco source-of-truth storage (Phase 2 of decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src/schema.sql"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@doco/shared": "workspace:*",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10"
+  }
+}

@@ -58,16 +58,18 @@ describe("isEntityIdOf", () => {
 });
 
 describe("isNodeType", () => {
-  it("accepts the 10 known kinds", () => {
+  it("accepts every known kind", () => {
     for (const t of [
       "doco",
       "principal",
+      "organization",
       "intent",
+      "idea",
       "rule",
       "decision",
       "action",
       "reasoning",
-      "evaluation",
+      "eval",
       "reference",
       "scope",
     ]) {
