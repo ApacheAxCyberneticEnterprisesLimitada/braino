@@ -807,6 +807,31 @@ export async function setScopeWatchedInDoco(opts: {
   targetScopeId: EntityId<"scope">;
   watched: boolean;
 }): Promise<void> {
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    await withClient(async (c) => {
+      const cur = await c.query<{ raw_yaml: string; name: string }>(
+        "SELECT raw_yaml, name FROM scopes WHERE id = $1 LIMIT 1",
+        [opts.targetScopeId],
+      );
+      if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.targetScopeId}`);
+      if (cur.rows[0].name === "constitution" && opts.watched === false) {
+        throw new Error(
+          "The Constitution scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
+        );
+      }
+      const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+      const wasWatched = yaml.watched === true;
+      if (opts.watched === wasWatched) return;
+      if (opts.watched) yaml.watched = true;
+      else delete yaml.watched;
+      await c.query(
+        "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
+        [stringifyYaml(yaml), opts.targetScopeId],
+      );
+    });
+    return;
+  }
   const file = join(opts.docoDir, "scopes", `${opts.targetScopeId}.yaml`);
   if (!existsSync(file)) throw new Error(`Scope not found: ${opts.targetScopeId}`);
   const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
@@ -836,6 +861,22 @@ export async function readScopeWatchedInDoco(opts: {
   docoDir: string;
   targetScopeId: EntityId<"scope">;
 }): Promise<boolean> {
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    const r = await withClient((c) =>
+      c.query<{ raw_yaml: string }>(
+        "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+        [opts.targetScopeId],
+      ),
+    );
+    if (!r.rows[0]) return false;
+    try {
+      const yaml = parseYaml(r.rows[0].raw_yaml) as Record<string, unknown>;
+      return yaml.watched === true;
+    } catch {
+      return false;
+    }
+  }
   const file = join(opts.docoDir, "scopes", `${opts.targetScopeId}.yaml`);
   if (!existsSync(file)) return false;
   try {
@@ -1059,10 +1100,7 @@ export interface UpdateScopeOptions {
   lifecycle?: "active" | "abandoned" | "superseded";
 }
 
-export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void> {
-  const file = join(opts.docoDir, "scopes", `${opts.scopeId}.yaml`);
-  if (!existsSync(file)) throw new Error(`Scope not found: ${opts.scopeId}`);
-  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOptions): void {
   if (opts.icon !== undefined) {
     if (opts.icon === null || opts.icon === "") delete yaml.icon;
     else yaml.icon = opts.icon;
@@ -1079,15 +1117,36 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
     yaml.scopes = opts.parentScopes;
   }
   if (opts.rules !== undefined) {
-    if (opts.rules === null || opts.rules.length === 0) {
-      delete yaml.rules;
-    } else {
-      yaml.rules = opts.rules;
-    }
+    if (opts.rules === null || opts.rules.length === 0) delete yaml.rules;
+    else yaml.rules = opts.rules;
   }
   if (opts.lifecycle !== undefined) {
     yaml.lifecycle = opts.lifecycle;
   }
+}
+
+export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void> {
+  if (process.env.DOCO_STORAGE === "postgres") {
+    const { withClient } = await import("@doco/db");
+    await withClient(async (c) => {
+      const cur = await c.query<{ raw_yaml: string }>(
+        "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+        [opts.scopeId],
+      );
+      if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.scopeId}`);
+      const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+      applyScopeUpdate(yaml, opts);
+      await c.query(
+        "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), updated_at = now() WHERE id = $3",
+        [stringifyYaml(yaml), opts.lifecycle ?? null, opts.scopeId],
+      );
+    });
+    return;
+  }
+  const file = join(opts.docoDir, "scopes", `${opts.scopeId}.yaml`);
+  if (!existsSync(file)) throw new Error(`Scope not found: ${opts.scopeId}`);
+  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+  applyScopeUpdate(yaml, opts);
   await writeFile(file, stringifyYaml(yaml), "utf8");
 }
 
