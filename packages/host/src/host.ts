@@ -466,13 +466,11 @@ export async function createDocoInHost(
 
     // Seed the Constitution scope — every Doco has one per the
     // `constitution-scope-default-and-tab` ADR. The scope ships pre-loaded
-    // with two framework-seeded rules: a deterministic `requires_edge`
-    // demanding every Constitution node trace back to an Intent, and a
-    // probabilistic scope-manifest-visibility rule that obliges agents
-    // to keep the project owner current on the manifest (watched scopes
-    // especially). Both are seeded at creation and therefore non-editable
-    // from the UI — owner-authored rules can be added alongside them
-    // later via /scopes.
+    // with one framework-seeded rule: a probabilistic
+    // scope-manifest-visibility rule that obliges agents to keep the
+    // project owner current on the manifest (watched scopes especially).
+    // It is seeded at creation and therefore non-editable from the UI —
+    // owner-authored rules can be added alongside it later via /scopes.
     //
     // `watched: true` — fifth framework-native behavior of the
     // Constitution (decision_01KRKS5H2A5QER84CJ8R4VD36Z): it is always
@@ -487,13 +485,6 @@ export async function createDocoInHost(
       ...(constitutionTemplate?.purpose ? { purpose: constitutionTemplate.purpose } : {}),
       ...(constitutionTemplate?.guidelines ? { guidelines: constitutionTemplate.guidelines } : {}),
       rules: [
-        {
-          kind: "requires_edge",
-          edge_type: "serves",
-          target_node_type: "intent",
-          reason:
-            "Constitution nodes must reference at least one Intent — every load-bearing claim traces back to a stakeholder.",
-        },
         {
           kind: "probabilistic",
           spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",

@@ -264,3 +264,84 @@ CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_id, a
 CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_actor_idx ON audit_events (by_principal, at DESC);
+
+-- Indexing layer tables. These ports of the @doco/index SQLite cache
+-- (`.doco/cache.db`) move the index into Postgres as part of the
+-- "Postgres is source of truth, SQLite goes away" migration that
+-- supersedes ADR-023 (tiered architecture) and ADR-024 (SQLite + FTS5).
+-- Phase 1 of that migration is additive only: the tables exist alongside
+-- the SQLite layer so writers can dual-write. Later phases switch
+-- readers over and delete the SQLite path entirely.
+
+-- Graph edges (ADR-025). Materialized from frontmatter ID-shaped fields
+-- by the indexer. attribution=='explicit' means declared in source;
+-- 'doco-auto' means LLM-detected. Doco-scoped via doco_id; both
+-- endpoints can be any node_type so we can't FK them.
+CREATE TABLE IF NOT EXISTS edges (
+  from_id         text NOT NULL,
+  from_node_type  text NOT NULL,
+  to_id           text NOT NULL,
+  to_node_type    text NOT NULL,
+  edge_type       text NOT NULL,
+  doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  edge_props_json jsonb,
+  attribution     text NOT NULL DEFAULT 'explicit' CHECK (attribution IN ('explicit', 'doco-auto')),
+  PRIMARY KEY (from_id, to_id, edge_type)
+);
+CREATE INDEX IF NOT EXISTS edges_doco_idx        ON edges (doco_id);
+CREATE INDEX IF NOT EXISTS edges_to_idx          ON edges (to_id, edge_type);
+CREATE INDEX IF NOT EXISTS edges_from_type_idx   ON edges (from_id, edge_type);
+CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges (edge_type);
+CREATE INDEX IF NOT EXISTS edges_attribution_idx ON edges (attribution);
+
+-- Vector embeddings (ADR-052). One row per entity. Storage is bytea
+-- (Float32Array bytes, little-endian) — same wire format as the SQLite
+-- BLOB it replaces. pgvector + ivfflat/hnsw is an additive optimization
+-- for Tier-C scale (currently Tier B per ADR-049, where sequential
+-- cosine is microseconds). Switching to vector(N) later is a column-type
+-- migration with no data reformat.
+-- model_id + content_hash let the reindex hook skip work when nothing
+-- changed; a model swap invalidates rows whose model_id differs.
+CREATE TABLE IF NOT EXISTS embeddings (
+  entity_id     text PRIMARY KEY,
+  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  model_id      text NOT NULL,
+  content_hash  text NOT NULL,
+  embedding     bytea NOT NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS embeddings_doco_idx  ON embeddings (doco_id);
+CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
+
+-- Denormalized Rule.applies_to → matched targets (ADR-026). Populated
+-- by the indexer at write time. Lets runtime checks look up "which
+-- Rules apply to this target?" in O(1) without re-evaluating selectors.
+CREATE TABLE IF NOT EXISTS scope_match (
+  source_id         text NOT NULL,
+  source_node_type  text NOT NULL,
+  target_id         text NOT NULL,
+  target_node_type  text NOT NULL,
+  doco_id           text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  selector_rev      integer NOT NULL DEFAULT 1,
+  PRIMARY KEY (source_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS scope_match_target_idx ON scope_match (target_id);
+CREATE INDEX IF NOT EXISTS scope_match_doco_idx   ON scope_match (doco_id);
+
+-- Full-text search (replaces SQLite FTS5 virtual table). One row per
+-- entity. The indexer populates summary + body; search_tsv is a
+-- generated tsvector with English stemming and weighting (A=summary,
+-- B=body). The GIN index handles `@@` queries efficiently.
+CREATE TABLE IF NOT EXISTS entity_fts (
+  entity_id   text PRIMARY KEY,
+  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  node_type   text NOT NULL,
+  summary     text,
+  body        text,
+  search_tsv  tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(body, '')), 'B')
+  ) STORED
+);
+CREATE INDEX IF NOT EXISTS entity_fts_doco_idx ON entity_fts (doco_id);
+CREATE INDEX IF NOT EXISTS entity_fts_tsv_idx  ON entity_fts USING gin (search_tsv);

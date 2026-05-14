@@ -44,5 +44,25 @@ export {
 
 export { NODE_TABLES, type EntityRecord } from "./types.js";
 
+export {
+  upsertEmbeddings,
+  getEmbeddings,
+  getAllEmbeddingsForDoco,
+  computeContentHash,
+  cosineSimilarity,
+  embeddingToBuffer,
+  bufferToEmbedding,
+  type EmbeddingProviderLike,
+  type EmbeddingsReport,
+  type UpsertEmbeddingsOptions,
+  type EmbeddingInput,
+} from "./embeddings.js";
+
+export {
+  rebuildDocoDerivedData,
+  type FtsRowInput,
+  type EdgeRowInput,
+} from "./indexer.js";
+
 // Postgres is the only source-of-truth. There is no legacy filesystem
 // fallback (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids back-compat).

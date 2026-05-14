@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "SQLite + FTS5 cache for Doco entities. Per-clone, regenerable, never source-of-truth (D-023).",
+  "description": "PG-backed reindexer + edge derivation + PageRank + embedding provider.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,10 +24,6 @@
     "@doco/core": "workspace:*",
     "@doco/db": "workspace:*",
     "@doco/shared": "workspace:*",
-    "better-sqlite3": "^11.7.0",
     "yaml": "^2.6.1"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.6.12"
   }
 }

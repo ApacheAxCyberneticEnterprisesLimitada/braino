@@ -1,16 +1,21 @@
+// PG-only reindexer. Rebuilds the derived-data tables in Postgres
+// (`edges`, `entity_fts`, `embeddings`) from the source-of-truth entity
+// rows that already live in Postgres. The legacy SQLite cache layer
+// (`.doco/cache.db`) has been removed — ADR-023 / ADR-024 are
+// superseded by the SQLite-removal migration.
+
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Database } from "better-sqlite3";
 import { parse as parseYaml } from "yaml";
 import type { LoadedDoco } from "@doco/core";
-import { openDb } from "./db.js";
-import { insertEntity } from "./insert.js";
 import {
   computeContentHash,
   type EmbeddingProviderLike,
   type EmbeddingsReport,
+  rebuildDocoDerivedData,
   upsertEmbeddings,
-} from "./embeddings.js";
+} from "@doco/db";
+import { deriveEdges } from "./edges.js";
 import { loadDocoFromPostgres } from "./loadFromPostgres.js";
 
 export interface BuildReport {
@@ -22,73 +27,52 @@ export interface BuildReport {
 export interface IndexOptions {
   /**
    * Optional embedding provider (ADR-052). When provided, every entity is
-   * embedded after the per-type insert pass and stored in the `embeddings`
-   * table; content-hash gating skips entities whose text didn't change.
-   * Omit to skip embeddings entirely (the previous behaviour).
+   * embedded after the indexing pass and stored in Postgres'
+   * `embeddings` table; content-hash gating skips entities whose text
+   * didn't change.
    */
   embeddingProvider?: EmbeddingProviderLike;
 }
 
 /**
- * Names of tables truncated on every reindex. Everything not on this list
- * (`meta`, `embeddings`) survives across runs.
- *
- * The order matters only for readability — there are no foreign keys, and
- * each `DELETE` runs inside the indexDoco transaction.
+ * Rebuild derived data (edges, FTS, embeddings) for one Doco. Caller
+ * supplies the pre-loaded LoadedDoco; this function does the PG writes.
  */
-const MUTABLE_TABLES = [
-  "edges",
-  "scope_match",
-  "fts",
-  "doco_root",
-  "principal",
-  "intent",
-  "idea",
-  "rule",
-  "decision",
-  "action",
-  "reasoning",
-  "eval",
-  "reference",
-  "scope",
-  "organization",
-] as const;
-
-/**
- * Clear every table that gets repopulated by `indexDoco`, leaving `meta`
- * (schema version) and `embeddings` (per-entity vectors) intact.
- *
- * Runs inside `indexDoco`'s own transaction so a crash during indexing
- * doesn't leave the cache half-truncated.
- */
-function truncateMutableTables(db: Database): void {
-  for (const t of MUTABLE_TABLES) {
-    db.exec(`DELETE FROM ${t}`);
-  }
-}
-
-/** Insert every entity from a freshly-loaded Doco. Caller manages the transaction. */
 export async function indexDoco(
-  db: Database,
   loaded: LoadedDoco,
   opts: IndexOptions = {},
 ): Promise<BuildReport> {
   const start = performance.now();
+
+  const docoId = (loaded.doco as { id: string }).id;
+  const pgFts: { entity_id: string; node_type: string; summary: string; body: string }[] = [];
+  const pgEdges: ReturnType<typeof deriveEdges> = [];
   let inserted = 0;
-  const tx = db.transaction(() => {
-    truncateMutableTables(db);
-    insertEntity(db, loaded.doco as never, "");
+  for (const le of loaded.entities.values()) {
     inserted++;
-    for (const le of loaded.entities.values()) {
-      insertEntity(db, le.entity, le.parsed.body);
-      inserted++;
+    const e = le.entity as unknown as Record<string, unknown>;
+    const summary = String(e.summary ?? "");
+    let body = le.parsed.body ?? "";
+    if (le.entity.node_type === "scope") {
+      const extras = [e.purpose, e.guidelines, e.description]
+        .filter((s): s is string => typeof s === "string" && s.length > 0)
+        .join("\n\n");
+      body = body ? `${body}\n\n${extras}` : extras;
     }
-  });
-  tx();
+    pgFts.push({
+      entity_id: le.entity.id,
+      node_type: le.entity.node_type as string,
+      summary,
+      body,
+    });
+    for (const edge of deriveEdges(le.entity)) {
+      pgEdges.push(edge);
+    }
+  }
+  await rebuildDocoDerivedData(docoId, pgFts, pgEdges);
 
   let embeddings: EmbeddingsReport | undefined;
   if (opts.embeddingProvider) {
-    const docoId = (loaded.doco as { id: string }).id;
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       const summary = String((le.entity as { summary?: string }).summary ?? "");
@@ -103,15 +87,17 @@ export async function indexDoco(
       });
     }
     try {
-      embeddings = await upsertEmbeddings(db, texts, opts.embeddingProvider, {
+      embeddings = await upsertEmbeddings(texts, opts.embeddingProvider, {
         pruneStale: true,
       });
     } catch (err) {
-      // Embeddings are best-effort: a transient provider failure
-      // (rate limit, network blip) must not break the user-visible
-      // capture/PATCH that triggered the reindex. Search will fall
-      // back to the prior embeddings already in the cache.
-      console.error("indexDoco: embedding pass failed (continuing without):", (err as Error).message);
+      // Best-effort: a transient provider failure (rate limit, network
+      // blip) must not break the user-visible PATCH that triggered the
+      // reindex.
+      console.error(
+        "indexDoco: embedding pass failed (continuing without):",
+        (err as Error).message,
+      );
     }
   }
 
@@ -120,33 +106,18 @@ export async function indexDoco(
 }
 
 /**
- * Rebuild the index from the current source files. Preserves the
- * `embeddings` table across runs — `upsertEmbeddings` skips entities
- * whose `(content_hash, model_id)` already matches, so steady-state
- * reindex of a Doco with no body changes is a no-op for the provider.
- *
- * On a schema-version bump, `openDb` → `migrate` drops every table
- * including `embeddings` and rebuilds, which is the right behaviour:
- * old vectors may not be compatible with the new shape.
+ * Rebuild PG derived data for the Doco rooted at `docoRoot`. The on-disk
+ * `doco.yaml` carries only the Doco id; entity content lives in PG.
  */
 export async function reindex(
   docoRoot: string,
   opts: IndexOptions = {},
 ): Promise<BuildReport> {
-  const loaded = await loadDocoFromPostgres(docoRoot, readDocoIdFromYaml(docoRoot));
-  const db = await openDb(docoRoot);
-  try {
-    return await indexDoco(db, loaded, opts);
-  } finally {
-    db.close();
-  }
+  const docoId = readDocoIdFromYaml(docoRoot);
+  const loaded = await loadDocoFromPostgres(docoRoot, docoId);
+  return indexDoco(loaded, opts);
 }
 
-/**
- * The on-disk `doco.yaml` is a thin pointer that carries only the
- * Doco's id; entity content lives in Postgres. Read the id here so
- * `loadDocoFromPostgres` knows which rows to pull.
- */
 function readDocoIdFromYaml(docoRoot: string): string {
   const path = join(docoRoot, "doco.yaml");
   if (!existsSync(path)) {

@@ -43,7 +43,6 @@ What does NOT belong:
 
 The Constitution has its own deterministic rules (declared in its \`rules\` array):
 - **mandatory_scope** — declare scopes that every node in this Doco must list.
-- **requires_edge to intent** — every Constitution node must reference at least one Intent.
 
 If you need a new invariant, capture it as a Rule in this scope. If it warrants its own ADR, write the Decision here too.`,
   },
@@ -68,7 +67,6 @@ Eval frontmatter:
 
 Examples that fit this scope:
 - An Eval for ADR-120 reserved slugs: input \`{ slug: "settings" }\` to POST /api/decisions.json → expect 400 with the reserved-list error.
-- An Eval for the Constitution's "every node has an intent" rule: pick a sample Decision with no intent_ids → expect a violation.
 - An LLM-judge Eval for a Design Language requirement: input "render Button with variant=destructive" → judge whether the response describes a red button.`,
   },
   {
