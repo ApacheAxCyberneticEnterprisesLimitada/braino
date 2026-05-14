@@ -41,7 +41,6 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   const updates = cols
     .filter((c) => c !== "id" && c !== "created_at" && c !== "created_by")
     .map((c) => `${c} = EXCLUDED.${c}`)
-    .concat("revision = COALESCE(${TABLE}.revision, 1) + 1".replace("${TABLE}", spec.table))
     .join(", ");
   const sql = `INSERT INTO ${spec.table} (${cols.join(",")}) VALUES (${placeholders})
                ON CONFLICT (id) DO UPDATE SET ${updates}`;

@@ -35,8 +35,6 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "about",
   "dashboard",
   "onboarding",
-  "claim",
-  "invite",
   "agents",
   "auth",
   "cli",

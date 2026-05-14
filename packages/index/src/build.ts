@@ -1,8 +1,6 @@
-// PG-only reindexer. Rebuilds the derived-data tables in Postgres
-// (`edges`, `entity_fts`, `embeddings`) from the source-of-truth entity
-// rows that already live in Postgres. The legacy SQLite cache layer
-// (`.doco/cache.db`) has been removed — ADR-023 / ADR-024 are
-// superseded by the SQLite-removal migration.
+// Reindexer. Rebuilds the derived-data tables in Postgres (`edges`,
+// `entity_fts`, `embeddings`) from the source-of-truth entity rows
+// that already live in Postgres.
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -16,7 +14,7 @@ import {
   upsertEmbeddings,
 } from "@doco/db";
 import { deriveEdges } from "./edges.js";
-import { loadDocoFromPostgres } from "./loadFromPostgres.js";
+import { loadDocoFromPostgres } from "./loadDoco.js";
 
 export interface BuildReport {
   inserted: number;

@@ -95,7 +95,7 @@ export async function createHost(
   // .gitignore + README
   await writeFile(
     join(root, ".gitignore"),
-    "# Per-Doco SQLite caches (regenerable)\n**/.doco/\n# Host-level token store / cache (deferred)\n.doco-host/\n# OS\n.DS_Store\n",
+    "# Host-level token store\n.doco-host/\n# OS\n.DS_Store\n",
     "utf8",
   );
   await writeFile(
@@ -576,7 +576,6 @@ export async function createScopeInDoco(
     ...(opts.guidelines ? { guidelines: opts.guidelines } : {}),
     created_at: created,
     created_by: opts.createdBy,
-    revision: 1,
     lifecycle: "active",
     scopes: opts.parentScopes ?? [],
     ...(opts.rules && opts.rules.length > 0 ? { rules: opts.rules } : {}),
@@ -621,7 +620,6 @@ export async function setScopeWatchedInDoco(opts: {
   } else {
     delete yaml.watched;
   }
-  yaml.revision = (typeof yaml.revision === "number" ? yaml.revision : 1) + 1;
   await writeFile(file, stringifyYaml(yaml), "utf8");
 }
 

@@ -17,7 +17,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@doco/shared": "workspace:*",

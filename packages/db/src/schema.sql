@@ -1,10 +1,7 @@
--- Doco Postgres schema (Phase 2 — decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
+-- Doco Postgres schema (decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
 --
--- Source-of-truth storage for Docos. Replaces the filesystem-and-git
--- shape with one Postgres database per host. The per-clone SQLite
--- cache (ADR-023) is unchanged — it's still the read-side index;
--- only its upstream changes (rows from this DB rather than YAML files
--- on disk).
+-- Source-of-truth + read-side index in one database per host. Replaces
+-- the filesystem-and-git shape that ADR-023 / ADR-024 described.
 --
 -- Single-database, multi-tenant: every entity carries its `doco_id`
 -- which scopes it to the owning Doco. Hosts can hold thousands of
@@ -15,8 +12,7 @@
 --     in a consistent order (id, doco_id, summary, lifecycle, ...).
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
---   - Edges materialize cross-entity references (mirror of the
---     SQLite cache `edges` table).
+--   - `edges` materializes cross-entity references for graph queries.
 --   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
 
 -- Schema version. Tracked separately from app version so DB migrations
@@ -102,8 +98,7 @@ CREATE TABLE IF NOT EXISTS intents (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 CREATE INDEX IF NOT EXISTS intents_doco_idx ON intents (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS intents_lifecycle_idx ON intents (doco_id, lifecycle);
@@ -118,8 +113,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 CREATE INDEX IF NOT EXISTS decisions_doco_idx ON decisions (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS decisions_lifecycle_idx ON decisions (doco_id, lifecycle);
@@ -134,8 +128,7 @@ CREATE TABLE IF NOT EXISTS rules (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
@@ -150,8 +143,7 @@ CREATE TABLE IF NOT EXISTS actions (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 CREATE INDEX IF NOT EXISTS actions_doco_idx ON actions (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS actions_lifecycle_idx ON actions (doco_id, lifecycle);
@@ -166,8 +158,7 @@ CREATE TABLE IF NOT EXISTS reasoning (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 CREATE INDEX IF NOT EXISTS reasoning_doco_idx ON reasoning (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS reasoning_lifecycle_idx ON reasoning (doco_id, lifecycle);
@@ -182,8 +173,7 @@ CREATE TABLE IF NOT EXISTS evals (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
@@ -199,7 +189,6 @@ CREATE TABLE IF NOT EXISTS scopes (
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text,
-  revision    integer NOT NULL DEFAULT 1,
   UNIQUE (doco_id, name)
 );
 CREATE INDEX IF NOT EXISTS scopes_doco_idx ON scopes (doco_id, created_at DESC);
@@ -223,8 +212,7 @@ CREATE TABLE IF NOT EXISTS ideas (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 
 CREATE TABLE IF NOT EXISTS reference_entities (
@@ -236,8 +224,7 @@ CREATE TABLE IF NOT EXISTS reference_entities (
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  revision    integer NOT NULL DEFAULT 1
+  updated_by  text
 );
 
 -- Doco-level Principal/Organization references (multi-tenant Principals
@@ -265,13 +252,11 @@ CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DE
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_actor_idx ON audit_events (by_principal, at DESC);
 
--- Indexing layer tables. These ports of the @doco/index SQLite cache
--- (`.doco/cache.db`) move the index into Postgres as part of the
--- "Postgres is source of truth, SQLite goes away" migration that
--- supersedes ADR-023 (tiered architecture) and ADR-024 (SQLite + FTS5).
--- Phase 1 of that migration is additive only: the tables exist alongside
--- the SQLite layer so writers can dual-write. Later phases switch
--- readers over and delete the SQLite path entirely.
+-- Indexing layer tables. These hold the derived-data the read side
+-- consumes — graph edges, vector embeddings, denormalized rule targets,
+-- and full-text search rows. Supersedes ADR-023 (tiered architecture)
+-- and ADR-024 (SQLite + FTS5) — Postgres is now both source of truth
+-- and read-side index.
 
 -- Graph edges (ADR-025). Materialized from frontmatter ID-shaped fields
 -- by the indexer. attribution=='explicit' means declared in source;
@@ -295,11 +280,10 @@ CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges (edge_type);
 CREATE INDEX IF NOT EXISTS edges_attribution_idx ON edges (attribution);
 
 -- Vector embeddings (ADR-052). One row per entity. Storage is bytea
--- (Float32Array bytes, little-endian) — same wire format as the SQLite
--- BLOB it replaces. pgvector + ivfflat/hnsw is an additive optimization
--- for Tier-C scale (currently Tier B per ADR-049, where sequential
--- cosine is microseconds). Switching to vector(N) later is a column-type
--- migration with no data reformat.
+-- (Float32Array bytes, little-endian). pgvector + ivfflat/hnsw is an
+-- additive optimization for Tier-C scale (currently Tier B per ADR-049,
+-- where sequential cosine is microseconds). Switching to vector(N) later
+-- is a column-type migration with no data reformat.
 -- model_id + content_hash let the reindex hook skip work when nothing
 -- changed; a model swap invalidates rows whose model_id differs.
 CREATE TABLE IF NOT EXISTS embeddings (
@@ -328,7 +312,7 @@ CREATE TABLE IF NOT EXISTS scope_match (
 CREATE INDEX IF NOT EXISTS scope_match_target_idx ON scope_match (target_id);
 CREATE INDEX IF NOT EXISTS scope_match_doco_idx   ON scope_match (doco_id);
 
--- Full-text search (replaces SQLite FTS5 virtual table). One row per
+-- Full-text search. One row per
 -- entity. The indexer populates summary + body; search_tsv is a
 -- generated tsvector with English stemming and weighting (A=summary,
 -- B=body). The GIN index handles `@@` queries efficiently.
@@ -345,3 +329,16 @@ CREATE TABLE IF NOT EXISTS entity_fts (
 );
 CREATE INDEX IF NOT EXISTS entity_fts_doco_idx ON entity_fts (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_tsv_idx  ON entity_fts USING gin (search_tsv);
+
+-- Drop the legacy `revision` column from entity tables. Was incremented
+-- on every upsert but never read by any TS code (decision_01KRHBZMD0V35NAX94Y7N2MXVA
+-- flagged it; never fully retired). Idempotent — no-op on fresh DBs.
+ALTER TABLE intents            DROP COLUMN IF EXISTS revision;
+ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
+ALTER TABLE rules              DROP COLUMN IF EXISTS revision;
+ALTER TABLE actions            DROP COLUMN IF EXISTS revision;
+ALTER TABLE reasoning          DROP COLUMN IF EXISTS revision;
+ALTER TABLE evals              DROP COLUMN IF EXISTS revision;
+ALTER TABLE scopes             DROP COLUMN IF EXISTS revision;
+ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
+ALTER TABLE reference_entities DROP COLUMN IF EXISTS revision;
