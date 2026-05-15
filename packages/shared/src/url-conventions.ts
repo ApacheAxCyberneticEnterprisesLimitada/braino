@@ -79,8 +79,13 @@ export interface EntityUrlInput {
 
 /**
  * Canonical URL for an entity — short form, no `/e/`.
+ *
+ * Per decision_01KRPNZY7W6CCMYNKGND67BP0B scopes use the plural form
+ * `/scopes/<id>` so the merged detail+edit page lives at one stable URL.
+ * Every other node type uses the singular-type short form.
  */
 export function entityUrl({ ownerSlug, docoSlug, nodeType, id }: EntityUrlInput): string {
+  if (nodeType === "scope") return `/${ownerSlug}/${docoSlug}/scopes/${id}`;
   return `/${ownerSlug}/${docoSlug}/${nodeType}/${id}`;
 }
 

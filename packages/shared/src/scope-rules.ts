@@ -61,6 +61,14 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
   // automated check, evaluated nowhere.
   const rules = opts.scope.authoring_rules ?? [];
   if (rules.length === 0) return violations;
+  // Per decision_01KRPNZY7W6CCMYNKGND67BP0B rules with lifecycle
+  // `abandoned` / `superseded` are skipped (soft-deprecation); the
+  // index in the array stays stable so `rule_index` on violations still
+  // resolves back to the right slot for callers that look up the spec.
+  const isActiveLifecycle = (r: unknown): boolean => {
+    const lc = (r as { lifecycle?: string }).lifecycle;
+    return lc === undefined || lc === "active" || lc === "proposed";
+  };
 
   const entity = opts.entity as unknown as Record<string, unknown>;
   const entityId = (entity.id as string) ?? "";
@@ -72,6 +80,7 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
 
   for (let i = 0; i < rules.length; i++) {
     const rule = rules[i]!;
+    if (!isActiveLifecycle(rule)) continue;
     switch (rule.kind) {
       case "requires_edge": {
         const matched = outgoing.some(

@@ -253,6 +253,14 @@ export interface Reference extends CommonFields {
 // says how nodes inside it should be authored. Per ADR-082.
 
 /**
+ * Per-rule lifecycle (decision_01KRPNZY7W6CCMYNKGND67BP0B). Rules on a
+ * scope follow the same lifecycle stages every other node uses — "active"
+ * is the working default, "abandoned" is what "deprecate" sets, and the
+ * engine + agent-facing surfaces only consider non-abandoned rules.
+ */
+export type RuleLifecycle = "active" | "proposed" | "abandoned" | "superseded";
+
+/**
  * Authoring rule — engine-readable predicate fired at write time. When a
  * node enters this scope (capture or scope-add via update), every
  * authoring rule is evaluated; failures block the write. Deterministic
@@ -266,10 +274,15 @@ export interface Reference extends CommonFields {
  * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA the term "authoring rule"
  * replaces the previously-generic "ScopeRule" name to mirror the parallel
  * concept of "guidance rule" (prose-only, agent-facing, not enforced).
+ * Per decision_01KRPNZY7W6CCMYNKGND67BP0B each rule gains a `lifecycle`
+ * field so deprecation is soft (abandoned), not array-splice.
  */
-export type AuthoringRule =
-  | { kind: "requires_edge"; edge_type: string; target_node_type?: string; reason?: string }
-  | { kind: "forbids_edge"; edge_type: string; target_node_type?: string; reason?: string }
+export type AuthoringRule = {
+  lifecycle?: RuleLifecycle;
+  reason?: string;
+} & (
+  | { kind: "requires_edge"; edge_type: string; target_node_type?: string }
+  | { kind: "forbids_edge"; edge_type: string; target_node_type?: string }
   /**
    * Frontmatter fields that nodes in this scope MUST declare. Plural because
    * one rule typically expresses a whole set of required fields ("nodes here
@@ -278,24 +291,29 @@ export type AuthoringRule =
    * exactly what to add. Loader accepts the legacy `field: string` shape
    * and normalizes to `fields: [field]`.
    */
-  | { kind: "requires_field"; fields: string[]; reason?: string }
-  | { kind: "forbids_field"; fields: string[]; reason?: string }
+  | { kind: "requires_field"; fields: string[] }
+  | { kind: "forbids_field"; fields: string[] }
   /**
    * Doco-wide mandatory scopes — every node must list each of these. Plural
    * for the same reason as the field rules. Loader accepts the legacy
    * `scope_id: string` shape and normalizes to `scope_ids: [scope_id]`.
    */
-  | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[]; reason?: string }
+  | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
   /** Probabilistic — LLM reads the spec + the candidate node, returns ok/reason. */
-  | { kind: "probabilistic"; spec: string; reason?: string };
+  | { kind: "probabilistic"; spec: string }
+);
 
 /**
  * Guidance rule — prose for agents to read while working in or with this
- * scope. No automated check. Replaces the previous `guidelines` field;
- * the project owner authors one prose line per guidance rule (or multiple
- * via the prose classifier's split).
+ * scope. No automated check. Per decision_01KRPNZY7W6CCMYNKGND67BP0B
+ * each guidance rule carries its own lifecycle so deprecation is soft.
+ * The previous bare-`string` shape was promoted to this object shape;
+ * migration converts old strings into `{ text, lifecycle: "active" }`.
  */
-export type GuidanceRule = string;
+export interface GuidanceRule {
+  text: string;
+  lifecycle?: RuleLifecycle;
+}
 
 export interface Scope extends CommonFields {
   node_type: "scope";

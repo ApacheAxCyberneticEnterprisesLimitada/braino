@@ -24,12 +24,18 @@ export interface ScopeTemplate {
 
 export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
   {
-    name: "constitution",
-    label: "Constitution",
+    // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
+    // scope renamed from "constitution" → "global". The label keeps
+    // "Constitution" as the readable handle next to "global" on the
+    // scope list ("the doco's constitution"); the canonical name is
+    // global so it sorts predictably and isn't conflated with the
+    // /constitution route (which was removed).
+    name: "global",
+    label: "Global (the doco's constitution)",
     icon: "⚖️",
     purpose:
       "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite. Every Doco has one.",
-    guidelines: `The Constitution is where you put the rules that other rules cite. It's not a list of "nice-to-haves" — it's the schema-shaped commitments the project is held to.
+    guidelines: `The Global scope is where you put the rules that other rules cite — the doco's constitution. It's not a list of "nice-to-haves" — it's the schema-shaped commitments the project is held to.
 
 What belongs here:
 - **Rules** that other Rules / Decisions reference. ("Every public endpoint must enforce auth", "ULIDs are the canonical id".)
@@ -41,7 +47,7 @@ What does NOT belong:
 - One-off bug fixes (scope_bugfix).
 - Speculative ideas (scope_meta).
 
-The Constitution has its own deterministic rules (declared in its \`rules\` array):
+The Global scope has its own deterministic authoring rules (declared in its \`authoring_rules\` array):
 - **mandatory_scope** — declare scopes that every node in this Doco must list.
 
 If you need a new invariant, capture it as a Rule in this scope. If it warrants its own ADR, write the Decision here too.`,

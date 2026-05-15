@@ -449,20 +449,26 @@ export async function createDocoInHost(
     ),
   );
 
-  const constitutionTemplate = findScopeTemplate("constitution");
+  // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded scope
+  // is "global", not "constitution" — the readable label "the doco's
+  // constitution" is rendered next to the name on /scopes.
+  const globalTemplate = findScopeTemplate("global");
   await createScopeInDoco({
     docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
     docoId,
-    name: "constitution",
-    ...(constitutionTemplate?.icon ? { icon: constitutionTemplate.icon } : {}),
+    name: "global",
+    ...(globalTemplate?.icon ? { icon: globalTemplate.icon } : {}),
     // Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA: purpose retired; the
     // template's `guidelines` becomes the seed guidance_rules[0].
-    ...(constitutionTemplate?.guidelines
-      ? { guidance_rules: [constitutionTemplate.guidelines] }
+    // Per decision_01KRPNZY7W6CCMYNKGND67BP0B guidance rules are now
+    // objects: { text, lifecycle? }.
+    ...(globalTemplate?.guidelines
+      ? { guidance_rules: [{ text: globalTemplate.guidelines, lifecycle: "active" }] }
       : {}),
     authoring_rules: [
       {
         kind: "probabilistic",
+        lifecycle: "active",
         spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
         reason:
           "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
@@ -509,10 +515,13 @@ export interface CreateScopeOptions {
   authoring_rules?: unknown[];
   /**
    * Guidance rules — prose for agents to read while working in or with
-   * this scope. No automated check. Replaces the previous `guidelines`
+   * this scope. No automated check. Per
+   * decision_01KRPNZY7W6CCMYNKGND67BP0B each rule is an object with a
+   * `text` field and a per-rule `lifecycle` ("active" by default,
+   * "abandoned" for deprecated). Replaces the previous `guidelines`
    * markdown field.
    */
-  guidance_rules?: string[];
+  guidance_rules?: { text: string; lifecycle?: string }[];
   /**
    * Whether this scope is "watched" — a soft attention signal for
    * contributors (person or agent). When authoring a node, scan against
@@ -532,11 +541,12 @@ export async function createScopeInDoco(
 ): Promise<EntityId<"scope">> {
   const id = makeEntityId("scope", generateUlid()) as EntityId<"scope">;
   const created = nowIso();
-  // Fifth framework-native behavior of the Constitution scope
-  // (decision_01KRKS5H2A5QER84CJ8R4VD36Z, rule_01KRKS60A11YEWDASBT6V3HTE9):
+  // Fifth framework-native behavior of the Global scope
+  // (decision_01KRKS5H2A5QER84CJ8R4VD36Z, rule_01KRKS60A11YEWDASBT6V3HTE9;
+  // renamed from "constitution" per decision_01KRPNZY7W6CCMYNKGND67BP0B):
   // it is always watched and cannot be unwatched. Force watched=true
-  // for any scope named "constitution" regardless of the caller's input.
-  const watched = opts.name === "constitution" ? true : opts.watched;
+  // for any scope named "global" regardless of the caller's input.
+  const watched = opts.name === "global" ? true : opts.watched;
   const yaml: Record<string, unknown> = {
     id,
     doco_id: opts.docoId,
@@ -592,9 +602,9 @@ export async function setScopeWatchedInDoco(opts: {
       [opts.targetScopeId],
     );
     if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.targetScopeId}`);
-    if (cur.rows[0].name === "constitution" && opts.watched === false) {
+    if (cur.rows[0].name === "global" && opts.watched === false) {
       throw new Error(
-        "The Constitution scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
+        "The Global scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
       );
     }
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
@@ -704,7 +714,9 @@ export async function materializeScopeTree(opts: {
           docoId: opts.docoId,
           name,
           ...(tpl?.icon ? { icon: tpl.icon } : {}),
-          ...(tpl?.guidelines ? { guidance_rules: [tpl.guidelines] } : {}),
+          ...(tpl?.guidelines
+            ? { guidance_rules: [{ text: tpl.guidelines, lifecycle: "active" }] }
+            : {}),
           ...(parentId ? { parentScopes: [parentId] } : {}),
           watched: false,
           createdBy: opts.createdBy,
@@ -841,9 +853,11 @@ export interface UpdateScopeOptions {
   /**
    * Replace the entire guidance-rules list. Pass null (or []) to clear.
    * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old
-   * `guidelines` markdown field.
+   * `guidelines` markdown field; per
+   * decision_01KRPNZY7W6CCMYNKGND67BP0B each entry is an object with
+   * `text` and a per-rule `lifecycle`.
    */
-  guidance_rules?: string[] | null;
+  guidance_rules?: { text: string; lifecycle?: string }[] | null;
   /**
    * Lifecycle transition. The Danger Zone "Deprecate" button sends
    * "abandoned"; reactivation sends "active". Per the
