@@ -455,9 +455,12 @@ export async function createDocoInHost(
     docoId,
     name: "constitution",
     ...(constitutionTemplate?.icon ? { icon: constitutionTemplate.icon } : {}),
-    ...(constitutionTemplate?.purpose ? { purpose: constitutionTemplate.purpose } : {}),
-    ...(constitutionTemplate?.guidelines ? { guidelines: constitutionTemplate.guidelines } : {}),
-    rules: [
+    // Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA: purpose retired; the
+    // template's `guidelines` becomes the seed guidance_rules[0].
+    ...(constitutionTemplate?.guidelines
+      ? { guidance_rules: [constitutionTemplate.guidelines] }
+      : {}),
+    authoring_rules: [
       {
         kind: "probabilistic",
         spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
@@ -480,8 +483,9 @@ export async function createDocoInHost(
 }
 
 /**
- * Write a Scope entity into a Doco's `scopes/` directory. Per ADR-080
- * (creation flow) + ADR-081 (edge hierarchy) + ADR-082 (purpose + guidelines).
+ * Write a Scope entity into a Doco. Per ADR-080 (creation flow), ADR-081
+ * (edge hierarchy), and decision_01KRPMC7CVDA9WZ5DKH81TVAAA (the unified
+ * authoring_rules + guidance_rules model).
  *
  * Names are flat tokens; parent scopes go in the `scopes` array. To express
  * `country/france/payment`, create three scopes — `country`, `france` (with
@@ -496,27 +500,28 @@ export interface CreateScopeOptions {
   name: string;
   /** Single emoji used to identify this scope at a glance. Optional. */
   icon?: string;
-  description?: string;
-  /** Why this scope exists (ADR-082). */
-  purpose?: string;
-  /** Markdown guidance on how to author nodes in this scope (ADR-082). */
-  guidelines?: string;
   /** Parent scopes — semantically "this scope belongs to those." (ADR-081) */
   parentScopes?: EntityId<"scope">[];
   /**
-   * Optional rules — predicates the engine evaluates when a node enters
-   * this scope (on capture / scope-add via update).
+   * Authoring rules — engine-readable predicates fired at capture/update
+   * time. Failures block the write. Replaces the previous `rules` field.
    */
-  rules?: unknown[];
+  authoring_rules?: unknown[];
+  /**
+   * Guidance rules — prose for agents to read while working in or with
+   * this scope. No automated check. Replaces the previous `guidelines`
+   * markdown field.
+   */
+  guidance_rules?: string[];
   /**
    * Whether this scope is "watched" — a soft attention signal for
    * contributors (person or agent). When authoring a node, scan against
    * watched scopes and tag the new node into any that fit. Stored as
    * `watched: true` on the scope's own YAML. NOT enforced at capture
-   * time — hard enforcement is what `mandatory_scope` Constitution rules
-   * are for (a separate mechanism, accessed via the scope's Rules
-   * editor, not the watched toggle). Required on every scope creation
-   * — no default — so the choice is always explicit.
+   * time — hard enforcement is what `mandatory_scope` authoring rules on
+   * the Constitution are for (a separate mechanism, accessed via the
+   * scope's Rules editor, not the watched toggle). Required on every
+   * scope creation — no default — so the choice is always explicit.
    */
   watched: boolean;
   createdBy: EntityId<"principal"> | null;
@@ -536,17 +541,19 @@ export async function createScopeInDoco(
     id,
     doco_id: opts.docoId,
     node_type: "scope",
-    summary: opts.description?.trim() || opts.purpose?.trim() || `Scope: ${opts.name}`,
+    summary: `Scope: ${opts.name}`,
     name: opts.name,
     ...(opts.icon ? { icon: opts.icon } : {}),
-    ...(opts.description ? { description: opts.description } : {}),
-    ...(opts.purpose ? { purpose: opts.purpose } : {}),
-    ...(opts.guidelines ? { guidelines: opts.guidelines } : {}),
     created_at: created,
     created_by: opts.createdBy,
     lifecycle: "active",
     scopes: opts.parentScopes ?? [],
-    ...(opts.rules && opts.rules.length > 0 ? { rules: opts.rules } : {}),
+    ...(opts.authoring_rules && opts.authoring_rules.length > 0
+      ? { authoring_rules: opts.authoring_rules }
+      : {}),
+    ...(opts.guidance_rules && opts.guidance_rules.length > 0
+      ? { guidance_rules: opts.guidance_rules }
+      : {}),
     ...(watched ? { watched: true } : {}),
   };
   const { withClient } = await import("@doco/db");
@@ -667,10 +674,10 @@ export function parseScopeNamesInput(
  * parent edges pointing leaf → root.
  *
  * Existing scopes can be passed via `existingByName` to avoid double-creation.
- * If a template prefills purpose/guidelines for a path's leaf, the caller
+ * If a template prefills icon / guidelines for a path's leaf, the caller
  * should look it up via `findScopeTemplate` and pass it as `templateForLeaf`.
- *
- * Per ADR-081 + ADR-082.
+ * Per ADR-081 + decision_01KRPMC7CVDA9WZ5DKH81TVAAA (the template's
+ * `guidelines` becomes the seed guidance_rules[0]; `purpose` is dropped).
  */
 export async function materializeScopeTree(opts: {
   docoDir: string;
@@ -680,7 +687,7 @@ export async function materializeScopeTree(opts: {
   existingByName?: Map<string, EntityId<"scope">>;
   templateForLeaf?: (
     leafName: string,
-  ) => { icon?: string; purpose?: string; guidelines?: string } | undefined;
+  ) => { icon?: string; guidelines?: string } | undefined;
 }): Promise<{ created: EntityId<"scope">[]; byName: Map<string, EntityId<"scope">> }> {
   const byName = new Map(opts.existingByName ?? []);
   const created: EntityId<"scope">[] = [];
@@ -697,8 +704,7 @@ export async function materializeScopeTree(opts: {
           docoId: opts.docoId,
           name,
           ...(tpl?.icon ? { icon: tpl.icon } : {}),
-          ...(tpl?.purpose ? { purpose: tpl.purpose } : {}),
-          ...(tpl?.guidelines ? { guidelines: tpl.guidelines } : {}),
+          ...(tpl?.guidelines ? { guidance_rules: [tpl.guidelines] } : {}),
           ...(parentId ? { parentScopes: [parentId] } : {}),
           watched: false,
           createdBy: opts.createdBy,
@@ -824,14 +830,20 @@ export interface UpdateScopeOptions {
   scopeId: EntityId<"scope">;
   /** Single emoji icon. Pass `null` or "" to clear; omit to leave as-is. */
   icon?: string | null;
-  purpose?: string | null;
-  guidelines?: string | null;
   /** Replace the entire parent list (not append). Pass [] to clear. */
   parentScopes?: EntityId<"scope">[];
   /**
-   * Replace the entire rules list. Pass null to clear.
+   * Replace the entire authoring-rules list. Pass null (or []) to clear.
+   * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old `rules`
+   * field.
    */
-  rules?: unknown[] | null;
+  authoring_rules?: unknown[] | null;
+  /**
+   * Replace the entire guidance-rules list. Pass null (or []) to clear.
+   * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old
+   * `guidelines` markdown field.
+   */
+  guidance_rules?: string[] | null;
   /**
    * Lifecycle transition. The Danger Zone "Deprecate" button sends
    * "abandoned"; reactivation sends "active". Per the
@@ -845,20 +857,22 @@ function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOption
     if (opts.icon === null || opts.icon === "") delete yaml.icon;
     else yaml.icon = opts.icon;
   }
-  if (opts.purpose !== undefined) {
-    if (opts.purpose === null || opts.purpose === "") delete yaml.purpose;
-    else yaml.purpose = opts.purpose;
-  }
-  if (opts.guidelines !== undefined) {
-    if (opts.guidelines === null || opts.guidelines === "") delete yaml.guidelines;
-    else yaml.guidelines = opts.guidelines;
-  }
   if (opts.parentScopes !== undefined) {
     yaml.scopes = opts.parentScopes;
   }
-  if (opts.rules !== undefined) {
-    if (opts.rules === null || opts.rules.length === 0) delete yaml.rules;
-    else yaml.rules = opts.rules;
+  if (opts.authoring_rules !== undefined) {
+    if (opts.authoring_rules === null || opts.authoring_rules.length === 0) {
+      delete yaml.authoring_rules;
+    } else {
+      yaml.authoring_rules = opts.authoring_rules;
+    }
+  }
+  if (opts.guidance_rules !== undefined) {
+    if (opts.guidance_rules === null || opts.guidance_rules.length === 0) {
+      delete yaml.guidance_rules;
+    } else {
+      yaml.guidance_rules = opts.guidance_rules;
+    }
   }
   if (opts.lifecycle !== undefined) {
     yaml.lifecycle = opts.lifecycle;

@@ -20,7 +20,7 @@
  * Scope itself enforces on its members.)
  */
 
-import type { Entity, ScopeRule, Scope } from "./entities.js";
+import type { Entity, AuthoringRule, Scope } from "./entities.js";
 
 export interface EngineEdge {
   from_id: string;
@@ -29,10 +29,10 @@ export interface EngineEdge {
 }
 
 export interface RuleViolation {
-  /** Index of the rule in the scope's `rules` (so callers can cite it). */
+  /** Index of the rule in the scope's `authoring_rules` (so callers can cite it). */
   rule_index: number;
-  /** Kind of the violated rule (for messaging). */
-  kind: ScopeRule["kind"];
+  /** Kind of the violated authoring rule (for messaging). */
+  kind: AuthoringRule["kind"];
   /** Human-readable explanation. */
   reason: string;
   /** Whether this is a hard error (deterministic) or a soft signal (probabilistic). */
@@ -55,7 +55,11 @@ export interface EvaluateOptions {
  */
 export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
   const violations: RuleViolation[] = [];
-  const rules = opts.scope.rules ?? [];
+  // Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA the field is now
+  // `authoring_rules` (was: `rules`). The engine only ever reads the
+  // authoring kind — guidance_rules are agent-facing prose with no
+  // automated check, evaluated nowhere.
+  const rules = opts.scope.authoring_rules ?? [];
   if (rules.length === 0) return violations;
 
   const entity = opts.entity as unknown as Record<string, unknown>;
@@ -191,7 +195,7 @@ export function pendingProbabilistic(violations: RuleViolation[]): RuleViolation
 // Accept both the plural form (`fields: string[]`) and the legacy singular
 // form (`field: string`) so YAML written before the plural rollout still
 // evaluates. Empty / non-string entries are dropped silently.
-function readFieldList(rule: ScopeRule): string[] {
+function readFieldList(rule: AuthoringRule): string[] {
   const rec = rule as unknown as Record<string, unknown>;
   if (Array.isArray(rec.fields)) {
     return rec.fields.filter((f): f is string => typeof f === "string" && f.length > 0);
@@ -200,7 +204,7 @@ function readFieldList(rule: ScopeRule): string[] {
   return [];
 }
 
-function readScopeIdList(rule: ScopeRule): string[] {
+function readScopeIdList(rule: AuthoringRule): string[] {
   const rec = rule as unknown as Record<string, unknown>;
   if (Array.isArray(rec.scope_ids)) {
     return rec.scope_ids.filter((s): s is string => typeof s === "string" && s.length > 0);

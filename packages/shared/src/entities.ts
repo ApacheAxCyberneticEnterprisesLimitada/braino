@@ -253,15 +253,21 @@ export interface Reference extends CommonFields {
 // says how nodes inside it should be authored. Per ADR-082.
 
 /**
- * A rule attached to a Scope. Evaluated by the rules engine on every
- * capture / scope-add. Deterministic rules are evaluated against the
- * entity's frontmatter + the Doco's graph; probabilistic rules ask the
- * LLM to interpret a prose spec and return accept/reject.
+ * Authoring rule — engine-readable predicate fired at write time. When a
+ * node enters this scope (capture or scope-add via update), every
+ * authoring rule is evaluated; failures block the write. Deterministic
+ * rules check structure against the entity's frontmatter + the Doco's
+ * graph; probabilistic rules ask the LLM to interpret a prose spec and
+ * return accept/reject.
  *
  * (Distinct from the Rule *node type* in the Doco's graph — these are
  * the predicates a Scope itself enforces on its members.)
+ *
+ * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA the term "authoring rule"
+ * replaces the previously-generic "ScopeRule" name to mirror the parallel
+ * concept of "guidance rule" (prose-only, agent-facing, not enforced).
  */
-export type ScopeRule =
+export type AuthoringRule =
   | { kind: "requires_edge"; edge_type: string; target_node_type?: string; reason?: string }
   | { kind: "forbids_edge"; edge_type: string; target_node_type?: string; reason?: string }
   /**
@@ -283,6 +289,14 @@ export type ScopeRule =
   /** Probabilistic — LLM reads the spec + the candidate node, returns ok/reason. */
   | { kind: "probabilistic"; spec: string; reason?: string };
 
+/**
+ * Guidance rule — prose for agents to read while working in or with this
+ * scope. No automated check. Replaces the previous `guidelines` field;
+ * the project owner authors one prose line per guidance rule (or multiple
+ * via the prose classifier's split).
+ */
+export type GuidanceRule = string;
+
 export interface Scope extends CommonFields {
   node_type: "scope";
   /** Flat token: ^[a-z][a-z0-9_-]*$ */
@@ -295,28 +309,34 @@ export interface Scope extends CommonFields {
    * icon; custom scopes can pick any single emoji.
    */
   icon?: string;
-  description?: string;
-  /** Why this scope exists; what nodes belong here. */
-  purpose?: string;
-  /** Markdown guidance on how to author nodes in this scope. */
-  guidelines?: string;
   /**
-   * Rules — predicates evaluated when a node enters this scope (on
-   * capture, or on a scope-add via update). Failures from deterministic
-   * kinds block the write; probabilistic kinds surface as warnings.
+   * Authoring rules — predicates evaluated when a node enters this scope
+   * (on capture, or on a scope-add via update). Failures from
+   * deterministic kinds block the write; probabilistic kinds run an LLM
+   * judge at capture time and block on `ok:false`.
+   *
+   * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old `rules`
+   * field on Scope.
    */
-  rules?: ScopeRule[];
+  authoring_rules?: AuthoringRule[];
+  /**
+   * Guidance rules — prose-only rules the agent reads while working in or
+   * with this scope. No automated check. Replaces the previous
+   * `guidelines` markdown field.
+   */
+  guidance_rules?: GuidanceRule[];
   /**
    * "Watched" scopes are an attention signal for contributors (person or
    * agent) — when authoring a node, scan against watched scopes and tag
    * the new node into any that fit. Not enforced at capture time (that's
-   * what `mandatory_scope` rules on the Constitution are for, when the
-   * project genuinely wants hard enforcement); a soft prompt to think
-   * about the scope, captured in the scope-creation/edit flow so the
-   * project's "topics worth tracking" stays visible.
+   * what `mandatory_scope` authoring rules on the Constitution are for,
+   * when the project genuinely wants hard enforcement); a soft prompt to
+   * think about the scope, captured in the scope-creation/edit flow so
+   * the project's "topics worth tracking" stays visible.
    */
   watched?: boolean;
 }
+
 
 // ─── Organization (ADR-062) ──────────────────────────────────────────────
 
