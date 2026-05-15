@@ -5,7 +5,7 @@
 --
 -- Single-database, multi-tenant: every entity carries its `doco_id`
 -- which scopes it to the owning Doco. Hosts can hold thousands of
--- Docos in one database.
+-- Doco instances in one database.
 --
 -- Schema rules:
 --   - Each entity type gets its own table; common columns live up top
