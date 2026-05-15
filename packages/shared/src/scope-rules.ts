@@ -6,8 +6,10 @@
  * first-class Rule entities (kind: "authoring" with a typed `predicate`
  * in their frontmatter). The engine still takes the predicates as input;
  * the caller is responsible for loading the Rule entities and pulling
- * each one's `predicate` and `lifecycle`. The engine doesn't know the
- * predicates came from Rule entities — it just evaluates them.
+ * each one's `predicate` and `lifecycle`. Global-scope authoring rules
+ * are loaded for every new node by the caller; all other scope rules
+ * are loaded only when the node lists that scope. The engine doesn't
+ * know the predicates came from Rule entities — it just evaluates them.
  *
  * Predicate flavors:
  *
@@ -67,8 +69,8 @@ export interface EvaluateOptions {
   entity: Entity;
   /**
    * The authoring rules to evaluate. Loaded by the caller from the
-   * `rules` table (kind=authoring, in_scope_of the relevant scope,
-   * lifecycle active/proposed).
+   * `rules` table (kind=authoring, in_scope_of the relevant selected
+   * scopes plus the Global scope, lifecycle active/proposed).
    */
   authoring_rules: LoadedAuthoringRule[];
   /** Optional scope name — used only for error message text. */
@@ -181,9 +183,9 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         break;
       }
       case "mandatory_scope": {
-        // The Global scope's authoring rules with kind=mandatory_scope
-        // apply Doco-wide. The capture path always evaluates them
-        // regardless of whether the candidate node is tagged with Global.
+        // mandatory_scope is most often used by Global authoring rules,
+        // but the predicate itself is plain structural logic: all listed
+        // scopes must be present on the candidate node.
         for (const scopeId of readScopeIdList(rule)) {
           if (!entityScopes.includes(scopeId)) {
             violations.push({
@@ -223,6 +225,28 @@ export function hardFailures(violations: RuleViolation[]): RuleViolation[] {
 
 export function pendingProbabilistic(violations: RuleViolation[]): RuleViolation[] {
   return violations.filter((v) => v.severity === "pending");
+}
+
+export function shouldRunAuthoringRuleForEntity(opts: {
+  ruleScopeId: string;
+  globalScopeId?: string | null;
+  entityScopes: string[];
+}): boolean {
+  if (opts.globalScopeId && opts.ruleScopeId === opts.globalScopeId) return true;
+  return opts.entityScopes.includes(opts.ruleScopeId);
+}
+
+export function globalScopeMembershipViolation(opts: {
+  entityNodeType: string;
+  entityScopes: string[];
+  globalScopeId?: string | null;
+  globalScopeName?: string;
+}): string | null {
+  const { globalScopeId } = opts;
+  if (!globalScopeId || !opts.entityScopes.includes(globalScopeId)) return null;
+  if (opts.entityNodeType === "rule") return null;
+  const name = opts.globalScopeName ?? "global";
+  return `Only Rule nodes may belong to the ${name} scope. Put project content in a project-specific scope; Global is reserved for the rules that govern the Doco.`;
 }
 
 // Accept both the plural form (`fields: string[]`) and the legacy singular

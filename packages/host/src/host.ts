@@ -463,11 +463,9 @@ export async function createDocoInHost(
   });
 
   // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G seed the Global scope's
-  // standing rules as first-class Rule entities (kind=authoring +
-  // kind=guidance) tagged in_scope_of the global scope. The framework-
-  // seeded probabilistic authoring rule reminds agents to surface the
-  // scope manifest; the guidance rule carries the template's
-  // recommended editorial copy.
+  // standing rules as first-class Rule entities tagged in_scope_of the
+  // global scope. Global authoring rules are now per-node enforcement,
+  // so behavioral collaboration reminders belong in guidance rules.
   if (globalTemplate?.guidelines) {
     await createRuleInDoco({
       docoId,
@@ -479,13 +477,9 @@ export async function createDocoInHost(
   }
   await createRuleInDoco({
     docoId,
-    kind: "authoring",
+    kind: "guidance",
     summary:
       "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, abandoning stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
-    predicate: {
-      kind: "probabilistic",
-      spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
-    },
     scopeId: globalScopeId,
     createdBy: owner.kind === "principal" ? owner.id : null,
   });
@@ -525,9 +519,9 @@ export interface CreateScopeOptions {
    * contributors (person or agent). When authoring a node, scan against
    * watched scopes and tag the new node into any that fit. Stored as
    * `watched: true` on the scope's own YAML. NOT enforced at capture
-   * time — hard enforcement is what `mandatory_scope` authoring rules on
-   * the Global scope are for. Required on every scope creation — no
-   * default — so the choice is always explicit.
+   * time — hard enforcement belongs in Global authoring rules (including
+   * `mandatory_scope` when every node must list a scope). Required on
+   * every scope creation — no default — so the choice is always explicit.
    */
   watched: boolean;
   createdBy: EntityId<"principal"> | null;

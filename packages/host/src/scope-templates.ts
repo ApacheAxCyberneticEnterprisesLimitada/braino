@@ -38,19 +38,19 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     guidelines: `The Global scope is where you put the rules that other rules cite — the doco's constitution. It's not a list of "nice-to-haves" — it's the schema-shaped commitments the project is held to.
 
 What belongs here:
-- **Rules** that other Rules / Decisions reference. ("Every public endpoint must enforce auth", "ULIDs are the canonical id".)
-- **Decisions** that are load-bearing — those the system as a whole depends on. (ADR-level material per ADR-105.)
-- **Intents** that name the stakeholder behind each Rule / Decision — every Constitution node should trace back to a stakeholder intent.
+- **Rules** that govern the Doco as a whole or that other Rules / Decisions reference. ("Every public endpoint must enforce auth", "ULIDs are the canonical id".)
 
 What does NOT belong:
+- Decisions, Intents, Actions, Reasoning, References, Ideas, or Evals. Global membership is reserved for Rule nodes only.
 - Implementation details (those live in scope_userflow / scope_design_language / scope_coding_style).
 - One-off bug fixes (scope_bugfix).
 - Speculative ideas (scope_meta).
 
-The Global scope has its own deterministic authoring rules (declared in its \`authoring_rules\` array):
+The Global scope has its own authoring rules, and every one of them runs for every new node in this Doco, even when the node is not tagged Global:
 - **mandatory_scope** — declare scopes that every node in this Doco must list.
+- **requires_*/forbids_* and probabilistic rules** — declare Doco-wide structure and prose checks.
 
-If you need a new invariant, capture it as a Rule in this scope. If it warrants its own ADR, write the Decision here too.`,
+If you need a new invariant, capture it as a Rule in this scope. If the invariant comes from an ADR-level Decision, put that Decision in the project-specific scope it governs and reference the Global Rule from there.`,
   },
   {
     name: "test-evals",
