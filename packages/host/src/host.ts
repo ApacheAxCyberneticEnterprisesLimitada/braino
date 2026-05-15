@@ -1070,14 +1070,16 @@ export async function migrateScopesInDoco(opts: {
 }
 
 /**
- * Apply a partial update to a Scope's YAML on disk (ADR-084 — scope mgmt UX).
+ * Apply a partial update to a Scope (ADR-084 — scope mgmt UX). In
+ * Postgres mode this UPDATEs the row + `raw_yaml`; the legacy CLI
+ * filesystem mode rewrites the on-disk YAML in place.
  *
  * Each field is independently optional. Pass:
  *   - `undefined` to leave it as-is
  *   - `null` or empty-string to clear the field (delete the YAML key)
  *   - a non-empty value to set it
  *
- * Caller is expected to reindex after. Throws if the file doesn't exist.
+ * Caller is expected to reindex after. Throws if the scope doesn't exist.
  */
 export interface UpdateScopeOptions {
   docoDir: string;
@@ -1159,7 +1161,9 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
 // (or "superseded") instead of deletion.
 
 /**
- * Apply a partial update to a Doco's `doco.yaml` on disk (settings page).
+ * Apply a partial update to a Doco's metadata (settings page). In
+ * Postgres mode this UPDATEs the row + `raw_yaml`; the legacy CLI
+ * filesystem mode rewrites `doco.yaml` in place.
  *
  *   - Each field undefined → leave it alone.
  *   - description / display_name: empty string clears the key.
@@ -1234,9 +1238,11 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
 }
 
 /**
- * Rename a Doco's slug — moves the directory `docos/<owner>/<old>` →
- * `docos/<owner>/<new>` and updates the `slug` field in doco.yaml.
- * Caller is expected to reindex the new location.
+ * Rename a Doco's slug. In Postgres mode (the durable path) this updates
+ * `docos.doco_slug` + `raw_yaml` in a single transaction. The legacy
+ * filesystem mode (CLI fallback) renames the on-disk directory and
+ * rewrites doco.yaml; callers in that mode are expected to reindex the
+ * new location.
  *
  * Fails if a Doco with the target slug already exists. Does not touch
  * cross-Doco references — broken refs will surface in the next lint pass.
@@ -1296,11 +1302,12 @@ export async function renameDocoSlug(opts: {
 }
 
 /**
- * Soft-delete a Doco by moving its directory to `docos/<owner>/.deleted/
- * <slug>-<timestamp>/`. The directory remains on disk (recoverable by
- * hand if needed) but is excluded from listings and routing because:
- *   - dashboard / owner-profile listings skip directories starting with `.`
- *   - the `.deleted/` parent is not a valid `<owner>` directory either
+ * Delete a Doco. In Postgres mode (the durable path) this is a hard
+ * delete — `ON DELETE CASCADE` removes every entity, edge, and scope
+ * tied to the Doco. The legacy filesystem mode (CLI fallback) keeps a
+ * soft-delete shape: the directory is moved to `docos/<owner>/.deleted/
+ * <slug>-<timestamp>/` and stays excluded from listings/routing because
+ * dashboard + owner-profile listings skip `.`-prefixed directories.
  *
  * Per ADR-040 only people can call this; the route action gates by
  * `me.type === "person"`. Per `settings-page-delete-doco` Intent.
@@ -1313,11 +1320,11 @@ export async function softDeleteDoco(opts: {
   const { root, ownerSlug, docoSlug } = opts;
 
   if (process.env.DOCO_STORAGE === "postgres") {
-    // Postgres mode: hard-delete via ON DELETE CASCADE (intents, decisions,
-    // rules, etc. all FK docos.id with ON DELETE CASCADE). This is a real
-    // behavior change from the filesystem soft-delete (which keeps the dir
-    // recoverable under .deleted/). Acceptable for alpha; if recoverability
-    // matters later, add a deleted_at column to docos and switch to UPDATE.
+    // Hard-delete via ON DELETE CASCADE (intents, decisions, rules, …
+    // all FK docos.id with ON DELETE CASCADE). Per `delete-is-permanent`
+    // — alpha forbids back-compat soft-delete recovery. If
+    // recoverability matters later, add a deleted_at column to docos and
+    // switch to UPDATE.
     const { withClient } = await import("@doco/db");
     const result = await withClient((c) =>
       c.query(
