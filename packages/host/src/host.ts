@@ -20,7 +20,7 @@ import {
   hostPrincipalsDir,
   hostYamlPath,
 } from "./mode.js";
-import { findScopeTemplate } from "./scope-templates.js";
+import { findScopeTemplate, type ScopeTemplate } from "./scope-templates.js";
 
 export interface HostConfig {
   id: string; // host_<ulid> — meta-Doco style
@@ -453,36 +453,30 @@ export async function createDocoInHost(
   // is "global", not "constitution" — the readable label "the doco's
   // constitution" is rendered next to the name on /scopes.
   const globalTemplate = findScopeTemplate("global");
+  const createdBy = owner.kind === "principal" ? owner.id : null;
   const globalScopeId = await createScopeInDoco({
     docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
     docoId,
     name: "global",
     ...(globalTemplate?.icon ? { icon: globalTemplate.icon } : {}),
     watched: true,
-    createdBy: owner.kind === "principal" ? owner.id : null,
+    createdBy,
   });
 
-  // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G seed the Global scope's
-  // standing rules as first-class Rule entities tagged in_scope_of the
-  // global scope. Global authoring rules are now per-node enforcement,
-  // so behavioral collaboration reminders belong in guidance rules.
-  if (globalTemplate?.guidelines) {
-    await createRuleInDoco({
+  // Per the template-cleanup decision (cuts the registry to global +
+  // user-flows, lifts `purpose`→Intent and `guidelines`→Rule[]) seed
+  // every entry from the template into the new scope: one Intent for
+  // `intentSummary`, one Rule per `rules[]` entry. Both flow through
+  // the regular create helpers so the project owner can edit, deprecate,
+  // or supersede them like any other Doco-owned node.
+  if (globalTemplate) {
+    await seedScopeFromTemplate({
       docoId,
-      kind: "guidance",
-      summary: globalTemplate.guidelines,
       scopeId: globalScopeId,
-      createdBy: owner.kind === "principal" ? owner.id : null,
+      template: globalTemplate,
+      createdBy,
     });
   }
-  await createRuleInDoco({
-    docoId,
-    kind: "guidance",
-    summary:
-      "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, abandoning stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
-    scopeId: globalScopeId,
-    createdBy: owner.kind === "principal" ? owner.id : null,
-  });
 
   return {
     ownerSlug: opts.ownerSlug,
@@ -637,6 +631,112 @@ export async function createRuleInDoco(
 }
 
 /**
+ * Insert an Intent entity tagged with a scope. Used by the install flow
+ * to seed each template's `intentSummary` as a real Intent at the moment
+ * the scope is created (Doco creation for `global`, scope-picker click
+ * for `user-flows`). The Intent then lives in the Doco like any other —
+ * editable, deprecatable, can be referenced by Decisions via
+ * `intent_ids`.
+ */
+export interface CreateIntentOptions {
+  docoId: EntityId<"doco">;
+  /** One-line readable description of the stakeholder outcome. */
+  summary: string;
+  /** Optional markdown body. */
+  body_md?: string;
+  /** The scope this Intent is tagged with (in_scope_of edge target). */
+  scopeId: EntityId<"scope">;
+  /** Initial lifecycle. Defaults to "active". */
+  lifecycle?: "active" | "proposed" | "abandoned" | "superseded";
+  createdBy: EntityId<"principal"> | null;
+}
+
+export async function createIntentInDoco(
+  opts: CreateIntentOptions,
+): Promise<EntityId<"intent">> {
+  const id = makeEntityId("intent", generateUlid()) as EntityId<"intent">;
+  const created = nowIso();
+  const lifecycle = opts.lifecycle ?? "active";
+  const yaml: Record<string, unknown> = {
+    id,
+    doco_id: opts.docoId,
+    node_type: "intent",
+    summary: opts.summary,
+    created_at: created,
+    created_by: opts.createdBy,
+    lifecycle,
+    scopes: [opts.scopeId],
+    ...(opts.body_md ? { body_md: opts.body_md } : {}),
+  };
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO intents (id, doco_id, summary, raw_yaml, body_md, lifecycle, created_at, updated_at, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $8)`,
+      [
+        id,
+        opts.docoId,
+        opts.summary,
+        JSON.stringify(yaml),
+        opts.body_md ?? "",
+        lifecycle,
+        created,
+        opts.createdBy,
+      ],
+    );
+    await c.query(
+      `INSERT INTO edges (doco_id, from_id, from_node_type, to_id, to_node_type, edge_type)
+       VALUES ($1, $2, 'intent', $3, 'scope', 'in_scope_of')
+       ON CONFLICT DO NOTHING`,
+      [opts.docoId, id, opts.scopeId],
+    );
+  });
+  return id;
+}
+
+/**
+ * Seed a newly-created scope with the entities the framework promises
+ * the project owner on install. Non-Global templates get one Intent
+ * from `template.intentSummary`; every template gets N Rules from
+ * `template.rules`. The Global scope is Rule-only, so its
+ * `intentSummary` is picker/manifest copy, not an Intent tagged Global.
+ */
+export async function seedScopeFromTemplate(opts: {
+  docoId: EntityId<"doco">;
+  scopeId: EntityId<"scope">;
+  template: ScopeTemplate;
+  createdBy: EntityId<"principal"> | null;
+}): Promise<{ intentId?: EntityId<"intent">; ruleIds: EntityId<"rule">[] }> {
+  let intentId: EntityId<"intent"> | undefined;
+  if (opts.template.name !== "global" && opts.template.intentSummary.trim()) {
+    intentId = await createIntentInDoco({
+      docoId: opts.docoId,
+      summary: opts.template.intentSummary.trim(),
+      scopeId: opts.scopeId,
+      createdBy: opts.createdBy,
+    });
+  }
+  const ruleIds: EntityId<"rule">[] = [];
+  for (const r of opts.template.rules) {
+    const summary = r.summary.trim();
+    if (!summary) continue;
+    if (r.kind === "authoring" && !r.predicate) {
+      throw new Error(`Template "${opts.template.name}" has an authoring rule without a predicate.`);
+    }
+    const id = await createRuleInDoco({
+      docoId: opts.docoId,
+      kind: r.kind,
+      summary,
+      ...(r.kind === "authoring" ? { predicate: r.predicate } : {}),
+      scopeId: opts.scopeId,
+      createdBy: opts.createdBy,
+    });
+    ruleIds.push(id);
+  }
+  return intentId ? { intentId, ruleIds } : { ruleIds };
+}
+
+/**
  * Toggle a scope's "watched" flag — a soft attention signal for
  * contributors. Sets `watched: true` on the scope's own YAML, or removes
  * the key when set to false. Idempotent in both directions.
@@ -740,10 +840,9 @@ export function parseScopeNamesInput(
  * parent edges pointing leaf → root.
  *
  * Existing scopes can be passed via `existingByName` to avoid double-creation.
- * If a template prefills icon / guidelines for a path's leaf, the caller
- * should look it up via `findScopeTemplate` and pass it as `templateForLeaf`.
- * Per ADR-081 + decision_01KRPMC7CVDA9WZ5DKH81TVAAA (the template's
- * `guidelines` becomes the seed guidance_rules[0]; `purpose` is dropped).
+ * If a leaf matches a registered ScopeTemplate the caller should pass it via
+ * `templateForLeaf`; the leaf inherits the template's icon and gets seeded
+ * with one Intent + N Rules via `seedScopeFromTemplate`.
  */
 export async function materializeScopeTree(opts: {
   docoDir: string;
@@ -751,9 +850,7 @@ export async function materializeScopeTree(opts: {
   paths: string[][];
   createdBy: EntityId<"principal"> | null;
   existingByName?: Map<string, EntityId<"scope">>;
-  templateForLeaf?: (
-    leafName: string,
-  ) => { icon?: string; guidelines?: string } | undefined;
+  templateForLeaf?: (leafName: string) => ScopeTemplate | undefined;
 }): Promise<{ created: EntityId<"scope">[]; byName: Map<string, EntityId<"scope">> }> {
   const byName = new Map(opts.existingByName ?? []);
   const created: EntityId<"scope">[] = [];
@@ -776,16 +873,11 @@ export async function materializeScopeTree(opts: {
         });
         byName.set(name, id);
         created.push(id);
-        // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G the template's
-        // `guidelines` text becomes a Rule entity (kind=guidance)
-        // tagged in_scope_of the new scope — no longer an embedded
-        // field on the scope.
-        if (tpl?.guidelines) {
-          await createRuleInDoco({
+        if (tpl) {
+          await seedScopeFromTemplate({
             docoId: opts.docoId,
-            kind: "guidance",
-            summary: tpl.guidelines,
             scopeId: id,
+            template: tpl,
             createdBy: opts.createdBy,
           });
         }
