@@ -30,6 +30,15 @@ export interface IndexOptions {
    * didn't change.
    */
   embeddingProvider?: EmbeddingProviderLike;
+  /**
+   * Explicit doco_id, bypassing the on-disk `doco.yaml` lookup. Callers
+   * that already hold the id (capture/patch handlers, scope edits) pass
+   * it through so the reindex works on Postgres-backed deploys whose
+   * serverless filesystem has no `<docoRoot>/doco.yaml`. When absent,
+   * `reindex` falls back to reading the yaml — preserves the
+   * filesystem-rooted developer flow.
+   */
+  docoId?: string;
 }
 
 /**
@@ -111,7 +120,7 @@ export async function reindex(
   docoRoot: string,
   opts: IndexOptions = {},
 ): Promise<BuildReport> {
-  const docoId = readDocoIdFromYaml(docoRoot);
+  const docoId = opts.docoId ?? readDocoIdFromYaml(docoRoot);
   const loaded = await loadDocoFromPostgres(docoRoot, docoId);
   return indexDoco(loaded, opts);
 }
