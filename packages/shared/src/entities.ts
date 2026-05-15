@@ -122,13 +122,47 @@ export interface Idea extends CommonFields {
 
 // ─── Rule ─────────────────────────────────────────────────────────────────
 
+/**
+ * Discriminator on Rule entities (decision_01KRPRDR1AD7S1RP6E69BQDB2G):
+ *
+ *  - "tagged" (default when unset) — a regular Rule that happens to be
+ *    tagged with a scope. No automated check; appears under "Tagged
+ *    rules" on a scope's page.
+ *  - "authoring" — engine-readable predicate fired at capture time.
+ *    Carries `predicate` in the Rule's frontmatter; lifecycle=abandoned
+ *    soft-disables it.
+ *  - "guidance" — prose-only directive the agent reads while working in
+ *    or with the scope. No predicate; the Rule's `summary` and
+ *    optional `body_md` carry the text.
+ */
+export type RuleKind = "authoring" | "guidance" | "tagged";
+
+/**
+ * Authoring predicate — the structured shape the engine evaluates at
+ * write time. Used as `Rule.predicate` when `Rule.kind === "authoring"`.
+ * The old `predicate: string` field on Rule (pre-promotion) is retired.
+ */
+export type AuthoringPredicate =
+  | { kind: "requires_edge"; edge_type: string; target_node_type?: string }
+  | { kind: "forbids_edge"; edge_type: string; target_node_type?: string }
+  | { kind: "requires_field"; fields: string[] }
+  | { kind: "forbids_field"; fields: string[] }
+  | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
+  | { kind: "probabilistic"; spec: string };
+
 export interface Rule extends CommonFields {
   node_type: "rule";
-  modality: "must" | "must_not" | "should" | "should_not";
+  /**
+   * Rule role per decision_01KRPRDR1AD7S1RP6E69BQDB2G. Defaults to
+   * "tagged" when unset (the pre-promotion shape).
+   */
+  kind?: RuleKind;
+  /** Authoring predicate (only when kind === "authoring"). */
+  predicate?: AuthoringPredicate;
+  modality?: "must" | "must_not" | "should" | "should_not";
   severity?: "blocker" | "warning" | "info";
-  phase: "declared" | "pre" | "post" | "invariant";
-  applies_to: ScopeSelector;
-  predicate?: string;
+  phase?: "declared" | "pre" | "post" | "invariant";
+  applies_to?: ScopeSelector;
   expected?: unknown;
   on_violation?: "block" | "warn" | "log";
 }
@@ -260,99 +294,32 @@ export interface Reference extends CommonFields {
  */
 export type RuleLifecycle = "active" | "proposed" | "abandoned" | "superseded";
 
-/**
- * Authoring rule — engine-readable predicate fired at write time. When a
- * node enters this scope (capture or scope-add via update), every
- * authoring rule is evaluated; failures block the write. Deterministic
- * rules check structure against the entity's frontmatter + the Doco's
- * graph; probabilistic rules ask the LLM to interpret a prose spec and
- * return accept/reject.
- *
- * (Distinct from the Rule *node type* in the Doco's graph — these are
- * the predicates a Scope itself enforces on its members.)
- *
- * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA the term "authoring rule"
- * replaces the previously-generic "ScopeRule" name to mirror the parallel
- * concept of "guidance rule" (prose-only, agent-facing, not enforced).
- * Per decision_01KRPNZY7W6CCMYNKGND67BP0B each rule gains a `lifecycle`
- * field so deprecation is soft (abandoned), not array-splice.
- */
-export type AuthoringRule = {
-  lifecycle?: RuleLifecycle;
-  reason?: string;
-} & (
-  | { kind: "requires_edge"; edge_type: string; target_node_type?: string }
-  | { kind: "forbids_edge"; edge_type: string; target_node_type?: string }
-  /**
-   * Frontmatter fields that nodes in this scope MUST declare. Plural because
-   * one rule typically expresses a whole set of required fields ("nodes here
-   * must declare summary, intent_ids, and lifecycle"), not a single one. The
-   * engine still emits one violation per missing field so authors see
-   * exactly what to add. Loader accepts the legacy `field: string` shape
-   * and normalizes to `fields: [field]`.
-   */
-  | { kind: "requires_field"; fields: string[] }
-  | { kind: "forbids_field"; fields: string[] }
-  /**
-   * Doco-wide mandatory scopes — every node must list each of these. Plural
-   * for the same reason as the field rules. Loader accepts the legacy
-   * `scope_id: string` shape and normalizes to `scope_ids: [scope_id]`.
-   */
-  | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
-  /** Probabilistic — LLM reads the spec + the candidate node, returns ok/reason. */
-  | { kind: "probabilistic"; spec: string }
-);
-
-/**
- * Guidance rule — prose for agents to read while working in or with this
- * scope. No automated check. Per decision_01KRPNZY7W6CCMYNKGND67BP0B
- * each guidance rule carries its own lifecycle so deprecation is soft.
- * The previous bare-`string` shape was promoted to this object shape;
- * migration converts old strings into `{ text, lifecycle: "active" }`.
- */
-export interface GuidanceRule {
-  text: string;
-  lifecycle?: RuleLifecycle;
-}
-
 export interface Scope extends CommonFields {
   node_type: "scope";
   /** Flat token: ^[a-z][a-z0-9_-]*$ */
   name: string;
   /**
    * Single emoji used to identify this scope at a glance. Surfaces on
-   * the /scopes list, the /constitution tab, the entity-detail page,
-   * and as a prefix on every capture footer-line that touches a node
-   * in this scope. Default-templated scopes ship with a recommended
-   * icon; custom scopes can pick any single emoji.
+   * the /scopes list, the entity-detail page, and as a prefix on every
+   * capture footer-line that touches a node in this scope.
+   * Default-templated scopes ship with a recommended icon; custom
+   * scopes can pick any single emoji.
    */
   icon?: string;
-  /**
-   * Authoring rules — predicates evaluated when a node enters this scope
-   * (on capture, or on a scope-add via update). Failures from
-   * deterministic kinds block the write; probabilistic kinds run an LLM
-   * judge at capture time and block on `ok:false`.
-   *
-   * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old `rules`
-   * field on Scope.
-   */
-  authoring_rules?: AuthoringRule[];
-  /**
-   * Guidance rules — prose-only rules the agent reads while working in or
-   * with this scope. No automated check. Replaces the previous
-   * `guidelines` markdown field.
-   */
-  guidance_rules?: GuidanceRule[];
   /**
    * "Watched" scopes are an attention signal for contributors (person or
    * agent) — when authoring a node, scan against watched scopes and tag
    * the new node into any that fit. Not enforced at capture time (that's
-   * what `mandatory_scope` authoring rules on the Constitution are for,
+   * what `mandatory_scope` authoring rules on the Global scope are for,
    * when the project genuinely wants hard enforcement); a soft prompt to
    * think about the scope, captured in the scope-creation/edit flow so
    * the project's "topics worth tracking" stays visible.
    */
   watched?: boolean;
+  // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G: scopes no longer carry
+  // embedded `authoring_rules` or `guidance_rules`. Rules are first-class
+  // Rule entities tagged with the scope (in_scope_of edge); the Rule's
+  // `kind` field discriminates authoring / guidance / tagged.
 }
 
 

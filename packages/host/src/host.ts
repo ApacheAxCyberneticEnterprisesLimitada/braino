@@ -453,28 +453,40 @@ export async function createDocoInHost(
   // is "global", not "constitution" — the readable label "the doco's
   // constitution" is rendered next to the name on /scopes.
   const globalTemplate = findScopeTemplate("global");
-  await createScopeInDoco({
+  const globalScopeId = await createScopeInDoco({
     docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
     docoId,
     name: "global",
     ...(globalTemplate?.icon ? { icon: globalTemplate.icon } : {}),
-    // Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA: purpose retired; the
-    // template's `guidelines` becomes the seed guidance_rules[0].
-    // Per decision_01KRPNZY7W6CCMYNKGND67BP0B guidance rules are now
-    // objects: { text, lifecycle? }.
-    ...(globalTemplate?.guidelines
-      ? { guidance_rules: [{ text: globalTemplate.guidelines, lifecycle: "active" }] }
-      : {}),
-    authoring_rules: [
-      {
-        kind: "probabilistic",
-        lifecycle: "active",
-        spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
-        reason:
-          "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
-      },
-    ],
     watched: true,
+    createdBy: owner.kind === "principal" ? owner.id : null,
+  });
+
+  // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G seed the Global scope's
+  // standing rules as first-class Rule entities (kind=authoring +
+  // kind=guidance) tagged in_scope_of the global scope. The framework-
+  // seeded probabilistic authoring rule reminds agents to surface the
+  // scope manifest; the guidance rule carries the template's
+  // recommended editorial copy.
+  if (globalTemplate?.guidelines) {
+    await createRuleInDoco({
+      docoId,
+      kind: "guidance",
+      summary: globalTemplate.guidelines,
+      scopeId: globalScopeId,
+      createdBy: owner.kind === "principal" ? owner.id : null,
+    });
+  }
+  await createRuleInDoco({
+    docoId,
+    kind: "authoring",
+    summary:
+      "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
+    predicate: {
+      kind: "probabilistic",
+      spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
+    },
+    scopeId: globalScopeId,
     createdBy: owner.kind === "principal" ? owner.id : null,
   });
 
@@ -490,15 +502,15 @@ export async function createDocoInHost(
 
 /**
  * Write a Scope entity into a Doco. Per ADR-080 (creation flow), ADR-081
- * (edge hierarchy), and decision_01KRPMC7CVDA9WZ5DKH81TVAAA (the unified
- * authoring_rules + guidance_rules model).
+ * (edge hierarchy), and decision_01KRPRDR1AD7S1RP6E69BQDB2G (rules are
+ * first-class Rule entities, not embedded arrays on the scope).
  *
  * Names are flat tokens; parent scopes go in the `scopes` array. To express
  * `country/france/payment`, create three scopes — `country`, `france` (with
  * `scopes: [country.id]`), `payment` (with `scopes: [france.id]`).
  *
- * Use `parseScopeNamesInput` + `materializeScopeTree` for friendly slash-input
- * → edge-tree conversion.
+ * Rules are attached separately via `createRuleInDoco` (with `kind:
+ * authoring | guidance | tagged`) tagged `in_scope_of` to the scope.
  */
 export interface CreateScopeOptions {
   docoDir: string;
@@ -509,28 +521,13 @@ export interface CreateScopeOptions {
   /** Parent scopes — semantically "this scope belongs to those." (ADR-081) */
   parentScopes?: EntityId<"scope">[];
   /**
-   * Authoring rules — engine-readable predicates fired at capture/update
-   * time. Failures block the write. Replaces the previous `rules` field.
-   */
-  authoring_rules?: unknown[];
-  /**
-   * Guidance rules — prose for agents to read while working in or with
-   * this scope. No automated check. Per
-   * decision_01KRPNZY7W6CCMYNKGND67BP0B each rule is an object with a
-   * `text` field and a per-rule `lifecycle` ("active" by default,
-   * "abandoned" for deprecated). Replaces the previous `guidelines`
-   * markdown field.
-   */
-  guidance_rules?: { text: string; lifecycle?: string }[];
-  /**
    * Whether this scope is "watched" — a soft attention signal for
    * contributors (person or agent). When authoring a node, scan against
    * watched scopes and tag the new node into any that fit. Stored as
    * `watched: true` on the scope's own YAML. NOT enforced at capture
    * time — hard enforcement is what `mandatory_scope` authoring rules on
-   * the Constitution are for (a separate mechanism, accessed via the
-   * scope's Rules editor, not the watched toggle). Required on every
-   * scope creation — no default — so the choice is always explicit.
+   * the Global scope are for. Required on every scope creation — no
+   * default — so the choice is always explicit.
    */
   watched: boolean;
   createdBy: EntityId<"principal"> | null;
@@ -558,12 +555,6 @@ export async function createScopeInDoco(
     created_by: opts.createdBy,
     lifecycle: "active",
     scopes: opts.parentScopes ?? [],
-    ...(opts.authoring_rules && opts.authoring_rules.length > 0
-      ? { authoring_rules: opts.authoring_rules }
-      : {}),
-    ...(opts.guidance_rules && opts.guidance_rules.length > 0
-      ? { guidance_rules: opts.guidance_rules }
-      : {}),
     ...(watched ? { watched: true } : {}),
   };
   const { withClient } = await import("@doco/db");
@@ -577,6 +568,77 @@ export async function createScopeInDoco(
       [id, opts.docoId, opts.name, yaml.summary as string, JSON.stringify(yaml), created, opts.createdBy],
     ),
   );
+  return id;
+}
+
+/**
+ * Insert a Rule entity tagged with a scope. Per
+ * decision_01KRPRDR1AD7S1RP6E69BQDB2G the framework seeds the Global
+ * scope's standing rules this way (one Rule entity per rule + an
+ * in_scope_of edge); other callers (the prose classifier endpoint,
+ * scope-rule add-via-UI) use the same helper.
+ */
+export interface CreateRuleOptions {
+  docoId: EntityId<"doco">;
+  /** "authoring" | "guidance" | "tagged" — the role this Rule plays on its scope. */
+  kind: "authoring" | "guidance" | "tagged";
+  /** One-line readable description. For authoring rules, this is the prose the project owner wrote. */
+  summary: string;
+  /** Optional markdown body. */
+  body_md?: string;
+  /** For kind=authoring: the engine-readable predicate. */
+  predicate?: unknown;
+  /** The scope this rule is tagged with (in_scope_of edge target). */
+  scopeId: EntityId<"scope">;
+  /** Initial lifecycle. Defaults to "active". */
+  lifecycle?: "active" | "proposed" | "abandoned" | "superseded";
+  createdBy: EntityId<"principal"> | null;
+}
+
+export async function createRuleInDoco(
+  opts: CreateRuleOptions,
+): Promise<EntityId<"rule">> {
+  const id = makeEntityId("rule", generateUlid()) as EntityId<"rule">;
+  const created = nowIso();
+  const lifecycle = opts.lifecycle ?? "active";
+  const yaml: Record<string, unknown> = {
+    id,
+    doco_id: opts.docoId,
+    node_type: "rule",
+    summary: opts.summary,
+    kind: opts.kind,
+    ...(opts.predicate ? { predicate: opts.predicate } : {}),
+    created_at: created,
+    created_by: opts.createdBy,
+    lifecycle,
+    scopes: [opts.scopeId],
+    ...(opts.body_md ? { body_md: opts.body_md } : {}),
+  };
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    // Insert the Rule row.
+    await c.query(
+      `INSERT INTO rules (id, doco_id, summary, raw_yaml, body_md, lifecycle, created_at, updated_at, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $8)`,
+      [
+        id,
+        opts.docoId,
+        opts.summary,
+        JSON.stringify(yaml),
+        opts.body_md ?? "",
+        lifecycle,
+        created,
+        opts.createdBy,
+      ],
+    );
+    // Insert the in_scope_of edge so engine + scope page queries find it.
+    await c.query(
+      `INSERT INTO edges (doco_id, from_id, from_node_type, to_id, to_node_type, edge_type)
+       VALUES ($1, $2, 'rule', $3, 'scope', 'in_scope_of')
+       ON CONFLICT DO NOTHING`,
+      [opts.docoId, id, opts.scopeId],
+    );
+  });
   return id;
 }
 
@@ -714,15 +776,25 @@ export async function materializeScopeTree(opts: {
           docoId: opts.docoId,
           name,
           ...(tpl?.icon ? { icon: tpl.icon } : {}),
-          ...(tpl?.guidelines
-            ? { guidance_rules: [{ text: tpl.guidelines, lifecycle: "active" }] }
-            : {}),
           ...(parentId ? { parentScopes: [parentId] } : {}),
           watched: false,
           createdBy: opts.createdBy,
         });
         byName.set(name, id);
         created.push(id);
+        // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G the template's
+        // `guidelines` text becomes a Rule entity (kind=guidance)
+        // tagged in_scope_of the new scope — no longer an embedded
+        // field on the scope.
+        if (tpl?.guidelines) {
+          await createRuleInDoco({
+            docoId: opts.docoId,
+            kind: "guidance",
+            summary: tpl.guidelines,
+            scopeId: id,
+            createdBy: opts.createdBy,
+          });
+        }
       }
       parentId = id;
     }
@@ -845,25 +917,15 @@ export interface UpdateScopeOptions {
   /** Replace the entire parent list (not append). Pass [] to clear. */
   parentScopes?: EntityId<"scope">[];
   /**
-   * Replace the entire authoring-rules list. Pass null (or []) to clear.
-   * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old `rules`
-   * field.
-   */
-  authoring_rules?: unknown[] | null;
-  /**
-   * Replace the entire guidance-rules list. Pass null (or []) to clear.
-   * Per decision_01KRPMC7CVDA9WZ5DKH81TVAAA this replaces the old
-   * `guidelines` markdown field; per
-   * decision_01KRPNZY7W6CCMYNKGND67BP0B each entry is an object with
-   * `text` and a per-rule `lifecycle`.
-   */
-  guidance_rules?: { text: string; lifecycle?: string }[] | null;
-  /**
    * Lifecycle transition. The Danger Zone "Deprecate" button sends
    * "abandoned"; reactivation sends "active". Per the
    * `scopes-are-deprecated-not-deleted` Decision.
    */
   lifecycle?: "active" | "abandoned" | "superseded";
+  // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G scope-rule management
+  // moves to Rule entities — there is no scope-level authoring_rules
+  // or guidance_rules field anymore. Use createRuleInDoco (insert) or
+  // the rules PATCH endpoint (lifecycle / summary / body_md).
 }
 
 function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOptions): void {
@@ -873,20 +935,6 @@ function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOption
   }
   if (opts.parentScopes !== undefined) {
     yaml.scopes = opts.parentScopes;
-  }
-  if (opts.authoring_rules !== undefined) {
-    if (opts.authoring_rules === null || opts.authoring_rules.length === 0) {
-      delete yaml.authoring_rules;
-    } else {
-      yaml.authoring_rules = opts.authoring_rules;
-    }
-  }
-  if (opts.guidance_rules !== undefined) {
-    if (opts.guidance_rules === null || opts.guidance_rules.length === 0) {
-      delete yaml.guidance_rules;
-    } else {
-      yaml.guidance_rules = opts.guidance_rules;
-    }
   }
   if (opts.lifecycle !== undefined) {
     yaml.lifecycle = opts.lifecycle;
