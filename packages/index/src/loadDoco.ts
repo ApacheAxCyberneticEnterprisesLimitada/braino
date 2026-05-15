@@ -14,12 +14,28 @@ import type {
   NodeType,
 } from "@doco/shared";
 import { isEntityId, NODE_TYPES } from "@doco/shared";
+import { parse as parseYamlText } from "yaml";
 import {
   listEntitiesByDoco,
   listIdentityRows,
   withClient,
   type EntityRecord,
 } from "@doco/db";
+
+/**
+ * Parse a `raw_yaml` Postgres column. New writes (capture.server.ts,
+ * createScopeInDoco, …) all serialize as JSON, but a small population of
+ * rows persisted as YAML lingers from the window when scope writes used
+ * stringifyYaml. Try JSON first (canonical, fast); fall back to YAML so
+ * those rows still reindex instead of crashing the whole loader.
+ */
+function parseRawYaml(text: string): Record<string, unknown> {
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    return parseYamlText(text) as Record<string, unknown>;
+  }
+}
 
 // Doco-scoped types (have a `doco_id` column, queryable via listEntitiesByDoco).
 const SCOPED_NODE_TYPES: NodeType[] = NODE_TYPES.filter(
@@ -47,7 +63,7 @@ export async function loadDocoFromPostgres(
   if (docoRows.length === 0) {
     throw new Error(`Doco ${docoId} not found in Postgres.`);
   }
-  const docoData = JSON.parse(String(docoRows[0].raw_yaml)) as Doco;
+  const docoData = parseRawYaml(String(docoRows[0].raw_yaml)) as unknown as Doco;
 
   // 2. Entity tables (per-type rows -> LoadedEntity records).
   const entities = new Map<EntityId, LoadedEntity>();
@@ -68,7 +84,7 @@ export async function loadDocoFromPostgres(
       continue;
     }
     for (const row of rows) {
-      const fm = JSON.parse(row.raw_yaml) as Record<string, unknown>;
+      const fm = parseRawYaml(row.raw_yaml);
       const id = fm.id;
       if (!isEntityId(id)) continue;
       const loaded: LoadedEntity = {
@@ -94,7 +110,7 @@ export async function loadDocoFromPostgres(
       continue;
     }
     for (const row of rows) {
-      const fm = JSON.parse(row.raw_yaml) as Record<string, unknown>;
+      const fm = parseRawYaml(row.raw_yaml);
       const id = fm.id;
       if (!isEntityId(id)) {
         failures.push({

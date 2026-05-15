@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -123,67 +123,34 @@ export type OwnerSummary =
   | { kind: "principal"; id: EntityId<"principal">; slug: string; display_name: string }
   | { kind: "organization"; id: EntityId<"organization">; slug: string; display_name: string };
 
-export async function listPrincipals(root: string): Promise<OwnerSummary[]> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    const r = await withClient((c) =>
-      c.query<{ id: string; username: string; display_name: string | null }>(
-        "SELECT id, username, display_name FROM principals WHERE deactivated_at IS NULL ORDER BY username",
-      ),
-    );
-    return r.rows.map((row) => ({
-      kind: "principal" as const,
-      id: row.id as EntityId<"principal">,
-      slug: row.username,
-      display_name: row.display_name ?? row.username,
-    }));
-  }
-  return listEntitiesAs(hostPrincipalsDir(root), "principal", (e) => ({
-    kind: "principal",
-    id: e.id as EntityId<"principal">,
-    slug: e.username as string,
-    display_name: (e.display_name as string) ?? (e.username as string),
+export async function listPrincipals(_root: string): Promise<OwnerSummary[]> {
+  const { withClient } = await import("@doco/db");
+  const r = await withClient((c) =>
+    c.query<{ id: string; username: string; display_name: string | null }>(
+      "SELECT id, username, display_name FROM principals WHERE deactivated_at IS NULL ORDER BY username",
+    ),
+  );
+  return r.rows.map((row) => ({
+    kind: "principal" as const,
+    id: row.id as EntityId<"principal">,
+    slug: row.username,
+    display_name: row.display_name ?? row.username,
   }));
 }
 
-export async function listOrganizations(root: string): Promise<OwnerSummary[]> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    const r = await withClient((c) =>
-      c.query<{ id: string; slug: string; name: string }>(
-        "SELECT id, slug, name FROM organizations ORDER BY slug",
-      ),
-    );
-    return r.rows.map((row) => ({
-      kind: "organization" as const,
-      id: row.id as EntityId<"organization">,
-      slug: row.slug,
-      display_name: row.name ?? row.slug,
-    }));
-  }
-  return listEntitiesAs(hostOrganizationsDir(root), "organization", (e) => ({
-    kind: "organization",
-    id: e.id as EntityId<"organization">,
-    slug: e.slug as string,
-    display_name: (e.display_name as string) ?? (e.slug as string),
+export async function listOrganizations(_root: string): Promise<OwnerSummary[]> {
+  const { withClient } = await import("@doco/db");
+  const r = await withClient((c) =>
+    c.query<{ id: string; slug: string; name: string }>(
+      "SELECT id, slug, name FROM organizations ORDER BY slug",
+    ),
+  );
+  return r.rows.map((row) => ({
+    kind: "organization" as const,
+    id: row.id as EntityId<"organization">,
+    slug: row.slug,
+    display_name: row.name ?? row.slug,
   }));
-}
-
-async function listEntitiesAs<T>(
-  dir: string,
-  prefix: string,
-  toSummary: (e: Record<string, unknown>) => T,
-): Promise<T[]> {
-  if (!existsSync(dir)) return [];
-  const out: T[] = [];
-  for (const name of await readdir(dir)) {
-    if (!name.startsWith(`${prefix}_`)) continue;
-    if (!name.endsWith(".yaml")) continue;
-    const text = await readFile(join(dir, name), "utf8");
-    const data = parseYaml(text) as Record<string, unknown>;
-    out.push(toSummary(data));
-  }
-  return out;
 }
 
 export async function resolveOwnerSlug(root: string, slug: string): Promise<OwnerSummary | null> {
@@ -194,8 +161,7 @@ export async function resolveOwnerSlug(root: string, slug: string): Promise<Owne
 /**
  * Slugs that name top-level @doco/web routes — rejected by addPrincipal /
  * addOrganization / createDocoInHost so a User or Org can never collide
- * with the URL routing layer (ADR-067). Re-exported for back-compat;
- * canonical source is `HOST_RESERVED_SLUGS` in @doco/shared.
+ * with the URL routing layer (ADR-067).
  */
 export const RESERVED_SLUGS = HOST_RESERVED_SLUGS;
 
@@ -217,17 +183,6 @@ function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "d
   if (HOST_RESERVED_SLUGS.has(slug)) {
     throw new Error(
       `Slug "${slug}" is reserved by Doco's URL routing (ADR-067). Pick a different name.`,
-    );
-  }
-}
-
-async function assertSlugFree(root: string, slug: string, kind: "principal" | "organization"): Promise<void> {
-  assertSlugAllowed(slug, kind);
-  const existing = await resolveOwnerSlug(root, slug);
-  if (existing) {
-    throw new Error(
-      `Slug "${slug}" is already taken by a ${existing.kind} in this host (${existing.id}). ` +
-        `Within a host, Principal.username and Organization.slug share one namespace (ADR-064).`,
     );
   }
 }
@@ -254,44 +209,25 @@ export interface AddPrincipalOptions {
  * Used by the OAuth callback to decide create-vs-sign-in.
  */
 export async function findPrincipalByGitHubLogin(
-  root: string,
+  _root: string,
   githubLogin: string,
 ): Promise<{ id: EntityId<"principal">; username: string } | null> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    const r = await withClient((c) =>
-      c.query<{ id: string; username: string }>(
-        "SELECT id, username FROM principals WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
-        [githubLogin],
-      ),
-    );
-    if (!r.rows[0]) return null;
-    return {
-      id: r.rows[0].id as EntityId<"principal">,
-      username: r.rows[0].username,
-    };
-  }
-  if (detectMode(root) !== "host") return null;
-  const { existsSync, readFileSync, readdirSync } = await import("node:fs");
-  const dir = hostPrincipalsDir(root);
-  if (!existsSync(dir)) return null;
-  for (const name of readdirSync(dir)) {
-    if (!name.startsWith("principal_") || !name.endsWith(".yaml")) continue;
-    const text = readFileSync(join(dir, name), "utf8");
-    const e = parseYaml(text) as Record<string, unknown>;
-    const gh = e.github_identity as { github_login?: string } | undefined;
-    if (gh?.github_login && gh.github_login.toLowerCase() === githubLogin.toLowerCase()) {
-      return {
-        id: e.id as EntityId<"principal">,
-        username: e.username as string,
-      };
-    }
-  }
-  return null;
+  const { withClient } = await import("@doco/db");
+  const r = await withClient((c) =>
+    c.query<{ id: string; username: string }>(
+      "SELECT id, username FROM principals WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
+      [githubLogin],
+    ),
+  );
+  if (!r.rows[0]) return null;
+  return {
+    id: r.rows[0].id as EntityId<"principal">,
+    username: r.rows[0].username,
+  };
 }
 
 export async function addPrincipal(
-  root: string,
+  _root: string,
   opts: AddPrincipalOptions,
 ): Promise<EntityId<"principal">> {
   const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
@@ -315,42 +251,33 @@ export async function addPrincipal(
     scopes: [],
   };
 
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    // Username-unique check at the DB level (UNIQUE constraint on principals.username
-    // will surface a 23505 error if the slug is taken; surface a cleaner error here).
-    await withClient(async (c) => {
-      const dup = await c.query(
-        "SELECT 1 FROM principals WHERE username = $1 LIMIT 1",
-        [opts.username],
-      );
-      if (dup.rows.length > 0) {
-        throw new Error(`Slug "${opts.username}" is already taken.`);
-      }
-      await c.query(
-        `INSERT INTO principals
-          (id, username, type, display_name, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, NULL)`,
-        [
-          id,
-          opts.username,
-          "human",
-          opts.display_name ?? opts.username,
-          opts.email ?? null,
-          gh.github_login ?? null,
-          null,
-          null,
-          stringifyYaml(yaml),
-          created,
-        ],
-      );
-    });
-    return id;
-  }
-
-  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-  await assertSlugFree(root, opts.username, "principal");
-  await writeFile(join(hostPrincipalsDir(root), `${id}.yaml`), stringifyYaml(yaml), "utf8");
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    const dup = await c.query(
+      "SELECT 1 FROM principals WHERE username = $1 LIMIT 1",
+      [opts.username],
+    );
+    if (dup.rows.length > 0) {
+      throw new Error(`Slug "${opts.username}" is already taken.`);
+    }
+    await c.query(
+      `INSERT INTO principals
+        (id, username, type, display_name, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, NULL)`,
+      [
+        id,
+        opts.username,
+        "human",
+        opts.display_name ?? opts.username,
+        opts.email ?? null,
+        gh.github_login ?? null,
+        null,
+        null,
+        stringifyYaml(yaml),
+        created,
+      ],
+    );
+  });
   return id;
 }
 
@@ -394,33 +321,21 @@ export async function addOrganization(
     scopes: [],
   };
 
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    await withClient(async (c) => {
-      const dup = await c.query("SELECT 1 FROM organizations WHERE slug = $1 LIMIT 1", [opts.slug]);
-      if (dup.rows.length > 0) throw new Error(`Slug "${opts.slug}" is already taken.`);
-      await c.query(
-        `INSERT INTO organizations (id, slug, name, raw_yaml, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $5)`,
-        [id, opts.slug, opts.display_name ?? opts.slug, stringifyYaml(yaml), created],
-      );
-      // Owner is automatically a member with `owner` role.
-      await c.query(
-        `INSERT INTO org_members (org_id, principal_id, role, joined_at)
-         VALUES ($1, $2, 'owner', $3)`,
-        [id, owner.id, created],
-      );
-    });
-    return id;
-  }
-
-  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-  await assertSlugFree(root, opts.slug, "organization");
-  await writeFile(
-    join(hostOrganizationsDir(root), `${id}.yaml`),
-    stringifyYaml(yaml),
-    "utf8",
-  );
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    const dup = await c.query("SELECT 1 FROM organizations WHERE slug = $1 LIMIT 1", [opts.slug]);
+    if (dup.rows.length > 0) throw new Error(`Slug "${opts.slug}" is already taken.`);
+    await c.query(
+      `INSERT INTO organizations (id, slug, name, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $5)`,
+      [id, opts.slug, opts.display_name ?? opts.slug, stringifyYaml(yaml), created],
+    );
+    await c.query(
+      `INSERT INTO org_members (org_id, principal_id, role, joined_at)
+       VALUES ($1, $2, 'owner', $3)`,
+      [id, owner.id, created],
+    );
+  });
   return id;
 }
 
@@ -471,111 +386,18 @@ export async function createDocoInHost(
     throw new Error(`Owner "${opts.ownerSlug}" not found in this host.`);
   }
 
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    let docoSlug = opts.docoSlug;
-    // Auto-suffix-on-collision: SELECT against docos table.
-    if (opts.autoSuffixOnCollision) {
-      let n = 2;
-      while (true) {
-        const dup = await withClient((c) =>
-          c.query(
-            "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-            [opts.ownerSlug, docoSlug],
-          ),
-        );
-        if (dup.rows.length === 0) break;
-        docoSlug = `${opts.docoSlug}-${n}`;
-        n++;
-        if (n > 999) {
-          throw new Error(
-            `Auto-suffix exhausted: ${opts.ownerSlug}/${opts.docoSlug}-2 … -999 are all taken.`,
-          );
-        }
-      }
-    } else {
+  const { withClient } = await import("@doco/db");
+  let docoSlug = opts.docoSlug;
+  if (opts.autoSuffixOnCollision) {
+    let n = 2;
+    while (true) {
       const dup = await withClient((c) =>
         c.query(
           "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
           [opts.ownerSlug, docoSlug],
         ),
       );
-      if (dup.rows.length > 0) {
-        throw new Error(`Doco "${opts.ownerSlug}/${docoSlug}" already exists.`);
-      }
-    }
-
-    const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
-    const created = nowIso();
-    const docoYaml = {
-      id: docoId,
-      node_type: "doco",
-      slug: docoSlug,
-      display_name: docoSlug,
-      visibility: opts.visibility ?? "private",
-      default_branch: "main",
-      owner_id: owner.id,
-      description:
-        opts.description ?? `Doco created in host (owned by ${owner.kind} "${opts.ownerSlug}").`,
-      summary: `Created in host on ${created}.`,
-      created_at: created,
-      created_by: owner.kind === "principal" ? owner.id : null,
-      lifecycle: "active",
-      scopes: [] as string[],
-      members:
-        owner.kind === "principal"
-          ? [{ principal_id: owner.id, role: "owner", permissions: ["read", "write", "execute", "admin"] }]
-          : [],
-      imports: [] as unknown[],
-    };
-    await withClient((c) =>
-      c.query(
-        `INSERT INTO docos (id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
-        [docoId, opts.ownerSlug, docoSlug, owner.id, docoSlug, opts.visibility ?? "private", stringifyYaml(docoYaml), created],
-      ),
-    );
-
-    // Seed Constitution scope — createScopeInDoco has its own postgres branch.
-    const constitutionTemplate = findScopeTemplate("constitution");
-    await createScopeInDoco({
-      docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug), // unused in PG mode but type requires it
-      docoId,
-      name: "constitution",
-      ...(constitutionTemplate?.icon ? { icon: constitutionTemplate.icon } : {}),
-      ...(constitutionTemplate?.purpose ? { purpose: constitutionTemplate.purpose } : {}),
-      ...(constitutionTemplate?.guidelines ? { guidelines: constitutionTemplate.guidelines } : {}),
-      rules: [
-        {
-          kind: "probabilistic",
-          spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
-          reason:
-            "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
-        },
-      ],
-      watched: true,
-      createdBy: owner.kind === "principal" ? owner.id : null,
-    });
-
-    return {
-      ownerSlug: opts.ownerSlug,
-      docoSlug,
-      ownerKind: owner.kind,
-      ownerId: owner.id,
-      docoId,
-      path: hostDocoDir(root, opts.ownerSlug, docoSlug),
-    };
-  }
-
-  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-
-  // Resolve the actual slug to use, applying auto-suffix if requested
-  // and the desired slot is taken. `<slug>-2`, `<slug>-3`, … — cap at
-  // 999 so a permission-failure-as-collision can't loop forever.
-  let docoSlug = opts.docoSlug;
-  if (opts.autoSuffixOnCollision) {
-    let n = 2;
-    while (existsSync(join(hostDocoDir(root, opts.ownerSlug, docoSlug), "doco.yaml"))) {
+      if (dup.rows.length === 0) break;
       docoSlug = `${opts.docoSlug}-${n}`;
       n++;
       if (n > 999) {
@@ -584,125 +406,77 @@ export async function createDocoInHost(
         );
       }
     }
-  }
-  const dir = hostDocoDir(root, opts.ownerSlug, docoSlug);
-
-  // "Already exists" means the slug is genuinely taken — there's a doco.yaml.
-  // A bare directory with no doco.yaml is a half-created leftover from a
-  // failed previous attempt; we'll clean it up and proceed (per
-  // Phase-21 atomicity fix).
-  if (existsSync(join(dir, "doco.yaml"))) {
-    throw new Error(`Doco already exists at ${dir}.`);
-  }
-  if (existsSync(dir)) {
-    // Half-created — wipe and start over.
-    await rm(dir, { recursive: true, force: true });
-  }
-
-  // Wrap the directory build so a partial failure rolls the whole thing back.
-  // Without this, a thrown writeFile leaves the dir + subdirs on disk and
-  // blocks retries with a misleading "already exists" error.
-  try {
-    await mkdir(dir, { recursive: true });
-    for (const sub of [
-      "principals",
-      "intents",
-      "ideas",
-      "rules",
-      "decisions",
-      "actions",
-      "reasoning",
-      "references",
-      "scopes",
-      "organizations",
-      "evals",
-    ]) {
-      await mkdir(join(dir, sub), { recursive: true });
+  } else {
+    const dup = await withClient((c) =>
+      c.query(
+        "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
+        [opts.ownerSlug, docoSlug],
+      ),
+    );
+    if (dup.rows.length > 0) {
+      throw new Error(`Doco "${opts.ownerSlug}/${docoSlug}" already exists.`);
     }
-
-    const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
-    const created = nowIso();
-    const docoYaml = {
-      id: docoId,
-      node_type: "doco",
-      // Bare slug only — the owner segment is implied by the parent directory.
-      // (`<owner>/<doco>` is reconstructible; storing the compound here led to
-      // /<owner>/<owner>/<doco> URLs. Per `fix-owner-prefix-duplicated-in-doco-slug`.)
-      slug: docoSlug,
-      display_name: docoSlug,
-      visibility: opts.visibility ?? "private",
-      default_branch: "main",
-      owner_id: owner.id,
-      description:
-        opts.description ?? `Doco created in host (owned by ${owner.kind} "${opts.ownerSlug}").`,
-      summary: `Created in host on ${created}.`,
-      created_at: created,
-      created_by: owner.kind === "principal" ? owner.id : null,
-      lifecycle: "active",
-      scopes: [] as string[],
-      members:
-        owner.kind === "principal"
-          ? [{ principal_id: owner.id, role: "owner", permissions: ["read", "write", "execute", "admin"] }]
-          : [],
-      imports: [] as unknown[],
-    };
-    await writeFile(join(dir, "doco.yaml"), stringifyYaml(docoYaml), "utf8");
-    await writeFile(
-      join(dir, "README.md"),
-      `# ${docoSlug}\n\nOwner: ${owner.kind} \`${opts.ownerSlug}\`.\n`,
-      "utf8",
-    );
-    await writeFile(
-      join(dir, ".gitignore"),
-      "# Local cache — regenerable\n.doco/\n",
-      "utf8",
-    );
-
-    // Seed the Constitution scope — every Doco has one per the
-    // `constitution-scope-default-and-tab` ADR. The scope ships pre-loaded
-    // with one framework-seeded rule: a probabilistic
-    // scope-manifest-visibility rule that obliges agents to keep the
-    // project owner current on the manifest (watched scopes especially).
-    // It is seeded at creation and therefore non-editable from the UI —
-    // owner-authored rules can be added alongside it later via /scopes.
-    //
-    // `watched: true` — fifth framework-native behavior of the
-    // Constitution (decision_01KRKS5H2A5QER84CJ8R4VD36Z): it is always
-    // watched and cannot be unwatched. Write paths reject watched: false;
-    // readers project is_watched=true regardless of stored state.
-    const constitutionTemplate = findScopeTemplate("constitution");
-    await createScopeInDoco({
-      docoDir: dir,
-      docoId,
-      name: "constitution",
-      ...(constitutionTemplate?.icon ? { icon: constitutionTemplate.icon } : {}),
-      ...(constitutionTemplate?.purpose ? { purpose: constitutionTemplate.purpose } : {}),
-      ...(constitutionTemplate?.guidelines ? { guidelines: constitutionTemplate.guidelines } : {}),
-      rules: [
-        {
-          kind: "probabilistic",
-          spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
-          reason:
-            "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
-        },
-      ],
-      watched: true,
-      createdBy: owner.kind === "principal" ? owner.id : null,
-    });
-
-    return {
-      ownerSlug: opts.ownerSlug,
-      docoSlug,
-      ownerKind: owner.kind,
-      ownerId: owner.id,
-      docoId,
-      path: dir,
-    };
-  } catch (err) {
-    // Rollback: rm the partial dir so the retry isn't blocked.
-    await rm(dir, { recursive: true, force: true }).catch(() => {});
-    throw err;
   }
+
+  const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
+  const created = nowIso();
+  const docoYaml = {
+    id: docoId,
+    node_type: "doco",
+    slug: docoSlug,
+    display_name: docoSlug,
+    visibility: opts.visibility ?? "private",
+    default_branch: "main",
+    owner_id: owner.id,
+    description:
+      opts.description ?? `Doco created in host (owned by ${owner.kind} "${opts.ownerSlug}").`,
+    summary: `Created in host on ${created}.`,
+    created_at: created,
+    created_by: owner.kind === "principal" ? owner.id : null,
+    lifecycle: "active",
+    scopes: [] as string[],
+    members:
+      owner.kind === "principal"
+        ? [{ principal_id: owner.id, role: "owner", permissions: ["read", "write", "execute", "admin"] }]
+        : [],
+    imports: [] as unknown[],
+  };
+  await withClient((c) =>
+    c.query(
+      `INSERT INTO docos (id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
+      [docoId, opts.ownerSlug, docoSlug, owner.id, docoSlug, opts.visibility ?? "private", stringifyYaml(docoYaml), created],
+    ),
+  );
+
+  const constitutionTemplate = findScopeTemplate("constitution");
+  await createScopeInDoco({
+    docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
+    docoId,
+    name: "constitution",
+    ...(constitutionTemplate?.icon ? { icon: constitutionTemplate.icon } : {}),
+    ...(constitutionTemplate?.purpose ? { purpose: constitutionTemplate.purpose } : {}),
+    ...(constitutionTemplate?.guidelines ? { guidelines: constitutionTemplate.guidelines } : {}),
+    rules: [
+      {
+        kind: "probabilistic",
+        spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
+        reason:
+          "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
+      },
+    ],
+    watched: true,
+    createdBy: owner.kind === "principal" ? owner.id : null,
+  });
+
+  return {
+    ownerSlug: opts.ownerSlug,
+    docoSlug,
+    ownerKind: owner.kind,
+    ownerId: owner.id,
+    docoId,
+    path: hostDocoDir(root, opts.ownerSlug, docoSlug),
+  };
 }
 
 /**
@@ -775,20 +549,17 @@ export async function createScopeInDoco(
     ...(opts.rules && opts.rules.length > 0 ? { rules: opts.rules } : {}),
     ...(watched ? { watched: true } : {}),
   };
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    await withClient((c) =>
-      c.query(
-        `INSERT INTO scopes (id, doco_id, name, summary, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
-         VALUES ($1, $2, $3, $4, 'active', $5, $6, $6, $7, $7)`,
-        [id, opts.docoId, opts.name, yaml.summary as string, stringifyYaml(yaml), created, opts.createdBy],
-      ),
-    );
-    return id;
-  }
-  const dir = join(opts.docoDir, "scopes");
-  if (!existsSync(dir)) await mkdir(dir, { recursive: true });
-  await writeFile(join(dir, `${id}.yaml`), stringifyYaml(yaml), "utf8");
+  const { withClient } = await import("@doco/db");
+  await withClient((c) =>
+    c.query(
+      `INSERT INTO scopes (id, doco_id, name, summary, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, 'active', $5, $6, $6, $7, $7)`,
+      // raw_yaml is JSON (not YAML) for every other entity type
+      // (capture.server.ts:72); standardize scope writes too so
+      // loadDoco.ts's JSON.parse doesn't choke on reindex.
+      [id, opts.docoId, opts.name, yaml.summary as string, JSON.stringify(yaml), created, opts.createdBy],
+    ),
+  );
   return id;
 }
 
@@ -807,50 +578,28 @@ export async function setScopeWatchedInDoco(opts: {
   targetScopeId: EntityId<"scope">;
   watched: boolean;
 }): Promise<void> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    await withClient(async (c) => {
-      const cur = await c.query<{ raw_yaml: string; name: string }>(
-        "SELECT raw_yaml, name FROM scopes WHERE id = $1 LIMIT 1",
-        [opts.targetScopeId],
-      );
-      if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.targetScopeId}`);
-      if (cur.rows[0].name === "constitution" && opts.watched === false) {
-        throw new Error(
-          "The Constitution scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
-        );
-      }
-      const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
-      const wasWatched = yaml.watched === true;
-      if (opts.watched === wasWatched) return;
-      if (opts.watched) yaml.watched = true;
-      else delete yaml.watched;
-      await c.query(
-        "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
-        [stringifyYaml(yaml), opts.targetScopeId],
-      );
-    });
-    return;
-  }
-  const file = join(opts.docoDir, "scopes", `${opts.targetScopeId}.yaml`);
-  if (!existsSync(file)) throw new Error(`Scope not found: ${opts.targetScopeId}`);
-  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
-  // Fifth framework-native behavior of the Constitution scope
-  // (decision_01KRKS5H2A5QER84CJ8R4VD36Z, rule_01KRKS60A11YEWDASBT6V3HTE9):
-  // it is always watched and cannot be unwatched.
-  if (yaml.name === "constitution" && opts.watched === false) {
-    throw new Error(
-      "The Constitution scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    const cur = await c.query<{ raw_yaml: string; name: string }>(
+      "SELECT raw_yaml, name FROM scopes WHERE id = $1 LIMIT 1",
+      [opts.targetScopeId],
     );
-  }
-  const wasWatched = yaml.watched === true;
-  if (opts.watched === wasWatched) return;
-  if (opts.watched) {
-    yaml.watched = true;
-  } else {
-    delete yaml.watched;
-  }
-  await writeFile(file, stringifyYaml(yaml), "utf8");
+    if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.targetScopeId}`);
+    if (cur.rows[0].name === "constitution" && opts.watched === false) {
+      throw new Error(
+        "The Constitution scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
+      );
+    }
+    const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+    const wasWatched = yaml.watched === true;
+    if (opts.watched === wasWatched) return;
+    if (opts.watched) yaml.watched = true;
+    else delete yaml.watched;
+    await c.query(
+      "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
+      [JSON.stringify(yaml), opts.targetScopeId],
+    );
+  });
 }
 
 /**
@@ -861,26 +610,16 @@ export async function readScopeWatchedInDoco(opts: {
   docoDir: string;
   targetScopeId: EntityId<"scope">;
 }): Promise<boolean> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    const r = await withClient((c) =>
-      c.query<{ raw_yaml: string }>(
-        "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
-        [opts.targetScopeId],
-      ),
-    );
-    if (!r.rows[0]) return false;
-    try {
-      const yaml = parseYaml(r.rows[0].raw_yaml) as Record<string, unknown>;
-      return yaml.watched === true;
-    } catch {
-      return false;
-    }
-  }
-  const file = join(opts.docoDir, "scopes", `${opts.targetScopeId}.yaml`);
-  if (!existsSync(file)) return false;
+  const { withClient } = await import("@doco/db");
+  const r = await withClient((c) =>
+    c.query<{ raw_yaml: string }>(
+      "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+      [opts.targetScopeId],
+    ),
+  );
+  if (!r.rows[0]) return false;
   try {
-    const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
+    const yaml = parseYaml(r.rows[0].raw_yaml) as Record<string, unknown>;
     return yaml.watched === true;
   } catch {
     return false;
@@ -1070,9 +809,8 @@ export async function migrateScopesInDoco(opts: {
 }
 
 /**
- * Apply a partial update to a Scope (ADR-084 — scope mgmt UX). In
- * Postgres mode this UPDATEs the row + `raw_yaml`; the legacy CLI
- * filesystem mode rewrites the on-disk YAML in place.
+ * Apply a partial update to a Scope (ADR-084 — scope mgmt UX) by
+ * UPDATEing the Postgres row + `raw_yaml`.
  *
  * Each field is independently optional. Pass:
  *   - `undefined` to leave it as-is
@@ -1128,28 +866,20 @@ function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOption
 }
 
 export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    await withClient(async (c) => {
-      const cur = await c.query<{ raw_yaml: string }>(
-        "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
-        [opts.scopeId],
-      );
-      if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.scopeId}`);
-      const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
-      applyScopeUpdate(yaml, opts);
-      await c.query(
-        "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), updated_at = now() WHERE id = $3",
-        [stringifyYaml(yaml), opts.lifecycle ?? null, opts.scopeId],
-      );
-    });
-    return;
-  }
-  const file = join(opts.docoDir, "scopes", `${opts.scopeId}.yaml`);
-  if (!existsSync(file)) throw new Error(`Scope not found: ${opts.scopeId}`);
-  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
-  applyScopeUpdate(yaml, opts);
-  await writeFile(file, stringifyYaml(yaml), "utf8");
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    const cur = await c.query<{ raw_yaml: string }>(
+      "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+      [opts.scopeId],
+    );
+    if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.scopeId}`);
+    const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+    applyScopeUpdate(yaml, opts);
+    await c.query(
+      "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), updated_at = now() WHERE id = $3",
+      [JSON.stringify(yaml), opts.lifecycle ?? null, opts.scopeId],
+    );
+  });
 }
 
 // `deleteScopeInDoco` was removed per the
@@ -1161,9 +891,8 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
 // (or "superseded") instead of deletion.
 
 /**
- * Apply a partial update to a Doco's metadata (settings page). In
- * Postgres mode this UPDATEs the row + `raw_yaml`; the legacy CLI
- * filesystem mode rewrites `doco.yaml` in place.
+ * Apply a partial update to a Doco's metadata (settings page) by
+ * UPDATEing the Postgres row + `raw_yaml`.
  *
  *   - Each field undefined → leave it alone.
  *   - description / display_name: empty string clears the key.
@@ -1182,67 +911,48 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
   if (opts.visibility !== undefined && opts.visibility !== "private" && opts.visibility !== "public") {
     throw new Error(`visibility must be "private" or "public", got: ${opts.visibility}`);
   }
-  if (process.env.DOCO_STORAGE === "postgres") {
-    // docoDir is "<root>/docos/<owner>/<slug>"; parse slugs back out.
-    const parts = opts.docoDir.split("/");
-    const docoSlug = parts[parts.length - 1];
-    const ownerSlug = parts[parts.length - 2];
-    const { withClient } = await import("@doco/db");
-    await withClient(async (c) => {
-      const cur = await c.query<{ raw_yaml: string }>(
-        "SELECT raw_yaml FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-        [ownerSlug, docoSlug],
-      );
-      if (!cur.rows[0]) throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
-      const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
-      if (opts.description !== undefined) {
-        if (opts.description === null || opts.description === "") delete yaml.description;
-        else yaml.description = opts.description;
-      }
-      if (opts.display_name !== undefined) {
-        if (opts.display_name === null || opts.display_name === "") delete yaml.display_name;
-        else yaml.display_name = opts.display_name;
-      }
-      if (opts.visibility !== undefined) yaml.visibility = opts.visibility;
-      await c.query(
-        `UPDATE docos
-            SET name       = $3,
-                visibility = COALESCE($4, visibility),
-                raw_yaml   = $5,
-                updated_at = now()
-          WHERE owner_slug = $1 AND doco_slug = $2`,
-        [
-          ownerSlug,
-          docoSlug,
-          (yaml.display_name as string | undefined) ?? null,
-          opts.visibility ?? null,
-          stringifyYaml(yaml),
-        ],
-      );
-    });
-    return;
-  }
-  const file = join(opts.docoDir, "doco.yaml");
-  if (!existsSync(file)) throw new Error(`doco.yaml not found in ${opts.docoDir}`);
-  const yaml = parseYaml(await readFile(file, "utf8")) as Record<string, unknown>;
-  if (opts.description !== undefined) {
-    if (opts.description === null || opts.description === "") delete yaml.description;
-    else yaml.description = opts.description;
-  }
-  if (opts.display_name !== undefined) {
-    if (opts.display_name === null || opts.display_name === "") delete yaml.display_name;
-    else yaml.display_name = opts.display_name;
-  }
-  if (opts.visibility !== undefined) yaml.visibility = opts.visibility;
-  await writeFile(file, stringifyYaml(yaml), "utf8");
+  // docoDir is "<root>/docos/<owner>/<slug>"; parse slugs back out.
+  const parts = opts.docoDir.split("/");
+  const docoSlug = parts[parts.length - 1];
+  const ownerSlug = parts[parts.length - 2];
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    const cur = await c.query<{ raw_yaml: string }>(
+      "SELECT raw_yaml FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
+      [ownerSlug, docoSlug],
+    );
+    if (!cur.rows[0]) throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
+    const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+    if (opts.description !== undefined) {
+      if (opts.description === null || opts.description === "") delete yaml.description;
+      else yaml.description = opts.description;
+    }
+    if (opts.display_name !== undefined) {
+      if (opts.display_name === null || opts.display_name === "") delete yaml.display_name;
+      else yaml.display_name = opts.display_name;
+    }
+    if (opts.visibility !== undefined) yaml.visibility = opts.visibility;
+    await c.query(
+      `UPDATE docos
+          SET name       = $3,
+              visibility = COALESCE($4, visibility),
+              raw_yaml   = $5,
+              updated_at = now()
+        WHERE owner_slug = $1 AND doco_slug = $2`,
+      [
+        ownerSlug,
+        docoSlug,
+        (yaml.display_name as string | undefined) ?? null,
+        opts.visibility ?? null,
+        stringifyYaml(yaml),
+      ],
+    );
+  });
 }
 
 /**
- * Rename a Doco's slug. In Postgres mode (the durable path) this updates
- * `docos.doco_slug` + `raw_yaml` in a single transaction. The legacy
- * filesystem mode (CLI fallback) renames the on-disk directory and
- * rewrites doco.yaml; callers in that mode are expected to reindex the
- * new location.
+ * Rename a Doco's slug by updating `docos.doco_slug` + `raw_yaml` in a
+ * single transaction.
  *
  * Fails if a Doco with the target slug already exists. Does not touch
  * cross-Doco references — broken refs will surface in the next lint pass.
@@ -1260,54 +970,35 @@ export async function renameDocoSlug(opts: {
     return { newDir: join(hostDocosDir(root), ownerSlug, oldSlug) };
   }
 
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    await withClient(async (c) => {
-      const cur = await c.query<{ raw_yaml: string }>(
-        "SELECT raw_yaml FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-        [ownerSlug, oldSlug],
-      );
-      if (!cur.rows[0]) throw new Error(`Doco "${ownerSlug}/${oldSlug}" not found.`);
-      const dup = await c.query(
-        "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-        [ownerSlug, newSlug],
-      );
-      if (dup.rows[0]) throw new Error(`Doco "${ownerSlug}/${newSlug}" already exists.`);
-      const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
-      yaml.slug = newSlug;
-      await c.query(
-        `UPDATE docos
-            SET doco_slug  = $3,
-                raw_yaml   = $4,
-                updated_at = now()
-          WHERE owner_slug = $1 AND doco_slug = $2`,
-        [ownerSlug, oldSlug, newSlug, stringifyYaml(yaml)],
-      );
-    });
-    return { newDir: join(hostDocosDir(root), ownerSlug, newSlug) };
-  }
-
-  const oldDir = join(hostDocosDir(root), ownerSlug, oldSlug);
-  const newDir = join(hostDocosDir(root), ownerSlug, newSlug);
-  if (!existsSync(oldDir)) throw new Error(`Doco "${ownerSlug}/${oldSlug}" not found.`);
-  if (existsSync(newDir)) throw new Error(`Doco "${ownerSlug}/${newSlug}" already exists.`);
-  await rename(oldDir, newDir);
-  const yamlPath = join(newDir, "doco.yaml");
-  const yaml = parseYaml(await readFile(yamlPath, "utf8")) as Record<string, unknown>;
-  // Bare slug only — the owner segment is implied by the parent directory.
-  // Per `fix-owner-prefix-duplicated-in-doco-slug` Intent.
-  yaml.slug = newSlug;
-  await writeFile(yamlPath, stringifyYaml(yaml), "utf8");
-  return { newDir };
+  const { withClient } = await import("@doco/db");
+  await withClient(async (c) => {
+    const cur = await c.query<{ raw_yaml: string }>(
+      "SELECT raw_yaml FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
+      [ownerSlug, oldSlug],
+    );
+    if (!cur.rows[0]) throw new Error(`Doco "${ownerSlug}/${oldSlug}" not found.`);
+    const dup = await c.query(
+      "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
+      [ownerSlug, newSlug],
+    );
+    if (dup.rows[0]) throw new Error(`Doco "${ownerSlug}/${newSlug}" already exists.`);
+    const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+    yaml.slug = newSlug;
+    await c.query(
+      `UPDATE docos
+          SET doco_slug  = $3,
+              raw_yaml   = $4,
+              updated_at = now()
+        WHERE owner_slug = $1 AND doco_slug = $2`,
+      [ownerSlug, oldSlug, newSlug, stringifyYaml(yaml)],
+    );
+  });
+  return { newDir: join(hostDocosDir(root), ownerSlug, newSlug) };
 }
 
 /**
- * Delete a Doco. In Postgres mode (the durable path) this is a hard
- * delete — `ON DELETE CASCADE` removes every entity, edge, and scope
- * tied to the Doco. The legacy filesystem mode (CLI fallback) keeps a
- * soft-delete shape: the directory is moved to `docos/<owner>/.deleted/
- * <slug>-<timestamp>/` and stays excluded from listings/routing because
- * dashboard + owner-profile listings skip `.`-prefixed directories.
+ * Delete a Doco. This is a hard delete — `ON DELETE CASCADE` removes
+ * every entity, edge, and scope tied to the Doco.
  *
  * Per ADR-040 only people can call this; the route action gates by
  * `me.type === "person"`. Per `settings-page-delete-doco` Intent.
@@ -1317,87 +1008,39 @@ export async function softDeleteDoco(opts: {
   ownerSlug: string;
   docoSlug: string;
 }): Promise<{ deletedPath: string }> {
-  const { root, ownerSlug, docoSlug } = opts;
+  const { ownerSlug, docoSlug } = opts;
 
-  if (process.env.DOCO_STORAGE === "postgres") {
-    // Hard-delete via ON DELETE CASCADE (intents, decisions, rules, …
-    // all FK docos.id with ON DELETE CASCADE). Per `delete-is-permanent`
-    // — alpha forbids back-compat soft-delete recovery. If
-    // recoverability matters later, add a deleted_at column to docos and
-    // switch to UPDATE.
-    const { withClient } = await import("@doco/db");
-    const result = await withClient((c) =>
-      c.query(
-        "DELETE FROM docos WHERE owner_slug = $1 AND doco_slug = $2 RETURNING id",
-        [ownerSlug, docoSlug],
-      ),
-    );
-    if (result.rowCount === 0) {
-      throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
-    }
-    return { deletedPath: `postgres:docos/${ownerSlug}/${docoSlug}` };
-  }
-
-  const docosDir = hostDocosDir(root);
-  const src = join(docosDir, ownerSlug, docoSlug);
-  if (!existsSync(src)) {
+  // Hard-delete via ON DELETE CASCADE (intents, decisions, rules, …
+  // all FK docos.id with ON DELETE CASCADE). Per `delete-is-permanent`
+  // — alpha forbids back-compat soft-delete recovery. If
+  // recoverability matters later, add a deleted_at column to docos and
+  // switch to UPDATE.
+  const { withClient } = await import("@doco/db");
+  const result = await withClient((c) =>
+    c.query(
+      "DELETE FROM docos WHERE owner_slug = $1 AND doco_slug = $2 RETURNING id",
+      [ownerSlug, docoSlug],
+    ),
+  );
+  if (result.rowCount === 0) {
     throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
   }
-  const trashRoot = join(docosDir, ownerSlug, ".deleted");
-  if (!existsSync(trashRoot)) {
-    await mkdir(trashRoot, { recursive: true });
-  }
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const dest = join(trashRoot, `${docoSlug}-${stamp}`);
-  await rename(src, dest);
-  return { deletedPath: dest };
+  return { deletedPath: `postgres:docos/${ownerSlug}/${docoSlug}` };
 }
 
 export async function listDocos(root: string): Promise<DocoRecord[]> {
-  if (process.env.DOCO_STORAGE === "postgres") {
-    const { withClient } = await import("@doco/db");
-    const r = await withClient((c) =>
-      c.query<{ id: string; owner_slug: string; doco_slug: string; owner_id: string }>(
-        "SELECT id, owner_slug, doco_slug, owner_id FROM docos ORDER BY owner_slug, doco_slug",
-      ),
-    );
-    return r.rows.map((row) => ({
-      ownerSlug: row.owner_slug,
-      docoSlug: row.doco_slug,
-      ownerKind: row.owner_id.startsWith("organization_") ? "organization" : "principal",
-      ownerId: row.owner_id as EntityId<"principal"> | EntityId<"organization">,
-      docoId: row.id as EntityId<"doco">,
-      path: hostDocoDir(root, row.owner_slug, row.doco_slug),
-    }));
-  }
-  if (detectMode(root) !== "host") throw new Error("Not a Host directory");
-  const out: DocoRecord[] = [];
-  const docosDir = hostDocosDir(root);
-  if (!existsSync(docosDir)) return out;
-  for (const ownerSlug of await readdir(docosDir)) {
-    if (ownerSlug.startsWith(".")) continue; // skip .deleted/, .DS_Store, etc.
-    const ownerDir = join(docosDir, ownerSlug);
-    const ownerStat = await stat(ownerDir);
-    if (!ownerStat.isDirectory()) continue;
-    for (const docoSlug of await readdir(ownerDir)) {
-      if (docoSlug.startsWith(".")) continue; // skip .deleted/, .DS_Store, etc.
-      const dir = join(ownerDir, docoSlug);
-      const ds = await stat(dir);
-      if (!ds.isDirectory()) continue;
-      const yamlPath = join(dir, "doco.yaml");
-      if (!existsSync(yamlPath)) continue;
-      const data = parseYaml(await readFile(yamlPath, "utf8")) as Record<string, unknown>;
-      const ownerId = data.owner_id as string;
-      const ownerKind = ownerId.startsWith("organization_") ? "organization" : "principal";
-      out.push({
-        ownerSlug,
-        docoSlug,
-        ownerKind,
-        ownerId: ownerId as EntityId<"principal"> | EntityId<"organization">,
-        docoId: data.id as EntityId<"doco">,
-        path: dir,
-      });
-    }
-  }
-  return out;
+  const { withClient } = await import("@doco/db");
+  const r = await withClient((c) =>
+    c.query<{ id: string; owner_slug: string; doco_slug: string; owner_id: string }>(
+      "SELECT id, owner_slug, doco_slug, owner_id FROM docos ORDER BY owner_slug, doco_slug",
+    ),
+  );
+  return r.rows.map((row) => ({
+    ownerSlug: row.owner_slug,
+    docoSlug: row.doco_slug,
+    ownerKind: row.owner_id.startsWith("organization_") ? "organization" : "principal",
+    ownerId: row.owner_id as EntityId<"principal"> | EntityId<"organization">,
+    docoId: row.id as EntityId<"doco">,
+    path: hostDocoDir(root, row.owner_slug, row.doco_slug),
+  }));
 }
