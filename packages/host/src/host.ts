@@ -425,7 +425,7 @@ export async function addOrganization(
 }
 
 // ──────────────────────────────────────────────────────────────────────────
-// Docos in a host
+// docos in a host
 // ──────────────────────────────────────────────────────────────────────────
 
 export interface CreateDocoInHostOptions {

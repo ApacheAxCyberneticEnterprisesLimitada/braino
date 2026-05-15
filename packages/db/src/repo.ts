@@ -271,7 +271,7 @@ export async function getPrincipalByUsername(username: string): Promise<Principa
 /**
  * List Principals of a given type. `bootstrap_placeholder: true` rows
  * (per ADR-073) are filtered out of all listings — they exist only to
- * own host-bootstrap Docos and are never user-facing.
+ * own host-bootstrap docos and are never user-facing.
  */
 export async function listPrincipals(opts: { type?: string } = {}): Promise<PrincipalRow[]> {
   return withClient(async (c) => {

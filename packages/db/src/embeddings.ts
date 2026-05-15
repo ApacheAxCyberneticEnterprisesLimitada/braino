@@ -62,7 +62,7 @@ export interface UpsertEmbeddingsOptions {
   /**
    * When true, delete embedding rows for entity_ids not present in
    * the input set after the upsert. Scoped to the Doco of the
-   * passed entries (we won't ever delete across Docos).
+   * passed entries (we won't ever delete across docos).
    */
   pruneStale?: boolean;
 }
@@ -159,7 +159,7 @@ export async function upsertEmbeddings(
 }
 
 /**
- * Delete embedding rows in the named Docos whose entity_id is NOT in `keep`.
+ * Delete embedding rows in the named docos whose entity_id is NOT in `keep`.
  * Operates per-Doco so a reindex of Doco X never wipes Doco Y's vectors.
  */
 async function pruneStaleEmbeddings(
