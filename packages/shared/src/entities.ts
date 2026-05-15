@@ -281,7 +281,7 @@ export type ScopeRule =
    */
   | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[]; reason?: string }
   /** Probabilistic — LLM reads the spec + the candidate node, returns ok/reason. */
-  | { kind: "probabilistic"; spec: string };
+  | { kind: "probabilistic"; spec: string; reason?: string };
 
 export interface Scope extends CommonFields {
   node_type: "scope";
