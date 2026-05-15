@@ -301,7 +301,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     expect(text).toContain("watched: true");
   });
 
-  it("ADR-137bis: when watched=true, the Constitution is NOT mutated (soft signal only)", async () => {
+  it("ADR-137bis: when watched=true, the Global scope is NOT mutated (soft signal only)", async () => {
     const root = join(tmp, "host");
     await createHost(root, { name: "Test" });
     await addPrincipal(root, { username: "alice" });
@@ -311,16 +311,16 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     const { parse } = await import("yaml");
     const scopesDir = join(rec.path, "scopes");
     const filesBefore = await readdir(scopesDir);
-    let constitutionFileBefore: string | null = null;
+    let globalFileBefore: string | null = null;
     for (const f of filesBefore) {
       if (!f.endsWith(".yaml")) continue;
       const e = parse(await rf(join(scopesDir, f), "utf8")) as Record<string, unknown>;
-      if (e.name === "constitution") {
-        constitutionFileBefore = f;
+      if (e.name === "global") {
+        globalFileBefore = f;
         break;
       }
     }
-    const beforeText = await rf(join(scopesDir, constitutionFileBefore!), "utf8");
+    const beforeText = await rf(join(scopesDir, globalFileBefore!), "utf8");
 
     await createScopeInDoco({
       docoDir: rec.path,
@@ -330,7 +330,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
       createdBy: null,
     });
 
-    const afterText = await rf(join(scopesDir, constitutionFileBefore!), "utf8");
+    const afterText = await rf(join(scopesDir, globalFileBefore!), "utf8");
     expect(afterText).toBe(beforeText);
   });
 
@@ -379,7 +379,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     expect(text).not.toContain("watched:");
   });
 
-  it("Constitution is always watched: createDocoInHost seeds the Constitution scope with watched: true", async () => {
+  it("Global is always watched: createDocoInHost seeds the Global scope with watched: true and globe icon", async () => {
     const root = join(tmp, "host");
     await createHost(root, { name: "Test" });
     await addPrincipal(root, { username: "alice" });
@@ -387,23 +387,24 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
 
     const scopesDir = join(rec.path, "scopes");
     const files = await readdir(scopesDir);
-    let constitutionText: string | null = null;
+    let globalScope: Record<string, unknown> | null = null;
     for (const f of files) {
       if (!f.endsWith(".yaml")) continue;
       const text = await readFile(join(scopesDir, f), "utf8");
       const e = parseYaml(text) as Record<string, unknown>;
-      if (e.name === "constitution") {
-        constitutionText = text;
+      if (e.name === "global") {
+        globalScope = e;
         break;
       }
     }
-    expect(constitutionText).not.toBeNull();
-    expect(constitutionText!).toContain("watched: true");
+    expect(globalScope).not.toBeNull();
+    expect(globalScope!.watched).toBe(true);
+    expect(globalScope!.icon).toBe("🌐");
   });
 
-  it("Constitution is always watched: createScopeInDoco forces watched: true when name === 'constitution'", async () => {
+  it("Global is always watched: createScopeInDoco forces watched: true when name === 'global'", async () => {
     // Defense-in-depth: even if a caller passes watched: false for a
-    // scope named 'constitution', the YAML must still land as
+    // scope named 'global', the YAML must still land as
     // watched: true. (The normal seeding path passes watched: true
     // already; this guards the rare direct-call from a test or
     // bespoke import script.)
@@ -412,13 +413,13 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     await addPrincipal(root, { username: "alice" });
     const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
 
-    // Remove the auto-seeded Constitution to free the name slot,
+    // Remove the auto-seeded Global scope to free the name slot,
     // then re-create with watched: false to verify the force.
     const scopesDir = join(rec.path, "scopes");
     for (const f of await readdir(scopesDir)) {
       if (!f.endsWith(".yaml")) continue;
       const e = parseYaml(await readFile(join(scopesDir, f), "utf8")) as Record<string, unknown>;
-      if (e.name === "constitution") {
+      if (e.name === "global") {
         await (await import("node:fs/promises")).rm(join(scopesDir, f));
         break;
       }
@@ -426,7 +427,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     const newId = await createScopeInDoco({
       docoDir: rec.path,
       docoId: rec.docoId,
-      name: "constitution",
+      name: "global",
       watched: false,
       createdBy: null,
     });
@@ -434,42 +435,42 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     expect(text).toContain("watched: true");
   });
 
-  it("Constitution is always watched: setScopeWatchedInDoco throws when asked to unwatch the Constitution", async () => {
+  it("Global is always watched: setScopeWatchedInDoco throws when asked to unwatch the Global scope", async () => {
     const { setScopeWatchedInDoco } = await import("../host.js");
     const root = join(tmp, "host");
     await createHost(root, { name: "Test" });
     await addPrincipal(root, { username: "alice" });
     const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
 
-    // Locate the auto-seeded Constitution scope's id.
+    // Locate the auto-seeded Global scope's id.
     const scopesDir = join(rec.path, "scopes");
-    let constitutionId: EntityId<"scope"> | null = null;
+    let globalId: EntityId<"scope"> | null = null;
     for (const f of await readdir(scopesDir)) {
       if (!f.endsWith(".yaml")) continue;
       const e = parseYaml(await readFile(join(scopesDir, f), "utf8")) as Record<string, unknown>;
-      if (e.name === "constitution") {
-        constitutionId = String(e.id) as EntityId<"scope">;
+      if (e.name === "global") {
+        globalId = String(e.id) as EntityId<"scope">;
         break;
       }
     }
-    expect(constitutionId).not.toBeNull();
+    expect(globalId).not.toBeNull();
 
     await expect(
       setScopeWatchedInDoco({
         docoDir: rec.path,
-        targetScopeId: constitutionId!,
+        targetScopeId: globalId!,
         watched: false,
       }),
     ).rejects.toThrow(/always watched/i);
 
     // And the YAML stayed watched: true (no half-write).
-    const text = await readFile(join(scopesDir, `${constitutionId}.yaml`), "utf8");
+    const text = await readFile(join(scopesDir, `${globalId}.yaml`), "utf8");
     expect(text).toContain("watched: true");
 
     // Setting watched: true is a harmless idempotent no-op (no throw).
     await setScopeWatchedInDoco({
       docoDir: rec.path,
-      targetScopeId: constitutionId!,
+      targetScopeId: globalId!,
       watched: true,
     });
   });

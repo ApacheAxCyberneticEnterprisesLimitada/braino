@@ -32,7 +32,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     // /constitution route (which was removed).
     name: "global",
     label: "Global (the doco's constitution)",
-    icon: "⚖️",
+    icon: "🌐",
     purpose:
       "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite. Every Doco has one.",
     guidelines: `The Global scope is where you put the rules that other rules cite — the doco's constitution. It's not a list of "nice-to-haves" — it's the schema-shaped commitments the project is held to.

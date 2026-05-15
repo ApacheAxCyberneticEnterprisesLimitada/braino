@@ -283,8 +283,8 @@ export interface Reference extends CommonFields {
 // ─── Scope ────────────────────────────────────────────────────────────────
 // Topical neighborhood. Renamed from Tag (ADR-078). Edge-hierarchical: parent
 // scopes live in `scopes: []` (the common field) — no slash-in-name. Per
-// ADR-081. Self-explaining: `purpose` says why this scope exists, `guidelines`
-// says how nodes inside it should be authored. Per ADR-082.
+// ADR-081. Scope-facing guidance lives in first-class Rule entities tagged
+// with the scope, not embedded description/purpose/guidelines fields.
 
 /**
  * Per-rule lifecycle (decision_01KRPNZY7W6CCMYNKGND67BP0B). Rules on a
