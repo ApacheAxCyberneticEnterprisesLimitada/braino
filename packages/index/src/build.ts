@@ -39,11 +39,45 @@ export interface IndexOptions {
    * filesystem-rooted developer flow.
    */
   docoId?: string;
+  /**
+   * When set, restrict the derived-data rebuild to these entity ids
+   * only — wipe and re-insert just their FTS rows + outgoing edges,
+   * leave the rest of the Doco's derived data alone. Embeddings are
+   * recomputed only for the named entities (content-hash gated as
+   * usual, so unchanged content is still skipped).
+   *
+   * Use for single-entity captures / patches where the caller knows
+   * exactly which row changed. Omit for first build, bulk import,
+   * scope rename, or anywhere the safe-but-slow full rebuild is the
+   * right move.
+   */
+  changedEntityIds?: string[];
+  /**
+   * When true, skip the embedding pass even if `embeddingProvider`
+   * is set. Used by the capture flow to split the fast structural
+   * rebuild (FTS + edges) from the slower OpenAI-bound embedding
+   * pass — the structural pass runs inline so the response reflects
+   * a fresh graph, while embeddings are offloaded to `waitUntil` and
+   * caught up after the response is sent.
+   */
+  skipEmbeddings?: boolean;
+  /**
+   * When true, skip the FTS + edges rebuild. Paired with the above:
+   * the capture flow first runs `{ skipEmbeddings: true }` inline,
+   * then `{ skipStructural: true }` in `waitUntil` so the embedding
+   * pass catches up off the request path.
+   */
+  skipStructural?: boolean;
 }
 
 /**
  * Rebuild derived data (edges, FTS, embeddings) for one Doco. Caller
  * supplies the pre-loaded LoadedDoco; this function does the PG writes.
+ *
+ * When `opts.changedEntityIds` is set, only those entities' derived
+ * rows are touched — the rest of the Doco is left as-is. This is the
+ * O(neighborhood) capture path. Without it, the full Doco is rebuilt
+ * — the O(N+M) path used for cold starts and bulk operations.
  */
 export async function indexDoco(
   loaded: LoadedDoco,
@@ -52,36 +86,49 @@ export async function indexDoco(
   const start = performance.now();
 
   const docoId = (loaded.doco as { id: string }).id;
-  const pgFts: { entity_id: string; node_type: string; summary: string; body: string }[] = [];
-  const pgEdges: ReturnType<typeof deriveEdges> = [];
+  const incrementalIds = opts.changedEntityIds && opts.changedEntityIds.length > 0
+    ? new Set(opts.changedEntityIds)
+    : null;
+
   let inserted = 0;
-  for (const le of loaded.entities.values()) {
-    inserted++;
-    const e = le.entity as unknown as Record<string, unknown>;
-    const summary = String(e.summary ?? "");
-    let body = le.parsed.body ?? "";
-    if (le.entity.node_type === "scope") {
-      const extras = [e.purpose, e.guidelines, e.description]
-        .filter((s): s is string => typeof s === "string" && s.length > 0)
-        .join("\n\n");
-      body = body ? `${body}\n\n${extras}` : extras;
+  if (!opts.skipStructural) {
+    const pgFts: { entity_id: string; node_type: string; summary: string; body: string }[] = [];
+    const pgEdges: ReturnType<typeof deriveEdges> = [];
+    for (const le of loaded.entities.values()) {
+      if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
+      inserted++;
+      const e = le.entity as unknown as Record<string, unknown>;
+      const summary = String(e.summary ?? "");
+      let body = le.parsed.body ?? "";
+      if (le.entity.node_type === "scope") {
+        const extras = [e.purpose, e.guidelines, e.description]
+          .filter((s): s is string => typeof s === "string" && s.length > 0)
+          .join("\n\n");
+        body = body ? `${body}\n\n${extras}` : extras;
+      }
+      pgFts.push({
+        entity_id: le.entity.id,
+        node_type: le.entity.node_type as string,
+        summary,
+        body,
+      });
+      for (const edge of deriveEdges(le.entity)) {
+        pgEdges.push(edge);
+      }
     }
-    pgFts.push({
-      entity_id: le.entity.id,
-      node_type: le.entity.node_type as string,
-      summary,
-      body,
-    });
-    for (const edge of deriveEdges(le.entity)) {
-      pgEdges.push(edge);
-    }
+    await rebuildDocoDerivedData(
+      docoId,
+      pgFts,
+      pgEdges,
+      incrementalIds ? { onlyEntityIds: [...incrementalIds] } : {},
+    );
   }
-  await rebuildDocoDerivedData(docoId, pgFts, pgEdges);
 
   let embeddings: EmbeddingsReport | undefined;
-  if (opts.embeddingProvider) {
+  if (opts.embeddingProvider && !opts.skipEmbeddings) {
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
+      if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       const summary = String((le.entity as { summary?: string }).summary ?? "");
       const body = le.parsed.body ?? "";
       const text = `${summary}\n\n${body}`.trim();
@@ -94,8 +141,11 @@ export async function indexDoco(
       });
     }
     try {
+      // Prune-stale wipes embeddings for entities NOT in `texts`. On
+      // an incremental pass we're only passing one entity, so pruning
+      // would nuke every other embedding in the Doco — disable.
       embeddings = await upsertEmbeddings(texts, opts.embeddingProvider, {
-        pruneStale: true,
+        pruneStale: !incrementalIds,
       });
     } catch (err) {
       // Best-effort: a transient provider failure (rate limit, network
@@ -115,6 +165,11 @@ export async function indexDoco(
 /**
  * Rebuild PG derived data for the Doco rooted at `docoRoot`. The on-disk
  * `doco.yaml` carries only the Doco id; entity content lives in PG.
+ *
+ * Pass `opts.changedEntityIds` for the incremental path (single-entity
+ * captures): only those entities' FTS rows + outgoing edges are touched
+ * and the embedding pass is scoped to them. Omit for the safe-but-slow
+ * full rebuild — first build, scope rename, bulk import.
  */
 export async function reindex(
   docoRoot: string,
