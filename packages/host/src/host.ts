@@ -273,7 +273,7 @@ export async function addPrincipal(
         gh.github_login ?? null,
         null,
         null,
-        stringifyYaml(yaml),
+        JSON.stringify(yaml),
         created,
       ],
     );
@@ -328,7 +328,7 @@ export async function addOrganization(
     await c.query(
       `INSERT INTO organizations (id, slug, name, raw_yaml, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $5)`,
-      [id, opts.slug, opts.display_name ?? opts.slug, stringifyYaml(yaml), created],
+      [id, opts.slug, opts.display_name ?? opts.slug, JSON.stringify(yaml), created],
     );
     await c.query(
       `INSERT INTO org_members (org_id, principal_id, role, joined_at)
@@ -445,7 +445,7 @@ export async function createDocoInHost(
     c.query(
       `INSERT INTO docos (id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
-      [docoId, opts.ownerSlug, docoSlug, owner.id, docoSlug, opts.visibility ?? "private", stringifyYaml(docoYaml), created],
+      [docoId, opts.ownerSlug, docoSlug, owner.id, docoSlug, opts.visibility ?? "private", JSON.stringify(docoYaml), created],
     ),
   );
 
@@ -944,7 +944,7 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
         docoSlug,
         (yaml.display_name as string | undefined) ?? null,
         opts.visibility ?? null,
-        stringifyYaml(yaml),
+        JSON.stringify(yaml),
       ],
     );
   });
@@ -990,7 +990,7 @@ export async function renameDocoSlug(opts: {
               raw_yaml   = $4,
               updated_at = now()
         WHERE owner_slug = $1 AND doco_slug = $2`,
-      [ownerSlug, oldSlug, newSlug, stringifyYaml(yaml)],
+      [ownerSlug, oldSlug, newSlug, JSON.stringify(yaml)],
     );
   });
   return { newDir: join(hostDocosDir(root), ownerSlug, newSlug) };

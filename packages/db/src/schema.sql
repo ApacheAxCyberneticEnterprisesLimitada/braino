@@ -344,11 +344,9 @@ ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
 ALTER TABLE reference_entities DROP COLUMN IF EXISTS revision;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Token store (session tokens + CLI authorizations). The legacy filesystem
--- form was one JSON file per host; this is a single-row blob per key,
--- keyed by the path that the filesystem version used. Hacky but mirrors
--- the original semantics exactly. Move to one-row-per-token tables once
--- the surface stabilizes.
+-- Token store (session tokens + CLI authorizations). Alpha keeps this as a
+-- host-scoped JSON blob; move to one-row-per-token tables once the surface
+-- stabilizes.
 CREATE TABLE IF NOT EXISTS tokens_blob (
   key        text PRIMARY KEY,
   blob       jsonb NOT NULL,

@@ -1,40 +1,32 @@
 // Read-side loader from Postgres (Phase 2 of decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
 //
-// Returns the same `LoadedDoco` shape that `loadDoco()` produces from
-// the filesystem, so the rest of the index pipeline (`indexDoco`) is
-// unchanged.
+// Returns the `LoadedDoco` shape expected by the index pipeline.
 
+import {
+  type EntityRecord,
+  listEntitiesByDoco,
+  listIdentityRows,
+  withClient,
+} from "@doco/db";
 import type {
   Doco,
   Entity,
   EntityId,
+  LoadFailure,
   LoadedDoco,
   LoadedEntity,
-  LoadFailure,
   NodeType,
 } from "@doco/shared";
-import { isEntityId, NODE_TYPES } from "@doco/shared";
+import { NODE_TYPES, isEntityId } from "@doco/shared";
 import { parse as parseYamlText } from "yaml";
-import {
-  listEntitiesByDoco,
-  listIdentityRows,
-  withClient,
-  type EntityRecord,
-} from "@doco/db";
 
 /**
- * Parse a `raw_yaml` Postgres column. New writes (capture.server.ts,
- * createScopeInDoco, …) all serialize as JSON, but a small population of
- * rows persisted as YAML lingers from the window when scope writes used
- * stringifyYaml. Try JSON first (canonical, fast); fall back to YAML so
- * those rows still reindex instead of crashing the whole loader.
+ * Parse a `raw_yaml` Postgres column into the entity shape used by the
+ * indexer. The column name is historical; current writers serialize JSON,
+ * and the YAML parser accepts that subset cleanly.
  */
 function parseRawYaml(text: string): Record<string, unknown> {
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    return parseYamlText(text) as Record<string, unknown>;
-  }
+  return parseYamlText(text) as Record<string, unknown>;
 }
 
 // Doco-scoped types (have a `doco_id` column, queryable via listEntitiesByDoco).

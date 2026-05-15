@@ -229,7 +229,7 @@ The one-liner: \`doco patch decision <id> --append-body "Update YYYY-MM-DD: <wha
 - Edits to \`packages/api/src/instructions.ts\` (the canonical served at \`/api/v1/agent-bootstrap\`).
 - Edits to the agent bootstrap hooks (\`packages/cli/templates/agent-bootstrap/.claude/\`) — SessionStart, UserPromptSubmit, PostToolUse, Stop.
 - New or modified default scope templates (\`packages/host/src/scope-templates.ts\`).
-- New or modified \`doco\` CLI subcommands (\`doco capture\`, \`doco patch\`, \`doco coverage\`, …).
+- New or modified \`doco\` CLI subcommands (\`doco capture\`, \`doco patch\`, …).
 - New or modified API endpoints under \`/api/*\`.
 
 ## Capture in this scope, on top of whatever else applies
