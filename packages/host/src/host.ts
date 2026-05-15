@@ -779,8 +779,8 @@ export async function createScopeInDoco(
     const { withClient } = await import("@doco/db");
     await withClient((c) =>
       c.query(
-        `INSERT INTO scopes (id, doco_id, name, summary, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by, revision)
-         VALUES ($1, $2, $3, $4, 'active', $5, $6, $6, $7, $7, 1)`,
+        `INSERT INTO scopes (id, doco_id, name, summary, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4, 'active', $5, $6, $6, $7, $7)`,
         [id, opts.docoId, opts.name, yaml.summary as string, stringifyYaml(yaml), created, opts.createdBy],
       ),
     );
