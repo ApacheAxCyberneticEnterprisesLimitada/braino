@@ -30,7 +30,7 @@ export interface ValidationReport {
  *   2. Every id-shaped reference resolves to a real entity in the Doco
  *      (orphan-ref detection).
  *
- * Per-entity JSON Schema validation was retired — the TypeScript types in
+ * Per-entity JSON Schema validation was removed — the TypeScript types in
  * `@doco/shared/entities.ts` are the source of truth for entity shape;
  * agents/CLI consumers see type errors there. The connectivity check above
  * catches the only failure that schema-validation actually caught in

@@ -117,7 +117,7 @@ Number ADRs sequentially using the \`number\` field ("ADR-042"). Use \`supersede
 - Request schema (params, body)
 - Response schema (success + error shapes)
 - At least one example request + response
-- Versioning + deprecation timeline
+- Versioning + abandonment timeline
 
 When a contract changes incompatibly, write a new Decision and link it via \`supersedes\` to the old one. Reference the implementation **Action** that shipped the change.`,
   },
@@ -170,7 +170,7 @@ Avoid blame; focus on the system. The post-mortem is a learning artifact, not a 
 
 Each term's Reference should include in \`summary\` a 1-2 sentence definition. Use \`scopes\` to attach related terms to the same domain (e.g., \`scopes: [glossary, payments]\` for a payment-specific term).
 
-When a term is renamed or deprecated, write a new Reference and link to the old via \`supersedes\`.`,
+When a term is renamed or abandoned, write a new Reference and link to the old via \`supersedes\`.`,
   },
   {
     name: "roadmap",

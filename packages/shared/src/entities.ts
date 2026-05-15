@@ -140,7 +140,7 @@ export type RuleKind = "authoring" | "guidance" | "tagged";
 /**
  * Authoring predicate — the structured shape the engine evaluates at
  * write time. Used as `Rule.predicate` when `Rule.kind === "authoring"`.
- * The old `predicate: string` field on Rule (pre-promotion) is retired.
+ * The old `predicate: string` field on Rule (pre-promotion) was removed.
  */
 export type AuthoringPredicate =
   | { kind: "requires_edge"; edge_type: string; target_node_type?: string }
@@ -238,7 +238,7 @@ export interface Reasoning extends CommonFields {
 // A `target_ref` points the Eval at the claim it tests (a Decision, Rule,
 // Action, etc.). Derived edge: `tests` from Eval → target.
 //
-// Replaces both the original EVO placeholder name AND the deprecated
+// Replaces both the original EVO placeholder name AND the abandoned
 // Evaluation node type (which was tied to Rules + meant to capture per-run
 // outcomes — never used, since run history lives outside the Doco).
 
@@ -289,7 +289,7 @@ export interface Reference extends CommonFields {
 /**
  * Per-rule lifecycle (decision_01KRPNZY7W6CCMYNKGND67BP0B). Rules on a
  * scope follow the same lifecycle stages every other node uses — "active"
- * is the working default, "abandoned" is what "deprecate" sets, and the
+ * is the working default, "abandoned" is what the Abandon action sets, and the
  * engine + agent-facing surfaces only consider non-abandoned rules.
  */
 export type RuleLifecycle = "active" | "proposed" | "abandoned" | "superseded";

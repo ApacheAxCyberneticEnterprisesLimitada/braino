@@ -481,7 +481,7 @@ export async function createDocoInHost(
     docoId,
     kind: "authoring",
     summary:
-      "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, retiring stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
+      "Agents must proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves, abandoning stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
     predicate: {
       kind: "probabilistic",
       spec: "Behavioral reminder, not a per-node check — agents are expected to surface the Doco's scope manifest to the project owner at session start and whenever the conversation moves into new territory, and to flag drift in the watched set.",
@@ -917,9 +917,9 @@ export interface UpdateScopeOptions {
   /** Replace the entire parent list (not append). Pass [] to clear. */
   parentScopes?: EntityId<"scope">[];
   /**
-   * Lifecycle transition. The Danger Zone "Deprecate" button sends
-   * "abandoned"; reactivation sends "active". Per the
-   * `scopes-are-deprecated-not-deleted` Decision.
+   * Lifecycle transition. The Danger Zone "Abandon" button sends
+   * "abandoned"; activation sends "active". Per the scope-abandonment
+   * Decision.
    */
   lifecycle?: "active" | "abandoned" | "superseded";
   // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G scope-rule management
@@ -958,13 +958,12 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
   });
 }
 
-// `deleteScopeInDoco` was removed per the
-// `scopes-are-deprecated-not-deleted` Decision. Scopes follow the same
-// six-state lifecycle as every other node — to "deprecate" one,
-// transition it to `abandoned` (no replacement) or `superseded` (a new
-// scope took over). Existing members keep their tag; new captures are
-// rejected. Use `updateScopeInDoco({ scopeId, lifecycle: "abandoned" })`
-// (or "superseded") instead of deletion.
+// `deleteScopeInDoco` was removed per the scope-abandonment Decision.
+// Scopes follow the same six-state lifecycle as every other node — to
+// abandon one, transition it to `abandoned` (no replacement) or
+// `superseded` (a new scope took over). Existing members keep their tag;
+// new captures are rejected. Use `updateScopeInDoco({ scopeId,
+// lifecycle: "abandoned" })` (or "superseded") instead of deletion.
 
 /**
  * Apply a partial update to a Doco's metadata (settings page) by

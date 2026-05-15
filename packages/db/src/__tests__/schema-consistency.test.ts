@@ -50,7 +50,7 @@ describe("NODE_TABLES ↔ schema.sql consistency", () => {
     });
   }
 
-  it("revision column has been retired from every entity table (decision_01KRHBZMD0V35NAX94Y7N2MXVA)", () => {
+  it("revision column has been removed from every entity table (decision_01KRHBZMD0V35NAX94Y7N2MXVA)", () => {
     for (const [, spec] of Object.entries(NODE_TABLES)) {
       const block = tableBlock(spec.table);
       if (!block) continue;

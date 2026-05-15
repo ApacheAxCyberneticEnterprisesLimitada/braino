@@ -34,7 +34,7 @@ export interface EngineEdge {
 /**
  * An authoring predicate loaded from a Rule entity, with the per-rule
  * fields the engine needs: the predicate itself, the lifecycle (so it
- * can be skipped if deprecated), and an optional human-readable reason
+ * can be skipped if abandoned), and an optional human-readable reason
  * (typically the Rule's summary).
  */
 export interface LoadedAuthoringRule {
@@ -90,7 +90,7 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
   if (rules.length === 0) return violations;
 
   // Per decision_01KRPNZY7W6CCMYNKGND67BP0B rules with lifecycle
-  // `abandoned` / `superseded` are skipped (soft-deprecation). Callers
+  // `abandoned` / `superseded` are skipped. Callers
   // typically pre-filter, but defend in depth here too.
   const isActiveLifecycle = (lc: string | undefined): boolean =>
     lc === undefined || lc === "active" || lc === "proposed";

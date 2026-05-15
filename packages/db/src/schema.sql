@@ -332,7 +332,7 @@ CREATE INDEX IF NOT EXISTS entity_fts_tsv_idx  ON entity_fts USING gin (search_t
 
 -- Drop the legacy `revision` column from entity tables. Was incremented
 -- on every upsert but never read by any TS code (decision_01KRHBZMD0V35NAX94Y7N2MXVA
--- flagged it; never fully retired). Idempotent — no-op on fresh DBs.
+-- flagged it; never fully removed). Idempotent — no-op on fresh DBs.
 ALTER TABLE intents            DROP COLUMN IF EXISTS revision;
 ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
 ALTER TABLE rules              DROP COLUMN IF EXISTS revision;

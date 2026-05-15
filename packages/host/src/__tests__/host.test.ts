@@ -612,7 +612,7 @@ describe("updateScopeInDoco (ADR-084 follow-up)", () => {
     expect(text).not.toContain("guidelines:");
   });
 
-  // Scope deletion was removed (see rule "scopes-never-deleted"); retirement
+  // Scope deletion was removed (see rule "scopes-never-deleted"); abandonment
   // happens via `updateScopeInDoco({ lifecycle: 'abandoned' })`. No test
   // for `deleteScopeInDoco` because the helper no longer exists.
 });
