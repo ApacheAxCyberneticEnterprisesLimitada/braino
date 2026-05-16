@@ -199,7 +199,7 @@ export type AuthoringPredicate =
   | { kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
   | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
   | { kind: "requires_node_type"; node_types: NodeType[] }
-  | { kind: "probabilistic"; spec: string }
+  | { kind: "probabilistic"; spec: string; when_node_type?: NodeType[] }
   | {
       kind: "unique-within-scope";
       scope_ref: string;
@@ -220,7 +220,7 @@ export type AuthoringPredicate =
       scope_ref: string;
       graph: "follows";
     } & GraphConstraintOperator)
-  | { kind: "descriptive"; spec: string };
+  | { kind: "descriptive"; spec: string; when_node_type?: NodeType[] };
 
 export interface Rule extends CommonFields {
   node_type: "rule";

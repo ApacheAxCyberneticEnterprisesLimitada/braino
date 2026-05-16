@@ -330,6 +330,10 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         break;
       }
       case "probabilistic": {
+        // v7: probabilistic rules accept `when_node_type` so a state-machine
+        // rule about "compensating Action" doesn't ask the LLM judge to
+        // evaluate it against an unrelated State capture.
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
         violations.push({
           rule_id: loaded.rule_id,
           kind: rule.kind,

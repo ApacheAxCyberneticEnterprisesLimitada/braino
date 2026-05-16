@@ -146,12 +146,14 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     rules: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
-        // D1
+        // D1 — the seeder tags the scope's seed Intent + Rules into this
+        // scope too, so they have to be allowed. Idea and Log have their
+        // own homes elsewhere.
         summary:
-          "Only State, Action, Decision, Eval, and Reference nodes belong to a state-machines scope. Other captures (Rule, Intent, Idea, Log) live elsewhere.",
+          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a state-machines scope. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
         predicate: {
           kind: "requires_node_type",
-          node_types: ["state", "action", "decision", "eval", "reference"],
+          node_types: ["state", "action", "decision", "eval", "reference", "intent", "rule"],
         },
       },
       {
@@ -178,16 +180,22 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         },
       },
       {
-        // D7
+        // D7 — semantic: a terminal State has no successor Action. An
+        // Action that fires AFTER a terminal State would carry
+        // `follows: [<that-terminal-state>]`, materializing as an
+        // incoming `follows` edge on the terminal State. Direction
+        // `in` is the correct check (the prior `out` reading flipped
+        // it and would have rejected properly-wired terminal States
+        // that themselves follow their predecessor Action).
         summary:
-          "Terminal States have no outgoing `follows` transitions — terminal means terminal.",
+          "Terminal States have no successor Action — no Action's `follows` may point at a terminal State.",
         predicate: {
           kind: "graph-constraint",
           scope_ref: "$capture_scope",
           graph: "follows",
           op: "degree-bounds",
           where: { kind: "terminal" },
-          direction: "out",
+          direction: "in",
           max: 0,
         },
       },
@@ -239,9 +247,13 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         },
       },
       {
-        // D8
+        // D8 — same direction semantics as D7. "Initial State has a
+        // successor Action" = at least one Action's `follows`
+        // includes this State, which is an INCOMING follows edge on
+        // the State. The prior `out` reading would have rejected
+        // properly-wired initial States.
         summary:
-          "Each active initial State has ≥1 outgoing `follows` to an active Action — otherwise the machine starts but never moves.",
+          "Each active initial State has ≥1 successor Action — otherwise the machine starts but never moves.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "graph-constraint",
@@ -249,7 +261,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           graph: "follows",
           op: "degree-bounds",
           where: { kind: "initial", lifecycle: ["active"] },
-          direction: "out",
+          direction: "in",
           min: 1,
         },
       },
@@ -269,13 +281,17 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         },
       },
       // ── Probabilistic ──
+      // v7: each rule is gated to the node type it actually inspects so
+      // the LLM judge isn't asked to evaluate, e.g., a State's summary
+      // against a spec about compensating Actions.
       {
         // P1
         summary:
           "State `summary` reads as a noun or past-participle, not an imperative verb. Acceptable: `paid`, `cart`, `cancelled`. Not: `Pay`, `Cancel`, `Process the order`.",
         predicate: {
           kind: "probabilistic",
-          spec: "State `summary` reads as a noun or past-participle, not an imperative verb.",
+          when_node_type: ["state"],
+          spec: "Check ONLY the State's `summary` field. It must read as a noun or past-participle naming the position the modeled entity occupies (`cart`, `paid`, `cancelled`, `awaiting-review`). It must NOT be an imperative verb naming an action (`Pay`, `Cancel`, `Process the order`). A single-word past-participle adjective is acceptable.",
         },
       },
       {
@@ -284,6 +300,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           "An Action that transitions between States names the event or command, not the destination state. Acceptable: `checkout submitted`, `payment captured`. Not: `becomes paid`.",
         predicate: {
           kind: "probabilistic",
+          when_node_type: ["action"],
           spec: "An Action transitioning between States names the event or command, not the destination state.",
         },
       },
@@ -293,7 +310,8 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           "State `invariants` are observable predicates a reader can check — `order.payment.captured = false`, not `the order is happy`.",
         predicate: {
           kind: "probabilistic",
-          spec: "State `invariants` are observable predicates, not subjective qualities.",
+          when_node_type: ["state"],
+          spec: "Check ONLY the State's `invariants` array. If `invariants` is empty, missing, or absent from the entity, this rule PASSES (vacuously true). When invariants are present, each entry must read as an observable predicate a reader can check programmatically (e.g., `order.payment.captured = false`), not a subjective quality (e.g., `the order is happy`). Do NOT judge the State's `summary` or `body_md` — only the invariants array matters here.",
         },
       },
       {
@@ -303,16 +321,19 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "probabilistic",
+          when_node_type: ["intent"],
           spec: "The scope's purpose Intent names the entity being modeled.",
         },
       },
       {
-        // P5
+        // P5 — fires only on Actions that look like compensating /
+        // cancellation paths. Happy-path transitions pass.
         summary:
-          "Compensating or cancellation transitions reference a Decision explaining why the path exists — they're the exceptional flow and need their reasoning recorded.",
+          "Compensating or cancellation transitions reference a Decision explaining why the path exists — they're the exceptional flow and need their reasoning recorded. Happy-path transitions are exempt.",
         predicate: {
           kind: "probabilistic",
-          spec: "Compensating or cancellation transition Actions reference a Decision via `decision_ids` explaining why the path exists.",
+          when_node_type: ["action"],
+          spec: "STEP 1 — decide whether this Action represents a compensating, cancellation, rollback, refund, undo, abort, abandon, or otherwise-undoing transition between States. Look at the Action's `verb` and `summary` for words like 'cancel', 'refund', 'rollback', 'undo', 'revert', 'abort', 'abandon', 'compensate', 'reverse'. If the Action is a normal happy-path transition (e.g., 'checkout submitted', 'payment captured', 'order shipped'), this rule PASSES — return ok. STEP 2 — only if the Action IS a compensating/cancellation transition, check that `decision_ids` is non-empty. If empty, FAIL with a reason explaining the Action looks like a compensating path but doesn't cite a Decision.",
         },
       },
       {
@@ -322,6 +343,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "probabilistic",
+          when_node_type: ["intent"],
           spec: "When the scope has multiple active initial States, the scope's purpose Intent explains parallel regions or optional entry points.",
         },
       },
@@ -331,6 +353,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           "A transition Action with empty `triggered_by` AND empty `gated_by` is either an explicit immediate transition (the body explains why it fires unconditionally) or an authoring oversight — capture the intent.",
         predicate: {
           kind: "probabilistic",
+          when_node_type: ["action"],
           spec: "A transition Action with empty triggered_by AND empty gated_by either explicitly justifies its unconditional firing in the body, or is an authoring oversight to flag.",
         },
       },
