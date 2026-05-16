@@ -4,7 +4,7 @@
  * @doco/core checks load + cross-reference resolution only.
  */
 
-import type { EntityId } from "./branded.js";
+import type { EntityId, NodeType } from "./branded.js";
 
 export type Lifecycle =
   | "proposed"
@@ -148,6 +148,7 @@ export type AuthoringPredicate =
   | { kind: "requires_field"; fields: string[] }
   | { kind: "forbids_field"; fields: string[] }
   | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
+  | { kind: "requires_node_type"; node_types: NodeType[] }
   | { kind: "probabilistic"; spec: string };
 
 export interface Rule extends CommonFields {

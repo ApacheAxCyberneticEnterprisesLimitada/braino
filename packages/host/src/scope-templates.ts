@@ -76,6 +76,12 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
     rules: [
       {
+        kind: "authoring",
+        summary:
+          "Only Rule nodes may belong to the Global scope. Decisions, Intents, Actions, Reasoning, Evals, References, and Ideas tagged with Global must be re-scoped to the project-specific scope they govern; Global is reserved for the rules that govern the Doco.",
+        predicate: { kind: "requires_node_type", node_types: ["rule"] },
+      },
+      {
         kind: "guidance",
         summary:
           'Rules that other Rules or Decisions cite belong in the Global scope. Examples: "every public endpoint must enforce auth", "ULIDs are the canonical id".',
@@ -83,12 +89,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Only Rule nodes belong in the Global scope. Load-bearing Decisions belong in the project-specific scope they govern and can reference Global Rules when needed.",
-      },
-      {
-        kind: "guidance",
-        summary:
-          "Every Global-scoped Rule traces back to a stakeholder intent through the decisions, actions, or rules that reference it; do not tag the Intent itself with Global.",
+          "Every Global-scoped Rule traces back to a stakeholder intent through the decisions, actions, or rules that reference it.",
       },
       {
         kind: "guidance",

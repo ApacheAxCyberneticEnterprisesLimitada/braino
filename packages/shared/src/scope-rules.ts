@@ -200,6 +200,24 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         }
         break;
       }
+      case "requires_node_type": {
+        // The captured node's `node_type` must appear in the rule's
+        // allowed list. Used by the Global scope's "only Rule nodes
+        // belong here" authoring rule.
+        const allowed = Array.isArray(rule.node_types) ? rule.node_types : [];
+        const nodeType = typeof entity.node_type === "string" ? entity.node_type : "";
+        if (allowed.length > 0 && !allowed.includes(nodeType as never)) {
+          violations.push({
+            rule_id: loaded.rule_id,
+            kind: rule.kind,
+            severity: "error",
+            reason:
+              loaded.reason ??
+              `Nodes in scope "${scopeName}" must be of type ${allowed.map((t) => `\`${t}\``).join(" or ")} — got \`${nodeType || "(unknown)"}\`.`,
+          });
+        }
+        break;
+      }
       case "probabilistic": {
         violations.push({
           rule_id: loaded.rule_id,
@@ -236,6 +254,15 @@ export function shouldRunAuthoringRuleForEntity(opts: {
   return opts.entityScopes.includes(opts.ruleScopeId);
 }
 
+/**
+ * Legacy fallback for the "only Rule nodes belong to Global" check. The
+ * canonical enforcement is now the `requires_node_type` authoring rule
+ * seeded into every Doco's Global scope at create time, which fires
+ * through the normal rules engine on every capture. This helper survives
+ * for the PATCH path only, which doesn't currently load + evaluate
+ * authoring rules. Once PATCH is wired through `evaluateScopeRules`,
+ * delete this function.
+ */
 export function globalScopeMembershipViolation(opts: {
   entityNodeType: string;
   entityScopes: string[];
