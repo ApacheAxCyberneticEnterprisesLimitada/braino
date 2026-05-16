@@ -118,14 +118,13 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
     // collapses from six guidance rules to two deterministic authoring
-    // rules + an expanded intentSummary. The previous guidance is either
-    // folded into the summary (state-machine warning, Action-vs-Log
-    // split) or made structural via D1 / D2.
+    // rules + a concise intentSummary for picker/manifest surfaces. The
+    // previous guidance is made structural via D1 / D2.
     name: "user-flows",
     label: "User flows",
     icon: "🌊",
     intentSummary:
-      "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish. Capture the journey as an Intent, each step as an Action linked to that Intent (`follows` between Actions encodes order), and each branch as a Decision with populated alternatives. This scope is process-centric — don't model state machines here. User-flows holds DESIGNED steps (Action: imperative verb, role-typed actor, designed inputs/outputs); recorded happenings (real commits, deploys, verifications) are Logs and belong in a separate project-owner-authored scope.",
+      "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     rules: [
       {
         // D1: restrict the scope to flow-relevant types. Rules and Evals

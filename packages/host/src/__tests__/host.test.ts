@@ -12,6 +12,7 @@ import {
   createHost,
   createScopeInDoco,
   detectMode,
+  findScopeTemplate,
   listDocos,
   listOrganizations,
   listPrincipals,
@@ -31,6 +32,15 @@ afterEach(async () => {
 });
 
 describe("host lifecycle", () => {
+  it("keeps user-flows template picker copy concise", () => {
+    const tpl = findScopeTemplate("user-flows");
+
+    expect(tpl?.intentSummary).toBe(
+      "Document end-to-end user journeys as ordered steps, branches, and decisions.",
+    );
+    expect(tpl?.intentSummary.length).toBeLessThan(90);
+  });
+
   it("creates a host with a bootstrap principal", async () => {
     const root = join(tmp, "host");
     const { host, bootstrapPrincipalId } = await createHost(root, {

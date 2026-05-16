@@ -1280,6 +1280,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
     "User-flows holds DESIGNED steps (Actions: verb in imperative/present, role-typed actor, designed inputs/outputs). Specific recorded events — a real commit that pushed, a deploy that ran, a verification that passed — are Logs and belong in a separate project-owner-authored scope, not here.",
   ]);
   const STALE_USER_FLOWS_INTENT_SUMMARIES = new Set<string>([
+    "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish. Capture the journey as an Intent, each step as an Action linked to that Intent (`follows` between Actions encodes order), and each branch as a Decision with populated alternatives. This scope is process-centric — don't model state machines here. User-flows holds DESIGNED steps (Action: imperative verb, role-typed actor, designed inputs/outputs); recorded happenings (real commits, deploys, verifications) are Logs and belong in a separate project-owner-authored scope.",
     "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish.",
     "End-to-end user journeys: how a person (or external system) moves through a feature from start to finish.",
   ]);
