@@ -89,7 +89,13 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     icon: "🌐",
     intentSummary:
       "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
-    rules: [],
+    rules: [
+      {
+        kind: "guidance",
+        summary:
+          "Add each node to the most specific applicable scope; use global only when no project-specific scope fits.",
+      },
+    ],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
