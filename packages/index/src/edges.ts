@@ -174,7 +174,9 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   updated_by: "updated_by",
   born_from: "born_from",
   superseded_by: "superseded_by",
-  primary_intent_id: "has_primary_intent",
+  // A scope's main intent is still identified by this explicit field; in the
+  // graph it reuses the existing "serves" relationship to Intent.
+  primary_intent_id: "serves",
   // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.
