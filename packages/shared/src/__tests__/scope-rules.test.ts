@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
+import type { Entity } from "../entities.js";
 import {
   globalScopeMembershipViolation,
+  hardWrittenDocoRuleViolations,
   shouldRunAuthoringRuleForEntity,
 } from "../scope-rules.js";
+
+const entity = (fm: Record<string, unknown>) => fm as unknown as Entity;
 
 describe("shouldRunAuthoringRuleForEntity", () => {
   it("runs Global authoring rules even when the entity is not tagged Global", () => {
@@ -102,5 +106,52 @@ describe("globalScopeMembershipViolation", () => {
         globalScopeName: "Global",
       }),
     ).toBeNull();
+  });
+});
+
+describe("hardWrittenDocoRuleViolations", () => {
+  it("rejects Decisions without alternatives even when no authoring rules are loaded", () => {
+    const violations = hardWrittenDocoRuleViolations({
+      entity: entity({
+        id: "decision_1",
+        node_type: "decision",
+        scopes: ["scope_framework"],
+      }),
+      globalScopeId: "scope_global",
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].rule_id).toBe("framework:decision-alternatives-required");
+    expect(violations[0].reason).toContain("Every Decision must populate `alternatives`");
+  });
+
+  it("allows Decisions with populated alternatives", () => {
+    const violations = hardWrittenDocoRuleViolations({
+      entity: entity({
+        id: "decision_1",
+        node_type: "decision",
+        scopes: ["scope_framework"],
+        alternatives: [{ name: "Wait", rejected_because: "The invariant should hold now." }],
+      }),
+      globalScopeId: "scope_global",
+    });
+
+    expect(violations).toEqual([]);
+  });
+
+  it("rejects non-Rule nodes tagged with Global without a seeded Global authoring rule", () => {
+    const violations = hardWrittenDocoRuleViolations({
+      entity: entity({
+        id: "intent_1",
+        node_type: "intent",
+        scopes: ["scope_global"],
+      }),
+      globalScopeId: "scope_global",
+      globalScopeName: "Global",
+    });
+
+    expect(violations).toHaveLength(1);
+    expect(violations[0].rule_id).toBe("framework:global-scope-rule-only");
+    expect(violations[0].reason).toContain("Only Rule nodes may belong to the Global scope");
   });
 });

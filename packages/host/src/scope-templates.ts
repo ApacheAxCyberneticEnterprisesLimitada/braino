@@ -89,44 +89,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     icon: "🌐",
     intentSummary:
       "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
-    rules: [
-      {
-        summary:
-          "Only Rule nodes may belong to the Global scope. Decisions, Intents, Actions, Reasoning, Evals, References, and Ideas tagged with Global must be re-scoped to the project-specific scope they govern; Global is reserved for the rules that govern the Doco.",
-        predicate: { kind: "requires_node_type", node_types: ["rule"] },
-      },
-      {
-        // D3 (decision_01KRRD6QM7NN2EV56NZK96DNKY): a Decision is a
-        // recorded choice WITH rejected alternatives. Doco-wide.
-        summary:
-          "Every Decision must populate `alternatives`. A Decision is the recorded choice plus the options that were rejected and why — empty alternatives means the choice isn't documented, only the outcome.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["alternatives"],
-          when_node_type: ["decision"],
-        },
-      },
-      {
-        kind: "guidance",
-        summary:
-          'Rules that other Rules or Decisions cite belong in the Global scope. Examples: "every public endpoint must enforce auth", "ULIDs are the canonical id".',
-      },
-      {
-        kind: "guidance",
-        summary:
-          "Every Global-scoped Rule traces back to a stakeholder intent through the decisions, actions, or rules that reference it.",
-      },
-      {
-        kind: "guidance",
-        summary:
-          "Implementation details, one-off bug fixes, and speculative ideas do NOT belong in the Global scope — those live in their own subject-area scopes.",
-      },
-      {
-        kind: "guidance",
-        summary:
-          "Agents proactively surface this Doco's scope manifest to the project owner — naming each scope, its purpose, and which carry the `watched` flag — and remind them that watched scopes only stay load-bearing when the project owner reviews them as the project evolves: abandoning stale ones, sharpening vague ones, and adding new ones whose absence would let real work slip out of view.",
-      },
-    ],
+    rules: [],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
@@ -135,8 +98,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     name: "user-flows",
     label: "User flows",
     icon: "🌊",
-    intentSummary:
-      "Document end-to-end user journeys as ordered steps, branches, and decisions.",
+    intentSummary: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     rules: [
       {
         summary:

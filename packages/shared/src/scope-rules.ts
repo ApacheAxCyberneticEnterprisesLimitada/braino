@@ -13,6 +13,15 @@
  * passes them in. The engine doesn't know the predicates came from Rule
  * entities — it just evaluates them.
  *
+ * Hard-written Doco rules:
+ *
+ *   • Every Decision must populate `alternatives`.
+ *   • Only Rule nodes may belong to the Global scope.
+ *
+ * These two are framework invariants rather than project-authored
+ * authoring rules. They run even when a Doco's Global template carries
+ * no corresponding Rule entities.
+ *
  * Predicate flavors:
  *
  *   • Deterministic — `requires_edge`, `requires_field`, `forbids_edge`,
@@ -602,6 +611,51 @@ export function computeEffectiveDefaultLifecycle(
 }
 
 /**
+ * Framework-native invariants that are intentionally not represented by
+ * seeded Global template Rules. They are checked by capture code before
+ * project-authored scope predicates are evaluated.
+ */
+export function hardWrittenDocoRuleViolations(opts: {
+  entity: Entity;
+  entityScopes?: string[];
+  globalScopeId?: string | null;
+  globalScopeName?: string;
+}): RuleViolation[] {
+  const violations: RuleViolation[] = [];
+  const entity = opts.entity as unknown as Record<string, unknown>;
+  const nodeType = typeof entity.node_type === "string" ? entity.node_type : "";
+  const entityScopes =
+    opts.entityScopes ?? (Array.isArray(entity.scopes) ? (entity.scopes as string[]) : []);
+
+  if (nodeType === "decision" && !isPopulated(entity.alternatives)) {
+    violations.push({
+      rule_id: "framework:decision-alternatives-required",
+      kind: "requires_field",
+      severity: "error",
+      reason:
+        "Every Decision must populate `alternatives`. A Decision is the recorded choice plus the options that were rejected and why — empty alternatives means the choice isn't documented, only the outcome.",
+    });
+  }
+
+  const globalViolation = globalScopeMembershipViolation({
+    entityNodeType: nodeType,
+    entityScopes,
+    ...(opts.globalScopeId !== undefined ? { globalScopeId: opts.globalScopeId } : {}),
+    ...(opts.globalScopeName !== undefined ? { globalScopeName: opts.globalScopeName } : {}),
+  });
+  if (globalViolation) {
+    violations.push({
+      rule_id: "framework:global-scope-rule-only",
+      kind: "requires_node_type",
+      severity: "error",
+      reason: globalViolation,
+    });
+  }
+
+  return violations;
+}
+
+/**
  * Convenience: filter to deterministic-only failures (the ones that should
  * block a capture).
  */
@@ -640,13 +694,8 @@ export function shouldRunAuthoringRuleForEntity(opts: {
 }
 
 /**
- * Legacy fallback for the "only Rule nodes belong to Global" check. The
- * canonical enforcement is now the `requires_node_type` authoring rule
- * seeded into every Doco's Global scope at create time, which fires
- * through the normal rules engine on every capture. This helper survives
- * for the PATCH path only, which doesn't currently load + evaluate
- * authoring rules. Once PATCH is wired through `evaluateScopeRules`,
- * delete this function.
+ * Framework-native "only Rule nodes belong to Global" check. Kept as a
+ * helper so capture and PATCH paths use the same error text.
  */
 export function globalScopeMembershipViolation(opts: {
   entityNodeType: string;
@@ -659,6 +708,15 @@ export function globalScopeMembershipViolation(opts: {
   if (opts.entityNodeType === "rule") return null;
   const name = opts.globalScopeName ?? "global";
   return `Only Rule nodes may belong to the ${name} scope. Put project content in a project-specific scope; Global is reserved for the rules that govern the Doco.`;
+}
+
+function isPopulated(value: unknown): boolean {
+  return (
+    value !== undefined &&
+    value !== null &&
+    value !== "" &&
+    !(Array.isArray(value) && value.length === 0)
+  );
 }
 
 // Accept both the plural form (`fields: string[]`) and the legacy singular
