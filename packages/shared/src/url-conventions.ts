@@ -20,7 +20,6 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "host",
   "api",
   "search",
-  "lint",
   "find-rules",
   "sign-in",
   "sign-out",

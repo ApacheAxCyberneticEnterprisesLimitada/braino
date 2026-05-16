@@ -1135,7 +1135,7 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
  * single transaction.
  *
  * Fails if a Doco with the target slug already exists. Does not touch
- * cross-Doco references — broken refs will surface in the next lint pass.
+ * cross-Doco references — callers must repair broken refs themselves.
  */
 export async function renameDocoSlug(opts: {
   root: string;

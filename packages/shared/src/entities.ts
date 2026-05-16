@@ -27,7 +27,7 @@ export interface CommonFields {
   lifecycle?: Lifecycle;
   scopes?: EntityId<"scope">[];
   born_from?: EntityId;
-  /** Ordering / dependency. This entity comes after the listed ones. Lint forbids cycles. ADR-077. */
+  /** Ordering / dependency. This entity comes after the listed ones. Don't create cycles. ADR-077. */
   follows?: EntityId[];
 }
 
