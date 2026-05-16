@@ -202,24 +202,6 @@ export interface Action extends CommonFields {
   ended_at?: string;
 }
 
-// ─── Reasoning ────────────────────────────────────────────────────────────
-
-export interface ReasoningPremise {
-  node_type: string;
-  ref: EntityId;
-  as: string;
-}
-
-export interface Reasoning extends CommonFields {
-  node_type: "reasoning";
-  author_id: EntityId<"principal">;
-  premises: ReasoningPremise[];
-  inference: string;
-  conclusion_ref?: EntityId;
-  confidence?: number;
-  uncertainty?: string[];
-}
-
 // ─── Eval (test/eval node) ────────────────────────────────────────────────
 // An Eval is a named, executable test/eval that pins the meaning of a
 // load-bearing claim in the Doco. Inspired by TDD unit tests + AI evals.
@@ -352,7 +334,6 @@ export type Entity =
   | Rule
   | Decision
   | Action
-  | Reasoning
   | Eval
   | Reference
   | Scope;

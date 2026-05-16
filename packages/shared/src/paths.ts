@@ -21,7 +21,6 @@ export const ENTITY_DIRS: Record<Exclude<NodeType, "doco">, EntityDirSpec> = {
   rule: { dir: "rules", format: "md" },
   decision: { dir: "decisions", format: "md" },
   action: { dir: "actions", format: "md" },
-  reasoning: { dir: "reasoning", format: "md" },
   /** Eval — test/eval definition. Markdown body for prose description;
    * structured fields (criterion/input/expected/last_status) in frontmatter. */
   eval: { dir: "evals", format: "md" },

@@ -10,7 +10,6 @@ export const NODE_TABLES: Record<string, { table: string; body: boolean }> = {
   decision: { table: "decisions", body: true },
   rule: { table: "rules", body: true },
   action: { table: "actions", body: true },
-  reasoning: { table: "reasoning", body: true },
   eval: { table: "evals", body: true },
   scope: { table: "scopes", body: false },
   tag: { table: "tags", body: false },

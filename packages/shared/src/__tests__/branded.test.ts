@@ -68,7 +68,6 @@ describe("isNodeType", () => {
       "rule",
       "decision",
       "action",
-      "reasoning",
       "eval",
       "reference",
       "scope",

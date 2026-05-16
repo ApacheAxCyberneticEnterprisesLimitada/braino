@@ -148,21 +148,6 @@ CREATE TABLE IF NOT EXISTS actions (
 CREATE INDEX IF NOT EXISTS actions_doco_idx ON actions (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS actions_lifecycle_idx ON actions (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS reasoning (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  summary     text,
-  lifecycle   text,
-  body_md     text,
-  raw_yaml    text NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS reasoning_doco_idx ON reasoning (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS reasoning_lifecycle_idx ON reasoning (doco_id, lifecycle);
-
 CREATE TABLE IF NOT EXISTS evals (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -337,11 +322,19 @@ ALTER TABLE intents            DROP COLUMN IF EXISTS revision;
 ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
 ALTER TABLE rules              DROP COLUMN IF EXISTS revision;
 ALTER TABLE actions            DROP COLUMN IF EXISTS revision;
-ALTER TABLE reasoning          DROP COLUMN IF EXISTS revision;
 ALTER TABLE evals              DROP COLUMN IF EXISTS revision;
 ALTER TABLE scopes             DROP COLUMN IF EXISTS revision;
 ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
 ALTER TABLE reference_entities DROP COLUMN IF EXISTS revision;
+
+-- Deprecation (2026-05-16): the `reasoning` node type was removed.
+-- Drop the legacy table and purge any dangling edges / embeddings /
+-- audit rows so existing databases converge to the new shape on boot.
+-- Idempotent — no-op on fresh DBs.
+DROP TABLE IF EXISTS reasoning CASCADE;
+DELETE FROM edges         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id LIKE 'reasoning\_%' ESCAPE '\';
+DELETE FROM embeddings    WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
+DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Token store (session tokens + CLI authorizations). Alpha keeps this as a
