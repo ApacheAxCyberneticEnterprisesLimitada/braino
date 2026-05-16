@@ -747,10 +747,8 @@ export async function createIntentInDoco(
 
 /**
  * Seed a newly-created scope with the entities the framework promises
- * the project owner on install. Non-Global templates get one Intent
- * from `template.intentSummary`; every template gets N Rules from
- * `template.rules`. The Global scope is Rule-only, so its
- * `intentSummary` is picker/manifest copy, not an Intent tagged Global.
+ * the project owner on install. Every template gets one Intent from
+ * `template.intentSummary` plus N Rules from `template.rules`.
  */
 export async function seedScopeFromTemplate(opts: {
   docoDir: string;
@@ -760,7 +758,7 @@ export async function seedScopeFromTemplate(opts: {
   createdBy: EntityId<"principal"> | null;
 }): Promise<{ intentId?: EntityId<"intent">; ruleIds: EntityId<"rule">[] }> {
   let intentId: EntityId<"intent"> | undefined;
-  if (opts.template.name !== "global" && opts.template.intentSummary.trim()) {
+  if (opts.template.intentSummary.trim()) {
     intentId = await createIntentInDoco({
       docoId: opts.docoId,
       summary: opts.template.intentSummary.trim(),
@@ -1318,25 +1316,30 @@ export async function listDocos(root: string): Promise<DocoRecord[]> {
  *     to "abandoned" — narrow on purpose, so project-owner edits aren't
  *     touched.
  *
- *  3. **Refreshes the seed Intent.** For non-Global templates, the
- *     scope's seed Intent is updated to the current intentSummary IF
- *     its current summary matches one of the known prior values.
+ *  3. **Seeds or refreshes the seed Intent.** Every managed template
+ *     should have one Intent from `intentSummary`; missing seed Intents
+ *     are created, and existing seed Intents are updated to the current
+ *     intentSummary IF their current summary matches one of the known
+ *     prior values.
  *
  * Idempotent: re-running is a no-op once every Doco is up to date.
  */
 export async function applyScopeTemplateUpdatesToDoco(opts: {
+  docoDir?: string;
   docoId: EntityId<"doco">;
   createdBy: EntityId<"principal"> | null;
 }): Promise<{
   scopesTouched: number;
   rulesAdded: number;
   rulesAbandoned: number;
+  intentsAdded: number;
   intentsUpdated: number;
 }> {
   const { withClient } = await import("@doco/db");
   let scopesTouched = 0;
   let rulesAdded = 0;
   let rulesAbandoned = 0;
+  let intentsAdded = 0;
   let intentsUpdated = 0;
 
   // ── Known-stale summaries to phase out ──────────────────────────────
@@ -1355,6 +1358,9 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
     "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish. Capture the journey as an Intent, each step as an Action linked to that Intent (`follows` between Actions encodes order), and each branch as a Decision with populated alternatives. This scope is process-centric — don't model state machines here. User-flows holds DESIGNED steps (Action: imperative verb, role-typed actor, designed inputs/outputs); recorded happenings (real commits, deploys, verifications) are Logs and belong in a separate project-owner-authored scope.",
     "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish.",
     "End-to-end user journeys: how a person (or external system) moves through a feature from start to finish.",
+  ]);
+  const STALE_GLOBAL_INTENT_SUMMARIES = new Set<string>([
+    "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
   ]);
 
   // Structural fingerprint for an authoring predicate. Used to dedupe
@@ -1489,9 +1495,9 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       rulesAbandoned += 1;
     }
 
-    // 5. Update the seed Intent summary for non-Global templates whose
-    // current summary matches a known prior value.
-    if (template.name !== "global") {
+    // 5. Ensure the template has a seed Intent, then refresh known stale
+    // summaries to the current template copy.
+    if (template.intentSummary.trim()) {
       const intentRows = await withClient((c) =>
         c.query<{ id: string; summary: string; raw_yaml: string }>(
           `SELECT i.id, i.summary, i.raw_yaml
@@ -1504,9 +1510,26 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
           [scopeId, opts.docoId],
         ),
       );
+      if (intentRows.rows.length === 0) {
+        const intentId = await createIntentInDoco({
+          docoId: opts.docoId,
+          summary: template.intentSummary.trim(),
+          scopeId,
+          createdBy: opts.createdBy,
+        });
+        await updateScopeInDoco({
+          docoDir: opts.docoDir ?? "",
+          scopeId,
+          intentIds: [intentId],
+        });
+        intentsAdded += 1;
+        continue;
+      }
       for (const ir of intentRows.rows) {
         if (template.name === "user-flows") {
           if (!STALE_USER_FLOWS_INTENT_SUMMARIES.has(ir.summary.trim())) continue;
+        } else if (template.name === "global") {
+          if (!STALE_GLOBAL_INTENT_SUMMARIES.has(ir.summary.trim())) continue;
         } else {
           continue;
         }
@@ -1536,5 +1559,5 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
     }
   }
 
-  return { scopesTouched, rulesAdded, rulesAbandoned, intentsUpdated };
+  return { scopesTouched, rulesAdded, rulesAbandoned, intentsAdded, intentsUpdated };
 }

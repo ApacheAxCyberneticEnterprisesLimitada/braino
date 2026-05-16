@@ -16,7 +16,7 @@
  * Hard-written Doco rules:
  *
  *   • Every Decision must populate `alternatives`.
- *   • Only Rule nodes may belong to the Global scope.
+ *   • Only Intent and Rule nodes may belong to the Global scope.
  *
  * These two are framework invariants rather than project-authored
  * authoring rules. They run even when a Doco's Global template carries
@@ -313,8 +313,8 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
       }
       case "requires_node_type": {
         // The captured node's `node_type` must appear in the rule's
-        // allowed list. Used by the Global scope's "only Rule nodes
-        // belong here" authoring rule.
+        // allowed list. Used by the Global scope's "only Intent and
+        // Rule nodes belong here" authoring rule.
         const allowed = Array.isArray(rule.node_types) ? rule.node_types : [];
         const nodeType = typeof entity.node_type === "string" ? entity.node_type : "";
         if (allowed.length > 0 && !allowed.includes(nodeType as never)) {
@@ -645,7 +645,7 @@ export function hardWrittenDocoRuleViolations(opts: {
   });
   if (globalViolation) {
     violations.push({
-      rule_id: "framework:global-scope-rule-only",
+      rule_id: "framework:global-scope-intent-rule-only",
       kind: "requires_node_type",
       severity: "error",
       reason: globalViolation,
@@ -675,9 +675,9 @@ export function shouldRunAuthoringRuleForEntity(opts: {
    * the only such case today — it asks "is the entity claiming this
    * scope of the right type?" — and the answer is irrelevant for
    * entities that don't claim the scope. Without this gate, a
-   * `requires_node_type: [rule]` rule on Global would block every
-   * non-Rule capture in the Doco, not just non-Rule captures that try
-   * to claim Global. Other predicates (`probabilistic`,
+   * `requires_node_type: [intent, rule]` rule on Global would block
+   * every other capture in the Doco, not just captures that try to claim
+   * Global. Other predicates (`probabilistic`,
    * `requires_field`, `requires_edge`, `mandatory_scope`) are
    * Doco-wide invariants when authored on Global, so they keep the
    * always-fire semantics.
@@ -694,8 +694,8 @@ export function shouldRunAuthoringRuleForEntity(opts: {
 }
 
 /**
- * Framework-native "only Rule nodes belong to Global" check. Kept as a
- * helper so capture and PATCH paths use the same error text.
+ * Framework-native "only Intent and Rule nodes belong to Global" check.
+ * Kept as a helper so capture and PATCH paths use the same error text.
  */
 export function globalScopeMembershipViolation(opts: {
   entityNodeType: string;
@@ -705,9 +705,9 @@ export function globalScopeMembershipViolation(opts: {
 }): string | null {
   const { globalScopeId } = opts;
   if (!globalScopeId || !opts.entityScopes.includes(globalScopeId)) return null;
-  if (opts.entityNodeType === "rule") return null;
+  if (opts.entityNodeType === "intent" || opts.entityNodeType === "rule") return null;
   const name = opts.globalScopeName ?? "global";
-  return `Only Rule nodes may belong to the ${name} scope. Put project content in a project-specific scope; Global is reserved for the rules that govern the Doco.`;
+  return `Only Intent and Rule nodes may belong to the ${name} scope. Put project content in a project-specific scope; Global is reserved for the default intent and rules that govern the doco.`;
 }
 
 function isPopulated(value: unknown): boolean {

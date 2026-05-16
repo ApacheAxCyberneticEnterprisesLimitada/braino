@@ -88,7 +88,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     label: "Global (the doco's constitution)",
     icon: "🌐",
     intentSummary:
-      "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
+      "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
     rules: [
       {
         kind: "guidance",

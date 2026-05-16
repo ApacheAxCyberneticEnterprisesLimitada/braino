@@ -32,6 +32,14 @@ afterEach(async () => {
 });
 
 describe("host lifecycle", () => {
+  it("keeps global template intent copy on lowercase doco language", () => {
+    const tpl = findScopeTemplate("global");
+
+    expect(tpl?.intentSummary).toBe(
+      "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
+    );
+  });
+
   it("keeps user-flows template picker copy concise", () => {
     const tpl = findScopeTemplate("user-flows");
 

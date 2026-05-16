@@ -37,7 +37,7 @@ describe("shouldRunAuthoringRuleForEntity", () => {
   });
 
   it("requires_node_type rules on Global gate by entity membership (not Doco-wide)", () => {
-    // A non-Rule entity NOT tagged Global → the Global requires_node_type
+    // A node NOT tagged Global → the Global requires_node_type
     // rule does NOT fire (otherwise it would block every Decision/Action
     // in the Doco).
     expect(
@@ -48,8 +48,8 @@ describe("shouldRunAuthoringRuleForEntity", () => {
         entityScopes: ["scope_framework"],
       }),
     ).toBe(false);
-    // A non-Rule entity that DOES claim Global → the rule fires (and
-    // will reject the entity for being the wrong type).
+    // A node that DOES claim Global → the rule fires (and can reject the
+    // entity for being the wrong type).
     expect(
       shouldRunAuthoringRuleForEntity({
         ruleScopeId: "scope_global",
@@ -75,7 +75,7 @@ describe("shouldRunAuthoringRuleForEntity", () => {
 });
 
 describe("globalScopeMembershipViolation", () => {
-  it("rejects non-Rule nodes tagged with Global", () => {
+  it("rejects nodes other than Intent or Rule tagged with Global", () => {
     expect(
       globalScopeMembershipViolation({
         entityNodeType: "decision",
@@ -83,10 +83,18 @@ describe("globalScopeMembershipViolation", () => {
         globalScopeId: "scope_global",
         globalScopeName: "Global",
       }),
-    ).toContain("Only Rule nodes may belong to the Global scope");
+    ).toContain("Only Intent and Rule nodes may belong to the Global scope");
   });
 
-  it("allows Rule nodes to belong to Global", () => {
+  it("allows Intent and Rule nodes to belong to Global", () => {
+    expect(
+      globalScopeMembershipViolation({
+        entityNodeType: "intent",
+        entityScopes: ["scope_global"],
+        globalScopeId: "scope_global",
+        globalScopeName: "Global",
+      }),
+    ).toBeNull();
     expect(
       globalScopeMembershipViolation({
         entityNodeType: "rule",
@@ -97,7 +105,7 @@ describe("globalScopeMembershipViolation", () => {
     ).toBeNull();
   });
 
-  it("allows non-Rule nodes when they are not tagged with Global", () => {
+  it("allows other nodes when they are not tagged with Global", () => {
     expect(
       globalScopeMembershipViolation({
         entityNodeType: "decision",
@@ -139,7 +147,7 @@ describe("hardWrittenDocoRuleViolations", () => {
     expect(violations).toEqual([]);
   });
 
-  it("rejects non-Rule nodes tagged with Global without a seeded Global authoring rule", () => {
+  it("allows Intent nodes tagged with Global without a seeded Global authoring rule", () => {
     const violations = hardWrittenDocoRuleViolations({
       entity: entity({
         id: "intent_1",
@@ -150,8 +158,23 @@ describe("hardWrittenDocoRuleViolations", () => {
       globalScopeName: "Global",
     });
 
+    expect(violations).toEqual([]);
+  });
+
+  it("rejects other nodes tagged with Global without a seeded Global authoring rule", () => {
+    const violations = hardWrittenDocoRuleViolations({
+      entity: entity({
+        id: "decision_1",
+        node_type: "decision",
+        scopes: ["scope_global"],
+        alternatives: [{ name: "Use framework default", rejected_because: "Global is reserved." }],
+      }),
+      globalScopeId: "scope_global",
+      globalScopeName: "Global",
+    });
+
     expect(violations).toHaveLength(1);
-    expect(violations[0].rule_id).toBe("framework:global-scope-rule-only");
-    expect(violations[0].reason).toContain("Only Rule nodes may belong to the Global scope");
+    expect(violations[0].rule_id).toBe("framework:global-scope-intent-rule-only");
+    expect(violations[0].reason).toContain("Only Intent and Rule nodes may belong to the Global scope");
   });
 });
