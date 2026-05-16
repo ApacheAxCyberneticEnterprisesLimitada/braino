@@ -99,7 +99,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
-    // collapses from six guidance rules to two deterministic authoring
+    // collapses from six guidance rules to deterministic authoring
     // rules + a concise intentSummary for picker/manifest surfaces.
     name: "user-flows",
     label: "User flows",
@@ -108,10 +108,37 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     rules: [
       {
         summary:
-          "Only Intent, Action, Decision, and Reference nodes belong to user-flows. Rules, Evals, Ideas, and Logs each have their own home — Rules govern (Global scope), Evals test (test-evals or similar), Ideas are speculative until promoted, and Logs capture recorded events rather than designed steps.",
+          "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_node_type",
-          node_types: ["intent", "action", "decision", "reference"],
+          node_types: ["intent", "action", "decision", "reference", "rule"],
+        },
+      },
+      {
+        summary:
+          "Every Intent in user-flows must declare the principal who wants the journey in the `wanted_by` field.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["wanted_by"],
+          when_node_type: ["intent"],
+        },
+      },
+      {
+        summary:
+          "Every Action in user-flows must declare the principal who performs the designed step in the `actor_id` field.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["actor_id"],
+          when_node_type: ["action"],
+        },
+      },
+      {
+        summary:
+          "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["decided_by"],
+          when_node_type: ["decision"],
         },
       },
       {

@@ -49,6 +49,31 @@ describe("host lifecycle", () => {
     expect(tpl?.intentSummary.length).toBeLessThan(90);
   });
 
+  it("seeds deterministic principal rules for user-flows", () => {
+    const tpl = findScopeTemplate("user-flows");
+    const predicates = tpl?.rules.map((rule) => rule.predicate);
+
+    expect(predicates).toContainEqual({
+      kind: "requires_node_type",
+      node_types: ["intent", "action", "decision", "reference", "rule"],
+    });
+    expect(predicates).toContainEqual({
+      kind: "requires_field",
+      fields: ["wanted_by"],
+      when_node_type: ["intent"],
+    });
+    expect(predicates).toContainEqual({
+      kind: "requires_field",
+      fields: ["actor_id"],
+      when_node_type: ["action"],
+    });
+    expect(predicates).toContainEqual({
+      kind: "requires_field",
+      fields: ["decided_by"],
+      when_node_type: ["decision"],
+    });
+  });
+
   it("creates a host with a bootstrap principal", async () => {
     const root = join(tmp, "host");
     const { host, bootstrapPrincipalId } = await createHost(root, {

@@ -1387,6 +1387,14 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
     const scopeId = scopeRow.rows[0]!.id as EntityId<"scope">;
     scopesTouched += 1;
 
+    const isStaleUserFlowsAuthoringPredicate = (p: AuthoringPredicate): boolean =>
+      p.kind === "requires_node_type" &&
+      Array.isArray(p.node_types) &&
+      p.node_types.length === 4 &&
+      ["intent", "action", "decision", "reference"].every((t) =>
+        (p.node_types as string[]).includes(t),
+      );
+
     // 2. Load this scope's existing rules (active + proposed only — we
     // don't want to count abandoned/superseded entries against the new
     // template).
@@ -1424,6 +1432,12 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       // authoring rule is one with a predicate.
       const predicate = fm.predicate as AuthoringPredicate | undefined;
       if (predicate) {
+        if (
+          template.name === "user-flows" &&
+          isStaleUserFlowsAuthoringPredicate(predicate)
+        ) {
+          staleRuleRows.push(row);
+        }
         existingAuthoringFingerprints.add(fingerprint(predicate));
       } else {
         existingGuidanceSummaries.add(row.summary.trim());
@@ -1469,8 +1483,8 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       }
     }
 
-    // 4. Lifecycle-flip stale guidance rows. (user-flows only for now —
-    // Global keeps its current guidance set intact.)
+    // 4. Lifecycle-flip stale rows. (user-flows only for now — Global
+    // keeps its current guidance set intact.)
     for (const row of staleRuleRows) {
       await withClient(async (c) => {
         let fm: Record<string, unknown> = {};
