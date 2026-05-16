@@ -371,6 +371,12 @@ export interface Scope extends CommonFields {
    * the project's "topics worth tracking" stays visible.
    */
   watched?: boolean;
+  /**
+   * The one Intent that states why this scope exists. Ordinary Intent
+   * membership still uses `scopes: [scope_id]`; this pointer is the
+   * authoritative "main intent" the scope list and detail page surface.
+   */
+  primary_intent_id?: EntityId<"intent">;
   // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G: scopes no longer carry
   // embedded `authoring_rules` or `guidance_rules`. Rules are first-class
   // Rule entities tagged with the scope (in_scope_of edge); the Rule's

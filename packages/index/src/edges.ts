@@ -174,6 +174,7 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   updated_by: "updated_by",
   born_from: "born_from",
   superseded_by: "superseded_by",
+  primary_intent_id: "has_primary_intent",
   // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.

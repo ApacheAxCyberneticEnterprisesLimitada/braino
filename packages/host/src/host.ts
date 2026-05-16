@@ -476,6 +476,7 @@ export async function createDocoInHost(
   // or supersede them like any other Doco-owned node.
   if (globalTemplate) {
     await seedScopeFromTemplate({
+      docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
       docoId,
       scopeId: globalScopeId,
       template: globalTemplate,
@@ -707,6 +708,7 @@ export async function createIntentInDoco(
  * `intentSummary` is picker/manifest copy, not an Intent tagged Global.
  */
 export async function seedScopeFromTemplate(opts: {
+  docoDir: string;
   docoId: EntityId<"doco">;
   scopeId: EntityId<"scope">;
   template: ScopeTemplate;
@@ -719,6 +721,11 @@ export async function seedScopeFromTemplate(opts: {
       summary: opts.template.intentSummary.trim(),
       scopeId: opts.scopeId,
       createdBy: opts.createdBy,
+    });
+    await updateScopeInDoco({
+      docoDir: opts.docoDir,
+      scopeId: opts.scopeId,
+      primaryIntentId: intentId,
     });
   }
   const ruleIds: EntityId<"rule">[] = [];
@@ -880,6 +887,7 @@ export async function materializeScopeTree(opts: {
         created.push(id);
         if (tpl) {
           await seedScopeFromTemplate({
+            docoDir: opts.docoDir,
             docoId: opts.docoId,
             scopeId: id,
             template: tpl,
@@ -1005,6 +1013,8 @@ export interface UpdateScopeOptions {
   scopeId: EntityId<"scope">;
   /** Single emoji icon. Pass `null` or "" to clear; omit to leave as-is. */
   icon?: string | null;
+  /** The authoritative Intent this scope serves. Pass null or "" to clear. */
+  primaryIntentId?: EntityId<"intent"> | string | null;
   /** Replace the entire parent list (not append). Pass [] to clear. */
   parentScopes?: EntityId<"scope">[];
   /**
@@ -1023,6 +1033,10 @@ function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOption
   if (opts.icon !== undefined) {
     if (opts.icon === null || opts.icon === "") delete yaml.icon;
     else yaml.icon = opts.icon;
+  }
+  if (opts.primaryIntentId !== undefined) {
+    if (opts.primaryIntentId === null || opts.primaryIntentId === "") delete yaml.primary_intent_id;
+    else yaml.primary_intent_id = opts.primaryIntentId;
   }
   if (opts.parentScopes !== undefined) {
     yaml.scopes = opts.parentScopes;
