@@ -131,15 +131,15 @@ export type OwnerSummary =
 export async function listPrincipals(_root: string): Promise<OwnerSummary[]> {
   const { withClient } = await import("@doco/db");
   const r = await withClient((c) =>
-    c.query<{ id: string; username: string; display_name: string | null }>(
-      "SELECT id, username, display_name FROM principals WHERE deactivated_at IS NULL ORDER BY username",
+    c.query<{ id: string; username: string }>(
+      "SELECT id, username FROM principals WHERE deactivated_at IS NULL ORDER BY username",
     ),
   );
   return r.rows.map((row) => ({
     kind: "principal" as const,
     id: row.id as EntityId<"principal">,
     slug: row.username,
-    display_name: row.display_name ?? row.username,
+    display_name: row.username,
   }));
 }
 
@@ -199,6 +199,7 @@ function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "d
 export interface AddPrincipalOptions {
   username: string;
   email?: string;
+  /** Deprecated for human users: username is the display label. */
   display_name?: string;
   /** GitHub identity captured by the OAuth callback (ADR-095). Optional only for
    *  tests that don't exercise the OAuth flow; production callers always provide it. */
@@ -248,7 +249,7 @@ export async function addPrincipal(
     summary: `User ${opts.username}.`,
     type: "person",
     username: opts.username,
-    display_name: opts.display_name ?? opts.username,
+    display_name: opts.username,
     github_identity: gh,
     created_at: created,
     created_by: id,
@@ -273,7 +274,7 @@ export async function addPrincipal(
         id,
         opts.username,
         "human",
-        opts.display_name ?? opts.username,
+        opts.username,
         opts.email ?? null,
         gh.github_login ?? null,
         null,
