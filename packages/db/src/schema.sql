@@ -148,6 +148,21 @@ CREATE TABLE IF NOT EXISTS actions (
 CREATE INDEX IF NOT EXISTS actions_doco_idx ON actions (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS actions_lifecycle_idx ON actions (doco_id, lifecycle);
 
+CREATE TABLE IF NOT EXISTS logs (
+  id          text PRIMARY KEY,
+  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  summary     text,
+  lifecycle   text,
+  body_md     text,
+  raw_yaml    text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+CREATE INDEX IF NOT EXISTS logs_doco_idx ON logs (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS logs_lifecycle_idx ON logs (doco_id, lifecycle);
+
 CREATE TABLE IF NOT EXISTS evals (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,

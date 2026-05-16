@@ -134,6 +134,11 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         summary:
           "Don't capture state diagrams in user-flows — Doco is process-centric, not state-machine-centric.",
       },
+      {
+        kind: "guidance",
+        summary:
+          "User-flows holds DESIGNED steps (Actions: verb in imperative/present, role-typed actor, designed inputs/outputs). Specific recorded events — a real commit that pushed, a deploy that ran, a verification that passed — are Logs and belong in a separate project-owner-authored scope, not here.",
+      },
     ],
   },
 ];

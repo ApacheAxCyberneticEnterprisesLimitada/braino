@@ -188,18 +188,69 @@ export interface Decision extends CommonFields {
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────
+// An Action is a DESIGNED step in a process — the BPMN/UML/ADR primitive
+// for "this is what happens at this point in the flow." Templates, not
+// instances. The verb is imperative or present-tense ("user clicks Buy",
+// "system validates payment"); `inputs`/`outputs` describe the expected
+// shapes, not concrete values. Chain with `follows` to express order.
+//
+// For specific recorded happenings (a commit, a deploy, a verification
+// that ran), use `Log` instead. Logs may optionally point back at the
+// Action they instance via `Log.template_id`.
 
 export interface Action extends CommonFields {
   node_type: "action";
-  actor_id: EntityId<"principal">;
+  /** Imperative or present-tense verb describing the step. Required. */
   verb: string;
+  /** Who performs the step — typically a role-principal ("user", "system",
+   *  "agent") created at project setup. Required. */
+  actor_id: EntityId<"principal">;
+  /** What is acted on (the target node — a Doco, scope, intent, etc.). */
   target?: EntityId;
+  /** The umbrella Intent(s) the step advances. */
   intent_ids?: EntityId<"intent">[];
+  /** Decisions that branch at this point (BPMN gateway analog). */
   decision_ids?: EntityId<"decision">[];
+  /** Designed input shape — describes what flows in, not concrete values. */
   inputs?: Record<string, unknown>;
+  /** Designed output shape — describes what flows out, not concrete values. */
   outputs?: Record<string, unknown>;
-  started_at?: string;
-  ended_at?: string;
+}
+
+// ─── Log (recorded happening) ─────────────────────────────────────────────
+// A specific event that occurred at a point in time, with concrete
+// outputs. The runtime/instance counterpart to Action's design-level
+// template. Use for commits, deploys, verifications, audit-trail entries.
+//
+// Logs are FROZEN FROM CREATION (mutability.server.ts treats them like
+// References) — editorial fixes happen via supersession, not in-place
+// edits, so the audit trail stays trustworthy.
+
+export interface Log extends CommonFields {
+  node_type: "log";
+  /** Past-tense verb describing what happened ("pushed", "deployed",
+   *  "verified"). Required. */
+  verb: string;
+  /** The specific principal who performed it. Required. */
+  actor_id: EntityId<"principal">;
+  /** When it happened. ISO 8601 UTC. Required — this is what distinguishes
+   *  a Log from an Action. */
+  happened_at: string;
+  /** What was acted on. */
+  target?: EntityId;
+  /** The Intent advanced by this Log. */
+  intent_ids?: EntityId<"intent">[];
+  /** Decisions enacted (e.g., a deploy Log enacts the deploy Decision). */
+  decision_ids?: EntityId<"decision">[];
+  /** Concrete input values (the actual data fed in). */
+  inputs?: Record<string, unknown>;
+  /** Concrete output values — commit hash, deploy URL, metric, file path.
+   *  Required in spirit; the project owner's authoring rules typically
+   *  enforce non-empty values. */
+  outputs?: Record<string, unknown>;
+  /** Optional pointer back to the Action this Log is an instance of —
+   *  e.g., a commit Log instances the "agent pushes code" Action. */
+  template_id?: EntityId<"action">;
 }
 
 // ─── Eval (test/eval node) ────────────────────────────────────────────────
@@ -334,6 +385,7 @@ export type Entity =
   | Rule
   | Decision
   | Action
+  | Log
   | Eval
   | Reference
   | Scope;

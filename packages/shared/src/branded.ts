@@ -17,6 +17,7 @@ export const NODE_TYPES = [
   "rule",
   "decision",
   "action",
+  "log",
   "eval",
   "reference",
   "scope",
