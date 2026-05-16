@@ -725,7 +725,7 @@ export async function seedScopeFromTemplate(opts: {
     await updateScopeInDoco({
       docoDir: opts.docoDir,
       scopeId: opts.scopeId,
-      primaryIntentId: intentId,
+      intentIds: [intentId],
     });
   }
   const ruleIds: EntityId<"rule">[] = [];
@@ -1013,8 +1013,8 @@ export interface UpdateScopeOptions {
   scopeId: EntityId<"scope">;
   /** Single emoji icon. Pass `null` or "" to clear; omit to leave as-is. */
   icon?: string | null;
-  /** The authoritative Intent this scope serves. Pass null or "" to clear. */
-  primaryIntentId?: EntityId<"intent"> | string | null;
+  /** The one Intent this scope serves. Pass null or [] to clear. */
+  intentIds?: (EntityId<"intent"> | string)[] | null;
   /** Replace the entire parent list (not append). Pass [] to clear. */
   parentScopes?: EntityId<"scope">[];
   /**
@@ -1030,13 +1030,15 @@ export interface UpdateScopeOptions {
 }
 
 function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOptions): void {
+  delete yaml.primary_intent_id;
   if (opts.icon !== undefined) {
     if (opts.icon === null || opts.icon === "") delete yaml.icon;
     else yaml.icon = opts.icon;
   }
-  if (opts.primaryIntentId !== undefined) {
-    if (opts.primaryIntentId === null || opts.primaryIntentId === "") delete yaml.primary_intent_id;
-    else yaml.primary_intent_id = opts.primaryIntentId;
+  if (opts.intentIds !== undefined) {
+    const intentIds = opts.intentIds?.filter((id) => typeof id === "string" && id.length > 0) ?? [];
+    if (intentIds.length === 0) delete yaml.intent_ids;
+    else yaml.intent_ids = [intentIds[0]];
   }
   if (opts.parentScopes !== undefined) {
     yaml.scopes = opts.parentScopes;
