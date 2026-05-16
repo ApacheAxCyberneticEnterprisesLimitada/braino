@@ -29,6 +29,10 @@ export const ENTITY_DIRS: Record<Exclude<NodeType, "doco">, EntityDirSpec> = {
   eval: { dir: "evals", format: "md" },
   reference: { dir: "references", format: "yaml" },
   scope: { dir: "scopes", format: "yaml" },
+  /** State — node in a formal state machine. Markdown body for prose
+   * description; structured fields (`kind`, `invariants`) in frontmatter.
+   * Per decision_01KRRR5BQ16ASY8HQEE0V499YG. */
+  state: { dir: "states", format: "md" },
 };
 
 /** Filename pattern: `<type>_<ulid>.<ext>`. */

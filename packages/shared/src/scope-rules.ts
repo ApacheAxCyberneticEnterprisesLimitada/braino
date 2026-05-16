@@ -3,13 +3,15 @@
  * predicates that apply to one of its scopes.
  *
  * Per decision_01KRPRDR1AD7S1RP6E69BQDB2G authoring rules are now
- * first-class Rule entities (kind: "authoring" with a typed `predicate`
- * in their frontmatter). The engine still takes the predicates as input;
- * the caller is responsible for loading the Rule entities and pulling
- * each one's `predicate` and `lifecycle`. Global-scope authoring rules
- * are loaded for every new node by the caller; all other scope rules
- * are loaded only when the node lists that scope. The engine doesn't
- * know the predicates came from Rule entities — it just evaluates them.
+ * first-class Rule entities; per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG)
+ * the engine identifies authoring rules via the `Scope.gated_by` citation
+ * rather than a `Rule.kind === "authoring"` flag (which no longer exists).
+ * The caller loads the cited Rule entities for the candidate's scopes
+ * (Global plus each listed scope, with parent-scope inheritance and
+ * per-scope `excluded_rules` opt-out applied), then pulls each Rule's
+ * `predicate`, `lifecycle`, and (v7) `fires_when_node_lifecycle` and
+ * passes them in. The engine doesn't know the predicates came from Rule
+ * entities — it just evaluates them.
  *
  * Predicate flavors:
  *
@@ -17,6 +19,19 @@
  *     `forbids_field`, `mandatory_scope`, `requires_node_type`. Pure
  *     structural checks against the entity's frontmatter + an `allEdges`
  *     snapshot.
+ *
+ *   • Within-scope (v7) — `unique-within-scope`, `count-within-scope`,
+ *     `graph-constraint`. Need the population of nodes in the relevant
+ *     scope; the caller supplies `nodesByScope`. `scope_ref` accepts
+ *     either a literal scope_id or the string `"$capture_scope"`, which
+ *     resolves to the rule's owning scope (the scope that cited the
+ *     rule via `gated_by`). The caller stamps that owning scope onto
+ *     `LoadedAuthoringRule.scope_id`.
+ *
+ *   • Descriptive (v7) — `descriptive` carries a prose spec the engine
+ *     records but never enforces. Used for guard predicates that the
+ *     project owner wants to surface to readers but doesn't want the
+ *     engine to evaluate.
  *
  *   • Probabilistic — `probabilistic` with a free-text spec. The engine
  *     returns a `pending` violation; the caller passes it to the LLM
@@ -31,6 +46,12 @@
  * `mandatory_scope` and `requires_node_type` already constrain the
  * candidate's shape directly, so they don't carry the filter.
  *
+ * Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG), every Rule can carry an
+ * optional `fires_when_node_lifecycle: Lifecycle[]` filter. The engine
+ * skips a rule whose filter is set and doesn't include the candidate's
+ * own lifecycle — letting "completeness" rules ignore mid-construction
+ * (drafted) captures and check only at activation.
+ *
  * `requires_field` treats an empty array (`[]`) as "not populated" — the
  * same way it treats `undefined` / `null` / `""`. This makes
  * `requires_field: ["alternatives"]` reject a Decision whose
@@ -39,7 +60,13 @@
  * Pure module — no IO, no LLM client. Inputs in, violations out.
  */
 
-import type { Entity, AuthoringPredicate } from "./entities.js";
+import type {
+  AuthoringPredicate,
+  Entity,
+  Lifecycle,
+  Scope,
+  WithinScopeWhere,
+} from "./entities.js";
 
 export interface EngineEdge {
   from_id: string;
@@ -56,9 +83,24 @@ export interface EngineEdge {
 export interface LoadedAuthoringRule {
   /** Stable id back to the Rule entity (so callers can resolve violations to a rule). */
   rule_id: string;
+  /**
+   * Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): the scope from which
+   * this rule was loaded — i.e., the scope that cited it via
+   * `gated_by`. Used to resolve the `"$capture_scope"` literal in
+   * within-scope predicates. Optional because Global-scope rules may
+   * not need resolution; the caller passes the global scope id when
+   * relevant.
+   */
+  scope_id?: string;
   predicate: AuthoringPredicate;
   /** Defaults to "active" when unset. */
   lifecycle?: string;
+  /**
+   * Per v7: when set, the rule only fires against candidates whose
+   * `lifecycle` is in this list. Used by completeness predicates that
+   * want to skip drafted nodes mid-refactor.
+   */
+  fires_when_node_lifecycle?: Lifecycle[];
   /** Human-readable reason — typically the Rule's summary. */
   reason?: string;
 }
@@ -83,16 +125,27 @@ export interface EvaluateOptions {
   entity: Entity;
   /**
    * The authoring rules to evaluate. Loaded by the caller from the
-   * `rules` table (kind=authoring, in_scope_of the relevant selected
-   * scopes plus the Global scope, lifecycle active/proposed).
+   * scopes' `gated_by` lists (with parent-scope inheritance and
+   * per-scope `excluded_rules` opt-out applied), plus the Global
+   * scope's `gated_by`, for Rule lifecycle active/proposed.
    */
   authoring_rules: LoadedAuthoringRule[];
   /** Optional scope name — used only for error message text. */
   scopeName?: string;
-  /** All edges already present in the index. Used by `requires_edge` / `forbids_edge`. */
+  /** All edges already present in the index. Used by `requires_edge` / `forbids_edge` and v7 within-scope predicates. */
   allEdges: EngineEdge[];
   /** Scope ids the entity already lists (some callers compute this from the entity). */
   entityScopes?: string[];
+  /**
+   * Per v7: nodes by scope id. Used by `unique-within-scope`,
+   * `count-within-scope`, and `graph-constraint` predicates to assess
+   * the population of the scope. The caller is responsible for
+   * inclusion: if the candidate claims a scope, the candidate must
+   * appear in that scope's list so completeness checks see it.
+   */
+  nodesByScope?: Map<string, Entity[]>;
+  /** Per v7: id → entity map for cross-references and graph traversal. */
+  entityIndex?: Map<string, Entity>;
 }
 
 /**
@@ -129,8 +182,22 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
     return when.some((t) => typeof t === "string" && t === candidateNodeType);
   };
 
+  const candidateLifecycle =
+    typeof entity.lifecycle === "string" ? (entity.lifecycle as Lifecycle) : undefined;
+
   for (const loaded of rules) {
     if (!isActiveLifecycle(loaded.lifecycle)) continue;
+    // Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): when the rule sets
+    // `fires_when_node_lifecycle`, skip if the candidate's lifecycle
+    // isn't in that list. Lets completeness rules ignore drafted nodes.
+    if (
+      Array.isArray(loaded.fires_when_node_lifecycle) &&
+      loaded.fires_when_node_lifecycle.length > 0 &&
+      (candidateLifecycle === undefined ||
+        !loaded.fires_when_node_lifecycle.includes(candidateLifecycle))
+    ) {
+      continue;
+    }
     const rule = loaded.predicate;
     switch (rule.kind) {
       case "requires_edge": {
@@ -263,9 +330,275 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         });
         break;
       }
+      case "descriptive": {
+        // v7: documentation-only. The engine records it but never
+        // produces a violation. Listed for completeness so the switch
+        // is exhaustive.
+        break;
+      }
+      case "unique-within-scope": {
+        const targetScopeId = resolveScopeRef(rule.scope_ref, loaded.scope_id);
+        if (!targetScopeId) break;
+        const nodeTypeCheck = String(rule.node_type);
+        if (candidateNodeType !== nodeTypeCheck) break;
+        const fieldVal = entity[rule.field];
+        if (fieldVal === undefined || fieldVal === null || fieldVal === "") break;
+        const population = nodesInScope(opts.nodesByScope, targetScopeId);
+        const conflict = population.some((other) => {
+          if ((other as { id?: string }).id === entityId) return false;
+          if (other.node_type !== nodeTypeCheck) return false;
+          if (!matchesWhere(other, rule.where)) return false;
+          const otherVal = (other as unknown as Record<string, unknown>)[rule.field];
+          return otherVal === fieldVal;
+        });
+        if (conflict) {
+          violations.push({
+            rule_id: loaded.rule_id,
+            kind: rule.kind,
+            severity: "error",
+            reason:
+              loaded.reason ??
+              `\`${rule.field}\` must be unique among ${rule.node_type} nodes within this scope; "${String(
+                fieldVal,
+              )}" is already taken.`,
+          });
+        }
+        break;
+      }
+      case "count-within-scope": {
+        const targetScopeId = resolveScopeRef(rule.scope_ref, loaded.scope_id);
+        if (!targetScopeId) break;
+        const populationRaw = nodesInScope(opts.nodesByScope, targetScopeId);
+        // Make sure the candidate is included if it claims the scope —
+        // callers may or may not pre-merge it.
+        const claimsScope = entityScopes.includes(targetScopeId);
+        const populationIds = new Set(populationRaw.map((e) => (e as { id?: string }).id ?? ""));
+        const population =
+          claimsScope && entityId && !populationIds.has(entityId)
+            ? [...populationRaw, opts.entity]
+            : populationRaw;
+        const matches = population.filter(
+          (e) =>
+            e.node_type === String(rule.node_type) &&
+            matchesWhere(e, rule.where),
+        );
+        if (!compareCount(matches.length, rule.comparator, rule.n)) {
+          violations.push({
+            rule_id: loaded.rule_id,
+            kind: rule.kind,
+            severity: "error",
+            reason:
+              loaded.reason ??
+              `Scope requires ${rule.comparator} ${rule.n} ${rule.node_type} node(s)${describeWhere(rule.where)}; found ${matches.length}.`,
+          });
+        }
+        break;
+      }
+      case "graph-constraint": {
+        const targetScopeId = resolveScopeRef(rule.scope_ref, loaded.scope_id);
+        if (!targetScopeId) break;
+        const population = nodesInScope(opts.nodesByScope, targetScopeId);
+        const populationIds = new Set(population.map((e) => (e as { id?: string }).id ?? ""));
+        const followsEdges = opts.allEdges.filter((e) => e.edge_type === "follows");
+        switch (rule.op) {
+          case "alternates-between": {
+            const [t1, t2] = rule.node_types;
+            for (const e of followsEdges) {
+              if (!populationIds.has(e.from_id) || !populationIds.has(e.to_id)) continue;
+              const fromType = typePrefix(e.from_id);
+              const toType = typePrefix(e.to_id);
+              const ok =
+                (fromType === t1 && toType === t2) ||
+                (fromType === t2 && toType === t1);
+              if (!ok) {
+                violations.push({
+                  rule_id: loaded.rule_id,
+                  kind: rule.kind,
+                  severity: "error",
+                  reason:
+                    loaded.reason ??
+                    `\`follows\` edges in this scope must alternate ${t1} ↔ ${t2}; edge ${e.from_id} → ${e.to_id} does not.`,
+                });
+                break; // one error per rule per check is enough
+              }
+            }
+            break;
+          }
+          case "degree-bounds": {
+            for (const node of population) {
+              if (!matchesWhere(node, rule.where)) continue;
+              const nodeId = (node as { id?: string }).id ?? "";
+              const count = followsEdges.filter((e) =>
+                rule.direction === "out" ? e.from_id === nodeId : e.to_id === nodeId,
+              ).length;
+              if (rule.min !== undefined && count < rule.min) {
+                violations.push({
+                  rule_id: loaded.rule_id,
+                  kind: rule.kind,
+                  severity: "error",
+                  reason:
+                    loaded.reason ??
+                    `Node ${nodeId} must have ≥${rule.min} ${rule.direction}going \`follows\` edges; has ${count}.`,
+                });
+              }
+              if (rule.max !== undefined && count > rule.max) {
+                violations.push({
+                  rule_id: loaded.rule_id,
+                  kind: rule.kind,
+                  severity: "error",
+                  reason:
+                    loaded.reason ??
+                    `Node ${nodeId} must have ≤${rule.max} ${rule.direction}going \`follows\` edges; has ${count}.`,
+                });
+              }
+            }
+            break;
+          }
+          case "references-resolve-in-scope": {
+            const refEdges = opts.allEdges.filter(
+              (e) => e.edge_type === rule.edge_type && populationIds.has(e.from_id),
+            );
+            for (const e of refEdges) {
+              if (!populationIds.has(e.to_id)) {
+                violations.push({
+                  rule_id: loaded.rule_id,
+                  kind: rule.kind,
+                  severity: "error",
+                  reason:
+                    loaded.reason ??
+                    `\`${rule.edge_type}\` from ${e.from_id} must resolve to a node in the same scope; ${e.to_id} is outside it.`,
+                });
+              }
+            }
+            break;
+          }
+        }
+        break;
+      }
     }
   }
   return violations;
+}
+
+// ─── v7 helpers ──────────────────────────────────────────────────────────
+
+function resolveScopeRef(scope_ref: string, ruleScopeId: string | undefined): string | null {
+  if (scope_ref === "$capture_scope") return ruleScopeId ?? null;
+  return scope_ref;
+}
+
+function nodesInScope(
+  index: Map<string, Entity[]> | undefined,
+  scopeId: string,
+): Entity[] {
+  if (!index) return [];
+  return index.get(scopeId) ?? [];
+}
+
+function matchesWhere(entity: Entity, where: WithinScopeWhere | undefined): boolean {
+  if (!where) return true;
+  const rec = entity as unknown as Record<string, unknown>;
+  if (where.node_type && entity.node_type !== where.node_type) return false;
+  if (where.kind !== undefined) {
+    const actual = rec.kind;
+    if (typeof actual !== "string" || actual !== where.kind) return false;
+  }
+  if (Array.isArray(where.lifecycle) && where.lifecycle.length > 0) {
+    const lc = rec.lifecycle;
+    if (typeof lc !== "string" || !where.lifecycle.includes(lc as Lifecycle)) return false;
+  }
+  return true;
+}
+
+function describeWhere(where: WithinScopeWhere | undefined): string {
+  if (!where) return "";
+  const parts: string[] = [];
+  if (where.kind) parts.push(`kind=${where.kind}`);
+  if (Array.isArray(where.lifecycle) && where.lifecycle.length > 0)
+    parts.push(`lifecycle ∈ {${where.lifecycle.join(",")}}`);
+  return parts.length > 0 ? ` where ${parts.join(", ")}` : "";
+}
+
+function compareCount(actual: number, comparator: string, n: number): boolean {
+  switch (comparator) {
+    case "==":
+      return actual === n;
+    case "!=":
+      return actual !== n;
+    case ">":
+      return actual > n;
+    case ">=":
+      return actual >= n;
+    case "<":
+      return actual < n;
+    case "<=":
+      return actual <= n;
+    default:
+      return true;
+  }
+}
+
+function typePrefix(id: string): string {
+  const idx = id.indexOf("_");
+  return idx === -1 ? "" : id.slice(0, idx);
+}
+
+/**
+ * Compute the effective `gated_by` rule-id set for a scope by walking
+ * ancestors (via the common `scopes` parent edge) and subtracting each
+ * scope's `excluded_rules`. Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG).
+ *
+ * `scopeIndex` is `scope_id → Scope`. The walker stops on the first
+ * scope whose ancestors are missing from the index (defensive — a
+ * partial index returns a partial set rather than throwing).
+ */
+export function computeEffectiveGatedBy(
+  scope: Scope,
+  scopeIndex: Map<string, Scope>,
+): string[] {
+  const seen = new Set<string>();
+  const collected = new Set<string>();
+  const excluded = new Set<string>();
+
+  function walk(s: Scope): void {
+    if (seen.has(s.id)) return;
+    seen.add(s.id);
+    for (const r of s.gated_by ?? []) collected.add(r);
+    for (const r of s.excluded_rules ?? []) excluded.add(r);
+    for (const parentId of s.scopes ?? []) {
+      const parent = scopeIndex.get(parentId);
+      if (parent) walk(parent);
+    }
+  }
+  walk(scope);
+
+  return Array.from(collected).filter((r) => !excluded.has(r));
+}
+
+/**
+ * Compute the effective `default_node_lifecycle` for a scope: the
+ * scope's own value if set, else the nearest ancestor's value, else
+ * undefined. Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG).
+ */
+export function computeEffectiveDefaultLifecycle(
+  scope: Scope,
+  scopeIndex: Map<string, Scope>,
+): Lifecycle | undefined {
+  const seen = new Set<string>();
+
+  function walk(s: Scope): Lifecycle | undefined {
+    if (seen.has(s.id)) return undefined;
+    seen.add(s.id);
+    if (s.default_node_lifecycle) return s.default_node_lifecycle;
+    for (const parentId of s.scopes ?? []) {
+      const parent = scopeIndex.get(parentId);
+      if (!parent) continue;
+      const result = walk(parent);
+      if (result) return result;
+    }
+    return undefined;
+  }
+  return walk(scope);
 }
 
 /**

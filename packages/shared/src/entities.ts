@@ -7,6 +7,7 @@
 import type { EntityId, NodeType } from "./branded.js";
 
 export type Lifecycle =
+  | "drafted"
   | "proposed"
   | "active"
   | "succeeded"
@@ -123,24 +124,25 @@ export interface Idea extends CommonFields {
 // ─── Rule ─────────────────────────────────────────────────────────────────
 
 /**
- * Discriminator on Rule entities (decision_01KRPRDR1AD7S1RP6E69BQDB2G):
+ * Discriminator on Rule entities (decision_01KRPRDR1AD7S1RP6E69BQDB2G,
+ * narrowed by decision_01KRRR5BQ16ASY8HQEE0V499YG — v7 drops `authoring`
+ * because "authoring" semantics belong on the Scope→Rule edge, not on the
+ * Rule itself):
  *
- *  - "tagged" (default when unset) — a regular Rule that happens to be
- *    tagged with a scope. No automated check; appears under "Tagged
- *    rules" on a scope's page.
- *  - "authoring" — engine-readable predicate fired at capture time.
- *    Carries `predicate` in the Rule's frontmatter; lifecycle=abandoned
- *    soft-disables it.
- *  - "guidance" — prose-only directive the agent reads while working in
- *    or with the scope. No predicate; the Rule's `summary` and
- *    optional `body_md` carry the text.
+ *  - "tagged" (default when unset) — a Rule that has a `predicate` and/or
+ *    appears under "Tagged rules" on a scope's page. A Rule becomes an
+ *    *authoring rule* for a given Scope when that Scope cites it via
+ *    `Scope.gated_by`; the engine reads the citation, not a flag on the
+ *    Rule.
+ *  - "guidance" — prose-only directive (no `predicate`) the agent reads
+ *    while working in or with the scope.
  */
-export type RuleKind = "authoring" | "guidance" | "tagged";
+export type RuleKind = "guidance" | "tagged";
 
 /**
  * Authoring predicate — the structured shape the engine evaluates at
- * write time. Used as `Rule.predicate` when `Rule.kind === "authoring"`.
- * The old `predicate: string` field on Rule (pre-promotion) was removed.
+ * write time. Stored as `Rule.predicate`. The old `predicate: string`
+ * field on Rule (pre-promotion) was removed.
  *
  * Per decision_01KRRD5SRX69P2MWN0G1B8216H, `requires_edge`, `forbids_edge`,
  * `requires_field`, and `forbids_field` carry an optional
@@ -152,7 +154,34 @@ export type RuleKind = "authoring" | "guidance" | "tagged";
  * need the filter — the first is Doco-wide by construction, the second
  * already targets node types directly. `probabilistic` defers to the
  * LLM judge.
+ *
+ * Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7), the engine also accepts
+ * three new general-purpose kinds — `unique-within-scope`,
+ * `count-within-scope`, and `graph-constraint` — plus a
+ * `descriptive` kind the engine treats as a documentation-only no-op.
+ * The `count-within-scope` and `graph-constraint` kinds accept an
+ * optional `lifecycle` filter inside their `where` clause so that
+ * completeness rules can ignore drafted neighbors during a refactor.
+ * `scope_ref: "$capture_scope"` resolves at evaluation time to whichever
+ * scope on the candidate carries the rule.
  */
+export type WithinScopeWhere = {
+  node_type?: NodeType;
+  kind?: string;
+  lifecycle?: Lifecycle[];
+};
+
+export type GraphConstraintOperator =
+  | { op: "alternates-between"; node_types: [NodeType, NodeType] }
+  | {
+      op: "degree-bounds";
+      where?: WithinScopeWhere;
+      direction: "in" | "out";
+      min?: number;
+      max?: number;
+    }
+  | { op: "references-resolve-in-scope"; edge_type: string };
+
 export type AuthoringPredicate =
   | {
       kind: "requires_edge";
@@ -170,17 +199,48 @@ export type AuthoringPredicate =
   | { kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
   | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
   | { kind: "requires_node_type"; node_types: NodeType[] }
-  | { kind: "probabilistic"; spec: string };
+  | { kind: "probabilistic"; spec: string }
+  | {
+      kind: "unique-within-scope";
+      scope_ref: string;
+      node_type: NodeType;
+      field: string;
+      where?: WithinScopeWhere;
+    }
+  | {
+      kind: "count-within-scope";
+      scope_ref: string;
+      node_type: NodeType;
+      where?: WithinScopeWhere;
+      comparator: "==" | "!=" | ">" | ">=" | "<" | "<=";
+      n: number;
+    }
+  | ({
+      kind: "graph-constraint";
+      scope_ref: string;
+      graph: "follows";
+    } & GraphConstraintOperator)
+  | { kind: "descriptive"; spec: string };
 
 export interface Rule extends CommonFields {
   node_type: "rule";
   /**
-   * Rule role per decision_01KRPRDR1AD7S1RP6E69BQDB2G. Defaults to
-   * "tagged" when unset (the pre-promotion shape).
+   * Rule role per decision_01KRPRDR1AD7S1RP6E69BQDB2G; narrowed by v7
+   * (decision_01KRRR5BQ16ASY8HQEE0V499YG) — `authoring` is no longer a
+   * value here. A Rule is authoring for a Scope iff the Scope cites it
+   * via `gated_by`. Defaults to "tagged" when unset.
    */
   kind?: RuleKind;
-  /** Authoring predicate (only when kind === "authoring"). */
+  /** Authoring predicate. Optional — a Rule may be guidance-only. */
   predicate?: AuthoringPredicate;
+  /**
+   * Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): when set, this Rule
+   * only fires against candidates whose `lifecycle` is in this list.
+   * Omitted → fires regardless of the candidate's lifecycle. Lets
+   * "completeness" rules (e.g., "≥1 terminal State") skip drafted
+   * nodes during mid-refactor and check only at activation time.
+   */
+  fires_when_node_lifecycle?: Lifecycle[];
   modality?: "must" | "must_not" | "should" | "should_not";
   severity?: "blocker" | "warning" | "info";
   phase?: "declared" | "pre" | "post" | "invariant";
@@ -236,6 +296,20 @@ export interface Action extends CommonFields {
   inputs?: Record<string, unknown>;
   /** Designed output shape — describes what flows out, not concrete values. */
   outputs?: Record<string, unknown>;
+  /**
+   * Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): other Actions whose
+   * firing triggers this Action. General "this Action fires in response
+   * to those Actions"; not state-machine-specific. 0..N. Empty + empty
+   * `gated_by` is a legitimate immediate/unconditional step.
+   */
+  triggered_by?: EntityId<"action">[];
+  /**
+   * Per v7: Rules that gate this Action — transition guards, pre/post
+   * conditions, etc. The same `gated_by` edge that attaches authoring
+   * rules to a Scope; the engine reads the citation, the Rule is
+   * unchanged.
+   */
+  gated_by?: EntityId<"rule">[];
 }
 
 // ─── Log (recorded happening) ─────────────────────────────────────────────
@@ -346,8 +420,17 @@ export interface Reference extends CommonFields {
  * scope follow the same lifecycle stages every other node uses — "active"
  * is the working default, "abandoned" is what the Abandon action sets, and the
  * engine + agent-facing surfaces only consider non-abandoned rules.
+ *
+ * Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) `drafted` joins the set so
+ * a Rule that is still being authored can sit alongside other drafted
+ * nodes (e.g., transition Rules being wired into a draft machine).
  */
-export type RuleLifecycle = "active" | "proposed" | "abandoned" | "superseded";
+export type RuleLifecycle =
+  | "drafted"
+  | "active"
+  | "proposed"
+  | "abandoned"
+  | "superseded";
 
 export interface Scope extends CommonFields {
   node_type: "scope";
@@ -377,10 +460,58 @@ export interface Scope extends CommonFields {
    * materializes the relationship as `serves`.
    */
   intent_ids?: EntityId<"intent">[];
+  /**
+   * Per v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): the Rules that gate
+   * captures into this Scope (the "authoring rules" of the scope).
+   * Replaces the older `Rule.kind === "authoring"` flag. Children
+   * scopes inherit the union of their ancestors' `gated_by` minus
+   * their own `excluded_rules`.
+   */
+  gated_by?: EntityId<"rule">[];
+  /**
+   * Per v7: Rules to exclude from this scope's effective rule set even
+   * if an ancestor scope cites them. Per-scope opt-out covers cases
+   * like a perpetual sub-machine that wants to escape the "≥1
+   * terminal state" Rule its parent template ships.
+   */
+  excluded_rules?: EntityId<"rule">[];
+  /**
+   * Per v7: when set, captures into this Scope (or descendants —
+   * inherited) default the new node's `lifecycle` to this value unless
+   * the author overrides with an explicit flag. The state-machines
+   * template sets this to `"drafted"` so authors can sketch incomplete
+   * machines without tripping completeness rules.
+   */
+  default_node_lifecycle?: Lifecycle;
   // Per decision_01KRPRDR1AD7S1RP6E69BQDB2G: scopes no longer carry
   // embedded `authoring_rules` or `guidance_rules`. Rules are first-class
   // Rule entities tagged with the scope (in_scope_of edge); the Rule's
-  // `kind` field discriminates authoring / guidance / tagged.
+  // `kind` field discriminates guidance / tagged.
+}
+
+// ─── State (v7 — state-machine node) ──────────────────────────────────────
+// A State is a node in a formal state machine: a position the modeled
+// entity occupies for some span of time. Distinct from Action (which
+// happens in an instant). State semantics: holds invariants while
+// occupied; reached via Actions whose `follows` includes this State.
+//
+// Framework-general — any template can use States. The state-machines
+// template (decision_01KRRR5BQ16ASY8HQEE0V499YG) uses them heavily, but
+// nothing about State's shape is state-machines-specific.
+
+export type StateKind = "initial" | "intermediate" | "terminal";
+
+export interface State extends CommonFields {
+  node_type: "state";
+  /** Required. One of initial / intermediate / terminal. */
+  kind: StateKind;
+  /**
+   * Predicates true while the modeled entity occupies this State.
+   * Free-form prose — the framework doesn't parse these. Probabilistic
+   * rules in the state-machines template judge them for shape (e.g.,
+   * "observable predicate").
+   */
+  invariants?: string[];
 }
 
 
@@ -415,6 +546,7 @@ export type Entity =
   | Log
   | Eval
   | Reference
-  | Scope;
+  | Scope
+  | State;
 
 export type EntityByType<T extends Entity["node_type"]> = Extract<Entity, { node_type: T }>;

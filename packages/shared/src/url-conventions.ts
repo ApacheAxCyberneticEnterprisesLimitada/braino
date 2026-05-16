@@ -58,6 +58,7 @@ export const ENTITY_TYPES = [
   "eval",
   "reference",
   "scope",
+  "state",
 ] as const;
 
 export type EntityType = (typeof ENTITY_TYPES)[number];

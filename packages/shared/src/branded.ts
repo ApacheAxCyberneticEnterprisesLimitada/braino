@@ -21,6 +21,7 @@ export const NODE_TYPES = [
   "eval",
   "reference",
   "scope",
+  "state",
 ] as const;
 
 export type NodeType = (typeof NODE_TYPES)[number];

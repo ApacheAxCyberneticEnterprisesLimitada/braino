@@ -574,18 +574,28 @@ export async function createScopeInDoco(
  */
 export interface CreateRuleOptions {
   docoId: EntityId<"doco">;
-  /** "authoring" | "guidance" | "tagged" — the role this Rule plays on its scope. */
-  kind: "authoring" | "guidance" | "tagged";
-  /** One-line readable description. For authoring rules, this is the prose the project owner wrote. */
+  /**
+   * Rule kind on the seeded entity. v7
+   * (decision_01KRRR5BQ16ASY8HQEE0V499YG) dropped "authoring" — a Rule
+   * gates a Scope iff the Scope cites it via `gated_by`, not via a
+   * flag on the Rule. Defaults to "tagged" when a predicate is set,
+   * "guidance" otherwise (callers can override).
+   */
+  kind?: "guidance" | "tagged";
+  /** One-line readable description. For rules with a predicate this is the prose alongside the structured check. */
   summary: string;
   /** Optional markdown body. */
   body_md?: string;
-  /** For kind=authoring: the engine-readable predicate. */
+  /** Optional engine-readable predicate. When present, the seeder
+   * writes this Rule's id into the scope's `gated_by` so the engine
+   * fires it as an authoring rule for that scope. */
   predicate?: unknown;
+  /** v7: when set, the engine only fires this rule against candidates whose lifecycle is in the list. */
+  fires_when_node_lifecycle?: import("@doco/shared").Lifecycle[];
   /** The scope this rule is tagged with (in_scope_of edge target). */
   scopeId: EntityId<"scope">;
   /** Initial lifecycle. Defaults to "active". */
-  lifecycle?: "active" | "proposed" | "abandoned" | "superseded";
+  lifecycle?: "active" | "proposed" | "abandoned" | "superseded" | "drafted";
   createdBy: EntityId<"principal"> | null;
 }
 
@@ -595,13 +605,20 @@ export async function createRuleInDoco(
   const id = makeEntityId("rule", generateUlid()) as EntityId<"rule">;
   const created = nowIso();
   const lifecycle = opts.lifecycle ?? "active";
+  // v7: derive kind. "tagged" for rules with predicates, "guidance"
+  // for prose-only — the engine reads gated_by, not the kind value.
+  const kind = opts.kind ?? (opts.predicate ? "tagged" : "guidance");
   const yaml: Record<string, unknown> = {
     id,
     doco_id: opts.docoId,
     node_type: "rule",
     summary: opts.summary,
-    kind: opts.kind,
+    kind,
     ...(opts.predicate ? { predicate: opts.predicate } : {}),
+    ...(Array.isArray(opts.fires_when_node_lifecycle) &&
+    opts.fires_when_node_lifecycle.length > 0
+      ? { fires_when_node_lifecycle: opts.fires_when_node_lifecycle }
+      : {}),
     created_at: created,
     created_by: opts.createdBy,
     lifecycle,
@@ -610,7 +627,6 @@ export async function createRuleInDoco(
   };
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    // Insert the Rule row.
     await c.query(
       `INSERT INTO rules (id, doco_id, summary, raw_yaml, body_md, lifecycle, created_at, updated_at, created_by, updated_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $7, $8, $8)`,
@@ -625,13 +641,42 @@ export async function createRuleInDoco(
         opts.createdBy,
       ],
     );
-    // Insert the in_scope_of edge so engine + scope page queries find it.
     await c.query(
       `INSERT INTO edges (doco_id, from_id, from_node_type, to_id, to_node_type, edge_type)
        VALUES ($1, $2, 'rule', $3, 'scope', 'in_scope_of')
        ON CONFLICT DO NOTHING`,
       [opts.docoId, id, opts.scopeId],
     );
+    // v7: when the rule has a predicate, citing scope ⇒ append rule id
+    // to scope.gated_by. The citation IS the authoring-rule marker.
+    if (opts.predicate) {
+      const cur = await c.query<{ raw_yaml: string }>(
+        "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+        [opts.scopeId],
+      );
+      if (cur.rows[0]) {
+        let fm: Record<string, unknown> = {};
+        try {
+          fm = JSON.parse(cur.rows[0].raw_yaml) as Record<string, unknown>;
+        } catch {
+          try {
+            fm = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+          } catch {
+            fm = {};
+          }
+        }
+        const existing = Array.isArray(fm.gated_by)
+          ? (fm.gated_by as unknown[]).filter((v): v is string => typeof v === "string")
+          : [];
+        if (!existing.includes(id)) {
+          fm.gated_by = [...existing, id];
+          await c.query(
+            "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
+            [JSON.stringify(fm), opts.scopeId],
+          );
+        }
+      }
+    }
   });
   return id;
 }
@@ -732,18 +777,45 @@ export async function seedScopeFromTemplate(opts: {
   for (const r of opts.template.rules) {
     const summary = r.summary.trim();
     if (!summary) continue;
-    if (r.kind === "authoring" && !r.predicate) {
-      throw new Error(`Template "${opts.template.name}" has an authoring rule without a predicate.`);
-    }
     const id = await createRuleInDoco({
       docoId: opts.docoId,
-      kind: r.kind,
+      ...(r.kind ? { kind: r.kind } : {}),
       summary,
-      ...(r.kind === "authoring" ? { predicate: r.predicate } : {}),
+      ...(r.predicate ? { predicate: r.predicate } : {}),
+      ...(r.fires_when_node_lifecycle
+        ? { fires_when_node_lifecycle: r.fires_when_node_lifecycle }
+        : {}),
+      ...(r.body_md ? { body_md: r.body_md } : {}),
       scopeId: opts.scopeId,
       createdBy: opts.createdBy,
     });
     ruleIds.push(id);
+  }
+  // v7: stamp template's default_node_lifecycle onto the scope.
+  if (opts.template.default_node_lifecycle) {
+    const { withClient } = await import("@doco/db");
+    await withClient(async (c) => {
+      const cur = await c.query<{ raw_yaml: string }>(
+        "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+        [opts.scopeId],
+      );
+      if (!cur.rows[0]) return;
+      let fm: Record<string, unknown> = {};
+      try {
+        fm = JSON.parse(cur.rows[0].raw_yaml) as Record<string, unknown>;
+      } catch {
+        try {
+          fm = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+        } catch {
+          return;
+        }
+      }
+      fm.default_node_lifecycle = opts.template.default_node_lifecycle;
+      await c.query(
+        "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
+        [JSON.stringify(fm), opts.scopeId],
+      );
+    });
   }
   return intentId ? { intentId, ruleIds } : { ruleIds };
 }
@@ -1340,11 +1412,13 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       } catch {
         // Ignore parse errors — rule still counts as present by summary.
       }
-      const kind = typeof fm.kind === "string" ? fm.kind : "tagged";
+      // v7: kind is "guidance" | "tagged" (or unset → defaults to
+      // "tagged" when a predicate is set, "guidance" otherwise). An
+      // authoring rule is one with a predicate.
       const predicate = fm.predicate as AuthoringPredicate | undefined;
-      if (kind === "authoring" && predicate) {
+      if (predicate) {
         existingAuthoringFingerprints.add(fingerprint(predicate));
-      } else if (kind === "guidance") {
+      } else {
         existingGuidanceSummaries.add(row.summary.trim());
       }
       if (
@@ -1359,14 +1433,17 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
     for (const tplRule of template.rules) {
       const summary = tplRule.summary.trim();
       if (!summary) continue;
-      if (tplRule.kind === "authoring") {
-        if (!tplRule.predicate) continue;
+      if (tplRule.predicate) {
         if (existingAuthoringFingerprints.has(fingerprint(tplRule.predicate))) continue;
         await createRuleInDoco({
           docoId: opts.docoId,
-          kind: "authoring",
+          ...(tplRule.kind ? { kind: tplRule.kind } : {}),
           summary,
           predicate: tplRule.predicate,
+          ...(tplRule.fires_when_node_lifecycle
+            ? { fires_when_node_lifecycle: tplRule.fires_when_node_lifecycle }
+            : {}),
+          ...(tplRule.body_md ? { body_md: tplRule.body_md } : {}),
           scopeId,
           createdBy: opts.createdBy,
         });
@@ -1375,8 +1452,9 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
         if (existingGuidanceSummaries.has(summary)) continue;
         await createRuleInDoco({
           docoId: opts.docoId,
-          kind: "guidance",
+          kind: tplRule.kind ?? "guidance",
           summary,
+          ...(tplRule.body_md ? { body_md: tplRule.body_md } : {}),
           scopeId,
           createdBy: opts.createdBy,
         });

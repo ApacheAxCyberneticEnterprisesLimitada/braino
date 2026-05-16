@@ -178,6 +178,24 @@ CREATE TABLE IF NOT EXISTS evals (
 CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
 
+-- Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7) — State is a node in a
+-- formal state machine. Mirrors the actions table shape; the structured
+-- frontmatter (`kind`, `invariants`) lives in raw_yaml.
+CREATE TABLE IF NOT EXISTS states (
+  id          text PRIMARY KEY,
+  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  summary     text,
+  lifecycle   text,
+  body_md     text,
+  raw_yaml    text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+CREATE INDEX IF NOT EXISTS states_doco_idx ON states (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS states_lifecycle_idx ON states (doco_id, lifecycle);
+
 CREATE TABLE IF NOT EXISTS scopes (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -350,6 +368,18 @@ DROP TABLE IF EXISTS reasoning CASCADE;
 DELETE FROM edges         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id LIKE 'reasoning\_%' ESCAPE '\';
 DELETE FROM embeddings    WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
+
+-- v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): the framework drops the
+-- `Rule.kind="authoring"` marker in favor of `Scope.gated_by` (an edge
+-- from the Scope to each Rule that gates captures into it). The DDL
+-- here is unchanged — both `gated_by` and `kind` live in raw_yaml and
+-- don't need their own columns. The actual YAML rewrite (parse each
+-- Rule's raw_yaml; if `kind: authoring`, copy the rule's id into each
+-- listed scope's `gated_by` and flip `kind` to `tagged`) runs as a
+-- TypeScript one-shot at server startup (runV7Migration in
+-- @doco/web/app/lib/migrations/v7.server.ts) gated on
+-- schema_version < '2'. Bumping schema_version is what the TS
+-- migration writes back after successful completion.
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Token store (session tokens + CLI authorizations). Alpha keeps this as a
