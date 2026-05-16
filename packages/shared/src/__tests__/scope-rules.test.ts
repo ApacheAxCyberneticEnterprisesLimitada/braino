@@ -31,6 +31,43 @@ describe("shouldRunAuthoringRuleForEntity", () => {
       }),
     ).toBe(false);
   });
+
+  it("requires_node_type rules on Global gate by entity membership (not Doco-wide)", () => {
+    // A non-Rule entity NOT tagged Global → the Global requires_node_type
+    // rule does NOT fire (otherwise it would block every Decision/Action
+    // in the Doco).
+    expect(
+      shouldRunAuthoringRuleForEntity({
+        ruleScopeId: "scope_global",
+        predicateKind: "requires_node_type",
+        globalScopeId: "scope_global",
+        entityScopes: ["scope_framework"],
+      }),
+    ).toBe(false);
+    // A non-Rule entity that DOES claim Global → the rule fires (and
+    // will reject the entity for being the wrong type).
+    expect(
+      shouldRunAuthoringRuleForEntity({
+        ruleScopeId: "scope_global",
+        predicateKind: "requires_node_type",
+        globalScopeId: "scope_global",
+        entityScopes: ["scope_global"],
+      }),
+    ).toBe(true);
+  });
+
+  it("other Global predicates still fire Doco-wide", () => {
+    for (const kind of ["requires_field", "requires_edge", "probabilistic", "mandatory_scope"]) {
+      expect(
+        shouldRunAuthoringRuleForEntity({
+          ruleScopeId: "scope_global",
+          predicateKind: kind,
+          globalScopeId: "scope_global",
+          entityScopes: ["scope_framework"],
+        }),
+      ).toBe(true);
+    }
+  });
 });
 
 describe("globalScopeMembershipViolation", () => {

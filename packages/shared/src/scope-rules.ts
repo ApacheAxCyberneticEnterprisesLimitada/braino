@@ -282,9 +282,26 @@ export function pendingProbabilistic(violations: RuleViolation[]): RuleViolation
 
 export function shouldRunAuthoringRuleForEntity(opts: {
   ruleScopeId: string;
+  /**
+   * Predicate kind, for predicates whose semantics demand entity-scope
+   * membership even when they live on Global. `requires_node_type` is
+   * the only such case today — it asks "is the entity claiming this
+   * scope of the right type?" — and the answer is irrelevant for
+   * entities that don't claim the scope. Without this gate, a
+   * `requires_node_type: [rule]` rule on Global would block every
+   * non-Rule capture in the Doco, not just non-Rule captures that try
+   * to claim Global. Other predicates (`probabilistic`,
+   * `requires_field`, `requires_edge`, `mandatory_scope`) are
+   * Doco-wide invariants when authored on Global, so they keep the
+   * always-fire semantics.
+   */
+  predicateKind?: string;
   globalScopeId?: string | null;
   entityScopes: string[];
 }): boolean {
+  if (opts.predicateKind === "requires_node_type") {
+    return opts.entityScopes.includes(opts.ruleScopeId);
+  }
   if (opts.globalScopeId && opts.ruleScopeId === opts.globalScopeId) return true;
   return opts.entityScopes.includes(opts.ruleScopeId);
 }
