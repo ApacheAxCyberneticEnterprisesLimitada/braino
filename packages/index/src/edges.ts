@@ -144,12 +144,18 @@ function handleObject(
  *   ad-hoc descriptive fields ("founder_direction", "asset_files",
  *   "completion_note") not relationships. Walking them produced noisy
  *   pseudo-edges like `inputs.assets_provided_by`. Per ADR-091.
+ * - `created_by` / `updated_by`: provenance audit columns on every entity.
+ *   The DB still tracks them as scalar columns; we just don't materialize
+ *   them as graph edges anymore (they were already filtered from the graph
+ *   render, and they carried no traversal value).
  */
 const SKIP_FIELDS = new Set([
   "id",
   "doco_id",
   "inputs",
   "outputs",
+  "created_by",
+  "updated_by",
   // Eval's input/expected/actual carry arbitrary scalars (test fixtures) —
   // their nested ID-shaped values aren't relationships.
   "input",
@@ -164,14 +170,11 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   decision_ids: "enacts",
   actor_id: "performed_by",
   target: "acts_on",
-  author_id: "authored_by",
   premise: "premise",
   conclusion_ref: "concludes",
   parent_intent_id: "has_parent",
   stakeholders: "has_stakeholder",
   owner_id: "owned_by",
-  created_by: "created_by",
-  updated_by: "updated_by",
   born_from: "born_from",
   superseded_by: "superseded_by",
   // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
