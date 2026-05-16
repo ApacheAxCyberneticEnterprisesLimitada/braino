@@ -11,6 +11,8 @@ import pg from "pg";
 const { Pool } = pg;
 
 let _pool: pg.Pool | null = null;
+let _schemaReady: Promise<void> | null = null;
+let _schemaSql: string | null = null;
 
 export function getPool(): pg.Pool {
   if (_pool) return _pool;
@@ -32,6 +34,7 @@ export async function closePool(): Promise<void> {
 }
 
 export async function withClient<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  await ensureSchema();
   const c = await getPool().connect();
   try {
     return await fn(c);
@@ -54,27 +57,44 @@ export async function withTransaction<T>(fn: (c: pg.PoolClient) => Promise<T>): 
   });
 }
 
-/**
- * Apply schema.sql to the connected database. Idempotent — every CREATE
- * uses IF NOT EXISTS, so it's safe to call on every startup.
- */
-export async function ensureSchema(): Promise<void> {
+function readSchemaSql(): string {
+  if (_schemaSql) return _schemaSql;
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(here, "schema.sql"),
     join(here, "..", "src", "schema.sql"),
   ];
-  let sql: string | null = null;
   for (const c of candidates) {
     try {
-      sql = readFileSync(c, "utf8");
-      break;
+      _schemaSql = readFileSync(c, "utf8");
+      return _schemaSql;
     } catch {}
   }
-  if (!sql) throw new Error("Could not locate schema.sql alongside @doco/db build.");
-  await withClient(async (c) => {
+  throw new Error("Could not locate schema.sql alongside @doco/db build.");
+}
+
+async function applySchema(): Promise<void> {
+  const sql = readSchemaSql();
+  const c = await getPool().connect();
+  try {
     await c.query(sql);
-  });
+  } finally {
+    c.release();
+  }
+}
+
+/**
+ * Apply schema.sql to the connected database. Idempotent — every CREATE
+ * uses IF NOT EXISTS, so it's safe to call on every startup.
+ */
+export async function ensureSchema(): Promise<void> {
+  if (!_schemaReady) {
+    _schemaReady = applySchema().catch((err) => {
+      _schemaReady = null;
+      throw err;
+    });
+  }
+  await _schemaReady;
 }
 
 export async function pingDb(): Promise<{ ok: true; version: string }> {
