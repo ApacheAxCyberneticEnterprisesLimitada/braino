@@ -141,7 +141,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     label: "State machines",
     icon: "🔁",
     intentSummary:
-      "Model entities whose meaningful behavior is a sequence of named States and the Actions that transition between them — order lifecycles, machine workers, agent loops, anything where 'what state is it in?' matters.",
+      "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
     default_node_lifecycle: "drafted",
     rules: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
