@@ -82,6 +82,18 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         predicate: { kind: "requires_node_type", node_types: ["rule"] },
       },
       {
+        // D3 (decision_01KRRD6QM7NN2EV56NZK96DNKY): a Decision is a
+        // recorded choice WITH rejected alternatives. Doco-wide.
+        kind: "authoring",
+        summary:
+          "Every Decision must populate `alternatives`. A Decision is the recorded choice plus the options that were rejected and why — empty alternatives means the choice isn't documented, only the outcome.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["alternatives"],
+          when_node_type: ["decision"],
+        },
+      },
+      {
         kind: "guidance",
         summary:
           'Rules that other Rules or Decisions cite belong in the Global scope. Examples: "every public endpoint must enforce auth", "ULIDs are the canonical id".',
@@ -104,40 +116,47 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     ],
   },
   {
+    // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
+    // collapses from six guidance rules to two deterministic authoring
+    // rules + an expanded intentSummary. The previous guidance is either
+    // folded into the summary (state-machine warning, Action-vs-Log
+    // split) or made structural via D1 / D2.
     name: "user-flows",
     label: "User flows",
     icon: "🌊",
     intentSummary:
-      "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish.",
+      "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish. Capture the journey as an Intent, each step as an Action linked to that Intent (`follows` between Actions encodes order), and each branch as a Decision with populated alternatives. This scope is process-centric — don't model state machines here. User-flows holds DESIGNED steps (Action: imperative verb, role-typed actor, designed inputs/outputs); recorded happenings (real commits, deploys, verifications) are Logs and belong in a separate project-owner-authored scope.",
     rules: [
       {
-        kind: "guidance",
+        // D1: restrict the scope to flow-relevant types. Rules and Evals
+        // don't model sequence; Ideas are speculative and should be
+        // promoted to an Action/Decision before joining a flow; Logs are
+        // recorded happenings (handled in a separate scope per ADR).
+        // `reasoning` is listed in the agent-reference's 12-type
+        // walkthrough but absent from the NODE_TYPES union today; if it
+        // gets formalized, extend this list.
+        kind: "authoring",
         summary:
-          'Each flow gets one Intent representing the journey. Examples: "user buys a product", "agent claims a Doco".',
+          "Only Intent, Action, Decision, and Reference nodes belong to user-flows. Rules, Evals, Ideas, and Logs each have their own home — Rules govern (Global scope), Evals test (test-evals or similar), Ideas are speculative until promoted, and Logs capture recorded events rather than designed steps.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["intent", "action", "decision", "reference"],
+        },
       },
       {
-        kind: "guidance",
+        // D2: every Action in user-flows links the journey Intent it
+        // advances. Uses the canonical Action→Intent edge `serves`.
+        // when_node_type ensures the rule fires only for Actions — the
+        // Intent itself isn't asked to serve itself.
+        kind: "authoring",
         summary:
-          "Each step in the flow is an Action chained with the `follows` field so the order is explicit and the cycle-lint guards against loops.",
-      },
-      {
-        kind: "guidance",
-        summary:
-          'Each branch in the flow is a Decision referenced from the Action that depends on it via `decision_ids`. Example: "if cart total > $X, require 2FA".',
-      },
-      {
-        kind: "guidance",
-        summary: "Use Reasoning entities to justify non-obvious orderings or merges in the flow.",
-      },
-      {
-        kind: "guidance",
-        summary:
-          "Don't capture state diagrams in user-flows — Doco is process-centric, not state-machine-centric.",
-      },
-      {
-        kind: "guidance",
-        summary:
-          "User-flows holds DESIGNED steps (Actions: verb in imperative/present, role-typed actor, designed inputs/outputs). Specific recorded events — a real commit that pushed, a deploy that ran, a verification that passed — are Logs and belong in a separate project-owner-authored scope, not here.",
+          "Every Action in user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          when_node_type: ["action"],
+        },
       },
     ],
   },

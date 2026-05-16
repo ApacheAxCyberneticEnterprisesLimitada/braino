@@ -141,12 +141,33 @@ export type RuleKind = "authoring" | "guidance" | "tagged";
  * Authoring predicate — the structured shape the engine evaluates at
  * write time. Used as `Rule.predicate` when `Rule.kind === "authoring"`.
  * The old `predicate: string` field on Rule (pre-promotion) was removed.
+ *
+ * Per decision_01KRRD5SRX69P2MWN0G1B8216H, `requires_edge`, `forbids_edge`,
+ * `requires_field`, and `forbids_field` carry an optional
+ * `when_node_type: NodeType[]` filter. When set, the evaluator
+ * short-circuits and produces no violation if the candidate entity's
+ * `node_type` is not in the list. When omitted, behavior is unchanged
+ * (the rule fires for every node the scope's authoring-rule set is
+ * loaded against). `mandatory_scope` and `requires_node_type` don't
+ * need the filter — the first is Doco-wide by construction, the second
+ * already targets node types directly. `probabilistic` defers to the
+ * LLM judge.
  */
 export type AuthoringPredicate =
-  | { kind: "requires_edge"; edge_type: string; target_node_type?: string }
-  | { kind: "forbids_edge"; edge_type: string; target_node_type?: string }
-  | { kind: "requires_field"; fields: string[] }
-  | { kind: "forbids_field"; fields: string[] }
+  | {
+      kind: "requires_edge";
+      edge_type: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      kind: "forbids_edge";
+      edge_type: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
+    }
+  | { kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
+  | { kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
   | { kind: "mandatory_scope"; scope_ids: EntityId<"scope">[] }
   | { kind: "requires_node_type"; node_types: NodeType[] }
   | { kind: "probabilistic"; spec: string };

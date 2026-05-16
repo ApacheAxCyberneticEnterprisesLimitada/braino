@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import {
+  type AuthoringPredicate,
   type EntityId,
   type Organization,
   type Principal,
@@ -20,7 +21,11 @@ import {
   hostPrincipalsDir,
   hostYamlPath,
 } from "./mode.js";
-import { findScopeTemplate, type ScopeTemplate } from "./scope-templates.js";
+import {
+  DEFAULT_SCOPE_TEMPLATES,
+  findScopeTemplate,
+  type ScopeTemplate,
+} from "./scope-templates.js";
 
 export interface HostConfig {
   id: string; // host_<ulid> — meta-Doco style
@@ -1204,4 +1209,237 @@ export async function listDocos(root: string): Promise<DocoRecord[]> {
     docoId: row.id as EntityId<"doco">,
     path: hostDocoDir(root, row.owner_slug, row.doco_slug),
   }));
+}
+
+/**
+ * Bring a Doco's managed scopes into alignment with the current
+ * DEFAULT_SCOPE_TEMPLATES (decision_01KRRD6QM7NN2EV56NZK96DNKY).
+ *
+ * Existing Docos that were created against earlier templates won't
+ * automatically pick up new authoring rules added later. This helper
+ * walks the registered templates, finds the matching scopes (by `name`)
+ * on the target Doco, and:
+ *
+ *  1. **Seeds missing template rules.** For authoring rules, matches on
+ *     a structural fingerprint of the predicate (kind + sorted params)
+ *     so renamed prose doesn't double-seed. For guidance rules, matches
+ *     on the exact summary text. Lifecycle="active".
+ *
+ *  2. **Abandons known-stale guidance rules.** A small allow-list of
+ *     summaries from previous template versions get lifecycle-flipped
+ *     to "abandoned" — narrow on purpose, so project-owner edits aren't
+ *     touched.
+ *
+ *  3. **Refreshes the seed Intent.** For non-Global templates, the
+ *     scope's seed Intent is updated to the current intentSummary IF
+ *     its current summary matches one of the known prior values.
+ *
+ * Idempotent: re-running is a no-op once every Doco is up to date.
+ */
+export async function applyScopeTemplateUpdatesToDoco(opts: {
+  docoId: EntityId<"doco">;
+  createdBy: EntityId<"principal"> | null;
+}): Promise<{
+  scopesTouched: number;
+  rulesAdded: number;
+  rulesAbandoned: number;
+  intentsUpdated: number;
+}> {
+  const { withClient } = await import("@doco/db");
+  let scopesTouched = 0;
+  let rulesAdded = 0;
+  let rulesAbandoned = 0;
+  let intentsUpdated = 0;
+
+  // ── Known-stale summaries to phase out ──────────────────────────────
+  // Narrow on purpose: only the verbatim seeds shipped by prior template
+  // versions. Owner-edited rules diverge by even one character and are
+  // left alone.
+  const STALE_USER_FLOWS_GUIDANCE_SUMMARIES = new Set<string>([
+    'Each flow gets one Intent representing the journey. Examples: "user buys a product", "agent claims a Doco".',
+    "Each step in the flow is an Action chained with the `follows` field so the order is explicit and the cycle-lint guards against loops.",
+    'Each branch in the flow is a Decision referenced from the Action that depends on it via `decision_ids`. Example: "if cart total > $X, require 2FA".',
+    "Use Reasoning entities to justify non-obvious orderings or merges in the flow.",
+    "Don't capture state diagrams in user-flows — Doco is process-centric, not state-machine-centric.",
+    "User-flows holds DESIGNED steps (Actions: verb in imperative/present, role-typed actor, designed inputs/outputs). Specific recorded events — a real commit that pushed, a deploy that ran, a verification that passed — are Logs and belong in a separate project-owner-authored scope, not here.",
+  ]);
+  const STALE_USER_FLOWS_INTENT_SUMMARIES = new Set<string>([
+    "End-to-end user journeys are documented step-by-step so any feature can be traced from start to finish.",
+    "End-to-end user journeys: how a person (or external system) moves through a feature from start to finish.",
+  ]);
+
+  // Structural fingerprint for an authoring predicate. Used to dedupe
+  // template-seeded rules against existing ones without depending on
+  // human-readable summary text.
+  const fingerprint = (p: AuthoringPredicate): string => {
+    const sorted = Object.keys(p as object)
+      .sort()
+      .map((k) => `${k}=${JSON.stringify((p as Record<string, unknown>)[k])}`)
+      .join("|");
+    return sorted;
+  };
+
+  for (const template of DEFAULT_SCOPE_TEMPLATES) {
+    // 1. Find the scope (by name) on this Doco.
+    const scopeRow = await withClient((c) =>
+      c.query<{ id: string }>(
+        "SELECT id FROM scopes WHERE doco_id = $1 AND name = $2 LIMIT 1",
+        [opts.docoId, template.name],
+      ),
+    );
+    if (scopeRow.rows.length === 0) continue;
+    const scopeId = scopeRow.rows[0]!.id as EntityId<"scope">;
+    scopesTouched += 1;
+
+    // 2. Load this scope's existing rules (active + proposed only — we
+    // don't want to count abandoned/superseded entries against the new
+    // template).
+    const existing = await withClient((c) =>
+      c.query<{
+        id: string;
+        summary: string;
+        lifecycle: string;
+        raw_yaml: string;
+      }>(
+        `SELECT r.id, r.summary, COALESCE(r.lifecycle, 'active') AS lifecycle, r.raw_yaml
+           FROM rules r
+           JOIN edges e ON e.from_id = r.id
+                       AND e.edge_type = 'in_scope_of'
+                       AND e.to_id = $1
+          WHERE r.doco_id = $2
+            AND COALESCE(r.lifecycle, 'active') IN ('active', 'proposed')`,
+        [scopeId, opts.docoId],
+      ),
+    );
+
+    const existingAuthoringFingerprints = new Set<string>();
+    const existingGuidanceSummaries = new Set<string>();
+    type RuleRow = (typeof existing.rows)[number];
+    const staleRuleRows: RuleRow[] = [];
+    for (const row of existing.rows) {
+      let fm: Record<string, unknown> = {};
+      try {
+        fm = JSON.parse(row.raw_yaml) as Record<string, unknown>;
+      } catch {
+        // Ignore parse errors — rule still counts as present by summary.
+      }
+      const kind = typeof fm.kind === "string" ? fm.kind : "tagged";
+      const predicate = fm.predicate as AuthoringPredicate | undefined;
+      if (kind === "authoring" && predicate) {
+        existingAuthoringFingerprints.add(fingerprint(predicate));
+      } else if (kind === "guidance") {
+        existingGuidanceSummaries.add(row.summary.trim());
+      }
+      if (
+        template.name === "user-flows" &&
+        STALE_USER_FLOWS_GUIDANCE_SUMMARIES.has(row.summary.trim())
+      ) {
+        staleRuleRows.push(row);
+      }
+    }
+
+    // 3. Seed missing template rules.
+    for (const tplRule of template.rules) {
+      const summary = tplRule.summary.trim();
+      if (!summary) continue;
+      if (tplRule.kind === "authoring") {
+        if (!tplRule.predicate) continue;
+        if (existingAuthoringFingerprints.has(fingerprint(tplRule.predicate))) continue;
+        await createRuleInDoco({
+          docoId: opts.docoId,
+          kind: "authoring",
+          summary,
+          predicate: tplRule.predicate,
+          scopeId,
+          createdBy: opts.createdBy,
+        });
+        rulesAdded += 1;
+      } else {
+        if (existingGuidanceSummaries.has(summary)) continue;
+        await createRuleInDoco({
+          docoId: opts.docoId,
+          kind: "guidance",
+          summary,
+          scopeId,
+          createdBy: opts.createdBy,
+        });
+        rulesAdded += 1;
+      }
+    }
+
+    // 4. Lifecycle-flip stale guidance rows. (user-flows only for now —
+    // Global keeps its current guidance set intact.)
+    for (const row of staleRuleRows) {
+      await withClient(async (c) => {
+        let fm: Record<string, unknown> = {};
+        try {
+          fm = JSON.parse(row.raw_yaml) as Record<string, unknown>;
+        } catch {
+          fm = {};
+        }
+        fm.lifecycle = "abandoned";
+        const now = nowIso();
+        fm.updated_at = now;
+        if (opts.createdBy) fm.updated_by = opts.createdBy;
+        await c.query(
+          `UPDATE rules
+              SET lifecycle = 'abandoned',
+                  raw_yaml = $1,
+                  updated_at = $2,
+                  updated_by = $3
+            WHERE id = $4`,
+          [JSON.stringify(fm), now, opts.createdBy, row.id],
+        );
+      });
+      rulesAbandoned += 1;
+    }
+
+    // 5. Update the seed Intent summary for non-Global templates whose
+    // current summary matches a known prior value.
+    if (template.name !== "global") {
+      const intentRows = await withClient((c) =>
+        c.query<{ id: string; summary: string; raw_yaml: string }>(
+          `SELECT i.id, i.summary, i.raw_yaml
+             FROM intents i
+             JOIN edges e ON e.from_id = i.id
+                         AND e.edge_type = 'in_scope_of'
+                         AND e.to_id = $1
+            WHERE i.doco_id = $2
+              AND COALESCE(i.lifecycle, 'active') IN ('active', 'proposed')`,
+          [scopeId, opts.docoId],
+        ),
+      );
+      for (const ir of intentRows.rows) {
+        if (template.name === "user-flows") {
+          if (!STALE_USER_FLOWS_INTENT_SUMMARIES.has(ir.summary.trim())) continue;
+        } else {
+          continue;
+        }
+        await withClient(async (c) => {
+          let fm: Record<string, unknown> = {};
+          try {
+            fm = JSON.parse(ir.raw_yaml) as Record<string, unknown>;
+          } catch {
+            fm = {};
+          }
+          fm.summary = template.intentSummary;
+          const now = nowIso();
+          fm.updated_at = now;
+          if (opts.createdBy) fm.updated_by = opts.createdBy;
+          await c.query(
+            `UPDATE intents
+                SET summary = $1,
+                    raw_yaml = $2,
+                    updated_at = $3,
+                    updated_by = $4
+              WHERE id = $5`,
+            [template.intentSummary, JSON.stringify(fm), now, opts.createdBy, ir.id],
+          );
+        });
+        intentsUpdated += 1;
+      }
+    }
+  }
+
+  return { scopesTouched, rulesAdded, rulesAbandoned, intentsUpdated };
 }

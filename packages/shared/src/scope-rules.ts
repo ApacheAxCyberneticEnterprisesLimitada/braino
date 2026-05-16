@@ -14,13 +14,27 @@
  * Predicate flavors:
  *
  *   • Deterministic — `requires_edge`, `requires_field`, `forbids_edge`,
- *     `forbids_field`, `mandatory_scope`. Pure structural checks against
- *     the entity's frontmatter + an `allEdges` snapshot.
+ *     `forbids_field`, `mandatory_scope`, `requires_node_type`. Pure
+ *     structural checks against the entity's frontmatter + an `allEdges`
+ *     snapshot.
  *
  *   • Probabilistic — `probabilistic` with a free-text spec. The engine
  *     returns a `pending` violation; the caller passes it to the LLM
  *     adapter which returns ok/reason. The caller decides whether to
  *     surface them as warnings or errors.
+ *
+ * Per decision_01KRRD5SRX69P2MWN0G1B8216H, the four most common
+ * deterministic predicates (`requires_edge`, `forbids_edge`,
+ * `requires_field`, `forbids_field`) accept an optional
+ * `when_node_type: NodeType[]` filter. When set, the rule fires only for
+ * captures whose `node_type` is in the list; otherwise it's a no-op.
+ * `mandatory_scope` and `requires_node_type` already constrain the
+ * candidate's shape directly, so they don't carry the filter.
+ *
+ * `requires_field` treats an empty array (`[]`) as "not populated" — the
+ * same way it treats `undefined` / `null` / `""`. This makes
+ * `requires_field: ["alternatives"]` reject a Decision whose
+ * `alternatives` is the literal empty list.
  *
  * Pure module — no IO, no LLM client. Inputs in, violations out.
  */
@@ -105,12 +119,22 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
 
   // Pre-index this entity's outgoing edges for cheap lookup.
   const outgoing = opts.allEdges.filter((e) => e.from_id === entityId);
+  const candidateNodeType = typeof entity.node_type === "string" ? entity.node_type : "";
+
+  // Optional per-rule node-type filter (decision_01KRRD5SRX69P2MWN0G1B8216H).
+  // When set on a predicate that supports it, fire only for matching types.
+  // Empty/undefined → fire for every type (legacy behavior).
+  const shouldFire = (when: unknown): boolean => {
+    if (!Array.isArray(when) || when.length === 0) return true;
+    return when.some((t) => typeof t === "string" && t === candidateNodeType);
+  };
 
   for (const loaded of rules) {
     if (!isActiveLifecycle(loaded.lifecycle)) continue;
     const rule = loaded.predicate;
     switch (rule.kind) {
       case "requires_edge": {
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
         const matched = outgoing.some(
           (e) =>
             e.edge_type === rule.edge_type &&
@@ -130,6 +154,7 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         break;
       }
       case "forbids_edge": {
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
         const matched = outgoing.some(
           (e) =>
             e.edge_type === rule.edge_type &&
@@ -149,9 +174,14 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         break;
       }
       case "requires_field": {
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
         for (const field of readFieldList(rule)) {
           const v = entity[field];
-          const present = v !== undefined && v !== null && v !== "";
+          const present =
+            v !== undefined &&
+            v !== null &&
+            v !== "" &&
+            !(Array.isArray(v) && v.length === 0);
           if (!present) {
             violations.push({
               rule_id: loaded.rule_id,
@@ -166,9 +196,14 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
         break;
       }
       case "forbids_field": {
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
         for (const field of readFieldList(rule)) {
           const v = entity[field];
-          const present = v !== undefined && v !== null && v !== "";
+          const present =
+            v !== undefined &&
+            v !== null &&
+            v !== "" &&
+            !(Array.isArray(v) && v.length === 0);
           if (present) {
             violations.push({
               rule_id: loaded.rule_id,
