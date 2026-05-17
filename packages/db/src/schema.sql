@@ -71,30 +71,52 @@ CREATE TABLE IF NOT EXISTS org_members (
 );
 CREATE INDEX IF NOT EXISTS org_members_principal_idx ON org_members (principal_id, role);
 
+-- Slug removal — every Doco has a single human-readable identifier:
+-- `handle`. It lives in the same flat global namespace as the
+-- top-level host routes (HOST_RESERVED_SLUGS in
+-- @doco/shared/url-conventions.ts). On create, callers pass a
+-- `requested_id` and the host auto-suffixes (-2, -3, …) on
+-- collision. The internal ULID `id` stays as the FK target for
+-- every entity table; `handle` is what URLs and the public API
+-- key off.
+--
+-- Phase 1–2d of the cut introduced `handle` alongside the legacy
+-- `(owner_slug, doco_slug)` pair. Phase 3a (this snapshot) drops
+-- the legacy columns + their composite UNIQUE. mapDocoRow in
+-- @doco/db synthesizes a back-compat `owner_slug` field via a
+-- LEFT JOIN to `principals.username` / `organizations.slug`
+-- keyed by `owner_id`; back-compat `doco_slug` is just an alias
+-- for `handle`.
 CREATE TABLE IF NOT EXISTS docos (
   id              text PRIMARY KEY,
-  owner_slug      text NOT NULL,
-  doco_slug       text NOT NULL,
+  handle          text,
   owner_id        text NOT NULL,    -- principal_<ulid> OR organization_<ulid>
   name            text,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
   raw_yaml        text NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
-  updated_at      timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (owner_slug, doco_slug)
+  updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- Phase 1 of the slug-removal cut: every Doco gets a single
--- human-readable `handle` that lives in the same flat global
--- namespace as the top-level host routes (HOST_RESERVED_SLUGS in
--- @doco/shared/url-conventions.ts). On create, callers pass a
--- `requested_id` and the host auto-suffixes (-2, -3, …) on
--- collision. URLs and the public API will key off `handle` in
--- phase 2; the old (owner_slug, doco_slug) pair lives alongside
--- for now so existing routes keep working through the transition.
--- Backfill: handle = owner_slug || '-' || doco_slug. Idempotent.
+-- Phase 3a migration: backfill `handle` from the legacy slug pair
+-- for any pre-handle rows, drop the composite UNIQUE, drop the
+-- columns. Idempotent — no-op on fresh DBs (the columns won't
+-- exist) and on already-migrated DBs (the constraint is gone).
 ALTER TABLE docos ADD COLUMN IF NOT EXISTS handle text;
-UPDATE docos SET handle = owner_slug || '-' || doco_slug WHERE handle IS NULL;
+DO $migrate$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'docos' AND column_name = 'owner_slug'
+  ) THEN
+    UPDATE docos SET handle = COALESCE(handle, owner_slug || '-' || doco_slug)
+     WHERE handle IS NULL;
+  END IF;
+END
+$migrate$;
+ALTER TABLE docos DROP CONSTRAINT IF EXISTS docos_owner_slug_doco_slug_key;
+ALTER TABLE docos DROP COLUMN IF EXISTS owner_slug;
+ALTER TABLE docos DROP COLUMN IF EXISTS doco_slug;
 DO $uniq$
 BEGIN
   IF NOT EXISTS (

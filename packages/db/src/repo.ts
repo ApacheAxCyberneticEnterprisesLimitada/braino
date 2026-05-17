@@ -88,30 +88,28 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         [rec.id, slug, name, rec.raw_yaml],
       );
     } else if (rec.node_type === "doco") {
-      const doco_slug = String(yamlObj.slug ?? yamlObj.doco_slug ?? "");
       const owner_id = String(yamlObj.owner_id ?? "");
-      let owner_slug = String(yamlObj.owner_slug ?? "");
-      if (!owner_slug && owner_id) {
-        if (owner_id.startsWith("principal_")) {
-          const r = await c.query(`SELECT username FROM principals WHERE id = $1`, [owner_id]);
-          owner_slug = r.rowCount && r.rowCount > 0 ? String(r.rows[0].username) : "";
-        } else if (owner_id.startsWith("organization_")) {
-          const r = await c.query(`SELECT slug FROM organizations WHERE id = $1`, [owner_id]);
-          owner_slug = r.rowCount && r.rowCount > 0 ? String(r.rows[0].slug) : "";
-        }
+      // Phase 3a: the slug pair no longer exists in storage. Pull the
+      // handle from yaml (preferred), or fall back to the legacy
+      // `<owner_slug>-<doco_slug>` synthesis when the YAML still
+      // carries the pre-3a fields. Owner identity comes from
+      // `owner_id`; the legacy `owner_slug` JSON field is ignored.
+      let handle = String(yamlObj.handle ?? "");
+      if (!handle) {
+        const docoSlug = String(yamlObj.slug ?? yamlObj.doco_slug ?? "");
+        const ownerSlug = String(yamlObj.owner_slug ?? "");
+        if (ownerSlug && docoSlug) handle = `${ownerSlug}-${docoSlug}`;
+        else if (docoSlug) handle = docoSlug;
       }
-      const handle =
-        String(yamlObj.handle ?? "") ||
-        (owner_slug && doco_slug ? `${owner_slug}-${doco_slug}` : "");
       const name = (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
       const visibility = String(yamlObj.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
-         ON CONFLICT (id) DO UPDATE SET owner_slug=EXCLUDED.owner_slug, doco_slug=EXCLUDED.doco_slug,
-           handle=EXCLUDED.handle, owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
+        `INSERT INTO docos (id, handle, owner_id, name, visibility, raw_yaml)
+         VALUES ($1,$2,$3,$4,$5,$6)
+         ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
+           owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
            visibility=EXCLUDED.visibility, raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
-        [rec.id, owner_slug, doco_slug, handle || null, owner_id, name, visibility, rec.raw_yaml],
+        [rec.id, handle || null, owner_id, name, visibility, rec.raw_yaml],
       );
     }
   };
@@ -173,16 +171,13 @@ function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityReco
   return rec;
 }
 
-/** Find a Doco by `<owner>/<slug>` and return its (ULID) id. */
+/**
+ * @deprecated Phase 3a — slug pair no longer in storage. Synthesizes a
+ * handle as `<ownerSlug>-<docoSlug>` and falls back to handle lookup.
+ * Use `resolveDocoIdByHandle` directly in new code.
+ */
 export async function resolveDocoId(ownerSlug: string, docoSlug: string): Promise<string | null> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id FROM docos WHERE owner_slug = $1 AND doco_slug = $2`,
-      [ownerSlug, docoSlug],
-    );
-    if (r.rowCount === 0) return null;
-    return String(r.rows[0].id);
-  });
+  return resolveDocoIdByHandle(`${ownerSlug}-${docoSlug}`);
 }
 
 /** Find a Doco by its `handle` and return its (ULID) id. */
@@ -389,13 +384,22 @@ export async function upsertOrgMember(opts: {
 
 export interface DocoRow {
   id: string;
-  owner_slug: string;
-  doco_slug: string;
-  /** Phase 1 of slug-removal: globally-unique handle. Populated by the
-   *  schema migration as `owner_slug || '-' || doco_slug` for existing
-   *  rows; new rows get a `requested_id`-derived value. May be empty
-   *  string for rows ingested before the column existed. */
+  /** Public, globally-unique URL identifier. */
   handle: string;
+  /**
+   * @deprecated Phase 3a removed the `owner_slug` column; this field is
+   * synthesized at read time via a LEFT JOIN to `principals.username`
+   * (or `organizations.slug`) keyed by `owner_id`. New code should
+   * read `owner_id` and resolve the owner explicitly when it needs a
+   * display name. Kept as a back-compat field for the ~30 callers that
+   * still consume `(ownerSlug, docoSlug)` plumbing.
+   */
+  owner_slug: string;
+  /**
+   * @deprecated Phase 3a removed the `doco_slug` column; this field
+   * now mirrors `handle`. New code should read `handle` directly.
+   */
+  doco_slug: string;
   owner_id: string;
   name: string | null;
   visibility: "public" | "private";
@@ -403,11 +407,15 @@ export interface DocoRow {
 }
 
 function mapDocoRow(row: Record<string, unknown>): DocoRow {
+  const handle = String(row.handle ?? "");
   return {
     id: String(row.id),
+    handle,
+    // Phase 3a: back-compat fields. `owner_slug` comes from the JOIN
+    // in every `SELECT … FROM docos` query below; `doco_slug` is just
+    // `handle` (the new canonical identifier).
     owner_slug: String(row.owner_slug ?? ""),
-    doco_slug: String(row.doco_slug ?? ""),
-    handle: String(row.handle ?? ""),
+    doco_slug: handle,
     owner_id: String(row.owner_id),
     name: row.name === null || row.name === undefined ? null : String(row.name),
     visibility: row.visibility === "public" ? "public" : "private",
@@ -415,47 +423,49 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
   };
 }
 
+/**
+ * Common SELECT fragment that synthesizes the back-compat `owner_slug`
+ * (LEFT JOIN to whichever identity table owns the row) alongside the
+ * canonical Doco columns. Used by every `getDoco*` reader.
+ */
+const DOCO_SELECT = `
+  SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.raw_yaml,
+         COALESCE(p.username, o.slug, '') AS owner_slug
+    FROM docos d
+    LEFT JOIN principals p ON p.id = d.owner_id
+    LEFT JOIN organizations o ON o.id = d.owner_id`;
+
 export async function listAllDocos(): Promise<DocoRow[]> {
   return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
-       FROM docos ORDER BY owner_slug, doco_slug`,
-    );
+    const r = await c.query(`${DOCO_SELECT} ORDER BY d.handle`);
     return r.rows.map(mapDocoRow);
   });
 }
 
 export async function getDocoById(docoId: string): Promise<DocoRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
-       FROM docos WHERE id = $1`,
-      [docoId],
-    );
+    const r = await c.query(`${DOCO_SELECT} WHERE d.id = $1`, [docoId]);
     if (r.rowCount === 0) return null;
     return mapDocoRow(r.rows[0]);
   });
 }
 
+/**
+ * @deprecated Phase 3a — the slug pair no longer exists in storage.
+ * Synthesizes a handle as `<ownerSlug>-<docoSlug>` and falls back to
+ * the canonical `getDocoByHandle` lookup. Correct for every Doco
+ * migrated from the pre-handle era (where handle is exactly the
+ * synthesized form); incorrect for API-created Docos whose handle
+ * came from `requested_id`. Use `getDocoByHandle` directly in new
+ * code.
+ */
 export async function getDocoBySlug(ownerSlug: string, docoSlug: string): Promise<DocoRow | null> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
-       FROM docos WHERE owner_slug = $1 AND doco_slug = $2`,
-      [ownerSlug, docoSlug],
-    );
-    if (r.rowCount === 0) return null;
-    return mapDocoRow(r.rows[0]);
-  });
+  return getDocoByHandle(`${ownerSlug}-${docoSlug}`);
 }
 
 export async function getDocoByHandle(handle: string): Promise<DocoRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
-       FROM docos WHERE handle = $1`,
-      [handle],
-    );
+    const r = await c.query(`${DOCO_SELECT} WHERE d.handle = $1`, [handle]);
     if (r.rowCount === 0) return null;
     return mapDocoRow(r.rows[0]);
   });

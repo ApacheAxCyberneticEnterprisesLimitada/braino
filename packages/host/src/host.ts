@@ -404,41 +404,16 @@ export async function createDocoInHost(
   }
 
   const { withClient } = await import("@doco/db");
-  let docoSlug = opts.docoSlug;
-  if (opts.autoSuffixOnCollision) {
-    let n = 2;
-    while (true) {
-      const dup = await withClient((c) =>
-        c.query(
-          "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-          [opts.ownerSlug, docoSlug],
-        ),
-      );
-      if (dup.rows.length === 0) break;
-      docoSlug = `${opts.docoSlug}-${n}`;
-      n++;
-      if (n > 999) {
-        throw new Error(
-          `Auto-suffix exhausted: ${opts.ownerSlug}/${opts.docoSlug}-2 … -999 are all taken.`,
-        );
-      }
-    }
-  } else {
-    const dup = await withClient((c) =>
-      c.query(
-        "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-        [opts.ownerSlug, docoSlug],
-      ),
-    );
-    if (dup.rows.length > 0) {
-      throw new Error(`Doco "${opts.ownerSlug}/${docoSlug}" already exists.`);
-    }
-  }
+  // Phase 3a: storage no longer carries a per-owner slug pair. The
+  // legacy `docoSlug` input is preserved on the in-memory record (so
+  // callers like `host doco new <owner>/<slug>` keep working) and is
+  // written into raw_yaml for downstream display, but the only
+  // uniqueness check happens against `handle` below.
+  const docoSlug = opts.docoSlug;
 
-  // Phase 1 of slug-removal: every new Doco gets a globally-unique
-  // `handle` alongside the legacy (owner_slug, doco_slug) pair. The
+  // Every new Doco gets a globally-unique `handle`. The
   // requested_id (if any) wins; otherwise we fall back to
-  // `<owner>-<slug>` to match what the migration sets for existing rows.
+  // `<owner>-<slug>` for parity with the pre-3a migration shape.
   const baseHandle =
     normalizeHandleCandidate(opts.requestedId ?? `${opts.ownerSlug}-${docoSlug}`) ||
     `${opts.ownerSlug}-${docoSlug}`;
@@ -488,12 +463,10 @@ export async function createDocoInHost(
   };
   await withClient((c) =>
     c.query(
-      `INSERT INTO docos (id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+      `INSERT INTO docos (id, handle, owner_id, name, visibility, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
       [
         docoId,
-        opts.ownerSlug,
-        docoSlug,
         handle,
         owner.id,
         docoSlug,
@@ -1209,13 +1182,17 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
   const parts = opts.docoDir.split("/");
   const docoSlug = parts[parts.length - 1];
   const ownerSlug = parts[parts.length - 2];
+  // Phase 3a: slug columns gone — synthesize the handle from
+  // `(ownerSlug, docoSlug)` (the migration shape) so existing callers
+  // keep working. New code should pass a handle in directly.
+  const handle = `${ownerSlug}-${docoSlug}`;
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const cur = await c.query<{ raw_yaml: string }>(
-      "SELECT raw_yaml FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-      [ownerSlug, docoSlug],
+      "SELECT raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
+      [handle],
     );
-    if (!cur.rows[0]) throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
+    if (!cur.rows[0]) throw new Error(`Doco "${handle}" not found.`);
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
     if (opts.description !== undefined) {
       if (opts.description === null || opts.description === "") delete yaml.description;
@@ -1228,14 +1205,13 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
     if (opts.visibility !== undefined) yaml.visibility = opts.visibility;
     await c.query(
       `UPDATE docos
-          SET name       = $3,
-              visibility = COALESCE($4, visibility),
-              raw_yaml   = $5,
+          SET name       = $2,
+              visibility = COALESCE($3, visibility),
+              raw_yaml   = $4,
               updated_at = now()
-        WHERE owner_slug = $1 AND doco_slug = $2`,
+        WHERE handle = $1`,
       [
-        ownerSlug,
-        docoSlug,
+        handle,
         (yaml.display_name as string | undefined) ?? null,
         opts.visibility ?? null,
         JSON.stringify(yaml),
@@ -1245,8 +1221,11 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
 }
 
 /**
- * Rename a Doco's slug by updating `docos.doco_slug` + `raw_yaml` in a
- * single transaction.
+ * @deprecated Phase 3a — the slug pair is gone from storage. This
+ * function now updates `docos.handle` to the synthesized
+ * `<ownerSlug>-<newSlug>` value. Pass the actual current handle as
+ * `oldSlug` (e.g., when renaming from settings the handler should
+ * already know the canonical handle).
  */
 export async function renameDocoSlug(opts: {
   root: string;
@@ -1260,28 +1239,31 @@ export async function renameDocoSlug(opts: {
   if (oldSlug === newSlug) {
     return { newDir: join(hostDocosDir(root), ownerSlug, oldSlug) };
   }
+  const oldHandle = `${ownerSlug}-${oldSlug}`;
+  const newHandle = `${ownerSlug}-${newSlug}`;
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const cur = await c.query<{ raw_yaml: string }>(
-      "SELECT raw_yaml FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-      [ownerSlug, oldSlug],
+      "SELECT raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
+      [oldHandle],
     );
-    if (!cur.rows[0]) throw new Error(`Doco "${ownerSlug}/${oldSlug}" not found.`);
+    if (!cur.rows[0]) throw new Error(`Doco "${oldHandle}" not found.`);
     const dup = await c.query(
-      "SELECT 1 FROM docos WHERE owner_slug = $1 AND doco_slug = $2 LIMIT 1",
-      [ownerSlug, newSlug],
+      "SELECT 1 FROM docos WHERE handle = $1 LIMIT 1",
+      [newHandle],
     );
-    if (dup.rows[0]) throw new Error(`Doco "${ownerSlug}/${newSlug}" already exists.`);
+    if (dup.rows[0]) throw new Error(`Doco "${newHandle}" already exists.`);
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
     yaml.slug = newSlug;
+    yaml.handle = newHandle;
     await c.query(
       `UPDATE docos
-          SET doco_slug  = $3,
-              raw_yaml   = $4,
+          SET handle     = $2,
+              raw_yaml   = $3,
               updated_at = now()
-        WHERE owner_slug = $1 AND doco_slug = $2`,
-      [ownerSlug, oldSlug, newSlug, JSON.stringify(yaml)],
+        WHERE handle = $1`,
+      [oldHandle, newHandle, JSON.stringify(yaml)],
     );
   });
   return { newDir: join(hostDocosDir(root), ownerSlug, newSlug) };
@@ -1290,9 +1272,6 @@ export async function renameDocoSlug(opts: {
 /**
  * Delete a Doco. This is a hard delete — `ON DELETE CASCADE` removes
  * every entity, edge, and scope tied to the Doco.
- *
- * Per ADR-040 only people can call this; the route action gates by
- * `me.type === "person"`. Per `settings-page-delete-doco` Intent.
  */
 export async function softDeleteDoco(opts: {
   root: string;
@@ -1300,34 +1279,39 @@ export async function softDeleteDoco(opts: {
   docoSlug: string;
 }): Promise<{ deletedPath: string }> {
   const { ownerSlug, docoSlug } = opts;
+  const handle = `${ownerSlug}-${docoSlug}`;
   const { withClient } = await import("@doco/db");
   const result = await withClient((c) =>
-    c.query(
-      "DELETE FROM docos WHERE owner_slug = $1 AND doco_slug = $2 RETURNING id",
-      [ownerSlug, docoSlug],
-    ),
+    c.query("DELETE FROM docos WHERE handle = $1 RETURNING id", [handle]),
   );
   if (result.rowCount === 0) {
-    throw new Error(`Doco "${ownerSlug}/${docoSlug}" not found.`);
+    throw new Error(`Doco "${handle}" not found.`);
   }
-  return { deletedPath: `postgres:docos/${ownerSlug}/${docoSlug}` };
+  return { deletedPath: `postgres:docos/${handle}` };
 }
 
 export async function listDocos(root: string): Promise<DocoRecord[]> {
   const { withClient } = await import("@doco/db");
+  // Phase 3a: slug columns dropped. Derive owner_slug via JOIN to
+  // identity tables and use the doco's handle as its slug stand-in.
   const r = await withClient((c) =>
-    c.query<{ id: string; owner_slug: string; doco_slug: string; handle: string; owner_id: string }>(
-      "SELECT id, owner_slug, doco_slug, handle, owner_id FROM docos ORDER BY owner_slug, doco_slug",
+    c.query<{ id: string; handle: string; owner_slug: string; owner_id: string }>(
+      `SELECT d.id, d.handle, d.owner_id,
+              COALESCE(p.username, o.slug, '') AS owner_slug
+         FROM docos d
+         LEFT JOIN principals p ON p.id = d.owner_id
+         LEFT JOIN organizations o ON o.id = d.owner_id
+        ORDER BY d.handle`,
     ),
   );
   return r.rows.map((row) => ({
     ownerSlug: row.owner_slug,
-    docoSlug: row.doco_slug,
-    handle: row.handle ?? `${row.owner_slug}-${row.doco_slug}`,
+    docoSlug: row.handle,
+    handle: row.handle,
     ownerKind: row.owner_id.startsWith("organization_") ? "organization" : "principal",
     ownerId: row.owner_id as EntityId<"principal"> | EntityId<"organization">,
     docoId: row.id as EntityId<"doco">,
-    path: hostDocoDir(root, row.owner_slug, row.doco_slug),
+    path: hostDocoDir(root, row.owner_slug, row.handle),
   }));
 }
 
