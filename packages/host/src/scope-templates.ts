@@ -121,6 +121,15 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       },
       {
         summary:
+          'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+        predicate: {
+          kind: "probabilistic",
+          spec: 'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          when_node_type: ["action"],
+        },
+      },
+      {
+        summary:
           "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_node_type",
