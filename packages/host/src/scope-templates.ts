@@ -82,10 +82,10 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
     // scope renamed from "constitution" → "global". The label keeps
     // "Constitution" as the readable handle next to "global" on the
-    // scope list ("the doco's constitution"); the canonical name is
+    // scope list ("your doco's constitution"); the canonical name is
     // global so it sorts predictably.
     name: "global",
-    label: "Global (the doco's constitution)",
+    label: "Global (your doco's constitution)",
     icon: "🌐",
     intentSummary:
       "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
