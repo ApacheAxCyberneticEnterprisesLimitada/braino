@@ -89,17 +89,11 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       );
     } else if (rec.node_type === "doco") {
       const owner_id = String(yamlObj.owner_id ?? "");
-      // Phase 3a: the slug pair no longer exists in storage. Pull the
-      // handle from yaml (preferred), or fall back to the legacy
-      // `<owner_slug>-<doco_slug>` synthesis when the YAML still
-      // carries the pre-3a fields. Owner identity comes from
-      // `owner_id`; the legacy `owner_slug` JSON field is ignored.
-      let handle = String(yamlObj.handle ?? "");
+      const handle = String(yamlObj.handle ?? "");
       if (!handle) {
-        const docoSlug = String(yamlObj.slug ?? yamlObj.doco_slug ?? "");
-        const ownerSlug = String(yamlObj.owner_slug ?? "");
-        if (ownerSlug && docoSlug) handle = `${ownerSlug}-${docoSlug}`;
-        else if (docoSlug) handle = docoSlug;
+        throw new Error(
+          `Cannot upsert doco ${rec.id}: yaml is missing the required \`handle\` field.`,
+        );
       }
       const name = (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
       const visibility = String(yamlObj.visibility ?? "private");
@@ -109,7 +103,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
            owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
            visibility=EXCLUDED.visibility, raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
-        [rec.id, handle || null, owner_id, name, visibility, rec.raw_yaml],
+        [rec.id, handle, owner_id, name, visibility, rec.raw_yaml],
       );
     }
   };

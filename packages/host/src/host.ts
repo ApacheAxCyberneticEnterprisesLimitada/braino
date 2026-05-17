@@ -404,16 +404,9 @@ export async function createDocoInHost(
   }
 
   const { withClient } = await import("@doco/db");
-  // Phase 3a: storage no longer carries a per-owner slug pair. The
-  // legacy `docoSlug` input is preserved on the in-memory record (so
-  // callers like `host doco new <owner>/<slug>` keep working) and is
-  // written into raw_yaml for downstream display, but the only
-  // uniqueness check happens against `handle` below.
   const docoSlug = opts.docoSlug;
 
-  // Every new Doco gets a globally-unique `handle`. The
-  // requested_id (if any) wins; otherwise we fall back to
-  // `<owner>-<slug>` for parity with the pre-3a migration shape.
+  // requested_id wins; otherwise fall back to `<owner>-<slug>`.
   const baseHandle =
     normalizeHandleCandidate(opts.requestedId ?? `${opts.ownerSlug}-${docoSlug}`) ||
     `${opts.ownerSlug}-${docoSlug}`;
@@ -442,9 +435,8 @@ export async function createDocoInHost(
   const docoYaml = {
     id: docoId,
     node_type: "doco",
-    slug: docoSlug,
     handle,
-    display_name: docoSlug,
+    display_name: handle,
     visibility: opts.visibility ?? "private",
     default_branch: "main",
     owner_id: owner.id,
@@ -1255,7 +1247,6 @@ export async function renameDocoSlug(opts: {
     );
     if (dup.rows[0]) throw new Error(`Doco "${newHandle}" already exists.`);
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
-    yaml.slug = newSlug;
     yaml.handle = newHandle;
     await c.query(
       `UPDATE docos
