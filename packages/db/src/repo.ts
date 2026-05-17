@@ -375,23 +375,17 @@ export async function upsertOrgMember(opts: {
 }
 
 export interface DocoRow {
+  /** Internal ULID — every entity table FKs to this. Never user-visible. */
   id: string;
   /** Public, globally-unique URL identifier. */
   handle: string;
   /**
-   * @deprecated Phase 3a removed the `owner_slug` column; this field is
-   * synthesized at read time via a LEFT JOIN to `principals.username`
-   * (or `organizations.slug`) keyed by `owner_id`. New code should
-   * read `owner_id` and resolve the owner explicitly when it needs a
-   * display name. Kept as a back-compat field for the ~30 callers that
-   * still consume `(ownerSlug, docoSlug)` plumbing.
+   * Owner's identifier-as-a-slug — Principal.username for human/agent
+   * owners, Organization.slug for org owners. Derived via JOIN in
+   * `mapDocoRow` from `owner_id`. Useful for "owned by alice" labels.
+   * NOT a doco identifier.
    */
   owner_slug: string;
-  /**
-   * @deprecated Phase 3a removed the `doco_slug` column; this field
-   * now mirrors `handle`. New code should read `handle` directly.
-   */
-  doco_slug: string;
   owner_id: string;
   name: string | null;
   visibility: "public" | "private";
@@ -399,15 +393,10 @@ export interface DocoRow {
 }
 
 function mapDocoRow(row: Record<string, unknown>): DocoRow {
-  const handle = String(row.handle ?? "");
   return {
     id: String(row.id),
-    handle,
-    // Phase 3a: back-compat fields. `owner_slug` comes from the JOIN
-    // in every `SELECT … FROM docos` query below; `doco_slug` is just
-    // `handle` (the new canonical identifier).
+    handle: String(row.handle ?? ""),
     owner_slug: String(row.owner_slug ?? ""),
-    doco_slug: handle,
     owner_id: String(row.owner_id),
     name: row.name === null || row.name === undefined ? null : String(row.name),
     visibility: row.visibility === "public" ? "public" : "private",
@@ -416,9 +405,10 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
 }
 
 /**
- * Common SELECT fragment that synthesizes the back-compat `owner_slug`
- * (LEFT JOIN to whichever identity table owns the row) alongside the
- * canonical Doco columns. Used by every `getDoco*` reader.
+ * Common SELECT fragment for the `getDoco*` readers. The LEFT JOIN
+ * resolves `owner_slug` from `principals.username` /
+ * `organizations.slug` keyed by `docos.owner_id` (the doco itself no
+ * longer carries a slug column — phase 3a dropped it).
  */
 const DOCO_SELECT = `
   SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.raw_yaml,
