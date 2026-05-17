@@ -19,7 +19,7 @@ import {
   parseScopeNamesInput,
   resolveOwnerSlug,
 } from "../index.js";
-import type { EntityId } from "@doco/shared";
+import { generateUlid, makeEntityId, type EntityId } from "@doco/shared";
 
 let tmp: string;
 
@@ -137,6 +137,22 @@ describe("host lifecycle", () => {
     expect(rec.ownerKind).toBe("principal");
     expect(rec.docoId).toMatch(/^doco_/);
     expect(rec.path.endsWith("docos/alice/my-doco")).toBe(true);
+  });
+
+  it("createDocoInHost can use a preallocated Doco id", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
+    const ownerSlug = `setup-agent-${docoId.toLowerCase()}`;
+    await addPrincipal(root, { username: ownerSlug });
+    const rec = await createDocoInHost(root, {
+      ownerSlug,
+      docoSlug: "setup",
+      docoId,
+    });
+
+    expect(rec.docoId).toBe(docoId);
+    expect((await listDocos(root)).some((doco) => doco.docoId === docoId)).toBe(true);
   });
 
   it("creates an Doco owned by an Organization (org-owned)", async () => {

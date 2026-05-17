@@ -353,6 +353,8 @@ export async function addOrganization(
 export interface CreateDocoInHostOptions {
   ownerSlug: string; // resolves to user or org
   docoSlug: string;
+  /** Optional preallocated id for flows that derive related identity from the final Doco id. */
+  docoId?: EntityId<"doco">;
   /**
    * Phase 1 of slug-removal: caller's preferred human-readable id for
    * the new Doco. Optional — when omitted, the handle is generated as
@@ -430,7 +432,7 @@ export async function createDocoInHost(
     }
   }
 
-  const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
+  const docoId = opts.docoId ?? (makeEntityId("doco", generateUlid()) as EntityId<"doco">);
   const created = nowIso();
   const docoYaml = {
     id: docoId,
