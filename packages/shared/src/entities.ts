@@ -106,6 +106,13 @@ export interface Intent extends CommonFields {
   parent_intent_id?: EntityId<"intent"> | null;
   priority?: "p0" | "p1" | "p2" | "p3";
   stakeholders?: EntityId<"principal">[];
+  /**
+   * Principals expected to act in this flow. Each id should also be
+   * the `actor_id` of at least one Action serving this Intent —
+   * enforced by the `graph-completeness` rule in the user-flows
+   * scope template.
+   */
+  actors?: EntityId<"principal">[];
   applies_to?: ScopeSelector;
 }
 
@@ -220,6 +227,42 @@ export type AuthoringPredicate =
       scope_ref: string;
       graph: "follows";
     } & GraphConstraintOperator)
+  /**
+   * Completeness check: for each principal id listed in
+   * `entity[list_field]`, there must be at least one node in
+   * `scope_ref` with `node_type === incoming_node_type`, an edge
+   * `(other) --edge_type--> (entity)`, and
+   * `other[incoming_field_must_match] === <that principal id>`.
+   *
+   * Pairs naturally with `fires_when_node_lifecycle: ["active"]` so a
+   * mid-construction Intent isn't rejected while its Actions are
+   * still being authored.
+   */
+  | {
+      kind: "graph-completeness";
+      scope_ref: string;
+      list_field: string;
+      edge_type: string;
+      incoming_node_type: NodeType;
+      incoming_field_must_match: string;
+      when_node_type?: NodeType[];
+    }
+  /**
+   * Field-resolution check: `entity[field]` must be the id of an
+   * existing Principal, and that Principal's `type` must be in
+   * `allowed_principal_types`. Used to reject e.g. an Action whose
+   * `actor_id` is a free-text string ("the system", "app.js") rather
+   * than a real person|agent principal. The evaluator reads the
+   * `principalIndex` from EvaluateOptions; if no index was supplied,
+   * the predicate emits a single "no principal index" error so
+   * misconfiguration is loud, not silent.
+   */
+  | {
+      kind: "requires_field_resolves_to_principal";
+      field: string;
+      allowed_principal_types: ("human" | "agent")[];
+      when_node_type?: NodeType[];
+    }
   | { kind: "descriptive"; spec: string; when_node_type?: NodeType[] };
 
 export interface Rule extends CommonFields {

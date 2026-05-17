@@ -95,6 +95,11 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         summary:
           "Add each node to the most specific applicable scope; use global only when no project-specific scope fits.",
       },
+      {
+        kind: "guidance",
+        summary:
+          "AI agents: document every explicit rule and decision from the project owner, and especially every correction. Corrections are the highest-signal moments — they encode preferences that aren't visible in the code or docs. Capture them in Doco the same turn they happen, so the next agent (or the next session of you) doesn't repeat the mistake.",
+      },
     ],
   },
   {
@@ -156,6 +161,38 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           kind: "requires_edge",
           edge_type: "serves",
           target_node_type: "intent",
+          when_node_type: ["action"],
+        },
+      },
+      {
+        // user-flows v2: each principal listed on the Intent's `actors`
+        // must be the actor_id of ≥1 Action serving the Intent. Fires
+        // only when the Intent moves to `active` — drafted Intents can
+        // be captured first and have their Actions filled in after.
+        summary:
+          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafted Intents are allowed to be incomplete.",
+        predicate: {
+          kind: "graph-completeness",
+          scope_ref: "$capture_scope",
+          list_field: "actors",
+          edge_type: "serves",
+          incoming_node_type: "action",
+          incoming_field_must_match: "actor_id",
+          when_node_type: ["intent"],
+        },
+        fires_when_node_lifecycle: ["active"],
+      },
+      {
+        // user-flows v2: actor_id must point at a real Principal of
+        // type human or agent — rejects "the browser", "app.js",
+        // "the system" as actors. System-internal steps belong in
+        // `apis` or `adrs`, not in a user-flow.
+        summary:
+          "An Action's `actor_id` must resolve to an existing Principal whose type is `human` or `agent`. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
+        predicate: {
+          kind: "requires_field_resolves_to_principal",
+          field: "actor_id",
+          allowed_principal_types: ["human", "agent"],
           when_node_type: ["action"],
         },
       },

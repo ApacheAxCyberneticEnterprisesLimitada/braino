@@ -155,6 +155,13 @@ export interface EvaluateOptions {
   nodesByScope?: Map<string, Entity[]>;
   /** Per v7: id → entity map for cross-references and graph traversal. */
   entityIndex?: Map<string, Entity>;
+  /**
+   * principal_id → { type } lookup for the `requires_field_resolves_to_principal`
+   * predicate. Loaded by the caller (small table). If a predicate
+   * needing this index runs without one supplied, the engine emits a
+   * loud error rather than silently passing.
+   */
+  principalIndex?: Map<string, { type: string }>;
 }
 
 /**
@@ -484,6 +491,97 @@ export function evaluateScopeRules(opts: EvaluateOptions): RuleViolation[] {
               }
             }
             break;
+          }
+        }
+        break;
+      }
+      case "graph-completeness": {
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
+        const listVal = entity[rule.list_field];
+        if (!Array.isArray(listVal) || listVal.length === 0) break;
+        const targetScopeId = resolveScopeRef(rule.scope_ref, loaded.scope_id);
+        if (!targetScopeId) break;
+        const population = nodesInScope(opts.nodesByScope, targetScopeId);
+        // Edges INTO the candidate matching edge_type, originating
+        // from nodes of incoming_node_type.
+        const incomingFrom = new Set(
+          opts.allEdges
+            .filter(
+              (e) =>
+                e.edge_type === rule.edge_type &&
+                e.to_id === entityId &&
+                typePrefix(e.from_id) === rule.incoming_node_type,
+            )
+            .map((e) => e.from_id),
+        );
+        const matchedValues = new Set<string>();
+        for (const other of population) {
+          const otherId = (other as { id?: string }).id ?? "";
+          if (!incomingFrom.has(otherId)) continue;
+          const fv = (other as unknown as Record<string, unknown>)[rule.incoming_field_must_match];
+          if (typeof fv === "string" && fv) matchedValues.add(fv);
+        }
+        for (const v of listVal) {
+          if (typeof v !== "string" || !v) continue;
+          if (!matchedValues.has(v)) {
+            violations.push({
+              rule_id: loaded.rule_id,
+              kind: rule.kind,
+              severity: "error",
+              reason:
+                loaded.reason ??
+                `\`${rule.list_field}\` lists ${v}, but no ${rule.incoming_node_type} with \`${rule.incoming_field_must_match}: ${v}\` and a \`${rule.edge_type}\` edge to this node exists in scope "${scopeName}".`,
+            });
+          }
+        }
+        break;
+      }
+      case "requires_field_resolves_to_principal": {
+        if (!shouldFire((rule as { when_node_type?: unknown }).when_node_type)) break;
+        const v = entity[rule.field];
+        // Missing values are a separate rule's concern
+        // (`requires_field`); skip rather than double-report.
+        if (v === undefined || v === null || v === "") break;
+        if (!opts.principalIndex) {
+          violations.push({
+            rule_id: loaded.rule_id,
+            kind: rule.kind,
+            severity: "error",
+            reason: `Cannot evaluate \`${rule.field}\` principal-type constraint — no principal index supplied by caller.`,
+          });
+          break;
+        }
+        const values: string[] = Array.isArray(v)
+          ? (v as unknown[]).filter((x): x is string => typeof x === "string" && !!x)
+          : typeof v === "string" && v
+          ? [v]
+          : [];
+        for (const pid of values) {
+          const principal = opts.principalIndex.get(pid);
+          if (!principal) {
+            violations.push({
+              rule_id: loaded.rule_id,
+              kind: rule.kind,
+              severity: "error",
+              reason:
+                loaded.reason ??
+                `\`${rule.field}\` must resolve to an existing Principal — ${pid} not found.`,
+            });
+            continue;
+          }
+          if (
+            Array.isArray(rule.allowed_principal_types) &&
+            rule.allowed_principal_types.length > 0 &&
+            !rule.allowed_principal_types.includes(principal.type as "human" | "agent")
+          ) {
+            violations.push({
+              rule_id: loaded.rule_id,
+              kind: rule.kind,
+              severity: "error",
+              reason:
+                loaded.reason ??
+                `\`${rule.field}\` references principal ${pid} (type: ${principal.type}); must be one of ${rule.allowed_principal_types.map((t) => `\`${t}\``).join(", ")}.`,
+            });
           }
         }
         break;
