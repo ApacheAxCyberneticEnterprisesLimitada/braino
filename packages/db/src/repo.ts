@@ -90,8 +90,6 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
     } else if (rec.node_type === "doco") {
       const doco_slug = String(yamlObj.slug ?? yamlObj.doco_slug ?? "");
       const owner_id = String(yamlObj.owner_id ?? "");
-      // owner_slug isn't in doco.yaml — derive from owner_id by looking
-      // up the Principal's username or Organization's slug.
       let owner_slug = String(yamlObj.owner_slug ?? "");
       if (!owner_slug && owner_id) {
         if (owner_id.startsWith("principal_")) {
@@ -102,15 +100,18 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
           owner_slug = r.rowCount && r.rowCount > 0 ? String(r.rows[0].slug) : "";
         }
       }
+      const handle =
+        String(yamlObj.handle ?? "") ||
+        (owner_slug && doco_slug ? `${owner_slug}-${doco_slug}` : "");
       const name = (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
       const visibility = String(yamlObj.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
+        `INSERT INTO docos (id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          ON CONFLICT (id) DO UPDATE SET owner_slug=EXCLUDED.owner_slug, doco_slug=EXCLUDED.doco_slug,
-           owner_id=EXCLUDED.owner_id, name=EXCLUDED.name, visibility=EXCLUDED.visibility,
-           raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
-        [rec.id, owner_slug, doco_slug, owner_id, name, visibility, rec.raw_yaml],
+           handle=EXCLUDED.handle, owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
+           visibility=EXCLUDED.visibility, raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
+        [rec.id, owner_slug, doco_slug, handle || null, owner_id, name, visibility, rec.raw_yaml],
       );
     }
   };
@@ -172,12 +173,24 @@ function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityReco
   return rec;
 }
 
-/** Find a Doco by `<owner>/<slug>` and return its id. */
+/** Find a Doco by `<owner>/<slug>` and return its (ULID) id. */
 export async function resolveDocoId(ownerSlug: string, docoSlug: string): Promise<string | null> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id FROM docos WHERE owner_slug = $1 AND doco_slug = $2`,
       [ownerSlug, docoSlug],
+    );
+    if (r.rowCount === 0) return null;
+    return String(r.rows[0].id);
+  });
+}
+
+/** Find a Doco by its `handle` and return its (ULID) id. */
+export async function resolveDocoIdByHandle(handle: string): Promise<string | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT id FROM docos WHERE handle = $1`,
+      [handle],
     );
     if (r.rowCount === 0) return null;
     return String(r.rows[0].id);
@@ -378,70 +391,83 @@ export interface DocoRow {
   id: string;
   owner_slug: string;
   doco_slug: string;
+  /** Phase 1 of slug-removal: globally-unique handle. Populated by the
+   *  schema migration as `owner_slug || '-' || doco_slug` for existing
+   *  rows; new rows get a `requested_id`-derived value. May be empty
+   *  string for rows ingested before the column existed. */
+  handle: string;
   owner_id: string;
   name: string | null;
   visibility: "public" | "private";
   raw_yaml: string;
 }
 
+function mapDocoRow(row: Record<string, unknown>): DocoRow {
+  return {
+    id: String(row.id),
+    owner_slug: String(row.owner_slug ?? ""),
+    doco_slug: String(row.doco_slug ?? ""),
+    handle: String(row.handle ?? ""),
+    owner_id: String(row.owner_id),
+    name: row.name === null || row.name === undefined ? null : String(row.name),
+    visibility: row.visibility === "public" ? "public" : "private",
+    raw_yaml: String(row.raw_yaml),
+  };
+}
+
 export async function listAllDocos(): Promise<DocoRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml
+      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
        FROM docos ORDER BY owner_slug, doco_slug`,
     );
-    return r.rows.map((row) => ({
-      id: String(row.id),
-      owner_slug: String(row.owner_slug),
-      doco_slug: String(row.doco_slug),
-      owner_id: String(row.owner_id),
-      name: row.name === null || row.name === undefined ? null : String(row.name),
-      visibility: row.visibility === "public" ? "public" : "private",
-      raw_yaml: String(row.raw_yaml),
-    }));
+    return r.rows.map(mapDocoRow);
   });
 }
 
 export async function getDocoById(docoId: string): Promise<DocoRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml
+      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
        FROM docos WHERE id = $1`,
       [docoId],
     );
     if (r.rowCount === 0) return null;
-    const row = r.rows[0];
-    return {
-      id: String(row.id),
-      owner_slug: String(row.owner_slug),
-      doco_slug: String(row.doco_slug),
-      owner_id: String(row.owner_id),
-      name: row.name === null || row.name === undefined ? null : String(row.name),
-      visibility: row.visibility === "public" ? "public" : "private",
-      raw_yaml: String(row.raw_yaml),
-    };
+    return mapDocoRow(r.rows[0]);
   });
 }
 
 export async function getDocoBySlug(ownerSlug: string, docoSlug: string): Promise<DocoRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml
+      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
        FROM docos WHERE owner_slug = $1 AND doco_slug = $2`,
       [ownerSlug, docoSlug],
     );
     if (r.rowCount === 0) return null;
-    const row = r.rows[0];
-    return {
-      id: String(row.id),
-      owner_slug: String(row.owner_slug),
-      doco_slug: String(row.doco_slug),
-      owner_id: String(row.owner_id),
-      name: row.name === null || row.name === undefined ? null : String(row.name),
-      visibility: row.visibility === "public" ? "public" : "private",
-      raw_yaml: String(row.raw_yaml),
-    };
+    return mapDocoRow(r.rows[0]);
   });
+}
+
+export async function getDocoByHandle(handle: string): Promise<DocoRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml
+       FROM docos WHERE handle = $1`,
+      [handle],
+    );
+    if (r.rowCount === 0) return null;
+    return mapDocoRow(r.rows[0]);
+  });
+}
+
+/** Resolve a Doco by its handle (public URL id) or internal ULID. */
+export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow | null> {
+  if (idOrHandle.startsWith("doco_")) {
+    const byId = await getDocoById(idOrHandle);
+    if (byId) return byId;
+  }
+  return getDocoByHandle(idOrHandle);
 }
 
 /**

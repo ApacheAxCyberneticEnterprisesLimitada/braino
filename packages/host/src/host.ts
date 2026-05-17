@@ -11,6 +11,7 @@ import {
   nowIso,
   HOST_RESERVED_SLUGS,
   validateDocoSlug,
+  validateRequestedDocoId,
 } from "@doco/shared";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import {
@@ -352,23 +353,21 @@ export async function addOrganization(
 export interface CreateDocoInHostOptions {
   ownerSlug: string; // resolves to user or org
   docoSlug: string;
+  /**
+   * Phase 1 of slug-removal: caller's preferred human-readable id for
+   * the new Doco. Optional — when omitted, the handle is generated as
+   * `<ownerSlug>-<docoSlug>` (the same shape the migration uses for
+   * pre-existing rows). On collision with another row's handle (and
+   * only when `autoSuffixOnCollision` is true) the host appends `-2`,
+   * `-3`, … until a free id is found.
+   */
+  requestedId?: string;
   description?: string;
   visibility?: "private" | "public";
   /**
    * If true and `docoSlug` is already taken, silently try `<slug>-2`,
    * `<slug>-3`, … until a free slot is found and create there. The
-   * actually-used slug comes back on the returned record. Caller MUST
-   * read `record.docoSlug` (don't reuse `opts.docoSlug`) when building
-   * URLs.
-   *
-   * Use this when the caller may not have visibility into the existing
-   * Doco — e.g. the anonymous agent-onboarding flow. Surfacing
-   * "<slug> already exists" in that context would leak the existence
-   * of a private Doco to an unauthorized caller (intent
-   * `private-docos-actually-private`). In owner-authorized flows
-   * (`new-doco`, `claim/<token>`) keep this `false` and surface the
-   * collision explicitly — the caller can see the collider and needs
-   * to choose.
+   * actually-used slug comes back on the returned record.
    */
   autoSuffixOnCollision?: boolean;
 }
@@ -376,10 +375,22 @@ export interface CreateDocoInHostOptions {
 export interface DocoRecord {
   ownerSlug: string;
   docoSlug: string;
+  /** Phase 1 of slug-removal: globally-unique human-readable URL id. */
+  handle: string;
   ownerKind: "principal" | "organization";
   ownerId: EntityId<"principal"> | EntityId<"organization">;
   docoId: EntityId<"doco">;
   path: string;
+}
+
+function normalizeHandleCandidate(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "")
+    .slice(0, 64);
 }
 
 export async function createDocoInHost(
@@ -424,12 +435,40 @@ export async function createDocoInHost(
     }
   }
 
+  // Phase 1 of slug-removal: every new Doco gets a globally-unique
+  // `handle` alongside the legacy (owner_slug, doco_slug) pair. The
+  // requested_id (if any) wins; otherwise we fall back to
+  // `<owner>-<slug>` to match what the migration sets for existing rows.
+  const baseHandle =
+    normalizeHandleCandidate(opts.requestedId ?? `${opts.ownerSlug}-${docoSlug}`) ||
+    `${opts.ownerSlug}-${docoSlug}`;
+  const handleErr = validateRequestedDocoId(baseHandle);
+  if (handleErr) throw new Error(handleErr);
+  let handle = baseHandle;
+  {
+    let n = 2;
+    while (true) {
+      const dup = await withClient((c) =>
+        c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]),
+      );
+      if (dup.rows.length === 0) break;
+      handle = `${baseHandle}-${n}`;
+      n++;
+      if (n > 999) {
+        throw new Error(
+          `Auto-suffix exhausted: handle "${baseHandle}-2" through "-999" are all taken.`,
+        );
+      }
+    }
+  }
+
   const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
   const created = nowIso();
   const docoYaml = {
     id: docoId,
     node_type: "doco",
     slug: docoSlug,
+    handle,
     display_name: docoSlug,
     visibility: opts.visibility ?? "private",
     default_branch: "main",
@@ -449,15 +488,22 @@ export async function createDocoInHost(
   };
   await withClient((c) =>
     c.query(
-      `INSERT INTO docos (id, owner_slug, doco_slug, owner_id, name, visibility, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
-      [docoId, opts.ownerSlug, docoSlug, owner.id, docoSlug, opts.visibility ?? "private", JSON.stringify(docoYaml), created],
+      `INSERT INTO docos (id, owner_slug, doco_slug, handle, owner_id, name, visibility, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+      [
+        docoId,
+        opts.ownerSlug,
+        docoSlug,
+        handle,
+        owner.id,
+        docoSlug,
+        opts.visibility ?? "private",
+        JSON.stringify(docoYaml),
+        created,
+      ],
     ),
   );
 
-  // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded scope
-  // is "global", not "constitution" — the readable label "the doco's
-  // constitution" is rendered next to the name on /scopes.
   const globalTemplate = findScopeTemplate("global");
   const createdBy = owner.kind === "principal" ? owner.id : null;
   const globalScopeId = await createScopeInDoco({
@@ -469,12 +515,6 @@ export async function createDocoInHost(
     createdBy,
   });
 
-  // Per the template-cleanup decision (cuts the registry to global +
-  // user-flows, lifts `purpose`→Intent and `guidelines`→Rule[]) seed
-  // every entry from the template into the new scope: one Intent for
-  // `intentSummary`, one Rule per `rules[]` entry. Both flow through
-  // the regular create helpers so the project owner can edit, deprecate,
-  // or supersede them like any other Doco-owned node.
   if (globalTemplate) {
     await seedScopeFromTemplate({
       docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
@@ -488,6 +528,7 @@ export async function createDocoInHost(
   return {
     ownerSlug: opts.ownerSlug,
     docoSlug,
+    handle,
     ownerKind: owner.kind,
     ownerId: owner.id,
     docoId,
@@ -1206,9 +1247,6 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
 /**
  * Rename a Doco's slug by updating `docos.doco_slug` + `raw_yaml` in a
  * single transaction.
- *
- * Fails if a Doco with the target slug already exists. Does not touch
- * cross-Doco references — callers must repair broken refs themselves.
  */
 export async function renameDocoSlug(opts: {
   root: string;
@@ -1262,12 +1300,6 @@ export async function softDeleteDoco(opts: {
   docoSlug: string;
 }): Promise<{ deletedPath: string }> {
   const { ownerSlug, docoSlug } = opts;
-
-  // Hard-delete via ON DELETE CASCADE (intents, decisions, rules, …
-  // all FK docos.id with ON DELETE CASCADE). Per `delete-is-permanent`
-  // — alpha forbids back-compat soft-delete recovery. If
-  // recoverability matters later, add a deleted_at column to docos and
-  // switch to UPDATE.
   const { withClient } = await import("@doco/db");
   const result = await withClient((c) =>
     c.query(
@@ -1284,13 +1316,14 @@ export async function softDeleteDoco(opts: {
 export async function listDocos(root: string): Promise<DocoRecord[]> {
   const { withClient } = await import("@doco/db");
   const r = await withClient((c) =>
-    c.query<{ id: string; owner_slug: string; doco_slug: string; owner_id: string }>(
-      "SELECT id, owner_slug, doco_slug, owner_id FROM docos ORDER BY owner_slug, doco_slug",
+    c.query<{ id: string; owner_slug: string; doco_slug: string; handle: string; owner_id: string }>(
+      "SELECT id, owner_slug, doco_slug, handle, owner_id FROM docos ORDER BY owner_slug, doco_slug",
     ),
   );
   return r.rows.map((row) => ({
     ownerSlug: row.owner_slug,
     docoSlug: row.doco_slug,
+    handle: row.handle ?? `${row.owner_slug}-${row.doco_slug}`,
     ownerKind: row.owner_id.startsWith("organization_") ? "organization" : "principal",
     ownerId: row.owner_id as EntityId<"principal"> | EntityId<"organization">,
     docoId: row.id as EntityId<"doco">,

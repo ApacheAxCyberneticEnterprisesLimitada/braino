@@ -1,19 +1,18 @@
 /**
- * URL conventions and reserved slugs — single source of truth.
+ * URL conventions and reserved ids — single source of truth.
  *
- * Two namespaces are reserved at the **host level**: Principal usernames
- * and Organization slugs. A user can't be named `dashboard` because the
- * route `/dashboard` already exists. Per ADR-067.
+ * Doco URLs are `/<doco-id>/...`. The Doco id is the human-readable
+ * handle requested at creation time; it lives in the same flat
+ * namespace as the top-level host routes, so the reserved-id set
+ * below prevents collisions.
  *
- * Entity URLs are `/<owner>/<doco>/<type>/<id>` where `<id>` is the
- * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`). Entities
- * no longer carry slugs — the ULID is the only id; agents/users read
- * the entity's `summary` field for readable identification.
+ * Entity URLs are `/<doco-id>/<type>/<id>` where `<id>` is the
+ * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`).
  */
 
 /**
- * Top-level path segments that exist as host routes. Principal usernames
- * and Organization slugs are rejected if they match one of these.
+ * Top-level path segments that exist as host routes. A doco's
+ * requested id is rejected if it matches one of these.
  */
 export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "e",
@@ -25,7 +24,6 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "sign-out",
   "sign-up",
   "new-doco",
-  "new-org",
   "new",
   "admin",
   "settings",
@@ -35,8 +33,11 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "dashboard",
   "onboarding",
   "agents",
+  "agent",
   "auth",
   "cli",
+  "invite",
+  "by-id",
   "_",
   ".",
   "..",
@@ -69,66 +70,102 @@ export function isEntityType(s: string): s is EntityType {
   return ENTITY_TYPES_SET.has(s);
 }
 
+/**
+ * URL builders accept either the legacy `(ownerSlug, docoSlug)` pair
+ * (current route shape `/<owner>/<doco>/...`) or a single `docoId`
+ * (phase-2 route shape `/<doco-id>/...`). Callers that supply `docoId`
+ * win; otherwise the function falls back to the slug pair.
+ */
 export interface EntityUrlInput {
-  ownerSlug: string;
-  docoSlug: string;
+  /** Phase 2: globally-unique handle. When set, takes precedence. */
+  docoId?: string;
+  ownerSlug?: string;
+  docoSlug?: string;
   nodeType: string;
   /** Entity ULID id (`<type>_<ULID>`). */
   id: string;
 }
 
+function docoPrefix(input: { docoId?: string; ownerSlug?: string; docoSlug?: string }): string {
+  if (input.docoId) return `/${input.docoId}`;
+  return `/${input.ownerSlug}/${input.docoSlug}`;
+}
+
 /**
- * Canonical URL for an entity — short form, no `/e/`.
- *
- * Per decision_01KRPNZY7W6CCMYNKGND67BP0B scopes use the plural form
- * `/scopes/<id>` so the merged detail+edit page lives at one stable URL.
- * Every other node type uses the singular-type short form.
+ * Canonical URL for an entity — short form, no `/e/`. Scopes use the
+ * plural URL segment `/scopes/<id>` (decision_01KRPNZY7W6CCMYNKGND67BP0B).
  */
-export function entityUrl({ ownerSlug, docoSlug, nodeType, id }: EntityUrlInput): string {
-  if (nodeType === "scope") return `/${ownerSlug}/${docoSlug}/scopes/${id}`;
-  return `/${ownerSlug}/${docoSlug}/${nodeType}/${id}`;
+export function entityUrl(input: EntityUrlInput): string {
+  const prefix = docoPrefix(input);
+  if (input.nodeType === "scope") return `${prefix}/scopes/${input.id}`;
+  return `${prefix}/${input.nodeType}/${input.id}`;
 }
 
 export interface EntityListUrlInput {
-  ownerSlug: string;
-  docoSlug: string;
+  docoId?: string;
+  ownerSlug?: string;
+  docoSlug?: string;
   nodeType: string;
 }
 
-export function entityListUrl({ ownerSlug, docoSlug, nodeType }: EntityListUrlInput): string {
-  return `/${ownerSlug}/${docoSlug}/${nodeType}`;
+export function entityListUrl(input: EntityListUrlInput): string {
+  return `${docoPrefix(input)}/${input.nodeType}`;
 }
 
-/**
- * Legacy `/e/<type>/<id>` URL — kept as the redirect source. Useful in
- * migrations / tests that need to verify the redirect works.
- */
-export function legacyEntityUrl({ ownerSlug, docoSlug, nodeType, id }: EntityUrlInput): string {
-  return `/${ownerSlug}/${docoSlug}/e/${nodeType}/${id}`;
+/** Legacy `/e/<type>/<id>` URL — kept as the redirect source. */
+export function legacyEntityUrl(input: EntityUrlInput): string {
+  return `${docoPrefix(input)}/e/${input.nodeType}/${input.id}`;
 }
 
 export interface DocoUrlInput {
-  ownerSlug: string;
-  docoSlug: string;
+  docoId?: string;
+  ownerSlug?: string;
+  docoSlug?: string;
 }
 
-export function docoUrl({ ownerSlug, docoSlug }: DocoUrlInput): string {
-  return `/${ownerSlug}/${docoSlug}`;
+export function docoUrl(input: DocoUrlInput): string {
+  return docoPrefix(input);
 }
 
 /**
- * Validate a Doco slug (per-owner). Must not contain a slash (the
- * `<owner>/<doco>` compound is constructed, not stored).
+ * Validate a requested Doco id. Must be globally unique once
+ * stored; this validator only checks shape — collision handling is
+ * the create-flow's job (auto-suffix on conflict).
  */
-export function validateDocoSlug(slug: string): string | null {
-  if (!/^[a-z0-9][a-z0-9_-]*$/.test(slug)) {
-    return `Invalid Doco slug "${slug}" — expected kebab-case ([a-z0-9][a-z0-9_-]*).`;
+export function validateRequestedDocoId(id: string): string | null {
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(id)) {
+    return `Invalid Doco id "${id}" — expected kebab-case ([a-z0-9][a-z0-9_-]*).`;
   }
-  if (slug.length > 64) {
-    return `Doco slug "${slug}" is too long (max 64 chars).`;
+  if (id.length > 64) {
+    return `Doco id "${id}" is too long (max 64 chars).`;
   }
-  if (slug.includes("/")) {
-    return `Doco slug "${slug}" must not contain '/'. Store the bare slug; the owner segment is implied by the parent directory.`;
+  if (id.includes("/")) {
+    return `Doco id "${id}" must not contain '/'.`;
+  }
+  if (HOST_RESERVED_SLUGS.has(id)) {
+    return `Doco id "${id}" is reserved by Doco's URL routing.`;
   }
   return null;
 }
+
+/**
+ * Normalize an arbitrary string into a candidate Doco id — lowercase,
+ * collapse runs of non-alphanumerics into `-`, strip leading/trailing
+ * dashes, truncate to 64 chars. Returns null if nothing survives.
+ */
+export function normalizeRequestedDocoId(input: string): string | null {
+  const normalized = input
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^[-_]+|[-_]+$/g, "")
+    .slice(0, 64);
+  if (!normalized || !/^[a-z0-9]/.test(normalized)) return null;
+  return normalized;
+}
+
+/**
+ * @deprecated Compat alias for callers that still construct legacy
+ * `(ownerSlug, docoSlug)` URLs. Forwards to `validateRequestedDocoId`.
+ */
+export const validateDocoSlug = validateRequestedDocoId;

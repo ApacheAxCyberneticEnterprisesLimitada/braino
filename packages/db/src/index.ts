@@ -34,6 +34,8 @@ export {
   isOrgAdmin,
   listAllDocos,
   getDocoById,
+  getDocoByHandle,
+  getDocoByIdOrHandle,
   getDocoBySlug,
   resolveOwnerSlug,
   type HostConfigRow,

@@ -84,6 +84,27 @@ CREATE TABLE IF NOT EXISTS docos (
   UNIQUE (owner_slug, doco_slug)
 );
 
+-- Phase 1 of the slug-removal cut: every Doco gets a single
+-- human-readable `handle` that lives in the same flat global
+-- namespace as the top-level host routes (HOST_RESERVED_SLUGS in
+-- @doco/shared/url-conventions.ts). On create, callers pass a
+-- `requested_id` and the host auto-suffixes (-2, -3, …) on
+-- collision. URLs and the public API will key off `handle` in
+-- phase 2; the old (owner_slug, doco_slug) pair lives alongside
+-- for now so existing routes keep working through the transition.
+-- Backfill: handle = owner_slug || '-' || doco_slug. Idempotent.
+ALTER TABLE docos ADD COLUMN IF NOT EXISTS handle text;
+UPDATE docos SET handle = owner_slug || '-' || doco_slug WHERE handle IS NULL;
+DO $uniq$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'docos_handle_key'
+  ) THEN
+    ALTER TABLE docos ADD CONSTRAINT docos_handle_key UNIQUE (handle);
+  END IF;
+END
+$uniq$;
+
 -- Per-Doco entity tables. `body_md` carries the markdown narrative
 -- on types that have one; the rest of the structured data lives in
 -- `raw_yaml` (round-trippable to/from the legacy file format).

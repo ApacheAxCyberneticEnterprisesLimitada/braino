@@ -32,3 +32,12 @@ export function hostDocosDir(root: string): string {
 export function hostDocoDir(root: string, ownerSlug: string, docoSlug: string): string {
   return join(root, "docos", ownerSlug, docoSlug);
 }
+
+/**
+ * Path layout for the post-slug-removal phase-2 world where a Doco
+ * is addressed by a single `handle`. Phase 1 callers keep using
+ * `hostDocoDir(root, ownerSlug, docoSlug)`.
+ */
+export function hostDocoDirByHandle(root: string, handle: string): string {
+  return join(root, "docos", handle);
+}
