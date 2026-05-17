@@ -108,6 +108,14 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     rules: [
       {
         summary:
+          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+        },
+      },
+      {
+        summary:
           "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_node_type",
