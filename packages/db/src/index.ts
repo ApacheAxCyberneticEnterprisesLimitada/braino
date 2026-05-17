@@ -17,11 +17,11 @@ export {
   getEntity,
   listEntitiesByDoco,
   listIdentityRows,
-  resolveDocoId,
+  resolveDocoIdByHandle,
   appendAuditEventRow,
   readAuditEventRows,
   type AuditEventRow,
-  // Phase 3 host + identity helpers (replace FS reads)
+  // Host + identity helpers
   getHostConfig,
   upsertHostConfig,
   getPrincipalById,
@@ -36,7 +36,6 @@ export {
   getDocoById,
   getDocoByHandle,
   getDocoByIdOrHandle,
-  getDocoBySlug,
   resolveOwnerSlug,
   type HostConfigRow,
   type PrincipalRow,

@@ -171,14 +171,6 @@ function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityReco
   return rec;
 }
 
-/**
- * @deprecated Phase 3a — slug pair no longer in storage. Synthesizes a
- * handle as `<ownerSlug>-<docoSlug>` and falls back to handle lookup.
- * Use `resolveDocoIdByHandle` directly in new code.
- */
-export async function resolveDocoId(ownerSlug: string, docoSlug: string): Promise<string | null> {
-  return resolveDocoIdByHandle(`${ownerSlug}-${docoSlug}`);
-}
 
 /** Find a Doco by its `handle` and return its (ULID) id. */
 export async function resolveDocoIdByHandle(handle: string): Promise<string | null> {
@@ -448,19 +440,6 @@ export async function getDocoById(docoId: string): Promise<DocoRow | null> {
     if (r.rowCount === 0) return null;
     return mapDocoRow(r.rows[0]);
   });
-}
-
-/**
- * @deprecated Phase 3a — the slug pair no longer exists in storage.
- * Synthesizes a handle as `<ownerSlug>-<docoSlug>` and falls back to
- * the canonical `getDocoByHandle` lookup. Correct for every Doco
- * migrated from the pre-handle era (where handle is exactly the
- * synthesized form); incorrect for API-created Docos whose handle
- * came from `requested_id`. Use `getDocoByHandle` directly in new
- * code.
- */
-export async function getDocoBySlug(ownerSlug: string, docoSlug: string): Promise<DocoRow | null> {
-  return getDocoByHandle(`${ownerSlug}-${docoSlug}`);
 }
 
 export async function getDocoByHandle(handle: string): Promise<DocoRow | null> {
