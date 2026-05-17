@@ -72,7 +72,7 @@ export function isEntityType(s: string): s is EntityType {
 
 /**
  * URL builders accept either the legacy `(ownerSlug, docoSlug)` pair
- * (current route shape `/<owner>/<doco>/...`) or a single `docoId`
+ * (current route shape `/<doco-handle>/...`) or a single `docoId`
  * (phase-2 route shape `/<doco-id>/...`). Callers that supply `docoId`
  * win; otherwise the function falls back to the slug pair.
  */
@@ -87,12 +87,17 @@ export interface EntityUrlInput {
 }
 
 function docoPrefix(input: { docoId?: string; ownerSlug?: string; docoSlug?: string }): string {
+  // Phase 3a+: every route uses `/<handle>/...` and `docoSlug` from
+  // `mapDocoRow` mirrors `handle` already. `docoId`, when set, is the
+  // canonical handle/ULID. `docoSlug`, when set, is the handle too (the
+  // legacy slug-only form no longer exists in storage). Either field
+  // is a valid URL identifier as-is — DO NOT re-synthesize with the
+  // owner prefix or URLs become `/<owner>-<handle>/...` (the doubled
+  // prefix bug).
   if (input.docoId) return `/${input.docoId}`;
-  // Phase 2d of slug-removal: every Doco URL is `/<doco-id>/...`.
-  // Synthesize from the slug pair using the same shape the schema
-  // migration applies (`<owner_slug>-<doco_slug>`). Callers that know
-  // the actual handle should pass it via `docoId` to be precise.
-  return `/${input.ownerSlug}-${input.docoSlug}`;
+  if (input.docoSlug) return `/${input.docoSlug}`;
+  if (input.ownerSlug) return `/${input.ownerSlug}`;
+  return "";
 }
 
 /**
