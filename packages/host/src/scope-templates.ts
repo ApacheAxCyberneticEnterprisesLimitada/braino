@@ -112,11 +112,18 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     intentSummary: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     rules: [
       {
+        // Membership check: probabilistic semantic gate, with a
+        // deterministic node-type allowlist that excludes Rule. Rules
+        // tagged into user-flows *govern* how journeys are authored;
+        // they aren't themselves journey content, so subjecting them
+        // to the journey-prose check would lock out the rules that
+        // define the scope's contract.
         summary:
-          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the scope rather than living inside it.)",
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+          when_node_type: ["intent", "action", "decision", "reference"],
         },
       },
       {

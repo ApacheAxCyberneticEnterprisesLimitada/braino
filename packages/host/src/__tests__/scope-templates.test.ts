@@ -9,6 +9,7 @@ describe("scope templates", () => {
     expect(predicates).toContainEqual({
       kind: "probabilistic",
       spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+      when_node_type: ["intent", "action", "decision", "reference"],
     });
     expect(predicates).toContainEqual({
       kind: "probabilistic",
