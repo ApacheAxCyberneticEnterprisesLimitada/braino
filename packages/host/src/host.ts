@@ -1160,7 +1160,7 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
  * Caller is expected to reindex.
  */
 export interface UpdateDocoOptions {
-  docoDir: string;
+  handle: string;
   description?: string | null;
   display_name?: string | null;
   visibility?: "private" | "public";
@@ -1170,14 +1170,7 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
   if (opts.visibility !== undefined && opts.visibility !== "private" && opts.visibility !== "public") {
     throw new Error(`visibility must be "private" or "public", got: ${opts.visibility}`);
   }
-  // docoDir is "<root>/docos/<owner>/<slug>"; parse slugs back out.
-  const parts = opts.docoDir.split("/");
-  const docoSlug = parts[parts.length - 1];
-  const ownerSlug = parts[parts.length - 2];
-  // Phase 3a: slug columns gone — synthesize the handle from
-  // `(ownerSlug, docoSlug)` (the migration shape) so existing callers
-  // keep working. New code should pass a handle in directly.
-  const handle = `${ownerSlug}-${docoSlug}`;
+  const { handle } = opts;
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const cur = await c.query<{ raw_yaml: string }>(
@@ -1213,26 +1206,17 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
 }
 
 /**
- * @deprecated Phase 3a — the slug pair is gone from storage. This
- * function now updates `docos.handle` to the synthesized
- * `<ownerSlug>-<newSlug>` value. Pass the actual current handle as
- * `oldSlug` (e.g., when renaming from settings the handler should
- * already know the canonical handle).
+ * Rename a Doco's handle. The handle is what appears in every URL —
+ * `/<handle>/...` — so this update changes every link to the Doco.
  */
-export async function renameDocoSlug(opts: {
-  root: string;
-  ownerSlug: string;
-  oldSlug: string;
-  newSlug: string;
-}): Promise<{ newDir: string }> {
-  const { root, ownerSlug, oldSlug, newSlug } = opts;
-  const slugError = validateDocoSlug(newSlug);
-  if (slugError) throw new Error(slugError);
-  if (oldSlug === newSlug) {
-    return { newDir: join(hostDocosDir(root), ownerSlug, oldSlug) };
-  }
-  const oldHandle = `${ownerSlug}-${oldSlug}`;
-  const newHandle = `${ownerSlug}-${newSlug}`;
+export async function renameDocoHandle(opts: {
+  oldHandle: string;
+  newHandle: string;
+}): Promise<void> {
+  const { oldHandle, newHandle } = opts;
+  const handleError = validateRequestedDocoId(newHandle);
+  if (handleError) throw new Error(handleError);
+  if (oldHandle === newHandle) return;
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
@@ -1257,7 +1241,6 @@ export async function renameDocoSlug(opts: {
       [oldHandle, newHandle, JSON.stringify(yaml)],
     );
   });
-  return { newDir: join(hostDocosDir(root), ownerSlug, newSlug) };
 }
 
 /**
