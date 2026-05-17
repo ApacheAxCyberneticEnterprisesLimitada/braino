@@ -88,7 +88,11 @@ export interface EntityUrlInput {
 
 function docoPrefix(input: { docoId?: string; ownerSlug?: string; docoSlug?: string }): string {
   if (input.docoId) return `/${input.docoId}`;
-  return `/${input.ownerSlug}/${input.docoSlug}`;
+  // Phase 2d of slug-removal: every Doco URL is `/<doco-id>/...`.
+  // Synthesize from the slug pair using the same shape the schema
+  // migration applies (`<owner_slug>-<doco_slug>`). Callers that know
+  // the actual handle should pass it via `docoId` to be precise.
+  return `/${input.ownerSlug}-${input.docoSlug}`;
 }
 
 /**
