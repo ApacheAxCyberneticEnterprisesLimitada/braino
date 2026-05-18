@@ -93,7 +93,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Add each node to the most specific applicable scope; use global only when no project-specific scope fits. Don't create a new scope to fit a node — propose it to the project owner and wait for their confirmation first.",
+          "Add each node to the most specific applicable scope. Don't create a new scope to fit a node — propose it to the project owner and wait for their confirmation first.",
       },
       {
         kind: "guidance",
