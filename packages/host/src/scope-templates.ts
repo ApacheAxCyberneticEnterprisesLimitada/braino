@@ -2,14 +2,16 @@
  * Default scope templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships three curated scopes: `#global` (always installed
- * when a Doco is created), `#user-flows` (opt-in at create time), and
- * `#state-machines` (opt-in via `doco install-template #state-machines`).
- * Per the successor to decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which
- * trimmed thirteen templates down to two) — every other
- * previously-shipped template stays project-owner-authored. All scope
- * names are hashtag-shaped — the leading `#` is part of the canonical
- * name on every surface.
+ * The framework ships four curated scopes. Two are auto-installed on
+ * every new Doco (flagged `auto_install: true`): `#global` (the
+ * Constitution) and `#important` (catch-all for important Doco-wide
+ * decisions that don't fit a topical scope). The other two are opt-in:
+ * `#user-flows` (opt-in at create time) and `#state-machines` (opt-in
+ * via `doco install-template #state-machines`). Per the successor to
+ * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
+ * templates down to two) — every other previously-shipped template
+ * stays project-owner-authored. All scope names are hashtag-shaped —
+ * the leading `#` is part of the canonical name on every surface.
  *
  * Each template ships:
  * - `intentSummary` — the stakeholder outcome the scope serves. Becomes
@@ -77,6 +79,21 @@ export interface ScopeTemplate {
    * tripping completeness rules.
    */
   default_node_lifecycle?: Lifecycle;
+  /**
+   * When true, the framework installs this scope on every new Doco
+   * automatically. When false/unset, the project owner opts in (via
+   * the create-time picker, the scope manager, or
+   * `doco install-template <name>`). Lets the auto-install set evolve
+   * without name-driven branching in the creation handler — see the
+   * Global rule "Keep framework behavior independent of scope names".
+   */
+  auto_install?: boolean;
+  /**
+   * Initial `watched` value applied when this template is auto-installed.
+   * Only meaningful when `auto_install` is true. The project owner can
+   * flip the value any time from the scope's edit page.
+   */
+  auto_install_watched?: boolean;
 }
 
 export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
@@ -90,6 +107,8 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     name: "#global",
     label: "#global (your doco's constitution)",
     icon: "🌐",
+    auto_install: true,
+    auto_install_watched: true,
     intentSummary:
       "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
     rules: [
@@ -109,6 +128,22 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           "AI agents: document every explicit rule and decision from the project owner, and especially every correction. Corrections are the highest-signal moments — they encode preferences that aren't visible in the code or docs. Capture them in Doco the same turn they happen, so the next agent (or the next session of you) doesn't repeat the mistake.",
       },
     ],
+  },
+  {
+    // Catch-all scope for important Doco-wide decisions that don't
+    // naturally fit a topical scope. Auto-installed alongside #global
+    // on every new Doco so the project owner has a landing place for
+    // cross-cutting decisions from day one — the alternative is
+    // letting orphan decisions push agents toward minting new scopes
+    // (which Global Rule 1 explicitly forbids without confirmation).
+    name: "#important",
+    label: "#important",
+    icon: "⭐",
+    auto_install: true,
+    auto_install_watched: true,
+    intentSummary:
+      "Important Doco-wide decisions that do not naturally fit a more specific subject-area scope.",
+    rules: [],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the #user-flows template

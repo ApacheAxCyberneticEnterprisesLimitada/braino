@@ -24,7 +24,6 @@ import {
 } from "./mode.js";
 import {
   DEFAULT_SCOPE_TEMPLATES,
-  findScopeTemplate,
   type ScopeTemplate,
 } from "./scope-templates.js";
 
@@ -471,23 +470,26 @@ export async function createDocoInHost(
     ),
   );
 
-  const globalTemplate = findScopeTemplate("#global");
   const createdBy = owner.kind === "principal" ? owner.id : null;
-  const globalScopeId = await createScopeInDoco({
-    docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
-    docoId,
-    name: "#global",
-    ...(globalTemplate?.icon ? { icon: globalTemplate.icon } : {}),
-    watched: true,
-    createdBy,
-  });
-
-  if (globalTemplate) {
+  // Auto-install every template flagged `auto_install: true` — keeps
+  // the install set evolvable without name-driven branching here
+  // (Global rule_01KRRVPBS07HDBCXY6TJ5A5TAT). Seed order follows
+  // DEFAULT_SCOPE_TEMPLATES array order.
+  for (const template of DEFAULT_SCOPE_TEMPLATES) {
+    if (!template.auto_install) continue;
+    const scopeId = await createScopeInDoco({
+      docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
+      docoId,
+      name: template.name,
+      icon: template.icon,
+      watched: template.auto_install_watched ?? false,
+      createdBy,
+    });
     await seedScopeFromTemplate({
       docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
       docoId,
-      scopeId: globalScopeId,
-      template: globalTemplate,
+      scopeId,
+      template,
       createdBy,
     });
   }
