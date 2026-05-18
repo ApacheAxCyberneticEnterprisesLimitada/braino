@@ -415,18 +415,26 @@ export async function createDocoInHost(
   if (handleErr) throw new Error(handleErr);
   let handle = baseHandle;
   {
-    let n = 2;
-    while (true) {
-      const dup = await withClient((c) =>
-        c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]),
-      );
-      if (dup.rows.length === 0) break;
-      handle = `${baseHandle}-${n}`;
-      n++;
-      if (n > 999) {
-        throw new Error(
-          `Auto-suffix exhausted: handle "${baseHandle}-2" through "-999" are all taken.`,
+    const firstDup = await withClient((c) =>
+      c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]),
+    );
+    if (firstDup.rows.length > 0) {
+      if (!opts.autoSuffixOnCollision) {
+        throw new Error(`Doco "${baseHandle}" already exists.`);
+      }
+      let n = 2;
+      while (true) {
+        handle = `${baseHandle}-${n}`;
+        const dup = await withClient((c) =>
+          c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]),
         );
+        if (dup.rows.length === 0) break;
+        n++;
+        if (n > 999) {
+          throw new Error(
+            `Auto-suffix exhausted: handle "${baseHandle}-2" through "-999" are all taken.`,
+          );
+        }
       }
     }
   }
