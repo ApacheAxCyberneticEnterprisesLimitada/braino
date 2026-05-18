@@ -2,12 +2,14 @@
  * Default scope templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships three curated scopes: `global` (always installed
- * when a Doco is created), `user-flows` (opt-in at create time), and
- * `state-machines` (opt-in via `doco install-template state-machines`).
+ * The framework ships three curated scopes: `#global` (always installed
+ * when a Doco is created), `#user-flows` (opt-in at create time), and
+ * `#state-machines` (opt-in via `doco install-template #state-machines`).
  * Per the successor to decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which
  * trimmed thirteen templates down to two) — every other
- * previously-shipped template stays project-owner-authored.
+ * previously-shipped template stays project-owner-authored. All scope
+ * names are hashtag-shaped — the leading `#` is part of the canonical
+ * name on every surface.
  *
  * Each template ships:
  * - `intentSummary` — the stakeholder outcome the scope serves. Becomes
@@ -81,11 +83,12 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
   {
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
     // scope renamed from "constitution" → "global". The label keeps
-    // "Constitution" as the readable handle next to "global" on the
+    // "Constitution" as the readable handle next to "#global" on the
     // scope list ("your doco's constitution"); the canonical name is
-    // global so it sorts predictably.
-    name: "global",
-    label: "Global (your doco's constitution)",
+    // `#global` so it sorts predictably and reads as a hashtag tag
+    // wherever it appears.
+    name: "#global",
+    label: "#global (your doco's constitution)",
     icon: "🌐",
     intentSummary:
       "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
@@ -108,41 +111,41 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     ],
   },
   {
-    // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
+    // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the #user-flows template
     // collapses from six guidance rules to deterministic authoring
     // rules + a concise intentSummary for picker/manifest surfaces.
-    name: "user-flows",
-    label: "User flows",
+    name: "#user-flows",
+    label: "#user-flows",
     icon: "🌊",
     intentSummary: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     rules: [
       {
         // Membership check: probabilistic semantic gate, with a
         // deterministic node-type allowlist that excludes Rule. Rules
-        // tagged into user-flows *govern* how journeys are authored;
+        // tagged into #user-flows *govern* how journeys are authored;
         // they aren't themselves journey content, so subjecting them
         // to the journey-prose check would lock out the rules that
         // define the scope's contract.
         summary:
-          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the scope rather than living inside it.)",
+          "A node belongs in #user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the scope rather than living inside it.)",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+          spec: "A node belongs in #user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
           when_node_type: ["intent", "action", "decision", "reference"],
         },
       },
       {
         summary:
-          'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          'Action nodes in #user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
         predicate: {
           kind: "probabilistic",
-          spec: 'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          spec: 'Action nodes in #user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
           when_node_type: ["action"],
         },
       },
       {
         summary:
-          "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
+          "Only Intent, Action, Decision, Reference, and Rule nodes belong to #user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["intent", "action", "decision", "reference", "rule"],
@@ -150,7 +153,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       },
       {
         summary:
-          "Every Intent in user-flows must declare the principal who wants the journey in the `wanted_by` field.",
+          "Every Intent in #user-flows must declare the principal who wants the journey in the `wanted_by` field.",
         predicate: {
           kind: "requires_field",
           fields: ["wanted_by"],
@@ -159,7 +162,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       },
       {
         summary:
-          "Every Action in user-flows must declare the principal who performs the designed step in the `actor_id` field.",
+          "Every Action in #user-flows must declare the principal who performs the designed step in the `actor_id` field.",
         predicate: {
           kind: "requires_field",
           fields: ["actor_id"],
@@ -168,7 +171,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       },
       {
         summary:
-          "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
+          "Every Decision in #user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
         predicate: {
           kind: "requires_field",
           fields: ["decided_by"],
@@ -177,7 +180,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       },
       {
         summary:
-          "Every Action in user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
+          "Every Action in #user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
         predicate: {
           kind: "requires_edge",
           edge_type: "serves",
@@ -186,10 +189,11 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         },
       },
       {
-        // user-flows v2: each principal listed on the Intent's `actors`
-        // must be the actor_id of ≥1 Action serving the Intent. Fires
-        // only when the Intent moves to `active` — drafted Intents can
-        // be captured first and have their Actions filled in after.
+        // #user-flows v2: each principal listed on the Intent's
+        // `actors` must be the actor_id of ≥1 Action serving the
+        // Intent. Fires only when the Intent moves to `active` —
+        // drafted Intents can be captured first and have their Actions
+        // filled in after.
         summary:
           "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafted Intents are allowed to be incomplete.",
         predicate: {
@@ -230,8 +234,8 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     // treats every scope through the same generic interface (Global
     // rules rule_01KRRPY12JEVQABNNRJ96YB91J,
     // rule_01KRRPZTKDXT0RREZB37VPX2AG).
-    name: "state-machines",
-    label: "State machines",
+    name: "#state-machines",
+    label: "#state-machines",
     icon: "🔁",
     intentSummary:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
@@ -243,7 +247,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
         // scope too, so they have to be allowed. Idea and Log have their
         // own homes elsewhere.
         summary:
-          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a state-machines scope. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
+          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a #state-machines scope. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["state", "action", "decision", "eval", "reference", "intent", "rule"],
@@ -314,7 +318,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       {
         // D5
         summary:
-          "An active state-machine scope must have ≥1 active State of kind `initial` — every machine starts somewhere.",
+          "An active #state-machines scope must have ≥1 active State of kind `initial` — every machine starts somewhere.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "count-within-scope",
@@ -328,7 +332,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       {
         // D6
         summary:
-          "An active state-machine scope must have ≥1 active State of kind `terminal`. Perpetual machines (worker loops, services) skip this Rule on their specific scope via `excluded_rules`.",
+          "An active #state-machines scope must have ≥1 active State of kind `terminal`. Perpetual machines (worker loops, services) skip this Rule on their specific scope via `excluded_rules`.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "count-within-scope",
@@ -410,7 +414,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
       {
         // P4
         summary:
-          "The state-machine scope's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
+          "The #state-machines scope's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "probabilistic",
@@ -467,7 +471,16 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
   },
 ];
 
-/** Lookup a template by name. Returns undefined for unknown names. */
+/**
+ * Lookup a template by name. Returns undefined for unknown names.
+ *
+ * Templates are stored with their canonical hashtag-shaped names
+ * (`#global`, `#user-flows`, `#state-machines`). For back-compat, the
+ * lookup also accepts the bare form (`global`, `user-flows`,
+ * `state-machines`) — older clients that POST `template_name: "global"`
+ * continue to work.
+ */
 export function findScopeTemplate(name: string): ScopeTemplate | undefined {
-  return DEFAULT_SCOPE_TEMPLATES.find((t) => t.name === name);
+  const canonical = name.startsWith("#") ? name : `#${name}`;
+  return DEFAULT_SCOPE_TEMPLATES.find((t) => t.name === canonical);
 }

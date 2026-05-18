@@ -471,12 +471,12 @@ export async function createDocoInHost(
     ),
   );
 
-  const globalTemplate = findScopeTemplate("global");
+  const globalTemplate = findScopeTemplate("#global");
   const createdBy = owner.kind === "principal" ? owner.id : null;
   const globalScopeId = await createScopeInDoco({
     docoDir: hostDocoDir(root, opts.ownerSlug, docoSlug),
     docoId,
-    name: "global",
+    name: "#global",
     ...(globalTemplate?.icon ? { icon: globalTemplate.icon } : {}),
     watched: true,
     createdBy,
@@ -543,10 +543,11 @@ export async function createScopeInDoco(
   const created = nowIso();
   // Fifth framework-native behavior of the Global scope
   // (decision_01KRKS5H2A5QER84CJ8R4VD36Z, rule_01KRKS60A11YEWDASBT6V3HTE9;
-  // renamed from "constitution" per decision_01KRPNZY7W6CCMYNKGND67BP0B):
+  // renamed from "constitution" per decision_01KRPNZY7W6CCMYNKGND67BP0B,
+  // then again from "global" → "#global" per the hashtag-name shift):
   // it is always watched and cannot be unwatched. Force watched=true
-  // for any scope named "global" regardless of the caller's input.
-  const watched = opts.name === "global" ? true : opts.watched;
+  // for any scope named "#global" regardless of the caller's input.
+  const watched = opts.name === "#global" ? true : opts.watched;
   const yaml: Record<string, unknown> = {
     id,
     doco_id: opts.docoId,
@@ -849,7 +850,7 @@ export async function setScopeWatchedInDoco(opts: {
       [opts.targetScopeId],
     );
     if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.targetScopeId}`);
-    if (cur.rows[0].name === "global" && opts.watched === false) {
+    if (cur.rows[0].name === "#global" && opts.watched === false) {
       throw new Error(
         "The Global scope is always watched and cannot be unwatched (decision_01KRKS5H2A5QER84CJ8R4VD36Z).",
       );
@@ -893,25 +894,37 @@ export async function readScopeWatchedInDoco(opts: {
 /**
  * Parse a textarea-style list of scope names (newline-separated). Names may
  * use slash-input as a convenience to express parent-child relationships:
- * `country/france/payment` produces three scope entries with edges between
+ * `#country/#france/#payment` produces three scope entries with edges between
  * them. Per ADR-081, the slash never lands in a scope's `name` — each
  * segment is a distinct flat-named scope.
  *
- * Returns { valid, invalid }: each `valid` entry is a path of segments
- * (root → leaf). Invalid lines are returned verbatim so the caller can
- * surface them.
+ * Scope names are hashtag-shaped (`#country`, `#payment`). Bare segments
+ * (`country`, `payment`) are accepted as a usability convenience — the
+ * parser auto-prefixes `#`. Comment lines start with `#` followed by a
+ * space (`# this is a comment`) and are skipped.
+ *
+ * Returns { valid, invalid }: each `valid` entry is a path of canonical
+ * `#`-prefixed segments (root → leaf). Invalid lines are returned verbatim
+ * so the caller can surface them.
  */
 export function parseScopeNamesInput(
   input: string,
 ): { valid: string[][]; invalid: string[] } {
-  const SEG_RE = /^[a-z][a-z0-9_-]*$/;
+  const SEG_RE = /^#[a-z][a-z0-9_-]*$/;
   const seenPath = new Set<string>();
   const valid: string[][] = [];
   const invalid: string[] = [];
   for (const raw of input.split(/\r?\n/)) {
     const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const segments = line.split("/").map((s) => s.trim()).filter(Boolean);
+    if (!line) continue;
+    // Comment line: `#` followed by whitespace (or `#` alone). Scope-name
+    // lines start with `#letter` (or a bare letter — we add the `#`).
+    if (line === "#" || (line.startsWith("#") && /^#\s/.test(line))) continue;
+    const segments = line
+      .split("/")
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => (s.startsWith("#") ? s : `#${s}`));
     if (segments.length === 0 || !segments.every((s) => SEG_RE.test(s))) {
       invalid.push(line);
       continue;
@@ -1426,7 +1439,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       const predicate = fm.predicate as AuthoringPredicate | undefined;
       if (predicate) {
         if (
-          template.name === "user-flows" &&
+          template.name === "#user-flows" &&
           isStaleUserFlowsAuthoringPredicate(predicate)
         ) {
           staleRuleRows.push(row);
@@ -1436,7 +1449,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
         existingGuidanceSummaries.add(row.summary.trim());
       }
       if (
-        template.name === "user-flows" &&
+        template.name === "#user-flows" &&
         STALE_USER_FLOWS_GUIDANCE_SUMMARIES.has(row.summary.trim())
       ) {
         staleRuleRows.push(row);
@@ -1534,9 +1547,9 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
         continue;
       }
       for (const ir of intentRows.rows) {
-        if (template.name === "user-flows") {
+        if (template.name === "#user-flows") {
           if (!STALE_USER_FLOWS_INTENT_SUMMARIES.has(ir.summary.trim())) continue;
-        } else if (template.name === "global") {
+        } else if (template.name === "#global") {
           if (!STALE_GLOBAL_INTENT_SUMMARIES.has(ir.summary.trim())) continue;
         } else {
           continue;

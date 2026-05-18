@@ -255,25 +255,25 @@ describe("host lifecycle", () => {
 });
 
 describe("parseScopeNamesInput (ADR-081 — slash-input → segment paths)", () => {
-  it("splits each line into segment paths", () => {
+  it("splits each line into segment paths (auto-prefixes # on bare segments)", () => {
     const { valid, invalid } = parseScopeNamesInput(
       [
-        "user-flows",
+        "#user-flows",
         "country/france/payment",
-        "reporter/board",
+        "#reporter/board",
         "design-system/components",
-        "scope_meta",
+        "#scope_meta",
         "",
         "  ",
         "# comment",
       ].join("\n"),
     );
     expect(valid).toEqual([
-      ["user-flows"],
-      ["country", "france", "payment"],
-      ["reporter", "board"],
-      ["design-system", "components"],
-      ["scope_meta"],
+      ["#user-flows"],
+      ["#country", "#france", "#payment"],
+      ["#reporter", "#board"],
+      ["#design-system", "#components"],
+      ["#scope_meta"],
     ]);
     expect(invalid).toEqual([]);
   });
@@ -284,12 +284,12 @@ describe("parseScopeNamesInput (ADR-081 — slash-input → segment paths)", () 
     );
     expect(invalid).toEqual(["UPPERCASE", "1bad-leading-digit"]);
     // Trailing slash trims to "trailing" — single segment, valid; deduped vs ok-name.
-    expect(valid).toEqual([["trailing"], ["ok-name"]]);
+    expect(valid).toEqual([["#trailing"], ["#ok-name"]]);
   });
 
-  it("treats blank lines and # comments as ignored", () => {
-    const out = parseScopeNamesInput("# header\n\n  \nfoo\n# trailing");
-    expect(out.valid).toEqual([["foo"]]);
+  it("treats blank lines and `# ` (hash-space) comments as ignored, but `#name` is a scope", () => {
+    const out = parseScopeNamesInput("# header\n\n  \nfoo\n# trailing\n#explicit");
+    expect(out.valid).toEqual([["#foo"], ["#explicit"]]);
     expect(out.invalid).toEqual([]);
   });
 });
@@ -374,7 +374,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     for (const f of filesBefore) {
       if (!f.endsWith(".yaml")) continue;
       const e = parse(await rf(join(scopesDir, f), "utf8")) as Record<string, unknown>;
-      if (e.name === "global") {
+      if (e.name === "#global") {
         globalFileBefore = f;
         break;
       }
@@ -451,7 +451,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
       if (!f.endsWith(".yaml")) continue;
       const text = await readFile(join(scopesDir, f), "utf8");
       const e = parseYaml(text) as Record<string, unknown>;
-      if (e.name === "global") {
+      if (e.name === "#global") {
         globalScope = e;
         break;
       }
@@ -461,9 +461,9 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     expect(globalScope!.icon).toBe("🌐");
   });
 
-  it("Global is always watched: createScopeInDoco forces watched: true when name === 'global'", async () => {
+  it("Global is always watched: createScopeInDoco forces watched: true when name === '#global'", async () => {
     // Defense-in-depth: even if a caller passes watched: false for a
-    // scope named 'global', the YAML must still land as
+    // scope named '#global', the YAML must still land as
     // watched: true. (The normal seeding path passes watched: true
     // already; this guards the rare direct-call from a test or
     // bespoke import script.)
@@ -478,7 +478,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     for (const f of await readdir(scopesDir)) {
       if (!f.endsWith(".yaml")) continue;
       const e = parseYaml(await readFile(join(scopesDir, f), "utf8")) as Record<string, unknown>;
-      if (e.name === "global") {
+      if (e.name === "#global") {
         await (await import("node:fs/promises")).rm(join(scopesDir, f));
         break;
       }
@@ -486,7 +486,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     const newId = await createScopeInDoco({
       docoDir: rec.path,
       docoId: rec.docoId,
-      name: "global",
+      name: "#global",
       watched: false,
       createdBy: null,
     });
@@ -507,7 +507,7 @@ describe("createScopeInDoco (ADR-080 + ADR-081 + ADR-082)", () => {
     for (const f of await readdir(scopesDir)) {
       if (!f.endsWith(".yaml")) continue;
       const e = parseYaml(await readFile(join(scopesDir, f), "utf8")) as Record<string, unknown>;
-      if (e.name === "global") {
+      if (e.name === "#global") {
         globalId = String(e.id) as EntityId<"scope">;
         break;
       }

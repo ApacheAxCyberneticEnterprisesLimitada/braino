@@ -808,7 +808,7 @@ export function globalScopeMembershipViolation(opts: {
   const { globalScopeId } = opts;
   if (!globalScopeId || !opts.entityScopes.includes(globalScopeId)) return null;
   if (opts.entityNodeType === "intent" || opts.entityNodeType === "rule") return null;
-  const name = opts.globalScopeName ?? "global";
+  const name = opts.globalScopeName ?? "#global";
   return `Only Intent and Rule nodes may belong to the ${name} scope. Put project content in a project-specific scope; Global is reserved for the default intent and rules that govern the doco.`;
 }
 
