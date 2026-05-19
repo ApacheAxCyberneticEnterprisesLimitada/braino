@@ -25,6 +25,7 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "sign-up",
   "new-doco",
   "new",
+  "orgs",
   "admin",
   "settings",
   "profile",

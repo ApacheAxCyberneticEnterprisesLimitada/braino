@@ -425,6 +425,57 @@ DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 -- migration writes back after successful completion.
 
 -- ──────────────────────────────────────────────────────────────────────────
+-- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
+--
+-- Four roles (owner / approver / author / reader) granted at three levels
+-- (org / doco / scope). Effective role = max across levels (highest-wins
+-- additive composition). Scope-only grant implies doco-reader visibility.
+-- Author-role writes default to lifecycle `proposed`; only approver+ can
+-- transition. #global constitution edits require doco-level owner.
+
+-- Widen org_members.role CHECK to the new 4-role enum. Pre-existing rows
+-- (owner|admin|member) collapse to 'owner' per the alpha-cutover posture.
+-- Idempotent.
+DO $org_role_widen$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'org_members_role_check'
+  ) THEN
+    ALTER TABLE org_members DROP CONSTRAINT org_members_role_check;
+  END IF;
+  UPDATE org_members SET role = 'owner' WHERE role IN ('admin', 'member');
+  ALTER TABLE org_members
+    ADD CONSTRAINT org_members_role_check
+    CHECK (role IN ('owner', 'approver', 'author', 'reader'));
+END
+$org_role_widen$;
+
+-- Per-doco membership. Replaces the binary "any SessionToken bound to
+-- this Doco = full admin" gate that doco-access.server.ts used pre-cutover.
+-- Backfill writes one row per (principal, bound_doco_id) discovered in
+-- the session-token blob with role='owner' (runV8Migration).
+CREATE TABLE IF NOT EXISTS doco_members (
+  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
+  joined_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (doco_id, principal_id)
+);
+CREATE INDEX IF NOT EXISTS doco_members_principal_idx ON doco_members (principal_id, role);
+
+-- Per-scope membership. Layers on top of doco_members. A scope-only grant
+-- (no doco_members row for this principal+doco) implies doco-reader
+-- visibility per decision_01KS0JBJ5X0AZ4XJJFKEWE1R62.
+CREATE TABLE IF NOT EXISTS scope_members (
+  scope_id      text NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
+  principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
+  joined_at     timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope_id, principal_id)
+);
+CREATE INDEX IF NOT EXISTS scope_members_principal_idx ON scope_members (principal_id, role);
+
+-- ──────────────────────────────────────────────────────────────────────────
 -- Token store (session tokens + CLI authorizations). Alpha keeps this as a
 -- host-scoped JSON blob; move to one-row-per-token tables once the surface
 -- stabilizes.
@@ -433,3 +484,39 @@ CREATE TABLE IF NOT EXISTS tokens_blob (
   blob       jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- v8 backfill (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62): every active SessionToken
+-- bound to a Doco grandfathers its principal into doco_members with role='owner'
+-- so the cutover loses no existing collaborator access. Runs once per host
+-- (gated on doco_meta.v8_doco_members_backfill); subsequent invite redemptions
+-- write doco_members directly. ON CONFLICT DO NOTHING so manual role changes
+-- made after the first run are not stomped.
+DO $v8_backfill$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta
+    WHERE key = 'v8_doco_members_backfill' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO doco_members (doco_id, principal_id, role)
+  SELECT DISTINCT
+    (tok->>'bound_doco_id'),
+    (tok->>'principal_id'),
+    'owner'
+  FROM tokens_blob
+  CROSS JOIN LATERAL jsonb_array_elements(blob->'tokens') AS tok
+  WHERE tok->>'kind' = 'session'
+    AND tok->>'bound_doco_id' IS NOT NULL
+    AND tok->>'principal_id' IS NOT NULL
+    AND COALESCE((tok->>'revoked')::boolean, false) = false
+    AND EXISTS (SELECT 1 FROM docos      WHERE id = tok->>'bound_doco_id')
+    AND EXISTS (SELECT 1 FROM principals WHERE id = tok->>'principal_id')
+  ON CONFLICT (doco_id, principal_id) DO NOTHING;
+
+  INSERT INTO doco_meta (key, value)
+  VALUES ('v8_doco_members_backfill', 'done')
+  ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v8_backfill$;

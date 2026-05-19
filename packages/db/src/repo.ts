@@ -311,7 +311,7 @@ export async function listOrganizations(): Promise<OrganizationRow[]> {
 
 export async function listOrganizationsForPrincipal(
   principalId: string,
-  roles: string[] = ["owner", "admin", "member"],
+  roles: string[] = ["owner", "approver", "author", "reader"],
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
@@ -343,10 +343,16 @@ export async function isOrgMember(orgId: string, principalId: string): Promise<b
   });
 }
 
+/**
+ * "Has admin-tier rights on the org." Post-cutover
+ * (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62), admin-tier collapses onto the new
+ * `owner` role; legacy 'admin'/'member' rows backfill to 'owner' so the
+ * behavior is unchanged for existing data.
+ */
 export async function isOrgAdmin(orgId: string, principalId: string): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT 1 FROM org_members WHERE org_id = $1 AND principal_id = $2 AND role IN ('owner','admin')`,
+      `SELECT 1 FROM org_members WHERE org_id = $1 AND principal_id = $2 AND role = 'owner'`,
       [orgId, principalId],
     );
     return r.rowCount !== null && r.rowCount > 0;
@@ -356,7 +362,7 @@ export async function isOrgAdmin(orgId: string, principalId: string): Promise<bo
 export async function upsertOrgMember(opts: {
   org_id: string;
   principal_id: string;
-  role: "owner" | "admin" | "member";
+  role: DocoRole;
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
@@ -364,6 +370,214 @@ export async function upsertOrgMember(opts: {
        VALUES ($1, $2, $3)
        ON CONFLICT (org_id, principal_id) DO UPDATE SET role=EXCLUDED.role`,
       [opts.org_id, opts.principal_id, opts.role],
+    );
+  });
+}
+
+// ─── Role primitives (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62) ─────────────────
+
+export type DocoRole = "owner" | "approver" | "author" | "reader";
+
+/** Role precedence. Higher rank = more privilege. */
+export const ROLE_RANK: Record<DocoRole, number> = {
+  owner: 3,
+  approver: 2,
+  author: 1,
+  reader: 0,
+};
+
+const ROLE_VALUES = new Set<DocoRole>(["owner", "approver", "author", "reader"]);
+
+function toRole(v: unknown): DocoRole | null {
+  return typeof v === "string" && ROLE_VALUES.has(v as DocoRole) ? (v as DocoRole) : null;
+}
+
+/** True iff `role` is at least as privileged as `threshold`. Null = no grant. */
+export function roleAtLeast(role: DocoRole | null, threshold: DocoRole): boolean {
+  if (!role) return false;
+  return ROLE_RANK[role] >= ROLE_RANK[threshold];
+}
+
+/** Highest-privilege role across all inputs. Null if no input has a role. */
+export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | null {
+  let best: DocoRole | null = null;
+  let bestRank = -1;
+  for (const r of roles) {
+    if (!r) continue;
+    if (ROLE_RANK[r] > bestRank) {
+      best = r;
+      bestRank = ROLE_RANK[r];
+    }
+  }
+  return best;
+}
+
+/** Lookup the principal's row on an org, returning its role (or null). */
+export async function getOrgRole(orgId: string, principalId: string): Promise<DocoRole | null> {
+  return withClient(async (c) => {
+    const r = await c.query<{ role: string }>(
+      `SELECT role FROM org_members WHERE org_id = $1 AND principal_id = $2`,
+      [orgId, principalId],
+    );
+    if (r.rowCount === 0) return null;
+    return toRole(r.rows[0]?.role);
+  });
+}
+
+// ─── doco_members ──────────────────────────────────────────────────────────
+
+export interface DocoMemberRow {
+  doco_id: string;
+  principal_id: string;
+  role: DocoRole;
+  joined_at: string;
+}
+
+export async function getDocoMemberRole(
+  docoId: string,
+  principalId: string,
+): Promise<DocoRole | null> {
+  return withClient(async (c) => {
+    const r = await c.query<{ role: string }>(
+      `SELECT role FROM doco_members WHERE doco_id = $1 AND principal_id = $2`,
+      [docoId, principalId],
+    );
+    if (r.rowCount === 0) return null;
+    return toRole(r.rows[0]?.role);
+  });
+}
+
+export async function listDocoMembers(docoId: string): Promise<DocoMemberRow[]> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT doco_id, principal_id, role, joined_at FROM doco_members
+       WHERE doco_id = $1 ORDER BY joined_at`,
+      [docoId],
+    );
+    return r.rows.map((row) => ({
+      doco_id: String(row.doco_id),
+      principal_id: String(row.principal_id),
+      role: (toRole(row.role) ?? "reader") as DocoRole,
+      joined_at: row.joined_at instanceof Date
+        ? row.joined_at.toISOString()
+        : String(row.joined_at),
+    }));
+  });
+}
+
+export async function listDocoIdsForPrincipalMember(
+  principalId: string,
+): Promise<string[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ doco_id: string }>(
+      `SELECT doco_id FROM doco_members WHERE principal_id = $1`,
+      [principalId],
+    );
+    return r.rows.map((row) => String(row.doco_id));
+  });
+}
+
+export async function upsertDocoMember(opts: {
+  doco_id: string;
+  principal_id: string;
+  role: DocoRole;
+}): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO doco_members (doco_id, principal_id, role)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
+      [opts.doco_id, opts.principal_id, opts.role],
+    );
+  });
+}
+
+export async function removeDocoMember(docoId: string, principalId: string): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      `DELETE FROM doco_members WHERE doco_id = $1 AND principal_id = $2`,
+      [docoId, principalId],
+    );
+  });
+}
+
+// ─── scope_members ─────────────────────────────────────────────────────────
+
+export interface ScopeMemberRow {
+  scope_id: string;
+  principal_id: string;
+  role: DocoRole;
+  joined_at: string;
+}
+
+export async function getScopeMemberRole(
+  scopeId: string,
+  principalId: string,
+): Promise<DocoRole | null> {
+  return withClient(async (c) => {
+    const r = await c.query<{ role: string }>(
+      `SELECT role FROM scope_members WHERE scope_id = $1 AND principal_id = $2`,
+      [scopeId, principalId],
+    );
+    if (r.rowCount === 0) return null;
+    return toRole(r.rows[0]?.role);
+  });
+}
+
+export async function listScopeMembers(scopeId: string): Promise<ScopeMemberRow[]> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT scope_id, principal_id, role, joined_at FROM scope_members
+       WHERE scope_id = $1 ORDER BY joined_at`,
+      [scopeId],
+    );
+    return r.rows.map((row) => ({
+      scope_id: String(row.scope_id),
+      principal_id: String(row.principal_id),
+      role: (toRole(row.role) ?? "reader") as DocoRole,
+      joined_at: row.joined_at instanceof Date
+        ? row.joined_at.toISOString()
+        : String(row.joined_at),
+    }));
+  });
+}
+
+/** Any scope id in `docoId` where `principalId` has an explicit scope grant. */
+export async function listScopeIdsWithGrant(
+  docoId: string,
+  principalId: string,
+): Promise<string[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ scope_id: string }>(
+      `SELECT m.scope_id FROM scope_members m
+       JOIN scopes s ON s.id = m.scope_id
+       WHERE s.doco_id = $1 AND m.principal_id = $2`,
+      [docoId, principalId],
+    );
+    return r.rows.map((row) => String(row.scope_id));
+  });
+}
+
+export async function upsertScopeMember(opts: {
+  scope_id: string;
+  principal_id: string;
+  role: DocoRole;
+}): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO scope_members (scope_id, principal_id, role)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (scope_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
+      [opts.scope_id, opts.principal_id, opts.role],
+    );
+  });
+}
+
+export async function removeScopeMember(scopeId: string, principalId: string): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      `DELETE FROM scope_members WHERE scope_id = $1 AND principal_id = $2`,
+      [scopeId, principalId],
     );
   });
 }
