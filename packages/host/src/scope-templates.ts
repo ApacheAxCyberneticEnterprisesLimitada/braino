@@ -126,7 +126,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     auto_install: true,
     auto_install_watched: true,
     summary:
-      "Durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere. Only Rules live here.",
+      "Your doco's rule book — the standing rules, invariants, and authority claims anyone can cite from anywhere. Rules only.",
     allowed_node_types: ["rule"],
     rules: [
       {
@@ -159,7 +159,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     auto_install: true,
     auto_install_watched: true,
     summary:
-      "Important Doco-wide decisions that do not naturally fit a more specific subject-area scope.",
+      "Important doco-wide decisions that don't naturally fit a more specific subject-area scope.",
     rules: [],
   },
   {

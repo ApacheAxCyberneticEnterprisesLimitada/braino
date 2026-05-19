@@ -1410,9 +1410,12 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
   const STALE_GLOBAL_INTENT_SUMMARIES = new Set<string>([
     "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
     // Pre-summary-on-scope copy that lived on intent_01KRV60W6NTJSZH7XMVV8QW4DA.
-    // Existing Docos get refreshed to the new "Durable cross-scope rules…
-    // Only Rules live here." (decision_01KRYECEA32SRSQCKFXSDCBK67).
+    // Existing Docos get refreshed to the current template summary
+    // (decision_01KRYECEA32SRSQCKFXSDCBK67).
     "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
+    // First Scope.summary copy — superseded 2026-05-18 by the friendlier
+    // "Your doco's rule book…" rewrite the project owner asked for.
+    "Durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere. Only Rules live here.",
   ]);
 
   // Structural fingerprint for an authoring predicate. Used to dedupe
