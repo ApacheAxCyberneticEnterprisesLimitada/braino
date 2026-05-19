@@ -82,7 +82,6 @@ CREATE TABLE IF NOT EXISTS principals (
   id              text PRIMARY KEY,
   username        text NOT NULL UNIQUE,
   type            text NOT NULL CHECK (type IN ('human', 'agent')),
-  display_name    text,
   email           text,
   github_login    text,
   avatar_url      text,
@@ -92,6 +91,31 @@ CREATE TABLE IF NOT EXISTS principals (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deactivated_at  timestamptz
 );
+
+-- v10 username-only principals: users do not carry standalone display
+-- names. The database stores usernames plus identity metadata; any old
+-- `display_name` column and embedded raw_yaml key are removed in place.
+DO $v10_principal_username_only$
+DECLARE
+  principal_row record;
+BEGIN
+  FOR principal_row IN
+    SELECT id, raw_yaml FROM principals WHERE raw_yaml LIKE '%display_name%'
+  LOOP
+    BEGIN
+      UPDATE principals
+         SET raw_yaml = (principal_row.raw_yaml::jsonb - 'display_name')::text
+       WHERE id = principal_row.id;
+    EXCEPTION WHEN others THEN
+      -- Legacy host files may have stored YAML text here. The column drop
+      -- still removes the indexed display name; future principal writes
+      -- strip the JSON key before storing raw_yaml.
+      NULL;
+    END;
+  END LOOP;
+END
+$v10_principal_username_only$;
+ALTER TABLE principals DROP COLUMN IF EXISTS display_name;
 
 CREATE TABLE IF NOT EXISTS organizations (
   id          text PRIMARY KEY,

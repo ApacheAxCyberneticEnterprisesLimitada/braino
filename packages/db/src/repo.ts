@@ -1,13 +1,20 @@
 // CRUD helpers for entity rows. Generic across node types via NODE_TABLES.
 
 import type pg from "pg";
-import { NODE_TABLES, type EntityRecord } from "./types.js";
 import { withClient } from "./client.js";
+import { type EntityRecord, NODE_TABLES } from "./types.js";
 
 function tableFor(nodeType: string): { table: string; body: boolean } {
   const spec = NODE_TABLES[nodeType];
   if (!spec) throw new Error(`Unknown node type for storage: ${nodeType}`);
   return spec;
+}
+
+function stripPrincipalDisplayName(rawYaml: string, yamlObj: Record<string, unknown>): string {
+  if (!("display_name" in yamlObj)) return rawYaml;
+  return JSON.stringify(
+    Object.fromEntries(Object.entries(yamlObj).filter(([key]) => key !== "display_name")),
+  );
 }
 
 /**
@@ -17,11 +24,21 @@ function tableFor(nodeType: string): { table: string; body: boolean } {
  */
 export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const spec = tableFor(rec.node_type);
-  if (rec.node_type === "principal" || rec.node_type === "organization" || rec.node_type === "doco") {
+  if (
+    rec.node_type === "principal" ||
+    rec.node_type === "organization" ||
+    rec.node_type === "doco"
+  ) {
     return upsertIdentity(rec, client);
   }
   const cols = ["id", "doco_id", "summary", "lifecycle", "raw_yaml"];
-  const vals: unknown[] = [rec.id, rec.doco_id, rec.summary ?? null, rec.lifecycle ?? null, rec.raw_yaml];
+  const vals: unknown[] = [
+    rec.id,
+    rec.doco_id,
+    rec.summary ?? null,
+    rec.lifecycle ?? null,
+    rec.raw_yaml,
+  ];
   if (spec.body) {
     cols.push("body_md");
     vals.push(rec.body_md ?? null);
@@ -63,20 +80,30 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
     if (rec.node_type === "principal") {
       const username = String(yamlObj.username ?? rec.id);
       const type = String(yamlObj.type ?? "human");
-      const display_name = (yamlObj.display_name as string | null) ?? null;
       const email = (yamlObj.email as string | null) ?? null;
       const github_login = (yamlObj.github_login as string | null) ?? null;
       const avatar_url = (yamlObj.avatar_url as string | null) ?? null;
       const owner_id = (yamlObj.owner_id as string | null) ?? null;
       const deactivated_at = (yamlObj.deactivated_at as string | null) ?? null;
+      const raw_yaml = stripPrincipalDisplayName(rec.raw_yaml, yamlObj);
       await c.query(
-        `INSERT INTO principals (id, username, type, display_name, email, github_login, avatar_url, owner_id, raw_yaml, deactivated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO principals (id, username, type, email, github_login, avatar_url, owner_id, raw_yaml, deactivated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username, type=EXCLUDED.type,
-           display_name=EXCLUDED.display_name, email=EXCLUDED.email, github_login=EXCLUDED.github_login,
+           email=EXCLUDED.email, github_login=EXCLUDED.github_login,
            avatar_url=EXCLUDED.avatar_url, owner_id=EXCLUDED.owner_id, raw_yaml=EXCLUDED.raw_yaml,
            deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
-        [rec.id, username, type, display_name, email, github_login, avatar_url, owner_id, rec.raw_yaml, deactivated_at],
+        [
+          rec.id,
+          username,
+          type,
+          email,
+          github_login,
+          avatar_url,
+          owner_id,
+          raw_yaml,
+          deactivated_at,
+        ],
       );
     } else if (rec.node_type === "organization") {
       const slug = String(yamlObj.slug ?? rec.id);
@@ -95,7 +122,8 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
           `Cannot upsert doco ${rec.id}: yaml is missing the required \`handle\` field.`,
         );
       }
-      const name = (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
+      const name =
+        (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
       const visibility = String(yamlObj.visibility ?? "private");
       await c.query(
         `INSERT INTO docos (id, handle, owner_id, name, visibility, raw_yaml)
@@ -114,10 +142,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   }
 }
 
-export async function getEntity(
-  nodeType: string,
-  id: string,
-): Promise<EntityRecord | null> {
+export async function getEntity(nodeType: string, id: string): Promise<EntityRecord | null> {
   const spec = tableFor(nodeType);
   return withClient(async (c) => {
     const r = await c.query(`SELECT * FROM ${spec.table} WHERE id = $1`, [id]);
@@ -165,14 +190,10 @@ function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityReco
   return rec;
 }
 
-
 /** Find a Doco by its `handle` and return its (ULID) id. */
 export async function resolveDocoIdByHandle(handle: string): Promise<string | null> {
   return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id FROM docos WHERE handle = $1`,
-      [handle],
-    );
+    const r = await c.query(`SELECT id FROM docos WHERE handle = $1`, [handle]);
     if (r.rowCount === 0) return null;
     return String(r.rows[0].id);
   });
@@ -222,7 +243,6 @@ export interface PrincipalRow {
   id: string;
   username: string;
   type: string;
-  display_name: string | null;
   email: string | null;
   github_login: string | null;
   raw_yaml: string;
@@ -233,9 +253,9 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
     id: String(row.id),
     username: String(row.username),
     type: String(row.type),
-    display_name: row.display_name === null || row.display_name === undefined ? null : String(row.display_name),
     email: row.email === null || row.email === undefined ? null : String(row.email),
-    github_login: row.github_login === null || row.github_login === undefined ? null : String(row.github_login),
+    github_login:
+      row.github_login === null || row.github_login === undefined ? null : String(row.github_login),
     raw_yaml: String(row.raw_yaml),
   };
 }
@@ -243,7 +263,7 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, type, display_name, email, github_login, raw_yaml FROM principals WHERE id = $1",
+      "SELECT id, username, type, email, github_login, raw_yaml FROM principals WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -254,7 +274,7 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
 export async function getPrincipalByUsername(username: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, type, display_name, email, github_login, raw_yaml FROM principals WHERE username = $1",
+      "SELECT id, username, type, email, github_login, raw_yaml FROM principals WHERE username = $1",
       [username],
     );
     if (r.rowCount === 0) return null;
@@ -269,14 +289,16 @@ export async function getPrincipalByUsername(username: string): Promise<Principa
  */
 export async function listPrincipals(opts: { type?: string } = {}): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
-    const conds: string[] = ["(raw_yaml::jsonb->>'bootstrap_placeholder' IS NULL OR raw_yaml::jsonb->>'bootstrap_placeholder' != 'true')"];
+    const conds: string[] = [
+      "(raw_yaml::jsonb->>'bootstrap_placeholder' IS NULL OR raw_yaml::jsonb->>'bootstrap_placeholder' != 'true')",
+    ];
     const vals: unknown[] = [];
     if (opts.type) {
       vals.push(opts.type);
       conds.push(`type = $${vals.length}`);
     }
     const r = await c.query(
-      `SELECT id, username, type, display_name, email, github_login, raw_yaml
+      `SELECT id, username, type, email, github_login, raw_yaml
        FROM principals WHERE ${conds.join(" AND ")} ORDER BY username`,
       vals,
     );
@@ -335,10 +357,10 @@ export async function listOrganizationsForPrincipal(
 
 export async function isOrgUser(orgId: string, principalId: string): Promise<boolean> {
   return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT 1 FROM org_users WHERE org_id = $1 AND principal_id = $2`,
-      [orgId, principalId],
-    );
+    const r = await c.query(`SELECT 1 FROM org_users WHERE org_id = $1 AND principal_id = $2`, [
+      orgId,
+      principalId,
+    ]);
     return r.rowCount !== null && r.rowCount > 0;
   });
 }
@@ -376,10 +398,10 @@ export async function upsertOrgUser(opts: {
 
 export async function removeOrgUser(orgId: string, principalId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(
-      `DELETE FROM org_users WHERE org_id = $1 AND principal_id = $2`,
-      [orgId, principalId],
-    );
+    await c.query(`DELETE FROM org_users WHERE org_id = $1 AND principal_id = $2`, [
+      orgId,
+      principalId,
+    ]);
   });
 }
 
@@ -467,16 +489,13 @@ export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
       doco_id: String(row.doco_id),
       principal_id: String(row.principal_id),
       role: (toRole(row.role) ?? "reader") as DocoRole,
-      joined_at: row.joined_at instanceof Date
-        ? row.joined_at.toISOString()
-        : String(row.joined_at),
+      joined_at:
+        row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
     }));
   });
 }
 
-export async function listDocoIdsForUserPrincipal(
-  principalId: string,
-): Promise<string[]> {
+export async function listDocoIdsForUserPrincipal(principalId: string): Promise<string[]> {
   return withClient(async (c) => {
     const r = await c.query<{ doco_id: string }>(
       `SELECT doco_id FROM doco_users WHERE principal_id = $1`,
@@ -503,10 +522,10 @@ export async function upsertDocoUser(opts: {
 
 export async function removeDocoUser(docoId: string, principalId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(
-      `DELETE FROM doco_users WHERE doco_id = $1 AND principal_id = $2`,
-      [docoId, principalId],
-    );
+    await c.query(`DELETE FROM doco_users WHERE doco_id = $1 AND principal_id = $2`, [
+      docoId,
+      principalId,
+    ]);
   });
 }
 
@@ -544,9 +563,8 @@ export async function listScopeUsers(scopeId: string): Promise<ScopeUserRow[]> {
       scope_id: String(row.scope_id),
       principal_id: String(row.principal_id),
       role: (toRole(row.role) ?? "reader") as DocoRole,
-      joined_at: row.joined_at instanceof Date
-        ? row.joined_at.toISOString()
-        : String(row.joined_at),
+      joined_at:
+        row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
     }));
   });
 }
@@ -595,10 +613,10 @@ export async function upsertScopeUser(opts: {
 
 export async function removeScopeUser(scopeId: string, principalId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(
-      `DELETE FROM scope_users WHERE scope_id = $1 AND principal_id = $2`,
-      [scopeId, principalId],
-    );
+    await c.query(`DELETE FROM scope_users WHERE scope_id = $1 AND principal_id = $2`, [
+      scopeId,
+      principalId,
+    ]);
   });
 }
 
@@ -684,7 +702,11 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
  */
 export async function resolveOwnerSlug(
   slug: string,
-): Promise<{ kind: "principal"; principal: PrincipalRow } | { kind: "organization"; org: OrganizationRow } | null> {
+): Promise<
+  | { kind: "principal"; principal: PrincipalRow }
+  | { kind: "organization"; org: OrganizationRow }
+  | null
+> {
   const p = await getPrincipalByUsername(slug);
   if (p) return { kind: "principal", principal: p };
   return withClient(async (c) => {

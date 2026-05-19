@@ -54,7 +54,6 @@ export interface Principal extends CommonFields {
   node_type: "principal";
   type: "person" | "agent"; // (kept per ADR-054; not renamed to is_agent)
   username: string;
-  display_name: string;
   github_identity?: GitHubIdentity;
   owner_id?: EntityId<"principal">;
   agent_metadata?: AgentMetadata;
@@ -468,12 +467,7 @@ export interface Reference extends CommonFields {
  * a Rule that is still being authored can sit alongside other drafted
  * nodes (e.g., transition Rules being wired into a draft machine).
  */
-export type RuleLifecycle =
-  | "drafted"
-  | "active"
-  | "proposed"
-  | "abandoned"
-  | "superseded";
+export type RuleLifecycle = "drafted" | "active" | "proposed" | "abandoned" | "superseded";
 
 export interface Scope extends CommonFields {
   node_type: "scope";
@@ -556,7 +550,6 @@ export interface State extends CommonFields {
    */
   invariants?: string[];
 }
-
 
 // ─── Organization (ADR-062) ──────────────────────────────────────────────
 

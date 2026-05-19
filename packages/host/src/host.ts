@@ -1,15 +1,15 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
   type AuthoringPredicate,
   type EntityId,
+  HOST_RESERVED_SLUGS,
   type Organization,
   type Principal,
   generateUlid,
   makeEntityId,
   nowIso,
-  HOST_RESERVED_SLUGS,
   validateDocoSlug,
   validateRequestedDocoId,
 } from "@doco/shared";
@@ -22,10 +22,7 @@ import {
   hostPrincipalsDir,
   hostYamlPath,
 } from "./mode.js";
-import {
-  DEFAULT_SCOPE_TEMPLATES,
-  type ScopeTemplate,
-} from "./scope-templates.js";
+import { DEFAULT_SCOPE_TEMPLATES, type ScopeTemplate } from "./scope-templates.js";
 
 export interface HostConfig {
   id: string; // host_<ulid> — meta-Doco style
@@ -69,7 +66,6 @@ export async function createHost(
       summary: `Host owner ${opts.ownerUsername}.`,
       type: "person",
       username: opts.ownerUsername,
-      display_name: opts.ownerUsername,
       ...(opts.ownerEmail
         ? { github_identity: { github_login: opts.ownerUsername, email: opts.ownerEmail } }
         : { github_identity: { github_login: opts.ownerUsername } }),
@@ -78,11 +74,7 @@ export async function createHost(
       lifecycle: "active",
       scopes: [],
     };
-    await writeFile(
-      join(hostPrincipalsDir(root), `${id}.yaml`),
-      stringifyYaml(principal),
-      "utf8",
-    );
+    await writeFile(join(hostPrincipalsDir(root), `${id}.yaml`), stringifyYaml(principal), "utf8");
     bootstrapId = id;
   }
 
@@ -125,7 +117,7 @@ export async function loadHost(root: string): Promise<HostConfig> {
 // ──────────────────────────────────────────────────────────────────────────
 
 export type OwnerSummary =
-  | { kind: "principal"; id: EntityId<"principal">; slug: string; display_name: string }
+  | { kind: "principal"; id: EntityId<"principal">; slug: string; label: string }
   | { kind: "organization"; id: EntityId<"organization">; slug: string; display_name: string };
 
 export async function listPrincipals(_root: string): Promise<OwnerSummary[]> {
@@ -139,7 +131,7 @@ export async function listPrincipals(_root: string): Promise<OwnerSummary[]> {
     kind: "principal" as const,
     id: row.id as EntityId<"principal">,
     slug: row.username,
-    display_name: row.username,
+    label: row.username,
   }));
 }
 
@@ -181,9 +173,7 @@ function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "d
     return;
   }
   if (!SLUG_PATTERN.test(slug)) {
-    throw new Error(
-      `Invalid ${kind} slug "${slug}" — expected kebab-case [a-z0-9_-]+ (ADR-067).`,
-    );
+    throw new Error(`Invalid ${kind} slug "${slug}" — expected kebab-case [a-z0-9_-]+ (ADR-067).`);
   }
   if (HOST_RESERVED_SLUGS.has(slug)) {
     throw new Error(
@@ -199,8 +189,6 @@ function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "d
 export interface AddPrincipalOptions {
   username: string;
   email?: string;
-  /** Deprecated for human users: username is the display label. */
-  display_name?: string;
   /** GitHub identity captured by the OAuth callback (ADR-095). Optional only for
    *  tests that don't exercise the OAuth flow; production callers always provide it. */
   github_identity?: {
@@ -249,7 +237,6 @@ export async function addPrincipal(
     summary: `User ${opts.username}.`,
     type: "person",
     username: opts.username,
-    display_name: opts.username,
     github_identity: gh,
     created_at: created,
     created_by: id,
@@ -259,22 +246,20 @@ export async function addPrincipal(
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const dup = await c.query(
-      "SELECT 1 FROM principals WHERE username = $1 LIMIT 1",
-      [opts.username],
-    );
+    const dup = await c.query("SELECT 1 FROM principals WHERE username = $1 LIMIT 1", [
+      opts.username,
+    ]);
     if (dup.rows.length > 0) {
       throw new Error(`Slug "${opts.username}" is already taken.`);
     }
     await c.query(
       `INSERT INTO principals
-        (id, username, type, display_name, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, NULL)`,
+        (id, username, type, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, NULL)`,
       [
         id,
         opts.username,
         "human",
-        opts.username,
         opts.email ?? null,
         gh.github_login ?? null,
         null,
@@ -458,7 +443,13 @@ export async function createDocoInHost(
     scopes: [] as string[],
     members:
       owner.kind === "principal"
-        ? [{ principal_id: owner.id, role: "owner", permissions: ["read", "write", "execute", "admin"] }]
+        ? [
+            {
+              principal_id: owner.id,
+              role: "owner",
+              permissions: ["read", "write", "execute", "admin"],
+            },
+          ]
         : [],
     imports: [] as unknown[],
   };
@@ -564,9 +555,7 @@ export interface CreateScopeOptions {
   createdBy: EntityId<"principal"> | null;
 }
 
-export async function createScopeInDoco(
-  opts: CreateScopeOptions,
-): Promise<EntityId<"scope">> {
+export async function createScopeInDoco(opts: CreateScopeOptions): Promise<EntityId<"scope">> {
   const id = makeEntityId("scope", generateUlid()) as EntityId<"scope">;
   const created = nowIso();
   // Fifth framework-native behavior of the Global scope
@@ -643,9 +632,7 @@ export interface CreateRuleOptions {
   createdBy: EntityId<"principal"> | null;
 }
 
-export async function createRuleInDoco(
-  opts: CreateRuleOptions,
-): Promise<EntityId<"rule">> {
+export async function createRuleInDoco(opts: CreateRuleOptions): Promise<EntityId<"rule">> {
   const id = makeEntityId("rule", generateUlid()) as EntityId<"rule">;
   const created = nowIso();
   const lifecycle = opts.lifecycle ?? "active";
@@ -659,8 +646,7 @@ export async function createRuleInDoco(
     summary: opts.summary,
     kind,
     ...(opts.predicate ? { predicate: opts.predicate } : {}),
-    ...(Array.isArray(opts.fires_when_node_lifecycle) &&
-    opts.fires_when_node_lifecycle.length > 0
+    ...(Array.isArray(opts.fires_when_node_lifecycle) && opts.fires_when_node_lifecycle.length > 0
       ? { fires_when_node_lifecycle: opts.fires_when_node_lifecycle }
       : {}),
     created_at: created,
@@ -714,10 +700,10 @@ export async function createRuleInDoco(
           : [];
         if (!existing.includes(id)) {
           fm.gated_by = [...existing, id];
-          await c.query(
-            "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
-            [JSON.stringify(fm), opts.scopeId],
-          );
+          await c.query("UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2", [
+            JSON.stringify(fm),
+            opts.scopeId,
+          ]);
         }
       }
     }
@@ -745,9 +731,7 @@ export interface CreateIntentOptions {
   createdBy: EntityId<"principal"> | null;
 }
 
-export async function createIntentInDoco(
-  opts: CreateIntentOptions,
-): Promise<EntityId<"intent">> {
+export async function createIntentInDoco(opts: CreateIntentOptions): Promise<EntityId<"intent">> {
   const id = makeEntityId("intent", generateUlid()) as EntityId<"intent">;
   const created = nowIso();
   const lifecycle = opts.lifecycle ?? "active";
@@ -839,10 +823,10 @@ export async function seedScopeFromTemplate(opts: {
         }
       }
       fm.default_node_lifecycle = opts.template.default_node_lifecycle;
-      await c.query(
-        "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
-        [JSON.stringify(fm), opts.scopeId],
-      );
+      await c.query("UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2", [
+        JSON.stringify(fm),
+        opts.scopeId,
+      ]);
     });
   }
   return { ruleIds };
@@ -880,10 +864,10 @@ export async function setScopeWatchedInDoco(opts: {
     if (opts.watched === wasWatched) return;
     if (opts.watched) yaml.watched = true;
     else delete yaml.watched;
-    await c.query(
-      "UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2",
-      [JSON.stringify(yaml), opts.targetScopeId],
-    );
+    await c.query("UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2", [
+      JSON.stringify(yaml),
+      opts.targetScopeId,
+    ]);
   });
 }
 
@@ -897,10 +881,9 @@ export async function readScopeWatchedInDoco(opts: {
 }): Promise<boolean> {
   const { withClient } = await import("@doco/db");
   const r = await withClient((c) =>
-    c.query<{ raw_yaml: string }>(
-      "SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
-      [opts.targetScopeId],
-    ),
+    c.query<{ raw_yaml: string }>("SELECT raw_yaml FROM scopes WHERE id = $1 LIMIT 1", [
+      opts.targetScopeId,
+    ]),
   );
   if (!r.rows[0]) return false;
   try {
@@ -927,9 +910,7 @@ export async function readScopeWatchedInDoco(opts: {
  * `#`-prefixed segments (root → leaf). Invalid lines are returned verbatim
  * so the caller can surface them.
  */
-export function parseScopeNamesInput(
-  input: string,
-): { valid: string[][]; invalid: string[] } {
+export function parseScopeNamesInput(input: string): { valid: string[][]; invalid: string[] } {
   const SEG_RE = /^#[a-z][a-z0-9_-]*$/;
   const seenPath = new Set<string>();
   const valid: string[][] = [];
@@ -1069,7 +1050,10 @@ export async function migrateScopesInDoco(opts: {
   let created = 0;
   let renamed = 0;
   for (const s of slashed) {
-    const segments = s.name.split("/").map((x) => x.trim()).filter(Boolean);
+    const segments = s.name
+      .split("/")
+      .map((x) => x.trim())
+      .filter(Boolean);
     if (segments.length < 2) continue;
     // Walk segments root → leaf, ensuring each exists.
     let parentId: EntityId<"scope"> | null = null;
@@ -1095,9 +1079,10 @@ export async function migrateScopesInDoco(opts: {
     const leafName = segments[segments.length - 1]!;
     s.yaml.name = leafName;
     const existingScopes = Array.isArray(s.yaml.scopes) ? (s.yaml.scopes as string[]) : [];
-    s.yaml.scopes = parentId && !existingScopes.includes(parentId)
-      ? [parentId, ...existingScopes]
-      : existingScopes;
+    s.yaml.scopes =
+      parentId && !existingScopes.includes(parentId)
+        ? [parentId, ...existingScopes]
+        : existingScopes;
     // Refresh summary if it was the auto-generated "Scope: <slash-name>".
     if (typeof s.yaml.summary === "string" && s.yaml.summary === `Scope: ${s.name}`) {
       s.yaml.summary = `Scope: ${leafName}`;
@@ -1221,7 +1206,11 @@ export interface UpdateDocoOptions {
 }
 
 export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
-  if (opts.visibility !== undefined && opts.visibility !== "private" && opts.visibility !== "public") {
+  if (
+    opts.visibility !== undefined &&
+    opts.visibility !== "private" &&
+    opts.visibility !== "public"
+  ) {
     throw new Error(`visibility must be "private" or "public", got: ${opts.visibility}`);
   }
   const { handle } = opts;
@@ -1279,10 +1268,7 @@ export async function renameDocoHandle(opts: {
       [oldHandle],
     );
     if (!cur.rows[0]) throw new Error(`Doco "${oldHandle}" not found.`);
-    const dup = await c.query(
-      "SELECT 1 FROM docos WHERE handle = $1 LIMIT 1",
-      [newHandle],
-    );
+    const dup = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [newHandle]);
     if (dup.rows[0]) throw new Error(`Doco "${newHandle}" already exists.`);
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
     yaml.handle = newHandle;
@@ -1432,10 +1418,10 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
   for (const template of DEFAULT_SCOPE_TEMPLATES) {
     // 1. Find the scope (by name) on this Doco.
     const scopeRow = await withClient((c) =>
-      c.query<{ id: string }>(
-        "SELECT id FROM scopes WHERE doco_id = $1 AND name = $2 LIMIT 1",
-        [opts.docoId, template.name],
-      ),
+      c.query<{ id: string }>("SELECT id FROM scopes WHERE doco_id = $1 AND name = $2 LIMIT 1", [
+        opts.docoId,
+        template.name,
+      ]),
     );
     if (scopeRow.rows.length === 0) continue;
     const scopeId = scopeRow.rows[0]!.id as EntityId<"scope">;
@@ -1486,10 +1472,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       // authoring rule is one with a predicate.
       const predicate = fm.predicate as AuthoringPredicate | undefined;
       if (predicate) {
-        if (
-          template.name === "#user-flows" &&
-          isStaleUserFlowsAuthoringPredicate(predicate)
-        ) {
+        if (template.name === "#user-flows" && isStaleUserFlowsAuthoringPredicate(predicate)) {
           staleRuleRows.push(row);
         }
         existingAuthoringFingerprints.add(fingerprint(predicate));
@@ -1600,8 +1583,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
           currentSummary === `Scope: ${template.name}` ||
           (template.name === "#user-flows" &&
             STALE_USER_FLOWS_INTENT_SUMMARIES.has(currentSummary)) ||
-          (template.name === "#global" &&
-            STALE_GLOBAL_INTENT_SUMMARIES.has(currentSummary));
+          (template.name === "#global" && STALE_GLOBAL_INTENT_SUMMARIES.has(currentSummary));
         let scopeChanged = false;
         if (isBoilerplate) {
           fm.summary = template.summary;
@@ -1655,8 +1637,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
           }
         }
         if (scopeChanged) {
-          const summaryToWrite =
-            typeof fm.summary === "string" ? fm.summary : currentSummary;
+          const summaryToWrite = typeof fm.summary === "string" ? fm.summary : currentSummary;
           await withClient(async (c) => {
             await c.query(
               "UPDATE scopes SET raw_yaml = $1, summary = $2, updated_at = now() WHERE id = $3",
