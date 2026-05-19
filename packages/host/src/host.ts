@@ -523,6 +523,25 @@ export async function createDocoInHost(
     ),
   );
 
+  // Stamp the creator as the owner in `doco_users` so downstream
+  // role + listing queries find them. `listDocoIdsForUserPrincipal`
+  // (used by the OAuth authorize page + the dashboard's "your docos"
+  // panel) reads from this table, not from `docos.owner_id` — a fresh
+  // creator who isn't grandfathered in by the v8 backfill is otherwise
+  // invisible to those queries. Org-owned docos rely on org_users for
+  // role resolution instead, so we only add a per-principal row when
+  // the owner is itself a principal.
+  if (owner.kind === "principal") {
+    await withClient((c) =>
+      c.query(
+        `INSERT INTO doco_users (doco_id, principal_id, role)
+         VALUES ($1, $2, 'owner')
+         ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
+        [docoId, owner.id],
+      ),
+    );
+  }
+
   const createdBy = owner.kind === "principal" ? owner.id : null;
   // Auto-install every template flagged `auto_install: true` — keeps
   // the install set evolvable without name-driven branching here
