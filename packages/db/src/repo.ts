@@ -296,7 +296,7 @@ export async function listOrganizations(): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT o.id, o.slug, o.name, o.raw_yaml,
-              COALESCE((SELECT count(*) FROM org_members m WHERE m.org_id = o.id), 0) AS member_count
+              COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o ORDER BY o.slug`,
     );
     return r.rows.map((row) => ({
@@ -316,9 +316,9 @@ export async function listOrganizationsForPrincipal(
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT o.id, o.slug, o.name, o.raw_yaml,
-              COALESCE((SELECT count(*) FROM org_members m WHERE m.org_id = o.id), 0) AS member_count
+              COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o
-       JOIN org_members m ON m.org_id = o.id
+       JOIN org_users m ON m.org_id = o.id
        WHERE m.principal_id = $1 AND m.role = ANY($2)
        ORDER BY o.slug`,
       [principalId, roles],
@@ -333,10 +333,10 @@ export async function listOrganizationsForPrincipal(
   });
 }
 
-export async function isOrgMember(orgId: string, principalId: string): Promise<boolean> {
+export async function isOrgUser(orgId: string, principalId: string): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT 1 FROM org_members WHERE org_id = $1 AND principal_id = $2`,
+      `SELECT 1 FROM org_users WHERE org_id = $1 AND principal_id = $2`,
       [orgId, principalId],
     );
     return r.rowCount !== null && r.rowCount > 0;
@@ -352,21 +352,21 @@ export async function isOrgMember(orgId: string, principalId: string): Promise<b
 export async function isOrgAdmin(orgId: string, principalId: string): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT 1 FROM org_members WHERE org_id = $1 AND principal_id = $2 AND role = 'owner'`,
+      `SELECT 1 FROM org_users WHERE org_id = $1 AND principal_id = $2 AND role = 'owner'`,
       [orgId, principalId],
     );
     return r.rowCount !== null && r.rowCount > 0;
   });
 }
 
-export async function upsertOrgMember(opts: {
+export async function upsertOrgUser(opts: {
   org_id: string;
   principal_id: string;
   role: DocoRole;
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO org_members (org_id, principal_id, role)
+      `INSERT INTO org_users (org_id, principal_id, role)
        VALUES ($1, $2, $3)
        ON CONFLICT (org_id, principal_id) DO UPDATE SET role=EXCLUDED.role`,
       [opts.org_id, opts.principal_id, opts.role],
@@ -416,7 +416,7 @@ export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | n
 export async function getOrgRole(orgId: string, principalId: string): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM org_members WHERE org_id = $1 AND principal_id = $2`,
+      `SELECT role FROM org_users WHERE org_id = $1 AND principal_id = $2`,
       [orgId, principalId],
     );
     if (r.rowCount === 0) return null;
@@ -424,22 +424,22 @@ export async function getOrgRole(orgId: string, principalId: string): Promise<Do
   });
 }
 
-// ─── doco_members ──────────────────────────────────────────────────────────
+// ─── doco_users ────────────────────────────────────────────────────────────
 
-export interface DocoMemberRow {
+export interface DocoUserRow {
   doco_id: string;
   principal_id: string;
   role: DocoRole;
   joined_at: string;
 }
 
-export async function getDocoMemberRole(
+export async function getDocoUserRole(
   docoId: string,
   principalId: string,
 ): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM doco_members WHERE doco_id = $1 AND principal_id = $2`,
+      `SELECT role FROM doco_users WHERE doco_id = $1 AND principal_id = $2`,
       [docoId, principalId],
     );
     if (r.rowCount === 0) return null;
@@ -447,10 +447,10 @@ export async function getDocoMemberRole(
   });
 }
 
-export async function listDocoMembers(docoId: string): Promise<DocoMemberRow[]> {
+export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT doco_id, principal_id, role, joined_at FROM doco_members
+      `SELECT doco_id, principal_id, role, joined_at FROM doco_users
        WHERE doco_id = $1 ORDER BY joined_at`,
       [docoId],
     );
@@ -465,26 +465,26 @@ export async function listDocoMembers(docoId: string): Promise<DocoMemberRow[]> 
   });
 }
 
-export async function listDocoIdsForPrincipalMember(
+export async function listDocoIdsForUserPrincipal(
   principalId: string,
 ): Promise<string[]> {
   return withClient(async (c) => {
     const r = await c.query<{ doco_id: string }>(
-      `SELECT doco_id FROM doco_members WHERE principal_id = $1`,
+      `SELECT doco_id FROM doco_users WHERE principal_id = $1`,
       [principalId],
     );
     return r.rows.map((row) => String(row.doco_id));
   });
 }
 
-export async function upsertDocoMember(opts: {
+export async function upsertDocoUser(opts: {
   doco_id: string;
   principal_id: string;
   role: DocoRole;
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO doco_members (doco_id, principal_id, role)
+      `INSERT INTO doco_users (doco_id, principal_id, role)
        VALUES ($1, $2, $3)
        ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
       [opts.doco_id, opts.principal_id, opts.role],
@@ -492,31 +492,31 @@ export async function upsertDocoMember(opts: {
   });
 }
 
-export async function removeDocoMember(docoId: string, principalId: string): Promise<void> {
+export async function removeDocoUser(docoId: string, principalId: string): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `DELETE FROM doco_members WHERE doco_id = $1 AND principal_id = $2`,
+      `DELETE FROM doco_users WHERE doco_id = $1 AND principal_id = $2`,
       [docoId, principalId],
     );
   });
 }
 
-// ─── scope_members ─────────────────────────────────────────────────────────
+// ─── scope_users ───────────────────────────────────────────────────────────
 
-export interface ScopeMemberRow {
+export interface ScopeUserRow {
   scope_id: string;
   principal_id: string;
   role: DocoRole;
   joined_at: string;
 }
 
-export async function getScopeMemberRole(
+export async function getScopeUserRole(
   scopeId: string,
   principalId: string,
 ): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM scope_members WHERE scope_id = $1 AND principal_id = $2`,
+      `SELECT role FROM scope_users WHERE scope_id = $1 AND principal_id = $2`,
       [scopeId, principalId],
     );
     if (r.rowCount === 0) return null;
@@ -524,10 +524,10 @@ export async function getScopeMemberRole(
   });
 }
 
-export async function listScopeMembers(scopeId: string): Promise<ScopeMemberRow[]> {
+export async function listScopeUsers(scopeId: string): Promise<ScopeUserRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT scope_id, principal_id, role, joined_at FROM scope_members
+      `SELECT scope_id, principal_id, role, joined_at FROM scope_users
        WHERE scope_id = $1 ORDER BY joined_at`,
       [scopeId],
     );
@@ -549,7 +549,7 @@ export async function listScopeIdsWithGrant(
 ): Promise<string[]> {
   return withClient(async (c) => {
     const r = await c.query<{ scope_id: string }>(
-      `SELECT m.scope_id FROM scope_members m
+      `SELECT m.scope_id FROM scope_users m
        JOIN scopes s ON s.id = m.scope_id
        WHERE s.doco_id = $1 AND m.principal_id = $2`,
       [docoId, principalId],
@@ -558,14 +558,14 @@ export async function listScopeIdsWithGrant(
   });
 }
 
-export async function upsertScopeMember(opts: {
+export async function upsertScopeUser(opts: {
   scope_id: string;
   principal_id: string;
   role: DocoRole;
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO scope_members (scope_id, principal_id, role)
+      `INSERT INTO scope_users (scope_id, principal_id, role)
        VALUES ($1, $2, $3)
        ON CONFLICT (scope_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
       [opts.scope_id, opts.principal_id, opts.role],
@@ -573,10 +573,10 @@ export async function upsertScopeMember(opts: {
   });
 }
 
-export async function removeScopeMember(scopeId: string, principalId: string): Promise<void> {
+export async function removeScopeUser(scopeId: string, principalId: string): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `DELETE FROM scope_members WHERE scope_id = $1 AND principal_id = $2`,
+      `DELETE FROM scope_users WHERE scope_id = $1 AND principal_id = $2`,
       [scopeId, principalId],
     );
   });
@@ -670,7 +670,7 @@ export async function resolveOwnerSlug(
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id, slug, name, raw_yaml,
-              COALESCE((SELECT count(*) FROM org_members m WHERE m.org_id = organizations.id), 0) AS member_count
+              COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = organizations.id), 0) AS member_count
        FROM organizations WHERE slug = $1`,
       [slug],
     );

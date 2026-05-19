@@ -337,7 +337,7 @@ export async function addOrganization(
       [id, opts.slug, opts.display_name ?? opts.slug, JSON.stringify(yaml), created],
     );
     await c.query(
-      `INSERT INTO org_members (org_id, principal_id, role, joined_at)
+      `INSERT INTO org_users (org_id, principal_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
       [id, owner.id, created],
     );

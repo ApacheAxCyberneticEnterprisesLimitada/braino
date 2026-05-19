@@ -23,6 +23,48 @@ CREATE TABLE IF NOT EXISTS doco_meta (
 );
 INSERT INTO doco_meta (key, value) VALUES ('schema_version', '1') ON CONFLICT DO NOTHING;
 
+-- v9 rename: per the constitution's "use 'user' as the inclusive term"
+-- rule, the membership tables drop the legacy "_members" suffix and read
+-- as "_users". Tables, indexes, and CHECK constraints rename in one
+-- idempotent DO block — ALTER ... IF EXISTS so fresh DBs no-op cleanly.
+-- This block MUST run before any CREATE TABLE that references the new
+-- names; on existing DBs it renames first, then those CREATEs are noops.
+DO $v9_user_rename$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'doco_members') THEN
+    ALTER TABLE doco_members RENAME TO doco_users;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'doco_members_principal_idx') THEN
+    ALTER INDEX doco_members_principal_idx RENAME TO doco_users_principal_idx;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'scope_members') THEN
+    ALTER TABLE scope_members RENAME TO scope_users;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'scope_members_principal_idx') THEN
+    ALTER INDEX scope_members_principal_idx RENAME TO scope_users_principal_idx;
+  END IF;
+
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_members') THEN
+    ALTER TABLE org_members RENAME TO org_users;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'org_members_principal_idx') THEN
+    ALTER INDEX org_members_principal_idx RENAME TO org_users_principal_idx;
+  END IF;
+
+  -- Constraints don't auto-rename when tables rename.
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'org_members_role_check') THEN
+    ALTER TABLE org_users RENAME CONSTRAINT org_members_role_check TO org_users_role_check;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'doco_members_role_check') THEN
+    ALTER TABLE doco_users RENAME CONSTRAINT doco_members_role_check TO doco_users_role_check;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'scope_members_role_check') THEN
+    ALTER TABLE scope_users RENAME CONSTRAINT scope_members_role_check TO scope_users_role_check;
+  END IF;
+END
+$v9_user_rename$;
+
 -- Host config (singleton row at id='host'). Replaces <root>/host.yaml
 -- (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids back-compat).
 CREATE TABLE IF NOT EXISTS hosts (
@@ -60,16 +102,17 @@ CREATE TABLE IF NOT EXISTS organizations (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Organization membership (replaces members[] array inside organizations.yaml).
--- Must come after both `principals` and `organizations` — its FKs reference them.
-CREATE TABLE IF NOT EXISTS org_members (
+-- Organization users (per-org role grants). Pre-v9 this table was named
+-- `org_members`; the v9 rename DO block at the top of this file renames
+-- existing installs in place. Fresh installs land here directly.
+CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (org_id, principal_id)
 );
-CREATE INDEX IF NOT EXISTS org_members_principal_idx ON org_members (principal_id, role);
+CREATE INDEX IF NOT EXISTS org_users_principal_idx ON org_users (principal_id, role);
 
 -- Slug removal — every Doco has a single human-readable identifier:
 -- `handle`. It lives in the same flat global namespace as the
@@ -433,47 +476,45 @@ DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 -- Author-role writes default to lifecycle `proposed`; only approver+ can
 -- transition. #global constitution edits require doco-level owner.
 
--- Widen org_members.role CHECK to the new 4-role enum. Pre-existing rows
+-- Widen org_users.role CHECK to the new 4-role enum. Pre-existing rows
 -- (owner|admin|member) collapse to 'owner' per the alpha-cutover posture.
--- Idempotent.
+-- Idempotent — DROP IF EXISTS covers both the legacy `org_members_role_check`
+-- name (pre-v9) and the new `org_users_role_check`.
 DO $org_role_widen$
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'org_members_role_check'
-  ) THEN
-    ALTER TABLE org_members DROP CONSTRAINT org_members_role_check;
-  END IF;
-  UPDATE org_members SET role = 'owner' WHERE role IN ('admin', 'member');
-  ALTER TABLE org_members
-    ADD CONSTRAINT org_members_role_check
+  ALTER TABLE org_users DROP CONSTRAINT IF EXISTS org_members_role_check;
+  ALTER TABLE org_users DROP CONSTRAINT IF EXISTS org_users_role_check;
+  UPDATE org_users SET role = 'owner' WHERE role IN ('admin', 'member');
+  ALTER TABLE org_users
+    ADD CONSTRAINT org_users_role_check
     CHECK (role IN ('owner', 'approver', 'author', 'reader'));
 END
 $org_role_widen$;
 
--- Per-doco membership. Replaces the binary "any SessionToken bound to
+-- Per-doco user grants. Replaces the binary "any SessionToken bound to
 -- this Doco = full admin" gate that doco-access.server.ts used pre-cutover.
 -- Backfill writes one row per (principal, bound_doco_id) discovered in
--- the session-token blob with role='owner' (runV8Migration).
-CREATE TABLE IF NOT EXISTS doco_members (
+-- the session-token blob with role='owner' (see v8 DO block below).
+CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (doco_id, principal_id)
 );
-CREATE INDEX IF NOT EXISTS doco_members_principal_idx ON doco_members (principal_id, role);
+CREATE INDEX IF NOT EXISTS doco_users_principal_idx ON doco_users (principal_id, role);
 
--- Per-scope membership. Layers on top of doco_members. A scope-only grant
--- (no doco_members row for this principal+doco) implies doco-reader
+-- Per-scope user grants. Layers on top of doco_users. A scope-only grant
+-- (no doco_users row for this principal+doco) implies doco-reader
 -- visibility per decision_01KS0JBJ5X0AZ4XJJFKEWE1R62.
-CREATE TABLE IF NOT EXISTS scope_members (
+CREATE TABLE IF NOT EXISTS scope_users (
   scope_id      text NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
   principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (scope_id, principal_id)
 );
-CREATE INDEX IF NOT EXISTS scope_members_principal_idx ON scope_members (principal_id, role);
+CREATE INDEX IF NOT EXISTS scope_users_principal_idx ON scope_users (principal_id, role);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Token store (session tokens + CLI authorizations). Alpha keeps this as a
@@ -486,21 +527,23 @@ CREATE TABLE IF NOT EXISTS tokens_blob (
 );
 
 -- v8 backfill (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62): every active SessionToken
--- bound to a Doco grandfathers its principal into doco_members with role='owner'
--- so the cutover loses no existing collaborator access. Runs once per host
--- (gated on doco_meta.v8_doco_members_backfill); subsequent invite redemptions
--- write doco_members directly. ON CONFLICT DO NOTHING so manual role changes
--- made after the first run are not stomped.
+-- bound to a Doco grandfathers its principal into doco_users with role='owner'
+-- so the cutover loses no existing user access. Runs once per host
+-- (gated on doco_meta.v8_doco_users_backfill, with a legacy compat check
+-- for the pre-v9 'v8_doco_members_backfill' key); subsequent invite
+-- redemptions write doco_users directly. ON CONFLICT DO NOTHING so manual
+-- role changes made after the first run are not stomped.
 DO $v8_backfill$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM doco_meta
-    WHERE key = 'v8_doco_members_backfill' AND value = 'done'
+    WHERE key IN ('v8_doco_users_backfill', 'v8_doco_members_backfill')
+      AND value = 'done'
   ) THEN
     RETURN;
   END IF;
 
-  INSERT INTO doco_members (doco_id, principal_id, role)
+  INSERT INTO doco_users (doco_id, principal_id, role)
   SELECT DISTINCT
     (tok->>'bound_doco_id'),
     (tok->>'principal_id'),
@@ -516,7 +559,7 @@ BEGIN
   ON CONFLICT (doco_id, principal_id) DO NOTHING;
 
   INSERT INTO doco_meta (key, value)
-  VALUES ('v8_doco_members_backfill', 'done')
+  VALUES ('v8_doco_users_backfill', 'done')
   ON CONFLICT (key) DO UPDATE SET value = 'done';
 END
 $v8_backfill$;
