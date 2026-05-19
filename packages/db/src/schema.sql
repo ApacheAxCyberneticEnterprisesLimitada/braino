@@ -561,14 +561,141 @@ CREATE TABLE IF NOT EXISTS scope_users (
 CREATE INDEX IF NOT EXISTS scope_users_principal_idx ON scope_users (principal_id, role);
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Token store (session tokens + CLI authorizations). Alpha keeps this as a
--- host-scoped JSON blob; move to one-row-per-token tables once the surface
--- stabilizes.
+-- Legacy token store. Kept as an empty shell so the v12 cutover
+-- migration below can empty its `tokens` array idempotently. The
+-- DOCO_ACCESS-bearer code path is gone (decision_01KS14CW9ZN23FF5CGG0Z7TH4G);
+-- the table can be dropped entirely once we're sure no historical
+-- data needs migration.
 CREATE TABLE IF NOT EXISTS tokens_blob (
   key        text PRIMARY KEY,
   blob       jsonb NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- OAuth 2.1 server (decision_01KS14CW9ZN23FF5CGG0Z7TH4G).
+--
+-- Replaces the DOCO_ACCESS-bearer-in-.env transport with a standard
+-- MCP-OAuth handshake. The MCP server at /mcp returns
+-- WWW-Authenticate: Bearer + resource_metadata pointer on 401; the
+-- runtime discovers our /.well-known/oauth-authorization-server +
+-- /.well-known/oauth-protected-resource endpoints, dynamically
+-- registers itself (RFC 7591), opens the authorize URL in the user's
+-- browser, exchanges the authorization code (+ PKCE verifier) for an
+-- access + refresh token, and attaches Bearer on every subsequent
+-- request.
+
+-- Dynamically registered MCP clients (RFC 7591). One row per
+-- registered runtime instance — Claude Code on machine A is a
+-- different `client_id` than Claude Code on machine B because each
+-- runtime issues its own registration request from its own keystore.
+-- `client_secret` is NULL: OAuth 2.1 mandates PKCE for public
+-- clients and forbids issuing secrets to anything that can't keep
+-- them.
+CREATE TABLE IF NOT EXISTS oauth_clients (
+  client_id        text PRIMARY KEY,
+  client_name      text,
+  redirect_uris    text[] NOT NULL,
+  grant_types      text[] NOT NULL DEFAULT ARRAY['authorization_code','refresh_token'],
+  response_types   text[] NOT NULL DEFAULT ARRAY['code'],
+  token_endpoint_auth_method text NOT NULL DEFAULT 'none',
+  software_id      text,
+  software_version text,
+  registered_at    timestamptz NOT NULL DEFAULT now()
+);
+
+-- Short-lived authorization codes (~60s TTL). Issued at /oauth/authorize
+-- after the user approves the client, consumed at /oauth/token in
+-- exchange for an access + refresh token. PKCE binds the code to the
+-- runtime that requested it: `code_challenge` is the S256 hash of the
+-- verifier the runtime stored locally; /oauth/token rejects the
+-- exchange unless the verifier matches.
+--
+-- `granted_doco_ids` is the set of Docos the user approved this
+-- client to access. Empty array means doco-level approval is pending
+-- (rare path; we always require at least one Doco today).
+CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
+  code                  text PRIMARY KEY,
+  client_id             text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  principal_id          text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  redirect_uri          text NOT NULL,
+  code_challenge        text NOT NULL,
+  code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
+  granted_doco_ids      text[] NOT NULL,
+  scope                 text,
+  expires_at            timestamptz NOT NULL,
+  consumed_at           timestamptz,
+  created_at            timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS oauth_authorization_codes_expires_idx
+  ON oauth_authorization_codes (expires_at);
+
+-- Access tokens (~1h TTL). Opaque, server-issued, validated on every
+-- MCP / API request by exact match. We don't use JWTs: tokens are
+-- single-tenant (this host issues + validates them) and revocation
+-- needs to be instantaneous, which JWT TTLs can't guarantee.
+CREATE TABLE IF NOT EXISTS oauth_access_tokens (
+  token             text PRIMARY KEY,
+  client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  granted_doco_ids  text[] NOT NULL,
+  scope             text,
+  expires_at        timestamptz NOT NULL,
+  revoked           boolean NOT NULL DEFAULT false,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS oauth_access_tokens_principal_idx
+  ON oauth_access_tokens (principal_id, revoked);
+CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
+  ON oauth_access_tokens (expires_at);
+
+-- Refresh tokens (long-lived; 60-day default). Used by the runtime
+-- when the access token expires; one round-trip to /oauth/token with
+-- grant_type=refresh_token mints a fresh access token without
+-- re-prompting the user.
+--
+-- Rotated on every refresh (the old token is marked revoked when a
+-- new one is issued) to limit blast radius if a refresh token leaks.
+CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
+  token             text PRIMARY KEY,
+  client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  granted_doco_ids  text[] NOT NULL,
+  scope             text,
+  expires_at        timestamptz NOT NULL,
+  revoked           boolean NOT NULL DEFAULT false,
+  superseded_by     text REFERENCES oauth_refresh_tokens(token) ON DELETE SET NULL,
+  created_at        timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_principal_idx
+  ON oauth_refresh_tokens (principal_id, revoked);
+CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
+  ON oauth_refresh_tokens (expires_at);
+
+-- v12 hard cutover: invalidate every legacy SessionToken in tokens_blob
+-- the moment OAuth ships. Previous DOCO_ACCESS bearers stop working;
+-- runtimes get a 401 + WWW-Authenticate and kick off the OAuth flow.
+-- Gated on doco_meta.v12_doco_access_cutover so repeated boots no-op.
+-- The doco_users grants stay intact (the v8 backfill already
+-- preserved them) — only the bearer credentials themselves are voided.
+DO $v12_doco_access_cutover$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v12_doco_access_cutover' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+  -- Empty the tokens_blob array (preserving any future shape). All
+  -- subsequent reads return 0 tokens; nothing relies on these for
+  -- authn anymore.
+  UPDATE tokens_blob
+     SET blob = jsonb_set(blob, '{tokens}', '[]'::jsonb)
+   WHERE blob ? 'tokens';
+  INSERT INTO doco_meta (key, value)
+  VALUES ('v12_doco_access_cutover', 'done')
+  ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v12_doco_access_cutover$;
 
 -- v8 backfill (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62): every active SessionToken
 -- bound to a Doco grandfathers its principal into doco_users with role='owner'
