@@ -32,21 +32,22 @@ afterEach(async () => {
 });
 
 describe("host lifecycle", () => {
-  it("keeps global template intent copy on lowercase doco language", () => {
+  it("global template description names the rules-only constitution", () => {
     const tpl = findScopeTemplate("global");
 
-    expect(tpl?.intentSummary).toBe(
-      "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
+    expect(tpl?.summary).toBe(
+      "Durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere. Only Rules live here.",
     );
+    expect(tpl?.allowed_node_types).toEqual(["rule"]);
   });
 
   it("keeps user-flows template picker copy concise", () => {
     const tpl = findScopeTemplate("user-flows");
 
-    expect(tpl?.intentSummary).toBe(
+    expect(tpl?.summary).toBe(
       "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     );
-    expect(tpl?.intentSummary.length).toBeLessThan(90);
+    expect(tpl?.summary.length).toBeLessThan(90);
   });
 
   it("seeds deterministic principal rules for user-flows", () => {

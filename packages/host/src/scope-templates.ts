@@ -14,12 +14,18 @@
  * the leading `#` is part of the canonical name on every surface.
  *
  * Each template ships:
- * - `intentSummary` — the stakeholder outcome the scope serves. Becomes
- *   a real Intent entity at install time.
+ * - `summary` — the description text rendered under the scope name on
+ *   every surface (list card, detail page, bootstrap manifest). Written
+ *   directly onto the Scope row's `summary` column at install time.
  * - `rules` — atomic Rule entities tagged with the scope. A Rule with a
  *   `predicate` becomes an authoring rule the engine evaluates; the
  *   seeder writes the Rule's id into the scope's `gated_by` so the
  *   citation drives evaluation, not a flag on the Rule itself (per v7).
+ * - `allowed_node_types` (optional) — a generic scope attribute that
+ *   restricts which node types can be tagged into the scope. #global
+ *   ships with `["rule"]` so the doco's constitution is a pure rule book;
+ *   the framework rejects POSTs of any other node type whose `scopes`
+ *   list names this scope.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
@@ -66,11 +72,21 @@ export interface ScopeTemplate {
   label: string;
   /** Recommended single-emoji icon. */
   icon: string;
-  /** Stakeholder outcome the scope serves. Seeded as a real Intent
-   * entity at install time. */
-  intentSummary: string;
+  /** Description text rendered under the scope name on every surface
+   * (list card, detail page, bootstrap manifest). Written directly onto
+   * the Scope row's `summary` column at install time. */
+  summary: string;
   /** Atomic rules seeded at install time. */
   rules: TemplateRule[];
+  /**
+   * Generic scope attribute that restricts which node types are accepted
+   * into the scope. When set, captures of any node whose `scopes` list
+   * names this scope must have a `node_type` in this allowlist; others
+   * are rejected. #global ships with `["rule"]` so the constitution is a
+   * pure rule book. Drives behavior without any name-based check (per
+   * rule_01KRRVPBS07HDBCXY6TJ5A5TAT).
+   */
+  allowed_node_types?: ("decision" | "intent" | "action" | "rule" | "log" | "eval" | "reference" | "idea" | "state")[];
   /**
    * v7: when set, captures into this scope (or descendants) default
    * the new node's `lifecycle` to this value unless the author
@@ -109,8 +125,9 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     icon: "🌐",
     auto_install: true,
     auto_install_watched: true,
-    intentSummary:
-      "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
+    summary:
+      "Durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere. Only Rules live here.",
+    allowed_node_types: ["rule"],
     rules: [
       {
         kind: "guidance",
@@ -141,18 +158,18 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     icon: "⭐",
     auto_install: true,
     auto_install_watched: true,
-    intentSummary:
+    summary:
       "Important Doco-wide decisions that do not naturally fit a more specific subject-area scope.",
     rules: [],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the #user-flows template
     // collapses from six guidance rules to deterministic authoring
-    // rules + a concise intentSummary for picker/manifest surfaces.
+    // rules + a concise summary for picker/manifest surfaces.
     name: "#user-flows",
     label: "#user-flows",
     icon: "🌊",
-    intentSummary: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
+    summary: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     rules: [
       {
         // Membership check: probabilistic semantic gate, with a
@@ -272,7 +289,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     name: "#state-machines",
     label: "#state-machines",
     icon: "🔁",
-    intentSummary:
+    summary:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
     default_node_lifecycle: "drafted",
     rules: [
