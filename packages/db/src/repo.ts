@@ -374,6 +374,15 @@ export async function upsertOrgUser(opts: {
   });
 }
 
+export async function removeOrgUser(orgId: string, principalId: string): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      `DELETE FROM org_users WHERE org_id = $1 AND principal_id = $2`,
+      [orgId, principalId],
+    );
+  });
+}
+
 // ─── Role primitives (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62) ─────────────────
 
 export type DocoRole = "owner" | "approver" | "author" | "reader";
@@ -553,6 +562,17 @@ export async function listScopeIdsWithGrant(
        JOIN scopes s ON s.id = m.scope_id
        WHERE s.doco_id = $1 AND m.principal_id = $2`,
       [docoId, principalId],
+    );
+    return r.rows.map((row) => String(row.scope_id));
+  });
+}
+
+/** Every scope id where `principalId` has an explicit scope_users row, across all docos. */
+export async function listScopeIdsForUserPrincipal(principalId: string): Promise<string[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ scope_id: string }>(
+      `SELECT scope_id FROM scope_users WHERE principal_id = $1`,
+      [principalId],
     );
     return r.rows.map((row) => String(row.scope_id));
   });
