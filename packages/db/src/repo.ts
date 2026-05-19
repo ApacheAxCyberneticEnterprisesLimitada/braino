@@ -35,7 +35,7 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   const vals: unknown[] = [
     rec.id,
     rec.doco_id,
-    rec.summary ?? null,
+    rec.summary ?? (rec.node_type === "scope" ? (rec.purpose ?? null) : null),
     rec.lifecycle ?? null,
     rec.raw_yaml,
   ];
@@ -46,6 +46,8 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   if (rec.node_type === "scope") {
     cols.push("name");
     vals.push(rec.name ?? null);
+    cols.push("purpose");
+    vals.push(rec.purpose ?? rec.summary ?? null);
   }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
@@ -181,6 +183,7 @@ function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityReco
   };
   if ("body_md" in row && row.body_md !== null) rec.body_md = String(row.body_md);
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
+  if ("purpose" in row && row.purpose !== null) rec.purpose = String(row.purpose);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();

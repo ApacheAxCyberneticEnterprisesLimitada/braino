@@ -575,6 +575,7 @@ export async function createScopeInDoco(opts: CreateScopeOptions): Promise<Entit
     doco_id: opts.docoId,
     node_type: "scope",
     summary,
+    purpose: summary,
     name: opts.name,
     ...(opts.icon ? { icon: opts.icon } : {}),
     created_at: created,
@@ -587,12 +588,12 @@ export async function createScopeInDoco(opts: CreateScopeOptions): Promise<Entit
   const { withClient } = await import("@doco/db");
   await withClient((c) =>
     c.query(
-      `INSERT INTO scopes (id, doco_id, name, summary, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, 'active', $5, $6, $6, $7, $7)`,
+      `INSERT INTO scopes (id, doco_id, name, summary, purpose, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $7, $8, $8)`,
       // raw_yaml is JSON (not YAML) for every other entity type
       // (capture.server.ts:72); standardize scope writes too so
       // loadDoco.ts's JSON.parse doesn't choke on reindex.
-      [id, opts.docoId, opts.name, summary, JSON.stringify(yaml), created, opts.createdBy],
+      [id, opts.docoId, opts.name, summary, summary, JSON.stringify(yaml), created, opts.createdBy],
     ),
   );
   return id;
@@ -1115,6 +1116,8 @@ export interface UpdateScopeOptions {
    * (decision_01KRYECEA32SRSQCKFXSDCBK67). Pass `null` or "" to clear.
    */
   summary?: string | null;
+  /** Newer callers use `purpose`; mirror it to legacy `summary` during migration. */
+  purpose?: string | null;
   /**
    * Generic scope attribute that restricts which node types are accepted
    * into the scope. Pass `null` or `[]` to clear; otherwise replaces.
@@ -1144,9 +1147,17 @@ function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOption
     if (opts.icon === null || opts.icon === "") delete yaml.icon;
     else yaml.icon = opts.icon;
   }
-  if (opts.summary !== undefined) {
-    if (opts.summary === null || opts.summary === "") delete yaml.summary;
-    else yaml.summary = opts.summary;
+  const descriptionPatch = opts.purpose !== undefined ? opts.purpose : opts.summary;
+  if (descriptionPatch !== undefined) {
+    if (descriptionPatch === null || descriptionPatch === "") {
+      delete yaml.purpose;
+      delete yaml.summary;
+    } else {
+      yaml.purpose = descriptionPatch;
+      // Keep the legacy mirror populated while summary-based readers
+      // still exist in the codebase.
+      yaml.summary = descriptionPatch;
+    }
   }
   if (opts.allowed_node_types !== undefined) {
     if (opts.allowed_node_types === null || opts.allowed_node_types.length === 0) {
@@ -1174,9 +1185,10 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
     applyScopeUpdate(yaml, opts);
     const summary = typeof yaml.summary === "string" ? yaml.summary : null;
+    const purpose = typeof yaml.purpose === "string" ? yaml.purpose : summary;
     await c.query(
-      "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), summary = COALESCE($3, summary), updated_at = now() WHERE id = $4",
-      [JSON.stringify(yaml), opts.lifecycle ?? null, summary, opts.scopeId],
+      "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), summary = COALESCE($3, summary), purpose = COALESCE($4, purpose), updated_at = now() WHERE id = $5",
+      [JSON.stringify(yaml), opts.lifecycle ?? null, summary, purpose, opts.scopeId],
     );
   });
 }

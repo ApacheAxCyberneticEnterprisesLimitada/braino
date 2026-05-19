@@ -321,6 +321,21 @@ CREATE TABLE IF NOT EXISTS scopes (
 );
 CREATE INDEX IF NOT EXISTS scopes_doco_idx ON scopes (doco_id, created_at DESC);
 
+-- Scope nodes expose their description as `purpose`. Keep the legacy
+-- `summary` column in place while older code paths still read/write it,
+-- but backfill the newer hot-path column so routes that read
+-- `scopes.purpose` work on both fresh and existing installs.
+ALTER TABLE scopes ADD COLUMN IF NOT EXISTS purpose text;
+DO $v11_scope_purpose$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'scopes' AND column_name = 'summary') THEN
+    UPDATE scopes
+       SET purpose = COALESCE(NULLIF(purpose, ''), NULLIF(summary, ''))
+     WHERE purpose IS NULL OR purpose = '';
+  END IF;
+END
+$v11_scope_purpose$;
+
 CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
