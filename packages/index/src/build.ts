@@ -94,16 +94,26 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const pgEdges: ReturnType<typeof deriveEdges> = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
+      // entity_fts.node_type is NOT NULL. Some legacy host-level
+      // identity rows (principals minted before the node_type field
+      // existed in raw_yaml) load with `entity.node_type === undefined`,
+      // which would crash the batch INSERT and block every Doco rebuild
+      // on the host. Fall back to deriving node_type from the entity id
+      // prefix (`principal_…` → `principal`, `decision_…` → `decision`,
+      // etc.) which is always present and unambiguous.
+      const nodeType =
+        (le.entity.node_type as string | undefined) ?? le.entity.id.split("_")[0] ?? "unknown";
+      if (!nodeType || nodeType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
       const e = le.entity as unknown as Record<string, unknown>;
       let summary = "";
-      if (le.entity.node_type === "scope") {
+      if (nodeType === "scope") {
         summary = String(e.purpose ?? "");
       } else {
         summary = String(e.summary ?? "");
       }
       let body = le.parsed.body ?? "";
-      if (le.entity.node_type === "scope") {
+      if (nodeType === "scope") {
         const extras = [e.purpose, e.guidelines, e.description]
           .filter((s): s is string => typeof s === "string" && s.length > 0)
           .join("\n\n");
@@ -111,7 +121,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       }
       pgFts.push({
         entity_id: le.entity.id,
-        node_type: le.entity.node_type as string,
+        node_type: nodeType,
         summary,
         body,
       });
