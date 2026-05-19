@@ -47,6 +47,9 @@ export async function createHost(
   if (detectMode(root) !== "empty") {
     throw new Error(`Refusing to overwrite: ${root} is already a Host or Doco.`);
   }
+  if (opts.ownerUsername) {
+    assertSlugAllowed(opts.ownerUsername, "principal");
+  }
   await mkdir(root, { recursive: true });
   await mkdir(hostPrincipalsDir(root), { recursive: true });
   await mkdir(hostOrganizationsDir(root), { recursive: true });
@@ -61,7 +64,7 @@ export async function createHost(
       id,
       // host bootstrap: principals at host level live without a single doco_id;
       // we synthesize a host self-id below for the schema's required field.
-      doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
+      doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
       node_type: "principal",
       summary: `Host owner ${opts.ownerUsername}.`,
       type: "person",
@@ -74,6 +77,35 @@ export async function createHost(
       lifecycle: "active",
       scopes: [],
     };
+    const { withClient } = await import("@doco/db");
+    await withClient(async (c) => {
+      const dup = await c.query(
+        `SELECT 1 FROM principals WHERE username = $1
+         UNION
+         SELECT 1 FROM organizations WHERE slug = $1
+         LIMIT 1`,
+        [opts.ownerUsername],
+      );
+      if (dup.rows.length > 0) {
+        throw new Error(`Slug "${opts.ownerUsername}" is already taken.`);
+      }
+      await c.query(
+        `INSERT INTO principals
+          (id, username, type, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, NULL)`,
+        [
+          id,
+          opts.ownerUsername,
+          "human",
+          opts.ownerEmail ?? null,
+          opts.ownerUsername,
+          null,
+          null,
+          JSON.stringify(principal),
+          created,
+        ],
+      );
+    });
     await writeFile(join(hostPrincipalsDir(root), `${id}.yaml`), stringifyYaml(principal), "utf8");
     bootstrapId = id;
   }
@@ -97,9 +129,19 @@ export async function createHost(
   );
   await writeFile(
     join(root, "README.md"),
-    `# ${opts.name}\n\nA multi-tenant Doco Host. See [ADR-061](https://example.invalid).\n\n` +
-      "## Quick start\n\n" +
-      "```bash\ndoco host user create alice\ndoco host org create my-org --owner alice\ndoco host doco new alice/my-doco\ndoco host list\n```\n",
+    `# ${opts.name}
+
+A multi-tenant Doco Host. See [ADR-061](https://example.invalid).
+
+## Quick start
+
+\`\`\`bash
+doco host user create alice
+doco host org create my-org --owner alice
+doco host doco new alice/my-doco
+doco host list
+\`\`\`
+`,
     "utf8",
   );
 
@@ -224,6 +266,7 @@ export async function addPrincipal(
   _root: string,
   opts: AddPrincipalOptions,
 ): Promise<EntityId<"principal">> {
+  assertSlugAllowed(opts.username, "principal");
   const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
   const created = nowIso();
   const gh = opts.github_identity ?? {
@@ -232,7 +275,7 @@ export async function addPrincipal(
   };
   const yaml: Principal = {
     id,
-    doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
+    doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
     node_type: "principal",
     summary: `User ${opts.username}.`,
     type: "person",
@@ -246,9 +289,13 @@ export async function addPrincipal(
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const dup = await c.query("SELECT 1 FROM principals WHERE username = $1 LIMIT 1", [
-      opts.username,
-    ]);
+    const dup = await c.query(
+      `SELECT 1 FROM principals WHERE username = $1
+       UNION
+       SELECT 1 FROM organizations WHERE slug = $1
+       LIMIT 1`,
+      [opts.username],
+    );
     if (dup.rows.length > 0) {
       throw new Error(`Slug "${opts.username}" is already taken.`);
     }
@@ -284,6 +331,7 @@ export async function addOrganization(
   root: string,
   opts: AddOrganizationOptions,
 ): Promise<EntityId<"organization">> {
+  assertSlugAllowed(opts.slug, "organization");
   const owner = await resolveOwnerSlug(root, opts.ownerUsername);
   if (!owner || owner.kind !== "principal") {
     throw new Error(`Owner "${opts.ownerUsername}" not found as a User in this host.`);
@@ -292,7 +340,7 @@ export async function addOrganization(
   const created = nowIso();
   const yaml: Organization = {
     id,
-    doco_id: ("doco_" + generateUlid()) as EntityId<"doco">,
+    doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
     node_type: "organization",
     summary: `Organization ${opts.slug}.`,
     slug: opts.slug,
@@ -314,7 +362,13 @@ export async function addOrganization(
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const dup = await c.query("SELECT 1 FROM organizations WHERE slug = $1 LIMIT 1", [opts.slug]);
+    const dup = await c.query(
+      `SELECT 1 FROM organizations WHERE slug = $1
+       UNION
+       SELECT 1 FROM principals WHERE username = $1
+       LIMIT 1`,
+      [opts.slug],
+    );
     if (dup.rows.length > 0) throw new Error(`Slug "${opts.slug}" is already taken.`);
     await c.query(
       `INSERT INTO organizations (id, slug, name, raw_yaml, created_at, updated_at)
@@ -482,7 +536,7 @@ export async function createDocoInHost(
       name: template.name,
       icon: template.icon,
       watched: template.auto_install_watched ?? false,
-      summary: template.summary,
+      purpose: template.purpose,
       ...(template.allowed_node_types && template.allowed_node_types.length > 0
         ? { allowed_node_types: template.allowed_node_types }
         : {}),
@@ -538,13 +592,8 @@ export interface CreateScopeOptions {
    * every scope creation — no default — so the choice is always explicit.
    */
   watched: boolean;
-  /**
-   * Description text rendered under the scope name on every surface
-   * (list card, detail page, bootstrap manifest). Per
-   * decision_01KRYECEA32SRSQCKFXSDCBK67 the scope's purpose lives here,
-   * not on an attached "primary intent" Intent.
-   */
-  summary?: string;
+  /** Why this scope exists and what belongs inside it. */
+  purpose?: string;
   /**
    * Generic scope attribute that restricts which node types are accepted
    * into the scope. When set, captures of any node whose `scopes` list
@@ -565,7 +614,7 @@ export async function createScopeInDoco(opts: CreateScopeOptions): Promise<Entit
   // it is always watched and cannot be unwatched. Force watched=true
   // for any scope named "#global" regardless of the caller's input.
   const watched = opts.name === "#global" ? true : opts.watched;
-  const summary = (opts.summary ?? "").trim() || `Scope: ${opts.name}`;
+  const purpose = (opts.purpose ?? "").trim() || `Scope: ${opts.name}`;
   const allowedNodeTypes =
     Array.isArray(opts.allowed_node_types) && opts.allowed_node_types.length > 0
       ? [...opts.allowed_node_types]
@@ -574,8 +623,7 @@ export async function createScopeInDoco(opts: CreateScopeOptions): Promise<Entit
     id,
     doco_id: opts.docoId,
     node_type: "scope",
-    summary,
-    purpose: summary,
+    purpose,
     name: opts.name,
     ...(opts.icon ? { icon: opts.icon } : {}),
     created_at: created,
@@ -588,12 +636,12 @@ export async function createScopeInDoco(opts: CreateScopeOptions): Promise<Entit
   const { withClient } = await import("@doco/db");
   await withClient((c) =>
     c.query(
-      `INSERT INTO scopes (id, doco_id, name, summary, purpose, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
-       VALUES ($1, $2, $3, $4, $5, 'active', $6, $7, $7, $8, $8)`,
+      `INSERT INTO scopes (id, doco_id, name, purpose, lifecycle, raw_yaml, created_at, updated_at, created_by, updated_by)
+       VALUES ($1, $2, $3, $4, 'active', $5, $6, $6, $7, $7)`,
       // raw_yaml is JSON (not YAML) for every other entity type
       // (capture.server.ts:72); standardize scope writes too so
       // loadDoco.ts's JSON.parse doesn't choke on reindex.
-      [id, opts.docoId, opts.name, summary, summary, JSON.stringify(yaml), created, opts.createdBy],
+      [id, opts.docoId, opts.name, purpose, JSON.stringify(yaml), created, opts.createdBy],
     ),
   );
   return id;
@@ -717,7 +765,7 @@ export async function createRuleInDoco(opts: CreateRuleOptions): Promise<EntityI
  * flows that need to mint an Intent first to satisfy `intent_ids`. Per
  * decision_01KRYECEA32SRSQCKFXSDCBK67 templates no longer mint a
  * "primary intent" Intent at install time — the description text lives
- * on Scope.summary instead.
+ * on Scope.purpose instead.
  */
 export interface CreateIntentOptions {
   docoId: EntityId<"doco">;
@@ -775,7 +823,7 @@ export async function createIntentInDoco(opts: CreateIntentOptions): Promise<Ent
 
 /**
  * Seed a newly-created scope with the rules the template ships. The
- * template's description text (`summary`) and `allowed_node_types` are
+ * template's description text (`purpose`) and `allowed_node_types` are
  * written directly to the Scope row by `createScopeInDoco` (no Intent
  * indirection per decision_01KRYECEA32SRSQCKFXSDCBK67).
  */
@@ -864,7 +912,7 @@ export async function setScopeWatchedInDoco(opts: {
     const wasWatched = yaml.watched === true;
     if (opts.watched === wasWatched) return;
     if (opts.watched) yaml.watched = true;
-    else delete yaml.watched;
+    else yaml.watched = undefined;
     await c.query("UPDATE scopes SET raw_yaml = $1, updated_at = now() WHERE id = $2", [
       JSON.stringify(yaml),
       opts.targetScopeId,
@@ -963,7 +1011,8 @@ export async function materializeScopeTree(opts: {
   for (const path of opts.paths) {
     let parentId: EntityId<"scope"> | null = null;
     for (let i = 0; i < path.length; i++) {
-      const name = path[i]!;
+      const name = path[i];
+      if (!name) continue;
       let id = byName.get(name);
       if (!id) {
         const isLeaf = i === path.length - 1;
@@ -973,6 +1022,7 @@ export async function materializeScopeTree(opts: {
           docoId: opts.docoId,
           name,
           ...(tpl?.icon ? { icon: tpl.icon } : {}),
+          ...(tpl?.purpose ? { purpose: tpl.purpose } : {}),
           ...(parentId ? { parentScopes: [parentId] } : {}),
           watched: false,
           createdBy: opts.createdBy,
@@ -1059,7 +1109,8 @@ export async function migrateScopesInDoco(opts: {
     // Walk segments root → leaf, ensuring each exists.
     let parentId: EntityId<"scope"> | null = null;
     for (let i = 0; i < segments.length - 1; i++) {
-      const segName = segments[i]!;
+      const segName = segments[i];
+      if (!segName) continue;
       let segId = flatByName.get(segName);
       if (!segId) {
         segId = await createScopeInDoco({
@@ -1077,17 +1128,19 @@ export async function migrateScopesInDoco(opts: {
     }
     // Rename the leaf scope (keep id stable) — update name to leaf segment
     // and set parent edge to the prior segment.
-    const leafName = segments[segments.length - 1]!;
+    const leafName = segments.at(-1);
+    if (!leafName) continue;
     s.yaml.name = leafName;
     const existingScopes = Array.isArray(s.yaml.scopes) ? (s.yaml.scopes as string[]) : [];
     s.yaml.scopes =
       parentId && !existingScopes.includes(parentId)
         ? [parentId, ...existingScopes]
         : existingScopes;
-    // Refresh summary if it was the auto-generated "Scope: <slash-name>".
-    if (typeof s.yaml.summary === "string" && s.yaml.summary === `Scope: ${s.name}`) {
-      s.yaml.summary = `Scope: ${leafName}`;
+    // Refresh purpose if it was the auto-generated "Scope: <slash-name>".
+    if (typeof s.yaml.purpose === "string" && s.yaml.purpose === `Scope: ${s.name}`) {
+      s.yaml.purpose = `Scope: ${leafName}`;
     }
+    s.yaml.summary = undefined;
     await writeFile(join(dir, s.file), stringifyYaml(s.yaml), "utf8");
     flatByName.set(leafName, s.id);
     renamed += 1;
@@ -1112,11 +1165,8 @@ export interface UpdateScopeOptions {
   /** Single emoji icon. Pass `null` or "" to clear; omit to leave as-is. */
   icon?: string | null;
   /**
-   * Description text rendered under the scope name on every surface
-   * (decision_01KRYECEA32SRSQCKFXSDCBK67). Pass `null` or "" to clear.
+   * Why this scope exists and what belongs inside it. Pass `null` or "" to clear.
    */
-  summary?: string | null;
-  /** Newer callers use `purpose`; mirror it to legacy `summary` during migration. */
   purpose?: string | null;
   /**
    * Generic scope attribute that restricts which node types are accepted
@@ -1138,30 +1188,23 @@ export interface UpdateScopeOptions {
 }
 
 function applyScopeUpdate(yaml: Record<string, unknown>, opts: UpdateScopeOptions): void {
-  delete yaml.primary_intent_id;
+  yaml.summary = undefined;
+  yaml.primary_intent_id = undefined;
   // Per decision_01KRYECEA32SRSQCKFXSDCBK67 the "primary intent of a
   // scope" pattern is gone; drop the legacy field on every write so old
   // rows converge to the new shape over time.
-  delete yaml.intent_ids;
+  yaml.intent_ids = undefined;
   if (opts.icon !== undefined) {
-    if (opts.icon === null || opts.icon === "") delete yaml.icon;
+    if (opts.icon === null || opts.icon === "") yaml.icon = undefined;
     else yaml.icon = opts.icon;
   }
-  const descriptionPatch = opts.purpose !== undefined ? opts.purpose : opts.summary;
-  if (descriptionPatch !== undefined) {
-    if (descriptionPatch === null || descriptionPatch === "") {
-      delete yaml.purpose;
-      delete yaml.summary;
-    } else {
-      yaml.purpose = descriptionPatch;
-      // Keep the legacy mirror populated while summary-based readers
-      // still exist in the codebase.
-      yaml.summary = descriptionPatch;
-    }
+  if (opts.purpose !== undefined) {
+    if (opts.purpose === null || opts.purpose === "") yaml.purpose = undefined;
+    else yaml.purpose = opts.purpose;
   }
   if (opts.allowed_node_types !== undefined) {
     if (opts.allowed_node_types === null || opts.allowed_node_types.length === 0) {
-      delete yaml.allowed_node_types;
+      yaml.allowed_node_types = undefined;
     } else {
       yaml.allowed_node_types = [...opts.allowed_node_types];
     }
@@ -1184,11 +1227,10 @@ export async function updateScopeInDoco(opts: UpdateScopeOptions): Promise<void>
     if (!cur.rows[0]) throw new Error(`Scope not found: ${opts.scopeId}`);
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
     applyScopeUpdate(yaml, opts);
-    const summary = typeof yaml.summary === "string" ? yaml.summary : null;
-    const purpose = typeof yaml.purpose === "string" ? yaml.purpose : summary;
+    const purpose = typeof yaml.purpose === "string" ? yaml.purpose : null;
     await c.query(
-      "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), summary = COALESCE($3, summary), purpose = COALESCE($4, purpose), updated_at = now() WHERE id = $5",
-      [JSON.stringify(yaml), opts.lifecycle ?? null, summary, purpose, opts.scopeId],
+      "UPDATE scopes SET raw_yaml = $1, lifecycle = COALESCE($2, lifecycle), purpose = $3, updated_at = now() WHERE id = $4",
+      [JSON.stringify(yaml), opts.lifecycle ?? null, purpose, opts.scopeId],
     );
   });
 }
@@ -1235,11 +1277,11 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
     if (!cur.rows[0]) throw new Error(`Doco "${handle}" not found.`);
     const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
     if (opts.description !== undefined) {
-      if (opts.description === null || opts.description === "") delete yaml.description;
+      if (opts.description === null || opts.description === "") yaml.description = undefined;
       else yaml.description = opts.description;
     }
     if (opts.display_name !== undefined) {
-      if (opts.display_name === null || opts.display_name === "") delete yaml.display_name;
+      if (opts.display_name === null || opts.display_name === "") yaml.display_name = undefined;
       else yaml.display_name = opts.display_name;
     }
     if (opts.visibility !== undefined) yaml.visibility = opts.visibility;
@@ -1360,10 +1402,10 @@ export async function listDocos(root: string): Promise<DocoRecord[]> {
  *     to "abandoned" — narrow on purpose, so project-owner edits aren't
  *     touched.
  *
- *  3. **Brings Scope.summary into alignment with the template.** When
- *     the row's summary is empty, boilerplate ("Scope: #name"), or
+ *  3. **Brings Scope.purpose into alignment with the template.** When
+ *     the row's purpose is empty, boilerplate ("Scope: #name"), or
  *     matches a known prior intent-text value, it's overwritten with
- *     the current `template.summary`. Also stamps the template's
+ *     the current `template.purpose`. Also stamps the template's
  *     `allowed_node_types` onto rows that predate the change and
  *     retires any leftover "primary intent" Intent attached via
  *     raw_yaml.intent_ids. Per decision_01KRYECEA32SRSQCKFXSDCBK67.
@@ -1407,11 +1449,11 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
   ]);
   const STALE_GLOBAL_INTENT_SUMMARIES = new Set<string>([
     "The load-bearing claims that govern this Doco — invariants, authority, and the rules that other rules cite.",
-    // Pre-summary-on-scope copy that lived on intent_01KRV60W6NTJSZH7XMVV8QW4DA.
-    // Existing Docos get refreshed to the current template summary
+    // Pre-purpose-on-scope copy that lived on intent_01KRV60W6NTJSZH7XMVV8QW4DA.
+    // Existing Docos get refreshed to the current template purpose
     // (decision_01KRYECEA32SRSQCKFXSDCBK67).
     "Keep this doco governed by durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere.",
-    // First Scope.summary copy — superseded 2026-05-18 by the friendlier
+    // First Scope.purpose copy — superseded 2026-05-18 by the friendlier
     // "Your doco's rule book…" rewrite the project owner asked for.
     "Durable cross-scope rules, invariants, and authority claims that contributors can cite from anywhere. Only Rules live here.",
   ]);
@@ -1435,8 +1477,9 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
         template.name,
       ]),
     );
-    if (scopeRow.rows.length === 0) continue;
-    const scopeId = scopeRow.rows[0]!.id as EntityId<"scope">;
+    const scope = scopeRow.rows[0];
+    if (!scope) continue;
+    const scopeId = scope.id as EntityId<"scope">;
     scopesTouched += 1;
 
     const isStaleUserFlowsAuthoringPredicate = (p: AuthoringPredicate): boolean =>
@@ -1559,21 +1602,21 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
       rulesAbandoned += 1;
     }
 
-    // 5. Bring the scope row's description into alignment with the
-    // template (decision_01KRYECEA32SRSQCKFXSDCBK67 — Scope.summary
+    // 5. Bring the scope row's purpose into alignment with the
+    // template (decision_01KRYECEA32SRSQCKFXSDCBK67 — Scope.purpose
     // replaces the primary-intent pattern). Three jobs:
-    //   (a) If Scope.summary is empty / boilerplate ("Scope: #name") /
-    //       matches a stale template summary, overwrite with the current
-    //       template.summary.
+    //   (a) If Scope.purpose is empty / boilerplate ("Scope: #name") /
+    //       matches a stale template intent label, overwrite with the current
+    //       template.purpose.
     //   (b) Ensure allowed_node_types is set on templates that carry one
     //       (e.g. #global: ['rule']) so the constitution stays a pure
     //       rule book even on existing Docos.
     //   (c) Retire any leftover "primary intent" Intents still attached
     //       via raw_yaml.intent_ids; supersede them and drop the field.
-    if (template.summary.trim()) {
+    if (template.purpose.trim()) {
       const scopeRow = await withClient((c) =>
-        c.query<{ summary: string | null; raw_yaml: string }>(
-          "SELECT summary, raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
+        c.query<{ purpose: string | null; raw_yaml: string }>(
+          "SELECT purpose, raw_yaml FROM scopes WHERE id = $1 LIMIT 1",
           [scopeId],
         ),
       );
@@ -1589,16 +1632,17 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
             fm = {};
           }
         }
-        const currentSummary = (row.summary ?? "").trim();
+        const currentPurpose = (row.purpose ?? "").trim();
         const isBoilerplate =
-          currentSummary === "" ||
-          currentSummary === `Scope: ${template.name}` ||
+          currentPurpose === "" ||
+          currentPurpose === `Scope: ${template.name}` ||
           (template.name === "#user-flows" &&
-            STALE_USER_FLOWS_INTENT_SUMMARIES.has(currentSummary)) ||
-          (template.name === "#global" && STALE_GLOBAL_INTENT_SUMMARIES.has(currentSummary));
+            STALE_USER_FLOWS_INTENT_SUMMARIES.has(currentPurpose)) ||
+          (template.name === "#global" && STALE_GLOBAL_INTENT_SUMMARIES.has(currentPurpose));
         let scopeChanged = false;
         if (isBoilerplate) {
-          fm.summary = template.summary;
+          fm.purpose = template.purpose;
+          fm.summary = undefined;
           scopeChanged = true;
           intentsUpdated += 1;
         }
@@ -1614,7 +1658,7 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
           ? (fm.intent_ids as unknown[]).filter((v): v is string => typeof v === "string")
           : [];
         if (legacyIntentIds.length > 0) {
-          delete fm.intent_ids;
+          fm.intent_ids = undefined;
           scopeChanged = true;
           // Supersede each referenced Intent so the graph reflects the
           // pattern change rather than orphaning the prior rows.
@@ -1649,11 +1693,11 @@ export async function applyScopeTemplateUpdatesToDoco(opts: {
           }
         }
         if (scopeChanged) {
-          const summaryToWrite = typeof fm.summary === "string" ? fm.summary : currentSummary;
+          const purposeToWrite = typeof fm.purpose === "string" ? fm.purpose : currentPurpose;
           await withClient(async (c) => {
             await c.query(
-              "UPDATE scopes SET raw_yaml = $1, summary = $2, updated_at = now() WHERE id = $3",
-              [JSON.stringify(fm), summaryToWrite, scopeId],
+              "UPDATE scopes SET raw_yaml = $1, purpose = $2, updated_at = now() WHERE id = $3",
+              [JSON.stringify(fm), purposeToWrite, scopeId],
             );
           });
           intentsAdded += scopeChanged && isBoilerplate ? 0 : 1;

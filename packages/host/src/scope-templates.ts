@@ -14,9 +14,9 @@
  * the leading `#` is part of the canonical name on every surface.
  *
  * Each template ships:
- * - `summary` — the description text rendered under the scope name on
+ * - `purpose` — the description text rendered under the scope name on
  *   every surface (list card, detail page, bootstrap manifest). Written
- *   directly onto the Scope row's `summary` column at install time.
+ *   directly onto the Scope row's `purpose` column at install time.
  * - `rules` — atomic Rule entities tagged with the scope. A Rule with a
  *   `predicate` becomes an authoring rule the engine evaluates; the
  *   seeder writes the Rule's id into the scope's `gated_by` so the
@@ -74,8 +74,8 @@ export interface ScopeTemplate {
   icon: string;
   /** Description text rendered under the scope name on every surface
    * (list card, detail page, bootstrap manifest). Written directly onto
-   * the Scope row's `summary` column at install time. */
-  summary: string;
+   * the Scope row's `purpose` column at install time. */
+  purpose: string;
   /** Atomic rules seeded at install time. */
   rules: TemplateRule[];
   /**
@@ -86,7 +86,17 @@ export interface ScopeTemplate {
    * pure rule book. Drives behavior without any name-based check (per
    * rule_01KRRVPBS07HDBCXY6TJ5A5TAT).
    */
-  allowed_node_types?: ("decision" | "intent" | "action" | "rule" | "log" | "eval" | "reference" | "idea" | "state")[];
+  allowed_node_types?: (
+    | "decision"
+    | "intent"
+    | "action"
+    | "rule"
+    | "log"
+    | "eval"
+    | "reference"
+    | "idea"
+    | "state"
+  )[];
   /**
    * v7: when set, captures into this scope (or descendants) default
    * the new node's `lifecycle` to this value unless the author
@@ -125,7 +135,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     icon: "🌐",
     auto_install: true,
     auto_install_watched: true,
-    summary:
+    purpose:
       "Your doco's rule book — the standing rules, invariants, and authority claims anyone can cite from anywhere. Rules only.",
     allowed_node_types: ["rule"],
     rules: [
@@ -158,7 +168,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     icon: "⭐",
     auto_install: true,
     auto_install_watched: true,
-    summary:
+    purpose:
       "Important doco-wide decisions that don't naturally fit a more specific subject-area scope.",
     rules: [],
   },
@@ -169,7 +179,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     name: "#user-flows",
     label: "#user-flows",
     icon: "🌊",
-    summary: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
+    purpose: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
     rules: [
       {
         // Membership check: probabilistic semantic gate, with a
@@ -289,7 +299,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     name: "#state-machines",
     label: "#state-machines",
     icon: "🔁",
-    summary:
+    purpose:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
     default_node_lifecycle: "drafted",
     rules: [

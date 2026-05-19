@@ -4,15 +4,15 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
-import type { LoadedDoco } from "@doco/shared";
 import {
-  computeContentHash,
   type EmbeddingProviderLike,
   type EmbeddingsReport,
+  computeContentHash,
   rebuildDocoDerivedData,
   upsertEmbeddings,
 } from "@doco/db";
+import type { LoadedDoco } from "@doco/shared";
+import { parse as parseYaml } from "yaml";
 import { deriveEdges } from "./edges.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
 
@@ -79,16 +79,14 @@ export interface IndexOptions {
  * O(neighborhood) capture path. Without it, the full Doco is rebuilt
  * — the O(N+M) path used for cold starts and bulk operations.
  */
-export async function indexDoco(
-  loaded: LoadedDoco,
-  opts: IndexOptions = {},
-): Promise<BuildReport> {
+export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Promise<BuildReport> {
   const start = performance.now();
 
   const docoId = (loaded.doco as { id: string }).id;
-  const incrementalIds = opts.changedEntityIds && opts.changedEntityIds.length > 0
-    ? new Set(opts.changedEntityIds)
-    : null;
+  const incrementalIds =
+    opts.changedEntityIds && opts.changedEntityIds.length > 0
+      ? new Set(opts.changedEntityIds)
+      : null;
 
   let inserted = 0;
   if (!opts.skipStructural) {
@@ -98,7 +96,12 @@ export async function indexDoco(
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       inserted++;
       const e = le.entity as unknown as Record<string, unknown>;
-      const summary = String(e.summary ?? "");
+      let summary = "";
+      if (le.entity.node_type === "scope") {
+        summary = String(e.purpose ?? "");
+      } else {
+        summary = String(e.summary ?? "");
+      }
       let body = le.parsed.body ?? "";
       if (le.entity.node_type === "scope") {
         const extras = [e.purpose, e.guidelines, e.description]
@@ -129,7 +132,13 @@ export async function indexDoco(
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      const summary = String((le.entity as { summary?: string }).summary ?? "");
+      const entityRecord = le.entity as { summary?: string; purpose?: string; node_type?: string };
+      let summary = "";
+      if (entityRecord.node_type === "scope") {
+        summary = String(entityRecord.purpose ?? "");
+      } else {
+        summary = String(entityRecord.summary ?? "");
+      }
       const body = le.parsed.body ?? "";
       const text = `${summary}\n\n${body}`.trim();
       if (!text) continue;
@@ -171,10 +180,7 @@ export async function indexDoco(
  * and the embedding pass is scoped to them. Omit for the safe-but-slow
  * full rebuild — first build, scope rename, bulk import.
  */
-export async function reindex(
-  docoRoot: string,
-  opts: IndexOptions = {},
-): Promise<BuildReport> {
+export async function reindex(docoRoot: string, opts: IndexOptions = {}): Promise<BuildReport> {
   const docoId = opts.docoId ?? readDocoIdFromYaml(docoRoot);
   const loaded = await loadDocoFromPostgres(docoRoot, docoId);
   return indexDoco(loaded, opts);

@@ -9,7 +9,8 @@
 --
 -- Schema rules:
 --   - Each entity type gets its own table; common columns live up top
---     in a consistent order (id, doco_id, summary, lifecycle, ...).
+--     in a consistent order (id, doco_id, readable text, lifecycle, ...).
+--     Most node tables call that text `summary`; scopes call it `purpose`.
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
 --   - `edges` materializes cross-entity references for graph queries.
@@ -310,7 +311,7 @@ CREATE TABLE IF NOT EXISTS scopes (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   name        text NOT NULL,
-  summary     text,
+  purpose     text,
   lifecycle   text,
   raw_yaml    text NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -321,20 +322,24 @@ CREATE TABLE IF NOT EXISTS scopes (
 );
 CREATE INDEX IF NOT EXISTS scopes_doco_idx ON scopes (doco_id, created_at DESC);
 
--- Scope nodes expose their description as `purpose`. Keep the legacy
--- `summary` column in place while older code paths still read/write it,
--- but backfill the newer hot-path column so routes that read
--- `scopes.purpose` work on both fresh and existing installs.
+-- Scope nodes use `purpose`, not `summary`. Older installs carried the
+-- same description text in `scopes.summary`; migrate it into the new
+-- hot-path column and remove the old column once code has stopped
+-- querying it.
 ALTER TABLE scopes ADD COLUMN IF NOT EXISTS purpose text;
 DO $v11_scope_purpose$
 BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'scopes' AND column_name = 'summary') THEN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'scopes' AND column_name = 'summary'
+  ) THEN
     UPDATE scopes
        SET purpose = COALESCE(NULLIF(purpose, ''), NULLIF(summary, ''))
      WHERE purpose IS NULL OR purpose = '';
   END IF;
 END
 $v11_scope_purpose$;
+ALTER TABLE scopes DROP COLUMN IF EXISTS summary;
 
 CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,

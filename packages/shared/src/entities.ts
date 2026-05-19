@@ -20,7 +20,6 @@ export interface CommonFields {
   id: EntityId;
   doco_id: EntityId<"doco">;
   node_type: string;
-  summary: string;
   created_at: string; // ISO 8601 UTC
   created_by: EntityId<"principal">;
   updated_at?: string;
@@ -30,6 +29,11 @@ export interface CommonFields {
   born_from?: EntityId;
   /** Ordering / dependency. This entity comes after the listed ones. Don't create cycles. ADR-077. */
   follows?: EntityId[];
+}
+
+/** Common fields for readable claim nodes that carry a one-line summary. */
+export interface SummarizedFields extends CommonFields {
+  summary: string;
 }
 
 /** A scope selector predicate — see SCHEMA.md §5. Free-form for v0.1. */
@@ -50,7 +54,7 @@ export interface AgentMetadata {
   created_at: string;
 }
 
-export interface Principal extends CommonFields {
+export interface Principal extends SummarizedFields {
   node_type: "principal";
   type: "person" | "agent"; // (kept per ADR-054; not renamed to is_agent)
   username: string;
@@ -99,7 +103,7 @@ export interface Doco {
 
 // ─── Intent ───────────────────────────────────────────────────────────────
 
-export interface Intent extends CommonFields {
+export interface Intent extends SummarizedFields {
   node_type: "intent";
   title: string;
   parent_intent_id?: EntityId<"intent"> | null;
@@ -119,7 +123,7 @@ export interface Intent extends CommonFields {
 // Speculative thought before it crystallizes into an Intent / Decision /
 // Action. Per ADR-074. Lightweight on purpose.
 
-export interface Idea extends CommonFields {
+export interface Idea extends SummarizedFields {
   node_type: "idea";
   proposer_id?: EntityId<"principal">;
   body?: string;
@@ -264,7 +268,7 @@ export type AuthoringPredicate =
     }
   | { kind: "descriptive"; spec: string; when_node_type?: NodeType[] };
 
-export interface Rule extends CommonFields {
+export interface Rule extends SummarizedFields {
   node_type: "rule";
   /**
    * Rule role per decision_01KRPRDR1AD7S1RP6E69BQDB2G; narrowed by v7
@@ -298,7 +302,7 @@ export interface DecisionAlternative {
   rejected_because?: string;
 }
 
-export interface Decision extends CommonFields {
+export interface Decision extends SummarizedFields {
   node_type: "decision";
   intent_ids?: EntityId<"intent">[];
   question: string;
@@ -321,7 +325,7 @@ export interface Decision extends CommonFields {
 // that ran), use `Log` instead. Logs may optionally point back at the
 // Action they instance via `Log.template_id`.
 
-export interface Action extends CommonFields {
+export interface Action extends SummarizedFields {
   node_type: "action";
   /** Imperative or present-tense verb describing the step. Required. */
   verb: string;
@@ -363,7 +367,7 @@ export interface Action extends CommonFields {
 // References) — editorial fixes happen via supersession, not in-place
 // edits, so the audit trail stays trustworthy.
 
-export interface Log extends CommonFields {
+export interface Log extends SummarizedFields {
   node_type: "log";
   /** Past-tense verb describing what happened ("pushed", "deployed",
    *  "verified"). Required. */
@@ -419,7 +423,7 @@ export interface EvalCriterion {
   spec?: string;
 }
 
-export interface Eval extends CommonFields {
+export interface Eval extends SummarizedFields {
   node_type: "eval";
   /** Readable name. */
   name: string;
@@ -444,7 +448,7 @@ export interface Eval extends CommonFields {
 
 // ─── Reference ────────────────────────────────────────────────────────────
 
-export interface Reference extends CommonFields {
+export interface Reference extends SummarizedFields {
   node_type: "reference";
   ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
   locator: string;
@@ -473,6 +477,8 @@ export interface Scope extends CommonFields {
   node_type: "scope";
   /** Flat token: ^[a-z][a-z0-9_-]*$ */
   name: string;
+  /** Why this scope exists and what belongs inside it. */
+  purpose: string;
   /**
    * Single emoji used to identify this scope at a glance. Surfaces on
    * the /scopes list, the entity-detail page, and as a prefix on every
@@ -538,7 +544,7 @@ export interface Scope extends CommonFields {
 
 export type StateKind = "initial" | "intermediate" | "terminal";
 
-export interface State extends CommonFields {
+export interface State extends SummarizedFields {
   node_type: "state";
   /** Required. One of initial / intermediate / terminal. */
   kind: StateKind;
@@ -559,7 +565,7 @@ export interface OrganizationMember {
   permissions?: ("read" | "write" | "execute" | "admin")[];
 }
 
-export interface Organization extends CommonFields {
+export interface Organization extends SummarizedFields {
   node_type: "organization";
   slug: string;
   display_name: string;

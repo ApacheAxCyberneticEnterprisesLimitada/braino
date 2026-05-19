@@ -31,14 +31,15 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   ) {
     return upsertIdentity(rec, client);
   }
-  const cols = ["id", "doco_id", "summary", "lifecycle", "raw_yaml"];
-  const vals: unknown[] = [
-    rec.id,
-    rec.doco_id,
-    rec.summary ?? (rec.node_type === "scope" ? (rec.purpose ?? null) : null),
-    rec.lifecycle ?? null,
-    rec.raw_yaml,
-  ];
+  const cols = ["id", "doco_id", "lifecycle", "raw_yaml"];
+  const vals: unknown[] = [rec.id, rec.doco_id, rec.lifecycle ?? null, rec.raw_yaml];
+  if (rec.node_type === "scope") {
+    cols.push("purpose");
+    vals.push(rec.purpose ?? null);
+  } else {
+    cols.push("summary");
+    vals.push(rec.summary ?? null);
+  }
   if (spec.body) {
     cols.push("body_md");
     vals.push(rec.body_md ?? null);
@@ -46,8 +47,6 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   if (rec.node_type === "scope") {
     cols.push("name");
     vals.push(rec.name ?? null);
-    cols.push("purpose");
-    vals.push(rec.purpose ?? rec.summary ?? null);
   }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
