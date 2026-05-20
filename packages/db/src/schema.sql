@@ -426,6 +426,8 @@ CREATE INDEX IF NOT EXISTS edges_to_idx          ON edges (to_id, edge_type);
 CREATE INDEX IF NOT EXISTS edges_from_type_idx   ON edges (from_id, edge_type);
 CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges (edge_type);
 CREATE INDEX IF NOT EXISTS edges_attribution_idx ON edges (attribution);
+CREATE INDEX IF NOT EXISTS edges_doco_type_from_idx ON edges (doco_id, edge_type, from_id);
+CREATE INDEX IF NOT EXISTS edges_doco_type_to_idx   ON edges (doco_id, edge_type, to_id);
 
 -- Vector embeddings (ADR-052). One row per entity. Storage is bytea
 -- (Float32Array bytes, little-endian). pgvector + ivfflat/hnsw is an
