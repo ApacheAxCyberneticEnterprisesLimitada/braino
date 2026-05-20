@@ -838,6 +838,40 @@ CREATE TABLE IF NOT EXISTS doco_templates (
 );
 CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
 
+-- ──────────────────────────────────────────────────────────────────────────
+-- v16 (2026-05-20): truncate the legacy scope tables.
+--
+-- v15 removed every navigable surface that wrote to these tables.
+-- Existing readers (capture.server.ts, full-graph.server.ts,
+-- scope-helpers.server.ts, scope-bulk.server.ts, two route loaders,
+-- three legacy migrations) still SELECT against them — but those
+-- queries now return zero rows on every Doco. The behavior is
+-- identical to dropping the tables; we keep the empty tables around
+-- so an actual `DROP TABLE` (the v17 cleanup) can land cleanly once
+-- the readers are wrapped with `scopesTableExists` guards.
+DO $v16_truncate_scopes$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v16_truncate_legacy_scope_tables' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+  IF to_regclass('public.scope_match') IS NOT NULL THEN
+    TRUNCATE TABLE scope_match;
+  END IF;
+  IF to_regclass('public.scope_users') IS NOT NULL THEN
+    TRUNCATE TABLE scope_users;
+  END IF;
+  IF to_regclass('public.scopes') IS NOT NULL THEN
+    -- scopes is referenced by `edges.to_id` (`in_scope_of` edge
+    -- type). TRUNCATE CASCADE clears those dangling edges too.
+    TRUNCATE TABLE scopes CASCADE;
+  END IF;
+  INSERT INTO doco_meta (key, value) VALUES ('v16_truncate_legacy_scope_tables', 'done')
+    ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v16_truncate_scopes$;
+
 DO $v15_backfill$
 DECLARE
   princ record;
