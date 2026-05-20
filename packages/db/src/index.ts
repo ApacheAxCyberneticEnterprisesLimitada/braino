@@ -8,6 +8,7 @@ export {
   withTransaction,
   ensureSchema,
   pingDb,
+  scopesTableExists,
 } from "./client.js";
 
 export type { PoolClient } from "pg";

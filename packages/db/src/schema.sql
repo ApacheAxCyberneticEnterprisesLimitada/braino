@@ -997,12 +997,18 @@ $v13_tighten$;
 --     scope branch never runs because invite-creation no longer
 --     produces scope_id codes.
 --
+-- TRUNCATED-BUT-PRESERVED:
+--   * scopes — 10+ live SQL readers still SELECT from this table
+--     across capture.server, scope-bulk, full-graph, scope-helpers,
+--     two route files, and three legacy migrations. Wrapping each
+--     reader with the new `scopesTableExists()` guard is straightforward
+--     but high-blast-radius work — and an empty `scopes` table delivers
+--     the exact same user-facing behavior as a dropped one (every
+--     reader returns zero rows). We TRUNCATE here to clear legacy
+--     scope data; the table itself stays as an empty stub. v15 drops
+--     it once the wraps are in place.
+--
 -- STILL DEFERRED (real code references, listed for the next pass):
---   * scopes table — read by many live paths
---     (capture.server.ts, scope-bulk.server.ts, full-graph.server.ts,
---     scope-helpers.server.ts, $docoHandle._index.tsx, plus three
---     migration files). Wrap each reader to short-circuit when the
---     table is missing, then drop.
 --   * organizations.slug / organizations.name — still on the INSERT
 --     paths in @doco/db's upsertIdentity + repo.ts's getDoco* SELECTs.
 --     handle is the canonical id; once readers all key off handle the
@@ -1014,5 +1020,22 @@ $v13_tighten$;
 -- The v14 doco_meta gate is added so the partial cleanup runs once.
 DROP TABLE IF EXISTS scope_match CASCADE;
 DROP TABLE IF EXISTS scope_users CASCADE;
+DO $v14_truncate_scopes$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v14_truncate_scopes' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+  -- The table is referenced by edges (`in_scope_of`) and entity raw_yaml
+  -- (already stripped by v13-strip-entity-scopes.server.ts). TRUNCATE
+  -- CASCADE clears scope rows + any lingering FKs.
+  IF to_regclass('public.scopes') IS NOT NULL THEN
+    TRUNCATE TABLE scopes CASCADE;
+  END IF;
+  INSERT INTO doco_meta (key, value) VALUES ('v14_truncate_scopes', 'done')
+    ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v14_truncate_scopes$;
 INSERT INTO doco_meta (key, value) VALUES ('v14_partial_cleanup', 'done')
   ON CONFLICT (key) DO UPDATE SET value = 'done';
