@@ -351,13 +351,13 @@ export async function ensurePersonalOrganization(
     }
     const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
     const created = nowIso();
+    // v14: only handle + raw_yaml; the legacy slug/name columns are
+    // nullable and skipped on new inserts.
     await c.query(
-      `INSERT INTO organizations (id, slug, name, handle, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      `INSERT INTO organizations (id, handle, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $4)`,
       [
         id,
-        username,
-        username,
         username,
         JSON.stringify({
           id,
@@ -465,13 +465,12 @@ export async function addOrganizationByHandle(opts: {
     }
     const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
     const created = nowIso();
+    // v14: only handle + raw_yaml; slug/name are nullable legacy columns.
     await c.query(
-      `INSERT INTO organizations (id, slug, name, handle, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      `INSERT INTO organizations (id, handle, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $4)`,
       [
         id,
-        finalHandle,
-        finalHandle,
         finalHandle,
         JSON.stringify({
           id,
@@ -651,15 +650,16 @@ export async function createDocoInOrg(opts: {
       created_by: opts.createdByPrincipalId,
       lifecycle: "active",
     };
+    // v14: drop the legacy `owner_id` and `name` columns from the
+    // INSERT — `org_id` is the canonical owner pointer.
     await c.query(
-      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml,
+      `INSERT INTO docos (id, handle, org_id, visibility, raw_yaml,
                           allowed_node_types, default_node_lifecycle,
                           created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
       [
         docoId,
         handle,
-        opts.orgId,
         opts.orgId,
         visibility,
         JSON.stringify(docoYaml),

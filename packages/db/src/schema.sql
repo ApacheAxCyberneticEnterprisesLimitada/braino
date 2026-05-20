@@ -1039,3 +1039,39 @@ END
 $v14_truncate_scopes$;
 INSERT INTO doco_meta (key, value) VALUES ('v14_partial_cleanup', 'done')
   ON CONFLICT (key) DO UPDATE SET value = 'done';
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- v14 column relaxation (2026-05-20): legacy `slug`, `name`, and
+-- `owner_id` columns are no longer the source of truth (handle and
+-- org_id are). Relaxing the NOT NULL constraints lets new INSERTs
+-- omit them; existing rows are unchanged. The actual DROP COLUMN
+-- step is gated to a future release once every reader switches to
+-- handle / org_id.
+DO $v14_relax_columns$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v14_relax_legacy_columns' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+  -- organizations: slug & name become nullable. The UNIQUE constraint
+  -- on slug stays (until it's dropped together with the column) so
+  -- we don't accidentally collide on a NULL — Postgres treats NULL as
+  -- distinct in UNIQUE indexes, which is what we want.
+  BEGIN
+    ALTER TABLE organizations ALTER COLUMN slug DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL;
+  END;
+  BEGIN
+    ALTER TABLE organizations ALTER COLUMN name DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL;
+  END;
+  -- docos: owner_id becomes nullable (org_id is now NOT NULL via v13).
+  BEGIN
+    ALTER TABLE docos ALTER COLUMN owner_id DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL;
+  END;
+  INSERT INTO doco_meta (key, value) VALUES ('v14_relax_legacy_columns', 'done')
+    ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v14_relax_columns$;
