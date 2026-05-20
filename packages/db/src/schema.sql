@@ -849,6 +849,34 @@ CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id)
 -- identical to dropping the tables; we keep the empty tables around
 -- so an actual `DROP TABLE` (the v17 cleanup) can land cleanly once
 -- the readers are wrapped with `scopesTableExists` guards.
+-- v16: relax NOT NULL on the legacy columns that v15 deprecated.
+-- New @doco/host writes still populate them with the canonical
+-- handle / org_id values for compatibility with old readers; this
+-- DDL change just makes a future DROP COLUMN trivial.
+DO $v16_relax_columns$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v16_relax_legacy_columns' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+  BEGIN
+    ALTER TABLE organizations ALTER COLUMN slug DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL;
+  END;
+  BEGIN
+    ALTER TABLE organizations ALTER COLUMN name DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL;
+  END;
+  BEGIN
+    ALTER TABLE docos ALTER COLUMN owner_id DROP NOT NULL;
+  EXCEPTION WHEN others THEN NULL;
+  END;
+  INSERT INTO doco_meta (key, value) VALUES ('v16_relax_legacy_columns', 'done')
+    ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v16_relax_columns$;
+
 DO $v16_truncate_scopes$
 BEGIN
   IF EXISTS (
