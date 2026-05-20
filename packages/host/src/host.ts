@@ -316,6 +316,10 @@ export async function addPrincipal(
       ],
     );
   });
+  // v16: every Principal gets a personal Organization with
+  // handle = username at sign-up. Idempotent — no-op if one already
+  // exists from an earlier sign-in pass.
+  await ensurePersonalOrganization(id, opts.username);
   return id;
 }
 
