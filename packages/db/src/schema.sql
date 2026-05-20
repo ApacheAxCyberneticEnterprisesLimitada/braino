@@ -9,8 +9,7 @@
 --
 -- Schema rules:
 --   - Each entity type gets its own table; common columns live up top
---     in a consistent order (id, doco_id, readable text, lifecycle, ...).
---     Most node tables call that text `summary`; scopes call it `purpose`.
+--     in a consistent order (id, doco_id, summary, lifecycle, ...).
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
 --   - `edges` materializes cross-entity references for graph queries.
@@ -39,13 +38,6 @@ BEGIN
     ALTER INDEX doco_members_principal_idx RENAME TO doco_users_principal_idx;
   END IF;
 
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'scope_members') THEN
-    ALTER TABLE scope_members RENAME TO scope_users;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'scope_members_principal_idx') THEN
-    ALTER INDEX scope_members_principal_idx RENAME TO scope_users_principal_idx;
-  END IF;
-
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_members') THEN
     ALTER TABLE org_members RENAME TO org_users;
   END IF;
@@ -59,9 +51,6 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'doco_members_role_check') THEN
     ALTER TABLE doco_users RENAME CONSTRAINT doco_members_role_check TO doco_users_role_check;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'scope_members_role_check') THEN
-    ALTER TABLE scope_users RENAME CONSTRAINT scope_members_role_check TO scope_users_role_check;
   END IF;
 END
 $v9_user_rename$;
@@ -307,39 +296,9 @@ CREATE TABLE IF NOT EXISTS states (
 CREATE INDEX IF NOT EXISTS states_doco_idx ON states (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS states_lifecycle_idx ON states (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS scopes (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  name        text NOT NULL,
-  purpose     text,
-  lifecycle   text,
-  raw_yaml    text NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text,
-  UNIQUE (doco_id, name)
-);
-CREATE INDEX IF NOT EXISTS scopes_doco_idx ON scopes (doco_id, created_at DESC);
-
--- Scope nodes use `purpose`, not `summary`. Older installs carried the
--- same description text in `scopes.summary`; migrate it into the new
--- hot-path column and remove the old column once code has stopped
--- querying it.
-ALTER TABLE scopes ADD COLUMN IF NOT EXISTS purpose text;
-DO $v11_scope_purpose$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'scopes' AND column_name = 'summary'
-  ) THEN
-    UPDATE scopes
-       SET purpose = COALESCE(NULLIF(purpose, ''), NULLIF(summary, ''))
-     WHERE purpose IS NULL OR purpose = '';
-  END IF;
-END
-$v11_scope_purpose$;
-ALTER TABLE scopes DROP COLUMN IF EXISTS summary;
+-- v16 (2026-05-20): the legacy `scopes` table was removed
+-- (decision_01KS3DW9C2KN2X7Z80R18H1RAX). See the DROP TABLE block
+-- at the bottom of this file for the cleanup DDL.
 
 CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,
@@ -447,20 +406,8 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE INDEX IF NOT EXISTS embeddings_doco_idx  ON embeddings (doco_id);
 CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
 
--- Denormalized Rule.applies_to → matched targets (ADR-026). Populated
--- by the indexer at write time. Lets runtime checks look up "which
--- Rules apply to this target?" in O(1) without re-evaluating selectors.
-CREATE TABLE IF NOT EXISTS scope_match (
-  source_id         text NOT NULL,
-  source_node_type  text NOT NULL,
-  target_id         text NOT NULL,
-  target_node_type  text NOT NULL,
-  doco_id           text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  selector_rev      integer NOT NULL DEFAULT 1,
-  PRIMARY KEY (source_id, target_id)
-);
-CREATE INDEX IF NOT EXISTS scope_match_target_idx ON scope_match (target_id);
-CREATE INDEX IF NOT EXISTS scope_match_doco_idx   ON scope_match (doco_id);
+-- (v16 — the legacy `scope_match` table was removed alongside the
+-- scopes concept itself. See DROP TABLE block at the bottom.)
 
 -- Full-text search. One row per
 -- entity. The indexer populates summary + body; search_tsv is a
@@ -488,7 +435,6 @@ ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
 ALTER TABLE rules              DROP COLUMN IF EXISTS revision;
 ALTER TABLE actions            DROP COLUMN IF EXISTS revision;
 ALTER TABLE evals              DROP COLUMN IF EXISTS revision;
-ALTER TABLE scopes             DROP COLUMN IF EXISTS revision;
 ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
 ALTER TABLE reference_entities DROP COLUMN IF EXISTS revision;
 
@@ -516,11 +462,10 @@ DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
--- Four roles (owner / approver / author / reader) granted at three levels
--- (org / doco / scope). Effective role = max across levels (highest-wins
--- additive composition). Scope-only grant implies doco-reader visibility.
--- Author-role writes default to lifecycle `proposed`; only approver+ can
--- transition. #global constitution edits require doco-level owner.
+-- Four roles (owner / approver / author / reader) granted at two levels
+-- (org / doco). Effective role = max across levels (highest-wins
+-- additive composition). Author-role writes default to lifecycle
+-- `proposed`; only approver+ can transition.
 
 -- Widen org_users.role CHECK to the new 4-role enum. Pre-existing rows
 -- (owner|admin|member) collapse to 'owner' per the alpha-cutover posture.
@@ -550,17 +495,8 @@ CREATE TABLE IF NOT EXISTS doco_users (
 );
 CREATE INDEX IF NOT EXISTS doco_users_principal_idx ON doco_users (principal_id, role);
 
--- Per-scope user grants. Layers on top of doco_users. A scope-only grant
--- (no doco_users row for this principal+doco) implies doco-reader
--- visibility per decision_01KS0JBJ5X0AZ4XJJFKEWE1R62.
-CREATE TABLE IF NOT EXISTS scope_users (
-  scope_id      text NOT NULL REFERENCES scopes(id) ON DELETE CASCADE,
-  principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
-  role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
-  joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (scope_id, principal_id)
-);
-CREATE INDEX IF NOT EXISTS scope_users_principal_idx ON scope_users (principal_id, role);
+-- (v16 — the legacy `scope_users` table was removed; the scopes
+-- concept itself is gone. See DROP TABLE block at the bottom.)
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Legacy token store. Kept as an empty shell so the v12 cutover
@@ -839,20 +775,19 @@ CREATE TABLE IF NOT EXISTS doco_templates (
 CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
 
 -- ──────────────────────────────────────────────────────────────────────────
--- v16 (2026-05-20): truncate the legacy scope tables.
+-- v16 (2026-05-20): scopes concept removed entirely
+-- (decision_01KS3DW9C2KN2X7Z80R18H1RAX).
 --
--- v15 removed every navigable surface that wrote to these tables.
--- Existing readers (capture.server.ts, full-graph.server.ts,
--- scope-helpers.server.ts, scope-bulk.server.ts, two route loaders,
--- three legacy migrations) still SELECT against them — but those
--- queries now return zero rows on every Doco. The behavior is
--- identical to dropping the tables; we keep the empty tables around
--- so an actual `DROP TABLE` (the v17 cleanup) can land cleanly once
--- the readers are wrapped with `scopesTableExists` guards.
--- v16: relax NOT NULL on the legacy columns that v15 deprecated.
--- New @doco/host writes still populate them with the canonical
--- handle / org_id values for compatibility with old readers; this
--- DDL change just makes a future DROP COLUMN trivial.
+-- All scope-aware code paths were torn out in the v16 commit series.
+-- This block drops the legacy tables + any leftover in_scope_of
+-- edges that referenced them. Idempotent — `DROP TABLE IF EXISTS`
+-- + `DELETE FROM edges WHERE edge_type = 'in_scope_of'` on every
+-- boot.
+--
+-- Also relaxes NOT NULL on the legacy org/doco columns that v15
+-- replaced (organizations.slug, organizations.name, docos.owner_id).
+-- @doco/host still writes them for back-compat with old SELECTs,
+-- but they're nullable so a future column drop is safe.
 DO $v16_relax_columns$
 BEGIN
   IF EXISTS (
@@ -877,28 +812,15 @@ BEGIN
 END
 $v16_relax_columns$;
 
-DO $v16_truncate_scopes$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM doco_meta WHERE key = 'v16_truncate_legacy_scope_tables' AND value = 'done'
-  ) THEN
-    RETURN;
-  END IF;
-  IF to_regclass('public.scope_match') IS NOT NULL THEN
-    TRUNCATE TABLE scope_match;
-  END IF;
-  IF to_regclass('public.scope_users') IS NOT NULL THEN
-    TRUNCATE TABLE scope_users;
-  END IF;
-  IF to_regclass('public.scopes') IS NOT NULL THEN
-    -- scopes is referenced by `edges.to_id` (`in_scope_of` edge
-    -- type). TRUNCATE CASCADE clears those dangling edges too.
-    TRUNCATE TABLE scopes CASCADE;
-  END IF;
-  INSERT INTO doco_meta (key, value) VALUES ('v16_truncate_legacy_scope_tables', 'done')
-    ON CONFLICT (key) DO UPDATE SET value = 'done';
-END
-$v16_truncate_scopes$;
+-- Drop the three legacy scope tables in dependency order. CASCADE
+-- cleans any lingering foreign-key references (scope_users.scope_id
+-- → scopes(id) is the only one). Then sweep stale in_scope_of
+-- edges out of the edges table — those are the from-node → scope
+-- back-references whose target rows are gone.
+DROP TABLE IF EXISTS scope_users CASCADE;
+DROP TABLE IF EXISTS scope_match CASCADE;
+DROP TABLE IF EXISTS scopes      CASCADE;
+DELETE FROM edges WHERE edge_type = 'in_scope_of';
 
 DO $v15_backfill$
 DECLARE

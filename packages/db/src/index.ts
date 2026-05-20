@@ -8,7 +8,6 @@ export {
   withTransaction,
   ensureSchema,
   pingDb,
-  scopesTableExists,
 } from "./client.js";
 
 export type { PoolClient } from "pg";
@@ -35,10 +34,9 @@ export {
   isOrgUser,
   isOrgAdmin,
   getOrgRole,
-  // Doco / scope membership (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62)
+  // Doco membership (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62)
   type DocoRole,
   type DocoUserRow,
-  type ScopeUserRow,
   ROLE_RANK,
   roleAtLeast,
   maxRole,
@@ -47,12 +45,6 @@ export {
   listDocoIdsForUserPrincipal,
   upsertDocoUser,
   removeDocoUser,
-  getScopeUserRole,
-  listScopeUsers,
-  listScopeIdsWithGrant,
-  listScopeIdsForUserPrincipal,
-  upsertScopeUser,
-  removeScopeUser,
   listAllDocos,
   getDocoById,
   getDocoByHandle,

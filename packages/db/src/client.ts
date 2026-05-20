@@ -101,25 +101,3 @@ export async function pingDb(): Promise<{ ok: true; version: string }> {
   const r = await withClient(async (c) => c.query("SELECT version() AS v"));
   return { ok: true, version: String(r.rows[0]?.v ?? "") };
 }
-
-/**
- * v16: short-circuit guard for SQL paths that still read from the
- * legacy `scopes` table. Returns true while the table exists, false
- * after the DROP lands. Cached per process — first call probes
- * `pg_catalog` via `to_regclass`, subsequent calls hit the cache.
- *
- * Use it like:
- *   if (!(await scopesTableExists())) return [];
- *   // …then run the legacy SELECT FROM scopes …
- */
-let _scopesTableExists: boolean | null = null;
-export async function scopesTableExists(): Promise<boolean> {
-  if (_scopesTableExists !== null) return _scopesTableExists;
-  const r = await withClient((c) =>
-    c.query<{ exists: boolean }>(
-      "SELECT to_regclass('public.scopes') IS NOT NULL AS exists",
-    ),
-  );
-  _scopesTableExists = !!r.rows[0]?.exists;
-  return _scopesTableExists;
-}
