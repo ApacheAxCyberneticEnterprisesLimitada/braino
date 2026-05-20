@@ -723,6 +723,18 @@ ALTER TABLE oauth_refresh_tokens
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
 
+-- Targeted-grant hints. When the agent already knows which Doco it
+-- wants access to (and at what role), it passes these to POST
+-- /oauth/device_authorization. The /device approve screen then shows
+-- ONLY the target Doco with the requested role pre-filled, instead of
+-- the full picker. Both nullable — when omitted, /device falls back
+-- to the all-owned-Docos picker.
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS target_doco_handle text;
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS requested_role text
+    CHECK (requested_role IS NULL OR requested_role IN ('reader','author','approver','owner'));
+
 -- v12 hard cutover: invalidate every legacy SessionToken in tokens_blob
 -- the moment OAuth ships. Previous DOCO_ACCESS bearers stop working;
 -- runtimes get a 401 + WWW-Authenticate and kick off the OAuth flow.
