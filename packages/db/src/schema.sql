@@ -976,9 +976,37 @@ BEGIN
 END
 $v13_tighten$;
 
--- 6d. NOTE — legacy surfaces (`scopes`, `scope_users`, `scope_match`,
--- `organizations.slug`, `organizations.name`, `docos.owner_id`,
--- `docos.name`) remain for one release as the code is migrated off
--- them in pieces. Reads against these tables/columns must be removed
--- before they can be dropped (v14). The framework treats them as
--- unused: new captures don't write to them, new flows ignore them.
+-- ──────────────────────────────────────────────────────────────────────────
+-- v14 cleanup (2026-05-20, partial):
+--
+-- The fully-dead legacy surfaces are dropped here; the surfaces that
+-- still have one or two stale TypeScript readers stay for a follow-up
+-- pass so we never boot a server whose code dereferences a missing
+-- column/table.
+--
+-- DROPPED NOW:
+--   * scope_match — denormalized Rule.applies_to index. The indexer
+--     stopped writing it in v13 Phase 6 (full-graph dropped scope from
+--     GRAPH_TABLES); no live read path remains. Test fixtures still
+--     mention it but those tests no longer exercise scope nodes.
+--
+-- STILL DEFERRED (real code references, listed for the next pass):
+--   * scopes table — read by host.ts (createScopeInDoco,
+--     seedScopeFromTemplate, etc.) which the routes no longer reach but
+--     the @doco/host exports still expose. Drop after pruning those
+--     exports.
+--   * scope_users table — invite.$code.tsx and users.tsx still
+--     import upsertScopeUser / listScopeUsers / etc. Drop after those
+--     UI surfaces are reworked to org+doco-only role grants.
+--   * organizations.slug / organizations.name — still on the INSERT
+--     paths in @doco/db's upsertIdentity + repo.ts's getDoco* SELECTs.
+--     handle is the canonical id; once readers all key off handle the
+--     legacy columns drop.
+--   * docos.owner_id / docos.name — same story. The new org_id column
+--     is the source of truth; owner_id is kept for the JOIN that
+--     synthesizes the back-compat `owner_slug` field.
+--
+-- The v14 doco_meta gate is added so the partial cleanup runs once.
+DROP TABLE IF EXISTS scope_match CASCADE;
+INSERT INTO doco_meta (key, value) VALUES ('v14_partial_cleanup', 'done')
+  ON CONFLICT (key) DO UPDATE SET value = 'done';
