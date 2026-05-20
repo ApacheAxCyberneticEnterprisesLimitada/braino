@@ -46,6 +46,10 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
 
 /**
  * Entity node types — used as URL segments in the short form.
+ *
+ * v15 (decision_01KS3DW9C2KN2X7Z80R18H1RAX) removed `scope` from the
+ * navigable set. Legacy raw_yaml may still mention scope nodes but
+ * the URL layer rejects `scope` as an entity type.
  */
 export const ENTITY_TYPES = [
   "principal",
@@ -59,7 +63,6 @@ export const ENTITY_TYPES = [
   "log",
   "eval",
   "reference",
-  "scope",
   "state",
 ] as const;
 
@@ -102,12 +105,14 @@ function docoPrefix(input: { docoId?: string; ownerSlug?: string; docoSlug?: str
 }
 
 /**
- * Canonical URL for an entity — short form, no `/e/`. Scopes use the
- * plural URL segment `/scopes/<id>` (decision_01KRPNZY7W6CCMYNKGND67BP0B).
+ * Canonical URL for an entity — short form, no `/e/`.
+ *
+ * v15 removed the dedicated `/scopes/<id>` URL; scope entities fall
+ * through to the generic `/<doco>/<nodeType>/<id>` path (which 404s
+ * because `scope` is no longer a valid entity type).
  */
 export function entityUrl(input: EntityUrlInput): string {
   const prefix = docoPrefix(input);
-  if (input.nodeType === "scope") return `${prefix}/scopes/${input.id}`;
   return `${prefix}/${input.nodeType}/${input.id}`;
 }
 
