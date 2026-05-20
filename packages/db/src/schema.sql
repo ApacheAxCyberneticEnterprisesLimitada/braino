@@ -447,17 +447,12 @@ DELETE FROM edges         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id 
 DELETE FROM embeddings    WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 
--- v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): the framework drops the
--- `Rule.kind="authoring"` marker in favor of `Scope.gated_by` (an edge
--- from the Scope to each Rule that gates captures into it). The DDL
--- here is unchanged — both `gated_by` and `kind` live in raw_yaml and
--- don't need their own columns. The actual YAML rewrite (parse each
--- Rule's raw_yaml; if `kind: authoring`, copy the rule's id into each
--- listed scope's `gated_by` and flip `kind` to `tagged`) runs as a
--- TypeScript one-shot at server startup (runV7Migration in
--- @doco/web/app/lib/migrations/v7.server.ts) gated on
--- schema_version < '2'. Bumping schema_version is what the TS
--- migration writes back after successful completion.
+-- v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): the framework dropped the
+-- `Rule.kind="authoring"` marker. v16 dropped the surrounding scopes
+-- concept entirely (decision_01KS3DW9C2KN2X7Z80R18H1RAX); both the
+-- v7 migration runner and its `Scope.gated_by` half are gone. Kept
+-- this note so a future archaeologist tracing old commits has the
+-- pointer.
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
@@ -739,11 +734,10 @@ $v8_backfill$;
 -- ──────────────────────────────────────────────────────────────────────────
 -- v15 (2026-05-20): additive schema for the scope→org cutover.
 --
--- This block ONLY adds columns + tables + a personal-org backfill. It
--- doesn't drop anything; existing readers (capture.server.ts,
--- scope-helpers.server.ts, full-graph.server.ts, route loaders) keep
--- working unchanged. The actual scope-removal + column-drop work
--- lands in later commits, each gated on its own doco_meta key.
+-- v15 was the additive half: handle columns, org_id on docos,
+-- doco_templates table, personal-org backfill. The destructive half
+-- (scope-tables DROP, NOT NULL relaxation on legacy columns) landed
+-- in the v16 series below.
 --
 -- Goals delivered here:
 --   1. Every Organization has a `handle` (the public, kebab-case id).
