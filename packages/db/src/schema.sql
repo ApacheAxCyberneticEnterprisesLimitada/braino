@@ -799,3 +799,110 @@ BEGIN
   ON CONFLICT (key) DO UPDATE SET value = 'done';
 END
 $v8_backfill$;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- v15 (2026-05-20): additive schema for the scope→org cutover.
+--
+-- This block ONLY adds columns + tables + a personal-org backfill. It
+-- doesn't drop anything; existing readers (capture.server.ts,
+-- scope-helpers.server.ts, full-graph.server.ts, route loaders) keep
+-- working unchanged. The actual scope-removal + column-drop work
+-- lands in later commits, each gated on its own doco_meta key.
+--
+-- Goals delivered here:
+--   1. Every Organization has a `handle` (the public, kebab-case id).
+--      Copies the legacy `slug` over for existing rows.
+--   2. Every Doco has an `org_id` pointer to its owning Organization.
+--      Backfilled from the legacy polymorphic `owner_id`.
+--   3. Every Principal has a personal Organization with handle =
+--      username. Minted lazily for existing Principals.
+--   4. Docos get optional `allowed_node_types` and
+--      `default_node_lifecycle` columns (for the upcoming doco-template
+--      flow). NULL = no restriction.
+--   5. `doco_templates` table for the v15+ create-from-template flow.
+
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS handle text;
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS org_id text;
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS allowed_node_types text[];
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS default_node_lifecycle text;
+
+CREATE TABLE IF NOT EXISTS doco_templates (
+  id           text PRIMARY KEY,
+  handle       text NOT NULL UNIQUE,
+  owner_id     text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  label        text NOT NULL,
+  description  text NOT NULL,
+  raw_yaml     text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
+
+DO $v15_backfill$
+DECLARE
+  princ record;
+  new_org_id text;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v15_org_backfill' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+
+  -- 1) Copy slug → handle for existing orgs.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'organizations' AND column_name = 'slug'
+  ) THEN
+    UPDATE organizations SET handle = slug WHERE handle IS NULL OR handle = '';
+  END IF;
+
+  -- 2) Personal org for every Principal that doesn't already have one
+  --    (handle = username). The Principal becomes its owner.
+  FOR princ IN
+    SELECT p.id, p.username
+    FROM principals p
+    WHERE p.username IS NOT NULL
+      AND p.username <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM organizations o WHERE o.handle = p.username
+      )
+  LOOP
+    new_org_id := 'organization_v15_' || replace(gen_random_uuid()::text, '-', '');
+    -- slug + name are still NOT NULL on the legacy schema; populate
+    -- them with the same handle so existing readers stay happy.
+    INSERT INTO organizations (id, slug, name, handle, raw_yaml)
+    VALUES (
+      new_org_id,
+      princ.username,
+      princ.username,
+      princ.username,
+      jsonb_build_object('id', new_org_id, 'handle', princ.username,
+                         'owner_id', princ.id)::text
+    )
+    ON CONFLICT (slug) DO NOTHING;
+
+    INSERT INTO org_users (org_id, principal_id, role)
+    SELECT id, princ.id, 'owner'
+    FROM organizations WHERE handle = princ.username
+    ON CONFLICT DO NOTHING;
+    RAISE NOTICE 'v15 mint personal org: % owner=%', princ.username, princ.id;
+  END LOOP;
+
+  -- 3) Backfill docos.org_id from the legacy owner_id.
+  UPDATE docos d
+     SET org_id = d.owner_id
+   WHERE d.org_id IS NULL AND d.owner_id LIKE 'organization_%';
+
+  UPDATE docos d
+     SET org_id = o.id
+    FROM principals p
+    JOIN organizations o ON o.handle = p.username
+   WHERE d.org_id IS NULL
+     AND d.owner_id = p.id
+     AND d.owner_id LIKE 'principal_%';
+
+  INSERT INTO doco_meta (key, value) VALUES ('v15_org_backfill', 'done')
+    ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v15_backfill$;
