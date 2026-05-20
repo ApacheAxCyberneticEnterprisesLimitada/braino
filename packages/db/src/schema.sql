@@ -622,6 +622,12 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   code_challenge        text NOT NULL,
   code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
   granted_doco_ids      text[] NOT NULL,
+  -- Per-Doco role scope-down. Map of doco_id → DocoRole capping the
+  -- token's effective role on that Doco. The user can lower the role
+  -- below what they themselves hold (give the agent "reader" on a Doco
+  -- where they're owner) but never raise it. Missing entries mean
+  -- "inherit the principal's actual role" — i.e. no scope-down.
+  granted_doco_roles    jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope                 text,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
@@ -639,6 +645,7 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
+  granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -661,6 +668,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
+  granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -692,6 +700,7 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
                      CHECK (status IN ('pending','approved','denied')),
   principal_id     text REFERENCES principals(id) ON DELETE CASCADE,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   expires_at       timestamptz NOT NULL,
   last_polled_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
