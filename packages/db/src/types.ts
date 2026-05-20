@@ -12,7 +12,6 @@ export const NODE_TABLES: Record<string, { table: string; body: boolean }> = {
   action: { table: "actions", body: true },
   log: { table: "logs", body: true },
   eval: { table: "evals", body: true },
-  scope: { table: "scopes", body: false },
   tag: { table: "tags", body: false },
   idea: { table: "ideas", body: true },
   reference: { table: "reference_entities", body: false },

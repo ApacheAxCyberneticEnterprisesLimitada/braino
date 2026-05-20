@@ -33,20 +33,11 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   }
   const cols = ["id", "doco_id", "lifecycle", "raw_yaml"];
   const vals: unknown[] = [rec.id, rec.doco_id, rec.lifecycle ?? null, rec.raw_yaml];
-  if (rec.node_type === "scope") {
-    cols.push("purpose");
-    vals.push(rec.purpose ?? null);
-  } else {
-    cols.push("summary");
-    vals.push(rec.summary ?? null);
-  }
+  cols.push("summary");
+  vals.push(rec.summary ?? null);
   if (spec.body) {
     cols.push("body_md");
     vals.push(rec.body_md ?? null);
-  }
-  if (rec.node_type === "scope") {
-    cols.push("name");
-    vals.push(rec.name ?? null);
   }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(

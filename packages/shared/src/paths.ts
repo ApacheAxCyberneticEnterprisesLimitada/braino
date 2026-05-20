@@ -28,7 +28,6 @@ export const ENTITY_DIRS: Record<Exclude<NodeType, "doco">, EntityDirSpec> = {
    * structured fields (criterion/input/expected/last_status) in frontmatter. */
   eval: { dir: "evals", format: "md" },
   reference: { dir: "references", format: "yaml" },
-  scope: { dir: "scopes", format: "yaml" },
   /** State — node in a formal state machine. Markdown body for prose
    * description; structured fields (`kind`, `invariants`) in frontmatter.
    * Per decision_01KRRR5BQ16ASY8HQEE0V499YG. */

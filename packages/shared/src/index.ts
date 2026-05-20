@@ -21,5 +21,4 @@ export * from "./url-conventions.js";
 // package.json — do NOT add them back here.
 export * from "./loaded-doco.js";
 export * from "./refs.js";
-export * from "./scope-rules.js";
 export * from "./validate.js";

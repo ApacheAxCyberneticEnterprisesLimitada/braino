@@ -70,7 +70,6 @@ describe("isNodeType", () => {
       "action",
       "eval",
       "reference",
-      "scope",
     ]) {
       expect(isNodeType(t)).toBe(true);
     }
@@ -79,6 +78,7 @@ describe("isNodeType", () => {
   it("rejects unknown kinds", () => {
     expect(isNodeType("widget")).toBe(false);
     expect(isNodeType("tag")).toBe(false);
+    expect(isNodeType("scope")).toBe(false);
   });
 });
 

@@ -73,7 +73,6 @@ export async function createHost(
       created_at: created,
       created_by: id,
       lifecycle: "active",
-      scopes: [],
     };
     const { withClient } = await import("@doco/db");
     await withClient(async (c) => {
@@ -282,7 +281,6 @@ export async function addPrincipal(
     created_at: created,
     created_by: id,
     lifecycle: "active",
-    scopes: [],
   };
 
   const { withClient } = await import("@doco/db");
@@ -713,7 +711,6 @@ export async function addOrganization(
     created_at: created,
     created_by: owner.id,
     lifecycle: "active",
-    scopes: [],
   };
 
   const { withClient } = await import("@doco/db");
@@ -850,7 +847,6 @@ export async function createDocoInHost(
     created_at: created,
     created_by: owner.kind === "principal" ? owner.id : null,
     lifecycle: "active",
-    scopes: [] as string[],
     members:
       owner.kind === "principal"
         ? [

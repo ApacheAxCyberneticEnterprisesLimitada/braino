@@ -260,7 +260,6 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
           "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafted Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
-          scope_ref: "$capture_scope",
           list_field: "actors",
           edge_type: "serves",
           incoming_node_type: "action",
@@ -305,139 +304,60 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
     rules: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
-        // D1 — the seeder tags the scope's seed Intent + Rules into this
-        // scope too, so they have to be allowed. Idea and Log have their
-        // own homes elsewhere.
+        // D1 — Idea and Log have their own homes elsewhere.
         summary:
-          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a #state-machines scope. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
+          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a #state-machines doco. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["state", "action", "decision", "eval", "reference", "intent", "rule"],
         },
       },
+      // v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX): the deterministic
+      // wiring rules that needed a scope grain (graph-constraint,
+      // unique-within-scope, count-within-scope) are dropped along with
+      // the engine that evaluated them. The semantics they encoded —
+      // alternation, terminal-state outgoing-edge bound, unique state
+      // names, ≥1 initial/terminal — are tracked as descriptive
+      // guidance below until a v16-shape evaluator lands.
       {
-        // D2
         summary:
-          "`follows` edges in this scope alternate State ↔ Action — a transition Action follows a State, and a State follows the Action that produced it. Direct State → State or Action → Action `follows` edges break the wiring.",
-        predicate: {
-          kind: "graph-constraint",
-          scope_ref: "$capture_scope",
-          graph: "follows",
-          op: "alternates-between",
-          node_types: ["state", "action"],
-        },
+          "`follows` edges alternate State ↔ Action — a transition Action follows a State, and a State follows the Action that produced it.",
+        kind: "guidance",
       },
       {
-        // D4
         summary:
-          "State `summary` is unique within the capturing scope — duplicate State names ambiguate transitions and break referential semantics.",
-        predicate: {
-          kind: "unique-within-scope",
-          scope_ref: "$capture_scope",
-          node_type: "state",
-          field: "summary",
-        },
+          "State `summary` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.",
+        kind: "guidance",
       },
       {
-        // D7 — semantic: a terminal State has no successor Action. An
-        // Action that fires AFTER a terminal State would carry
-        // `follows: [<that-terminal-state>]`, materializing as an
-        // incoming `follows` edge on the terminal State. Direction
-        // `in` is the correct check (the prior `out` reading flipped
-        // it and would have rejected properly-wired terminal States
-        // that themselves follow their predecessor Action).
         summary:
           "Terminal States have no successor Action — no Action's `follows` may point at a terminal State.",
-        predicate: {
-          kind: "graph-constraint",
-          scope_ref: "$capture_scope",
-          graph: "follows",
-          op: "degree-bounds",
-          where: { kind: "terminal" },
-          direction: "in",
-          max: 0,
-        },
+        kind: "guidance",
       },
       {
-        // D9 + D10 collapse into one references-resolve-in-scope check
-        // over the `follows` edge: every follows target must be a node
-        // in the same scope. Catches typos that target nodes outside
-        // the machine.
         summary:
-          "A `follows` edge must point at a node in the same scope — a State / Action that has slipped out of scope (or a typo'd id) breaks the chain.",
-        predicate: {
-          kind: "graph-constraint",
-          scope_ref: "$capture_scope",
-          graph: "follows",
-          op: "references-resolve-in-scope",
-          edge_type: "follows",
-        },
+          "A `follows` edge must point at a node in the same machine — a State / Action that has slipped out (or a typo'd id) breaks the chain.",
+        kind: "guidance",
       },
-      // ── Active-only deterministic ──
-      // These fire only on active captures and ignore drafted neighbors.
-      // The lifecycle filter inside `where` is what lets the engine
-      // count "active initial states" rather than "any initial state."
       {
-        // D5
         summary:
-          "An active #state-machines scope must have ≥1 active State of kind `initial` — every machine starts somewhere.",
-        fires_when_node_lifecycle: ["active"],
-        predicate: {
-          kind: "count-within-scope",
-          scope_ref: "$capture_scope",
-          node_type: "state",
-          where: { kind: "initial", lifecycle: ["active"] },
-          comparator: ">=",
-          n: 1,
-        },
+          "An active state-machine doco must have ≥1 active State of kind `initial` — every machine starts somewhere.",
+        kind: "guidance",
       },
       {
-        // D6
         summary:
-          "An active #state-machines scope must have ≥1 active State of kind `terminal`. Perpetual machines (worker loops, services) skip this Rule on their specific scope via `excluded_rules`.",
-        fires_when_node_lifecycle: ["active"],
-        predicate: {
-          kind: "count-within-scope",
-          scope_ref: "$capture_scope",
-          node_type: "state",
-          where: { kind: "terminal", lifecycle: ["active"] },
-          comparator: ">=",
-          n: 1,
-        },
+          "An active state-machine doco must have ≥1 active State of kind `terminal`. Perpetual machines (worker loops, services) are the exception.",
+        kind: "guidance",
       },
       {
-        // D8 — same direction semantics as D7. "Initial State has a
-        // successor Action" = at least one Action's `follows`
-        // includes this State, which is an INCOMING follows edge on
-        // the State. The prior `out` reading would have rejected
-        // properly-wired initial States.
         summary:
           "Each active initial State has ≥1 successor Action — otherwise the machine starts but never moves.",
-        fires_when_node_lifecycle: ["active"],
-        predicate: {
-          kind: "graph-constraint",
-          scope_ref: "$capture_scope",
-          graph: "follows",
-          op: "degree-bounds",
-          where: { kind: "initial", lifecycle: ["active"] },
-          direction: "in",
-          min: 1,
-        },
+        kind: "guidance",
       },
       {
-        // D13
         summary:
-          "Each active intermediate State is the `follows` target of ≥1 active Action — orphan intermediates (typos, dangling refactors) are caught at activate time.",
-        fires_when_node_lifecycle: ["active"],
-        predicate: {
-          kind: "graph-constraint",
-          scope_ref: "$capture_scope",
-          graph: "follows",
-          op: "degree-bounds",
-          where: { kind: "intermediate", lifecycle: ["active"] },
-          direction: "in",
-          min: 1,
-        },
+          "Each active intermediate State is the `follows` target of ≥1 active Action — orphan intermediates (typos, dangling refactors) signal a wiring mistake.",
+        kind: "guidance",
       },
       // ── Probabilistic ──
       // v7: each rule is gated to the node type it actually inspects so

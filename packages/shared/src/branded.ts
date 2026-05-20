@@ -20,7 +20,6 @@ export const NODE_TYPES = [
   "log",
   "eval",
   "reference",
-  "scope",
   "state",
 ] as const;
 
