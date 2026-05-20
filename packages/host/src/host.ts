@@ -319,6 +319,286 @@ export async function addPrincipal(
   return id;
 }
 
+// ──────────────────────────────────────────────────────────────────────────
+// v15 helpers: Organization + Doco creation that key off `handle` /
+// `org_id` instead of the legacy `slug` / polymorphic `owner_id`. These
+// are additive — the pre-v13 `addOrganization` / `createDocoInHost`
+// below still work unchanged.
+
+/**
+ * Ensure every Principal has a personal Organization with handle =
+ * username. Idempotent: returns the existing org if one already
+ * matches, otherwise mints a fresh one and adds the Principal as
+ * owner. Safe to call repeatedly (e.g. on every sign-in to backfill
+ * older Principals).
+ */
+export async function ensurePersonalOrganization(
+  principalId: string,
+  username: string,
+): Promise<EntityId<"organization">> {
+  const { withClient } = await import("@doco/db");
+  return withClient(async (c) => {
+    const existing = await c.query<{ id: string }>(
+      `SELECT id FROM organizations WHERE handle = $1 OR slug = $1 LIMIT 1`,
+      [username],
+    );
+    if (existing.rows[0]) {
+      await c.query(
+        `INSERT INTO org_users (org_id, principal_id, role)
+         VALUES ($1, $2, 'owner')
+         ON CONFLICT (org_id, principal_id) DO NOTHING`,
+        [existing.rows[0].id, principalId],
+      );
+      return existing.rows[0].id as EntityId<"organization">;
+    }
+    const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
+    const created = nowIso();
+    // The legacy schema still has NOT NULL on slug/name. Populate them
+    // with the same handle so the upsert path stays happy.
+    await c.query(
+      `INSERT INTO organizations (id, slug, name, handle, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      [
+        id,
+        username,
+        username,
+        username,
+        JSON.stringify({
+          id,
+          handle: username,
+          owner_id: principalId,
+          created_at: created,
+        }),
+        created,
+      ],
+    );
+    await c.query(
+      `INSERT INTO org_users (org_id, principal_id, role, joined_at)
+       VALUES ($1, $2, 'owner', $3)`,
+      [id, principalId, created],
+    );
+    return id;
+  });
+}
+
+/**
+ * Find the next available organization handle starting from `requested`.
+ * Appends `-2`, `-3`, … until a free slot is found. Checks both
+ * `organizations.handle` and `principals.username` (top-level slug
+ * collisions). Used by both the web suggestion path and the API
+ * `autoSuffix` path.
+ */
+export async function findAvailableOrgHandle(requested: string): Promise<string> {
+  const base = requested.trim().toLowerCase();
+  if (!base) throw new Error("Organization handle is required.");
+  const { withClient } = await import("@doco/db");
+  return withClient(async (c) => {
+    let candidate = base;
+    let n = 2;
+    while (true) {
+      const taken = await c.query(
+        `SELECT 1 FROM organizations WHERE handle = $1 OR slug = $1
+         UNION ALL
+         SELECT 1 FROM principals WHERE username = $1
+         LIMIT 1`,
+        [candidate],
+      );
+      if (taken.rows.length === 0) return candidate;
+      candidate = `${base}-${n}`;
+      n += 1;
+      if (n > 1000) throw new Error("Could not find an available handle.");
+    }
+  });
+}
+
+/**
+ * Compose `<orgHandle>-<requestedSuffix>` and find the next free
+ * variant. Used by the web new-doco flow's collision suggestion.
+ */
+export async function findAvailableDocoHandle(
+  orgHandle: string,
+  requestedSuffix: string,
+): Promise<string> {
+  const suffix = requestedSuffix.trim().toLowerCase();
+  if (!suffix) throw new Error("Doco suffix is required.");
+  const base = `${orgHandle}-${suffix}`;
+  const { withClient } = await import("@doco/db");
+  return withClient(async (c) => {
+    let candidate = base;
+    let n = 2;
+    while (true) {
+      const taken = await c.query(`SELECT 1 FROM docos WHERE handle = $1 LIMIT 1`, [candidate]);
+      if (taken.rowCount === 0) return candidate;
+      candidate = `${base}-${n}`;
+      n += 1;
+      if (n > 1000) throw new Error("Could not find an available handle.");
+    }
+  });
+}
+
+/**
+ * Single-property Organization create (v15). Takes just the handle and
+ * the owning Principal id. The legacy `addOrganization` (slug +
+ * display_name + description) stays for back-compat callers.
+ */
+export async function addOrganizationByHandle(opts: {
+  handle: string;
+  ownerPrincipalId: string;
+  autoSuffix?: boolean;
+}): Promise<{ id: EntityId<"organization">; handle: string }> {
+  assertSlugAllowed(opts.handle, "organization");
+  const { withClient } = await import("@doco/db");
+  const finalHandle = opts.autoSuffix ? await findAvailableOrgHandle(opts.handle) : opts.handle;
+  return withClient(async (c) => {
+    if (!opts.autoSuffix) {
+      const taken = await c.query(
+        `SELECT 1 FROM organizations WHERE handle = $1 OR slug = $1
+         UNION ALL
+         SELECT 1 FROM principals WHERE username = $1
+         LIMIT 1`,
+        [finalHandle],
+      );
+      if (taken.rows.length > 0) {
+        throw new Error(`Handle "${finalHandle}" is already taken.`);
+      }
+    }
+    const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
+    const created = nowIso();
+    await c.query(
+      `INSERT INTO organizations (id, slug, name, handle, raw_yaml, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      [
+        id,
+        finalHandle,
+        finalHandle,
+        finalHandle,
+        JSON.stringify({
+          id,
+          handle: finalHandle,
+          owner_id: opts.ownerPrincipalId,
+          created_at: created,
+        }),
+        created,
+      ],
+    );
+    await c.query(
+      `INSERT INTO org_users (org_id, principal_id, role, joined_at)
+       VALUES ($1, $2, 'owner', $3)`,
+      [id, opts.ownerPrincipalId, created],
+    );
+    return { id, handle: finalHandle };
+  });
+}
+
+/**
+ * Create a Doco owned by an Organization (v15). Composes the doco
+ * handle as `<org-handle>-<suffix>` and auto-suffixes on collision
+ * when `autoSuffix` is true. The creator becomes `owner` in
+ * `doco_users`. Skips filesystem setup and scope auto-install —
+ * Postgres-only, scope-free.
+ */
+export async function createDocoInOrg(opts: {
+  orgId: string;
+  requestedSuffix: string;
+  createdByPrincipalId: string;
+  description?: string;
+  visibility?: "private" | "public";
+  templateHandle?: string | null;
+  autoSuffix?: boolean;
+}): Promise<{
+  docoId: EntityId<"doco">;
+  orgId: string;
+  orgHandle: string;
+  handle: string;
+}> {
+  const suffix = opts.requestedSuffix.trim().toLowerCase();
+  if (!suffix || !/^[a-z0-9][a-z0-9_-]*$/.test(suffix)) {
+    throw new Error(
+      `Invalid doco suffix "${opts.requestedSuffix}". Must be lowercase kebab-case ([a-z0-9][a-z0-9_-]*).`,
+    );
+  }
+  if (HOST_RESERVED_SLUGS.has(suffix)) {
+    throw new Error(`Doco suffix "${suffix}" is reserved by URL routing.`);
+  }
+
+  const { withClient } = await import("@doco/db");
+  return withClient(async (c) => {
+    const orgRow = await c.query<{ id: string; handle: string }>(
+      `SELECT id, COALESCE(handle, slug) AS handle FROM organizations WHERE id = $1`,
+      [opts.orgId],
+    );
+    if (orgRow.rowCount === 0) {
+      throw new Error(`Organization "${opts.orgId}" not found.`);
+    }
+    const orgHandle = String(orgRow.rows[0]?.handle ?? "");
+    if (!orgHandle) {
+      throw new Error(`Organization "${opts.orgId}" has no handle.`);
+    }
+
+    const baseHandle = `${orgHandle}-${suffix}`;
+    let handle = baseHandle;
+    {
+      const taken = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]);
+      if ((taken.rowCount ?? 0) > 0) {
+        if (!opts.autoSuffix) {
+          throw new Error(`Doco handle "${baseHandle}" is already taken.`);
+        }
+        let n = 2;
+        while (true) {
+          handle = `${baseHandle}-${n}`;
+          const dup = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]);
+          if ((dup.rowCount ?? 0) === 0) break;
+          n += 1;
+          if (n > 999) throw new Error(`Auto-suffix exhausted for "${baseHandle}".`);
+        }
+      }
+    }
+
+    const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
+    const created = nowIso();
+    const visibility = opts.visibility ?? "private";
+    const docoYaml = {
+      id: docoId,
+      node_type: "doco",
+      handle,
+      visibility,
+      owner_id: opts.orgId,
+      org_id: opts.orgId,
+      description: opts.description ?? `Doco "${handle}" in org "${orgHandle}".`,
+      template_handle: opts.templateHandle ?? null,
+      created_at: created,
+      created_by: opts.createdByPrincipalId,
+      lifecycle: "active",
+    };
+    // owner_id is still NOT NULL on the legacy schema; populate it
+    // alongside org_id so existing readers keep working.
+    await c.query(
+      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml,
+                          allowed_node_types, default_node_lifecycle,
+                          created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+      [
+        docoId,
+        handle,
+        opts.orgId,
+        opts.orgId,
+        visibility,
+        JSON.stringify(docoYaml),
+        null,
+        null,
+        created,
+      ],
+    );
+    await c.query(
+      `INSERT INTO doco_users (doco_id, principal_id, role, joined_at)
+       VALUES ($1, $2, 'owner', $3)
+       ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
+      [docoId, opts.createdByPrincipalId, created],
+    );
+    return { docoId, orgId: opts.orgId, orgHandle, handle };
+  });
+}
+
 export interface AddOrganizationOptions {
   slug: string;
   display_name?: string;
