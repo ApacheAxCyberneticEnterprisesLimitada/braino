@@ -987,17 +987,22 @@ $v13_tighten$;
 -- DROPPED NOW:
 --   * scope_match — denormalized Rule.applies_to index. The indexer
 --     stopped writing it in v13 Phase 6 (full-graph dropped scope from
---     GRAPH_TABLES); no live read path remains. Test fixtures still
---     mention it but those tests no longer exercise scope nodes.
+--     GRAPH_TABLES); no live read path remains.
+--   * scope_users — the @doco/db helpers (getScopeUserRole,
+--     listScopeUsers, listScopeIdsWithGrant,
+--     listScopeIdsForUserPrincipal, upsertScopeUser, removeScopeUser)
+--     are now compile-time stubs that return empty/no-op. The two UI
+--     surfaces that import them (users.tsx, invite.$code.tsx) still
+--     compile; users.tsx renders an empty Scopes section; the invite
+--     scope branch never runs because invite-creation no longer
+--     produces scope_id codes.
 --
 -- STILL DEFERRED (real code references, listed for the next pass):
---   * scopes table — read by host.ts (createScopeInDoco,
---     seedScopeFromTemplate, etc.) which the routes no longer reach but
---     the @doco/host exports still expose. Drop after pruning those
---     exports.
---   * scope_users table — invite.$code.tsx and users.tsx still
---     import upsertScopeUser / listScopeUsers / etc. Drop after those
---     UI surfaces are reworked to org+doco-only role grants.
+--   * scopes table — read by many live paths
+--     (capture.server.ts, scope-bulk.server.ts, full-graph.server.ts,
+--     scope-helpers.server.ts, $docoHandle._index.tsx, plus three
+--     migration files). Wrap each reader to short-circuit when the
+--     table is missing, then drop.
 --   * organizations.slug / organizations.name — still on the INSERT
 --     paths in @doco/db's upsertIdentity + repo.ts's getDoco* SELECTs.
 --     handle is the canonical id; once readers all key off handle the
@@ -1008,5 +1013,6 @@ $v13_tighten$;
 --
 -- The v14 doco_meta gate is added so the partial cleanup runs once.
 DROP TABLE IF EXISTS scope_match CASCADE;
+DROP TABLE IF EXISTS scope_users CASCADE;
 INSERT INTO doco_meta (key, value) VALUES ('v14_partial_cleanup', 'done')
   ON CONFLICT (key) DO UPDATE SET value = 'done';

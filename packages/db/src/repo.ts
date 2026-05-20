@@ -531,7 +531,14 @@ export async function removeDocoUser(docoId: string, principalId: string): Promi
   });
 }
 
-// ─── scope_users ───────────────────────────────────────────────────────────
+// ─── scope_users — v14 stubs ───────────────────────────────────────────────
+// Scopes were removed in v13 (decision_01KS3DW9C2KN2X7Z80R18H1RAX). The
+// underlying tables `scope_users` and `scopes` are dropped in the v14
+// cleanup; these exports stay as compile-time stubs so the
+// already-imported callers (users.tsx, invite.$code.tsx) keep building.
+// Each function is a no-op: reads return empty/null, writes silently
+// succeed. The UI surfaces that depend on them render nothing — which
+// is what we want, since there's nothing to manage anymore.
 
 export interface ScopeUserRow {
   scope_id: string;
@@ -541,85 +548,37 @@ export interface ScopeUserRow {
 }
 
 export async function getScopeUserRole(
-  scopeId: string,
-  principalId: string,
+  _scopeId: string,
+  _principalId: string,
 ): Promise<DocoRole | null> {
-  return withClient(async (c) => {
-    const r = await c.query<{ role: string }>(
-      `SELECT role FROM scope_users WHERE scope_id = $1 AND principal_id = $2`,
-      [scopeId, principalId],
-    );
-    if (r.rowCount === 0) return null;
-    return toRole(r.rows[0]?.role);
-  });
+  return null;
 }
 
-export async function listScopeUsers(scopeId: string): Promise<ScopeUserRow[]> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT scope_id, principal_id, role, joined_at FROM scope_users
-       WHERE scope_id = $1 ORDER BY joined_at`,
-      [scopeId],
-    );
-    return r.rows.map((row) => ({
-      scope_id: String(row.scope_id),
-      principal_id: String(row.principal_id),
-      role: (toRole(row.role) ?? "reader") as DocoRole,
-      joined_at:
-        row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
-    }));
-  });
+export async function listScopeUsers(_scopeId: string): Promise<ScopeUserRow[]> {
+  return [];
 }
 
-/** Any scope id in `docoId` where `principalId` has an explicit scope grant. */
 export async function listScopeIdsWithGrant(
-  docoId: string,
-  principalId: string,
+  _docoId: string,
+  _principalId: string,
 ): Promise<string[]> {
-  return withClient(async (c) => {
-    const r = await c.query<{ scope_id: string }>(
-      `SELECT m.scope_id FROM scope_users m
-       JOIN scopes s ON s.id = m.scope_id
-       WHERE s.doco_id = $1 AND m.principal_id = $2`,
-      [docoId, principalId],
-    );
-    return r.rows.map((row) => String(row.scope_id));
-  });
+  return [];
 }
 
-/** Every scope id where `principalId` has an explicit scope_users row, across all docos. */
-export async function listScopeIdsForUserPrincipal(principalId: string): Promise<string[]> {
-  return withClient(async (c) => {
-    const r = await c.query<{ scope_id: string }>(
-      `SELECT scope_id FROM scope_users WHERE principal_id = $1`,
-      [principalId],
-    );
-    return r.rows.map((row) => String(row.scope_id));
-  });
+export async function listScopeIdsForUserPrincipal(_principalId: string): Promise<string[]> {
+  return [];
 }
 
-export async function upsertScopeUser(opts: {
+export async function upsertScopeUser(_opts: {
   scope_id: string;
   principal_id: string;
   role: DocoRole;
 }): Promise<void> {
-  await withClient(async (c) => {
-    await c.query(
-      `INSERT INTO scope_users (scope_id, principal_id, role)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (scope_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
-      [opts.scope_id, opts.principal_id, opts.role],
-    );
-  });
+  // no-op — scope grants are gone in v13.
 }
 
-export async function removeScopeUser(scopeId: string, principalId: string): Promise<void> {
-  await withClient(async (c) => {
-    await c.query(`DELETE FROM scope_users WHERE scope_id = $1 AND principal_id = $2`, [
-      scopeId,
-      principalId,
-    ]);
-  });
+export async function removeScopeUser(_scopeId: string, _principalId: string): Promise<void> {
+  // no-op.
 }
 
 export interface DocoRow {
