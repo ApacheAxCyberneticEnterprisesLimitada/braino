@@ -572,6 +572,19 @@ export async function createDocoInOrg(opts: {
     };
     // owner_id is still NOT NULL on the legacy schema; populate it
     // alongside org_id so existing readers keep working.
+    // v15: template-driven Doco creation. The picked template seeds
+    // its rule set + sets the doco-level `allowed_node_types` and
+    // `default_node_lifecycle` columns. `generic` (or unknown handle)
+    // seeds nothing.
+    const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
+    const allowedNodeTypes = template?.allowed_node_types ?? null;
+    const defaultNodeLifecycle = template?.default_node_lifecycle ?? null;
+    if (allowedNodeTypes) {
+      (docoYaml as Record<string, unknown>).allowed_node_types = allowedNodeTypes;
+    }
+    if (defaultNodeLifecycle) {
+      (docoYaml as Record<string, unknown>).default_node_lifecycle = defaultNodeLifecycle;
+    }
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml,
                           allowed_node_types, default_node_lifecycle,
@@ -584,8 +597,8 @@ export async function createDocoInOrg(opts: {
         opts.orgId,
         visibility,
         JSON.stringify(docoYaml),
-        null,
-        null,
+        allowedNodeTypes,
+        defaultNodeLifecycle,
         created,
       ],
     );
@@ -595,8 +608,69 @@ export async function createDocoInOrg(opts: {
        ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
       [docoId, opts.createdByPrincipalId, created],
     );
+    // Seed each template Rule directly onto the new Doco as a row in
+    // the `rules` table. No scope, no in_scope_of edge — scopes are
+    // gone in v15. Best-effort: a malformed rule is swallowed so it
+    // can't fail the whole create.
+    if (template && template.rules.length > 0) {
+      for (const r of template.rules) {
+        const ruleId = makeEntityId("rule", generateUlid());
+        const kind = r.kind ?? (r.predicate ? "tagged" : "guidance");
+        const ruleYaml: Record<string, unknown> = {
+          id: ruleId,
+          doco_id: docoId,
+          node_type: "rule",
+          summary: r.summary,
+          kind,
+          ...(r.predicate ? { predicate: r.predicate } : {}),
+          ...(Array.isArray(r.fires_when_node_lifecycle) && r.fires_when_node_lifecycle.length > 0
+            ? { fires_when_node_lifecycle: r.fires_when_node_lifecycle }
+            : {}),
+          template_seeded: true,
+          template_handle: opts.templateHandle ?? null,
+          created_at: created,
+          created_by: opts.createdByPrincipalId,
+          lifecycle: "active",
+        };
+        try {
+          await c.query(
+            `INSERT INTO rules (id, doco_id, summary, raw_yaml, body_md, lifecycle,
+                                created_at, updated_at, created_by, updated_by)
+             VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $7, $7)`,
+            [
+              ruleId,
+              docoId,
+              r.summary,
+              JSON.stringify(ruleYaml),
+              r.body_md ?? "",
+              created,
+              opts.createdByPrincipalId,
+            ],
+          );
+        } catch {
+          // ignore — one bad rule shouldn't fail the doco create.
+        }
+      }
+    }
     return { docoId, orgId: opts.orgId, orgHandle, handle };
   });
+}
+
+/**
+ * v15 doco-template lookup. Maps the four shipped handles
+ * (`generic`, `user-flows`, `state-machines`, `global-rules`) to the
+ * legacy DEFAULT_SCOPE_TEMPLATES rule sets. The rule content stays in
+ * scope-templates.ts for now; this just aliases the new handles to
+ * the existing entries.
+ */
+export function findDocoTemplate(handle: string): ScopeTemplate | null {
+  const aliased: Record<string, string> = {
+    "user-flows": "#user-flows",
+    "state-machines": "#state-machines",
+    "global-rules": "#global",
+  };
+  const lookup = aliased[handle] ?? handle;
+  return DEFAULT_SCOPE_TEMPLATES.find((tpl) => tpl.name === lookup) ?? null;
 }
 
 export interface AddOrganizationOptions {
