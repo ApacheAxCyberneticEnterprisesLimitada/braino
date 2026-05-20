@@ -710,6 +710,19 @@ CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
   ON oauth_device_authorizations (expires_at);
 
+-- Per-Doco role scope-down. Added after the OAuth tables shipped, so
+-- guarded with IF NOT EXISTS to be idempotent on subsequent boots.
+-- `CREATE TABLE IF NOT EXISTS` above doesn't ADD COLUMN on an
+-- existing table; this block does.
+ALTER TABLE oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_access_tokens
+  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_refresh_tokens
+  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+
 -- v12 hard cutover: invalidate every legacy SessionToken in tokens_blob
 -- the moment OAuth ships. Previous DOCO_ACCESS bearers stop working;
 -- runtimes get a 401 + WWW-Authenticate and kick off the OAuth flow.
