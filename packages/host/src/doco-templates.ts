@@ -66,7 +66,7 @@ export interface TemplateRule {
   body_md?: string;
 }
 
-export interface ScopeTemplate {
+export interface DocoTemplate {
   name: string;
   /** Short readable label for the picker UI. */
   label: string;
@@ -122,7 +122,7 @@ export interface ScopeTemplate {
   auto_install_watched?: boolean;
 }
 
-export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
+export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
     // scope renamed from "constitution" → "global". The label keeps
@@ -462,7 +462,7 @@ export const DEFAULT_SCOPE_TEMPLATES: ScopeTemplate[] = [
  * `state-machines`) — older clients that POST `template_name: "global"`
  * continue to work.
  */
-export function findScopeTemplate(name: string): ScopeTemplate | undefined {
+export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   const canonical = name.startsWith("#") ? name : `#${name}`;
-  return DEFAULT_SCOPE_TEMPLATES.find((t) => t.name === canonical);
+  return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === canonical);
 }

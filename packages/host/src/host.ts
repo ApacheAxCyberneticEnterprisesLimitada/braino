@@ -20,7 +20,7 @@ import {
   hostPrincipalsDir,
   hostYamlPath,
 } from "./mode.js";
-import { DEFAULT_SCOPE_TEMPLATES, type ScopeTemplate } from "./scope-templates.js";
+import { DEFAULT_DOCO_TEMPLATES, type DocoTemplate } from "./doco-templates.js";
 
 export interface HostConfig {
   id: string; // host_<ulid> — meta-Doco style
@@ -659,18 +659,18 @@ export async function createDocoInOrg(opts: {
 /**
  * v15 doco-template lookup. Maps the four shipped handles
  * (`generic`, `user-flows`, `state-machines`, `global-rules`) to the
- * legacy DEFAULT_SCOPE_TEMPLATES rule sets. The rule content stays in
- * scope-templates.ts for now; this just aliases the new handles to
+ * legacy DEFAULT_DOCO_TEMPLATES rule sets. The rule content stays in
+ * doco-templates.ts for now; this just aliases the new handles to
  * the existing entries.
  */
-export function findDocoTemplate(handle: string): ScopeTemplate | null {
+export function findDocoTemplate(handle: string): DocoTemplate | null {
   const aliased: Record<string, string> = {
     "user-flows": "#user-flows",
     "state-machines": "#state-machines",
     "global-rules": "#global",
   };
   const lookup = aliased[handle] ?? handle;
-  return DEFAULT_SCOPE_TEMPLATES.find((tpl) => tpl.name === lookup) ?? null;
+  return DEFAULT_DOCO_TEMPLATES.find((tpl) => tpl.name === lookup) ?? null;
 }
 
 export interface AddOrganizationOptions {
@@ -913,7 +913,7 @@ export async function createDocoInHost(
 // v16: scope helpers removed. Scopes are gone — createScopeInDoco,
 // seedScopeFromTemplate, updateScopeInDoco, setScopeWatchedInDoco,
 // readScopeWatchedInDoco, parseScopeNamesInput, materializeScopeTree,
-// migrateScopesInDoco, applyScopeTemplateUpdatesToDoco have all been
+// migrateScopesInDoco, applyDocoTemplateUpdatesToDoco have all been
 // deleted, along with the per-scope createRuleInDoco / createIntentInDoco
 // that supported them. Template-driven rule seeding now lives entirely in
 // createDocoInOrg (which inserts directly into the rules table — no
