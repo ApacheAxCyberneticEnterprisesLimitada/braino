@@ -631,6 +631,11 @@ export async function createDocoInOrg(opts: {
     const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
     const created = nowIso();
     const visibility = opts.visibility ?? "private";
+    // Template lookup is best-effort — `generic` and unknown handles
+    // both fall through with no rules + no node-type restriction.
+    const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
+    const allowed_node_types = template?.allowed_node_types ?? null;
+    const default_node_lifecycle = template?.default_node_lifecycle ?? null;
     const docoYaml = {
       id: docoId,
       node_type: "doco",
@@ -640,14 +645,28 @@ export async function createDocoInOrg(opts: {
       org_id: opts.orgId,
       description: opts.description ?? `Doco "${handle}" in org "${orgHandle}".`,
       template_handle: opts.templateHandle ?? null,
+      ...(allowed_node_types ? { allowed_node_types } : {}),
+      ...(default_node_lifecycle ? { default_node_lifecycle } : {}),
       created_at: created,
       created_by: opts.createdByPrincipalId,
       lifecycle: "active",
     };
     await c.query(
-      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
-      [docoId, handle, opts.orgId, opts.orgId, visibility, JSON.stringify(docoYaml), created],
+      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml,
+                          allowed_node_types, default_node_lifecycle,
+                          created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+      [
+        docoId,
+        handle,
+        opts.orgId,
+        opts.orgId,
+        visibility,
+        JSON.stringify(docoYaml),
+        allowed_node_types,
+        default_node_lifecycle,
+        created,
+      ],
     );
     await c.query(
       `INSERT INTO doco_users (doco_id, principal_id, role, joined_at)
@@ -655,8 +674,74 @@ export async function createDocoInOrg(opts: {
        ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
       [docoId, opts.createdByPrincipalId, created],
     );
+    // Seed each template Rule directly onto the new Doco (no
+    // intermediate scope — v13 removed them). Rules with predicates
+    // become engine-evaluated; guidance rules show in the UI as
+    // surfaces-only. Best-effort: any failure here is non-fatal so the
+    // create succeeds even if a single rule's shape is malformed.
+    if (template && template.rules.length > 0) {
+      for (const r of template.rules) {
+        const ruleId = makeEntityId("rule", generateUlid());
+        const kind = r.kind ?? (r.predicate ? "tagged" : "guidance");
+        const ruleYaml: Record<string, unknown> = {
+          id: ruleId,
+          doco_id: docoId,
+          node_type: "rule",
+          summary: r.summary,
+          kind,
+          ...(r.predicate ? { predicate: r.predicate } : {}),
+          ...(Array.isArray(r.fires_when_node_lifecycle) && r.fires_when_node_lifecycle.length > 0
+            ? { fires_when_node_lifecycle: r.fires_when_node_lifecycle }
+            : {}),
+          template_seeded: true,
+          template_handle: opts.templateHandle,
+          created_at: created,
+          created_by: opts.createdByPrincipalId,
+          lifecycle: "active",
+        };
+        try {
+          await c.query(
+            `INSERT INTO rules (id, doco_id, summary, raw_yaml, body_md, lifecycle,
+                                created_at, updated_at, created_by, updated_by)
+             VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $7, $7)`,
+            [
+              ruleId,
+              docoId,
+              r.summary,
+              JSON.stringify(ruleYaml),
+              r.body_md ?? "",
+              created,
+              opts.createdByPrincipalId,
+            ],
+          );
+        } catch {
+          // swallow — one bad rule doesn't fail the whole create.
+        }
+      }
+    }
     return { docoId, orgId: opts.orgId, orgHandle, handle };
   });
+}
+
+/**
+ * v13 doco-template lookup. Maps a template handle (`generic`,
+ * `user-flows`, `state-machines`, `global-rules`) to the rule set +
+ * doco-level filters seeded at create time.
+ *
+ * Source content is reused from the legacy `DEFAULT_SCOPE_TEMPLATES`
+ * (host/src/scope-templates.ts) so the rules don't have to be
+ * duplicated yet. When scope templates are fully retired the source
+ * moves into a dedicated doco-templates module owned by Torrenegra.
+ */
+export function findDocoTemplate(handle: string): ScopeTemplate | null {
+  // Handle aliases — `user-flows` → `#user-flows`, etc.
+  const aliased: Record<string, string> = {
+    "user-flows": "#user-flows",
+    "state-machines": "#state-machines",
+    "global-rules": "#global",
+  };
+  const lookup = aliased[handle] ?? handle;
+  return DEFAULT_SCOPE_TEMPLATES.find((tpl) => tpl.name === lookup) ?? null;
 }
 
 export interface CreateDocoInHostOptions {
