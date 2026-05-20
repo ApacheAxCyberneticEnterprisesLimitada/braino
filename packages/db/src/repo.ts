@@ -107,38 +107,32 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         ],
       );
     } else if (rec.node_type === "organization") {
-      // v14: handle is the canonical id; slug/name are legacy and
-      // ALTER'd to nullable. We still write them when present in the
-      // yaml (back-compat for older callers) but the new path keys
-      // off handle.
-      const handle = String(yamlObj.handle ?? yamlObj.slug ?? rec.id);
+      const slug = String(yamlObj.slug ?? rec.id);
+      const name = String(yamlObj.name ?? slug);
       await c.query(
-        `INSERT INTO organizations (id, handle, raw_yaml) VALUES ($1,$2,$3)
-         ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
+        `INSERT INTO organizations (id, slug, name, raw_yaml) VALUES ($1,$2,$3,$4)
+         ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug, name=EXCLUDED.name,
            raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
-        [rec.id, handle, rec.raw_yaml],
+        [rec.id, slug, name, rec.raw_yaml],
       );
     } else if (rec.node_type === "doco") {
-      const org_id = String(yamlObj.org_id ?? yamlObj.owner_id ?? "");
+      const owner_id = String(yamlObj.owner_id ?? "");
       const handle = String(yamlObj.handle ?? "");
       if (!handle) {
         throw new Error(
           `Cannot upsert doco ${rec.id}: yaml is missing the required \`handle\` field.`,
         );
       }
-      if (!org_id) {
-        throw new Error(
-          `Cannot upsert doco ${rec.id}: yaml is missing both \`org_id\` and \`owner_id\`.`,
-        );
-      }
+      const name =
+        (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
       const visibility = String(yamlObj.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, handle, org_id, visibility, raw_yaml)
-         VALUES ($1,$2,$3,$4,$5)
+        `INSERT INTO docos (id, handle, owner_id, name, visibility, raw_yaml)
+         VALUES ($1,$2,$3,$4,$5,$6)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
-           org_id=EXCLUDED.org_id, visibility=EXCLUDED.visibility,
-           raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
-        [rec.id, handle, org_id, visibility, rec.raw_yaml],
+           owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
+           visibility=EXCLUDED.visibility, raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
+        [rec.id, handle, owner_id, name, visibility, rec.raw_yaml],
       );
     }
   };
@@ -325,10 +319,9 @@ export interface OrganizationRow {
 export async function listOrganizations(): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, COALESCE(o.handle, o.slug) AS slug,
-              COALESCE(o.handle, o.slug) AS name, o.raw_yaml,
+      `SELECT o.id, o.slug, o.name, o.raw_yaml,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
-       FROM organizations o ORDER BY COALESCE(o.handle, o.slug)`,
+       FROM organizations o ORDER BY o.slug`,
     );
     return r.rows.map((row) => ({
       id: String(row.id),
@@ -346,13 +339,12 @@ export async function listOrganizationsForPrincipal(
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, COALESCE(o.handle, o.slug) AS slug,
-              COALESCE(o.handle, o.slug) AS name, o.raw_yaml,
+      `SELECT o.id, o.slug, o.name, o.raw_yaml,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o
        JOIN org_users m ON m.org_id = o.id
        WHERE m.principal_id = $1 AND m.role = ANY($2)
-       ORDER BY COALESCE(o.handle, o.slug)`,
+       ORDER BY o.slug`,
       [principalId, roles],
     );
     return r.rows.map((row) => ({
@@ -539,14 +531,7 @@ export async function removeDocoUser(docoId: string, principalId: string): Promi
   });
 }
 
-// ─── scope_users — v14 stubs ───────────────────────────────────────────────
-// Scopes were removed in v13 (decision_01KS3DW9C2KN2X7Z80R18H1RAX). The
-// underlying tables `scope_users` and `scopes` are dropped in the v14
-// cleanup; these exports stay as compile-time stubs so the
-// already-imported callers (users.tsx, invite.$code.tsx) keep building.
-// Each function is a no-op: reads return empty/null, writes silently
-// succeed. The UI surfaces that depend on them render nothing — which
-// is what we want, since there's nothing to manage anymore.
+// ─── scope_users ───────────────────────────────────────────────────────────
 
 export interface ScopeUserRow {
   scope_id: string;
@@ -556,37 +541,85 @@ export interface ScopeUserRow {
 }
 
 export async function getScopeUserRole(
-  _scopeId: string,
-  _principalId: string,
+  scopeId: string,
+  principalId: string,
 ): Promise<DocoRole | null> {
-  return null;
+  return withClient(async (c) => {
+    const r = await c.query<{ role: string }>(
+      `SELECT role FROM scope_users WHERE scope_id = $1 AND principal_id = $2`,
+      [scopeId, principalId],
+    );
+    if (r.rowCount === 0) return null;
+    return toRole(r.rows[0]?.role);
+  });
 }
 
-export async function listScopeUsers(_scopeId: string): Promise<ScopeUserRow[]> {
-  return [];
+export async function listScopeUsers(scopeId: string): Promise<ScopeUserRow[]> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT scope_id, principal_id, role, joined_at FROM scope_users
+       WHERE scope_id = $1 ORDER BY joined_at`,
+      [scopeId],
+    );
+    return r.rows.map((row) => ({
+      scope_id: String(row.scope_id),
+      principal_id: String(row.principal_id),
+      role: (toRole(row.role) ?? "reader") as DocoRole,
+      joined_at:
+        row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
+    }));
+  });
 }
 
+/** Any scope id in `docoId` where `principalId` has an explicit scope grant. */
 export async function listScopeIdsWithGrant(
-  _docoId: string,
-  _principalId: string,
+  docoId: string,
+  principalId: string,
 ): Promise<string[]> {
-  return [];
+  return withClient(async (c) => {
+    const r = await c.query<{ scope_id: string }>(
+      `SELECT m.scope_id FROM scope_users m
+       JOIN scopes s ON s.id = m.scope_id
+       WHERE s.doco_id = $1 AND m.principal_id = $2`,
+      [docoId, principalId],
+    );
+    return r.rows.map((row) => String(row.scope_id));
+  });
 }
 
-export async function listScopeIdsForUserPrincipal(_principalId: string): Promise<string[]> {
-  return [];
+/** Every scope id where `principalId` has an explicit scope_users row, across all docos. */
+export async function listScopeIdsForUserPrincipal(principalId: string): Promise<string[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ scope_id: string }>(
+      `SELECT scope_id FROM scope_users WHERE principal_id = $1`,
+      [principalId],
+    );
+    return r.rows.map((row) => String(row.scope_id));
+  });
 }
 
-export async function upsertScopeUser(_opts: {
+export async function upsertScopeUser(opts: {
   scope_id: string;
   principal_id: string;
   role: DocoRole;
 }): Promise<void> {
-  // no-op — scope grants are gone in v13.
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO scope_users (scope_id, principal_id, role)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (scope_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
+      [opts.scope_id, opts.principal_id, opts.role],
+    );
+  });
 }
 
-export async function removeScopeUser(_scopeId: string, _principalId: string): Promise<void> {
-  // no-op.
+export async function removeScopeUser(scopeId: string, principalId: string): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(`DELETE FROM scope_users WHERE scope_id = $1 AND principal_id = $2`, [
+      scopeId,
+      principalId,
+    ]);
+  });
 }
 
 export interface DocoRow {
@@ -612,10 +645,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     id: String(row.id),
     handle: String(row.handle ?? ""),
     owner_slug: String(row.owner_slug ?? ""),
-    // v14: owner_id is the legacy column; org_id is the canonical
-    // source. Older readers still expect `owner_id` on DocoRow, so we
-    // expose org_id under that name until the field is renamed in v15.
-    owner_id: String(row.owner_id ?? row.org_id ?? ""),
+    owner_id: String(row.owner_id),
     name: row.name === null || row.name === undefined ? null : String(row.name),
     visibility: row.visibility === "public" ? "public" : "private",
     raw_yaml: String(row.raw_yaml),
@@ -623,22 +653,17 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
 }
 
 /**
- * Common SELECT fragment for the `getDoco*` readers.
- *
- * v14 (decision_01KS3HT11RJKW4FWPWHPX61DC7): docos.org_id is the
- * canonical owner pointer. owner_slug derives from the joined
- * organization's handle (the legacy slug column is being phased out).
- * The compat fall-through to `docos.owner_id` keeps pre-v13 rows
- * resolving while the column lingers.
+ * Common SELECT fragment for the `getDoco*` readers. The LEFT JOIN
+ * resolves `owner_slug` from `principals.username` /
+ * `organizations.slug` keyed by `docos.owner_id` (the doco itself no
+ * longer carries a slug column — phase 3a dropped it).
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle,
-         COALESCE(d.org_id, d.owner_id) AS owner_id,
-         d.name, d.visibility, d.raw_yaml,
-         COALESCE(o.handle, o.slug, p.username, '') AS owner_slug
+  SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.raw_yaml,
+         COALESCE(p.username, o.slug, '') AS owner_slug
     FROM docos d
-    LEFT JOIN organizations o ON o.id = COALESCE(d.org_id, d.owner_id)
-    LEFT JOIN principals    p ON p.id = d.owner_id`;
+    LEFT JOIN principals p ON p.id = d.owner_id
+    LEFT JOIN organizations o ON o.id = d.owner_id`;
 
 export async function listAllDocos(): Promise<DocoRow[]> {
   return withClient(async (c) => {
@@ -688,10 +713,9 @@ export async function resolveOwnerSlug(
   if (p) return { kind: "principal", principal: p };
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, COALESCE(handle, slug) AS slug,
-              COALESCE(handle, slug) AS name, raw_yaml,
+      `SELECT id, slug, name, raw_yaml,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = organizations.id), 0) AS member_count
-       FROM organizations WHERE handle = $1 OR slug = $1`,
+       FROM organizations WHERE slug = $1`,
       [slug],
     );
     if (r.rowCount === 0) return null;
