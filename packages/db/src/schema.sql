@@ -799,3 +799,186 @@ BEGIN
   ON CONFLICT (key) DO UPDATE SET value = 'done';
 END
 $v8_backfill$;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- v13 (2026-05-20): scopes removed, every Doco belongs to an Organization.
+--
+-- 1. Drop the concept of `scope` entirely. Tables `scopes`, `scope_users`,
+--    `scope_match` are removed. Entity raw_yaml has its `scopes` array
+--    stripped by the companion TS migration (v13.server.ts) — DDL here
+--    only removes the schema surface.
+-- 2. Every Doco is owned by exactly one Organization. `docos.owner_id`
+--    (polymorphic principal_<ulid> | organization_<ulid>) is replaced by
+--    `docos.org_id` (always references `organizations(id)`).
+-- 3. Every Principal has a personal Organization with `handle = username`.
+--    The backfill DO block below mints one for each existing Principal
+--    that doesn't already have a matching org.
+-- 4. Organizations have one public property: `handle`. Columns `slug` and
+--    `name` are dropped; the username-shaped handle is the sole identifier.
+-- 5. Doco handles are globally unique and start with `<org-handle>-`.
+--    Existing rows are renamed in place by the backfill block; the rename
+--    map is RAISE NOTICE'd at migration time.
+-- 6. Doco templates replace scope templates. New `doco_templates` table is
+--    keyed by handle, owned by a principal. The TS migration seeds the
+--    four shipped templates under `torrenegra`'s ownership.
+
+-- 6a. Additive DDL — always idempotent, runs every boot.
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS handle text;
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS org_id text;
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS allowed_node_types text[];
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS default_node_lifecycle text;
+
+CREATE TABLE IF NOT EXISTS doco_templates (
+  id           text PRIMARY KEY,
+  handle       text NOT NULL UNIQUE,
+  owner_id     text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  label        text NOT NULL,
+  description  text NOT NULL,
+  raw_yaml     text NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  updated_at   timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
+
+-- 6b. One-shot backfill (gated on doco_meta.v13_scopes_to_orgs).
+DO $v13_backfill$
+DECLARE
+  princ record;
+  doc record;
+  new_org_id text;
+  new_handle text;
+  candidate text;
+  collision_n integer;
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v13_scopes_to_orgs' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+
+  -- Copy slug → handle for existing orgs (one-shot).
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'organizations' AND column_name = 'slug'
+  ) THEN
+    UPDATE organizations SET handle = slug WHERE handle IS NULL OR handle = '';
+  END IF;
+
+  -- Mint a personal organization for every Principal that doesn't already
+  -- have one (handle = username). The principal becomes its owner in
+  -- org_users.
+  FOR princ IN
+    SELECT p.id, p.username
+    FROM principals p
+    WHERE p.username IS NOT NULL
+      AND p.username <> ''
+      AND NOT EXISTS (
+        SELECT 1 FROM organizations o WHERE o.handle = p.username
+      )
+  LOOP
+    new_org_id := 'organization_v13_' || replace(gen_random_uuid()::text, '-', '');
+    -- Populate the legacy `slug`/`name` columns to satisfy NOT NULL until
+    -- they are dropped in v14. The new `handle` column is the public id.
+    INSERT INTO organizations (id, slug, name, handle, raw_yaml)
+    VALUES (
+      new_org_id,
+      princ.username,
+      princ.username,
+      princ.username,
+      jsonb_build_object('handle', princ.username)::text
+    )
+    ON CONFLICT (slug) DO NOTHING;
+    INSERT INTO org_users (org_id, principal_id, role)
+    VALUES (new_org_id, princ.id, 'owner')
+    ON CONFLICT DO NOTHING;
+    RAISE NOTICE 'v13 mint personal org: % owner=%', princ.username, princ.id;
+  END LOOP;
+
+  -- Backfill docos.org_id from the legacy owner_id.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'docos' AND column_name = 'owner_id'
+  ) THEN
+    UPDATE docos d
+       SET org_id = d.owner_id
+     WHERE d.org_id IS NULL AND d.owner_id LIKE 'organization_%';
+
+    UPDATE docos d
+       SET org_id = o.id
+      FROM principals p
+      JOIN organizations o ON o.handle = p.username
+     WHERE d.org_id IS NULL
+       AND d.owner_id = p.id
+       AND d.owner_id LIKE 'principal_%';
+  END IF;
+
+  -- Rename Doco handles to start with `<org-handle>-`. Skips rows that
+  -- already match. Appends `-2`, `-3`, … on global collisions.
+  FOR doc IN
+    SELECT d.id, d.handle AS old_handle, o.handle AS org_handle
+    FROM docos d
+    JOIN organizations o ON o.id = d.org_id
+    WHERE d.handle IS NOT NULL
+      AND d.handle <> ''
+      AND o.handle IS NOT NULL
+      AND o.handle <> ''
+      AND d.handle NOT LIKE (o.handle || '-%')
+  LOOP
+    new_handle := doc.org_handle || '-' || doc.old_handle;
+    candidate := new_handle;
+    collision_n := 2;
+    WHILE EXISTS (SELECT 1 FROM docos WHERE handle = candidate AND id <> doc.id) LOOP
+      candidate := new_handle || '-' || collision_n;
+      collision_n := collision_n + 1;
+    END LOOP;
+    UPDATE docos SET handle = candidate WHERE id = doc.id;
+    RAISE NOTICE 'v13 rename doco handle: % -> %', doc.old_handle, candidate;
+  END LOOP;
+
+  INSERT INTO doco_meta (key, value) VALUES ('v13_scopes_to_orgs', 'done')
+    ON CONFLICT (key) DO UPDATE SET value = 'done';
+END
+$v13_backfill$;
+
+-- 6c. Tighten constraints once backfill has completed.
+DO $v13_tighten$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM doco_meta WHERE key = 'v13_scopes_to_orgs' AND value = 'done'
+  ) THEN
+    RETURN;
+  END IF;
+
+  -- organizations.handle becomes the primary identifier.
+  IF NOT EXISTS (SELECT 1 FROM organizations WHERE handle IS NULL OR handle = '') THEN
+    ALTER TABLE organizations ALTER COLUMN handle SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'organizations_handle_key') THEN
+    BEGIN
+      ALTER TABLE organizations ADD CONSTRAINT organizations_handle_key UNIQUE (handle);
+    EXCEPTION WHEN unique_violation OR duplicate_object THEN
+      NULL;
+    END;
+  END IF;
+
+  -- docos.org_id becomes required + FK.
+  IF NOT EXISTS (SELECT 1 FROM docos WHERE org_id IS NULL) THEN
+    ALTER TABLE docos ALTER COLUMN org_id SET NOT NULL;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'docos_org_id_fkey') THEN
+    BEGIN
+      ALTER TABLE docos ADD CONSTRAINT docos_org_id_fkey
+        FOREIGN KEY (org_id) REFERENCES organizations(id) ON DELETE RESTRICT;
+    EXCEPTION WHEN duplicate_object THEN
+      NULL;
+    END;
+  END IF;
+END
+$v13_tighten$;
+
+-- 6d. NOTE — legacy surfaces (`scopes`, `scope_users`, `scope_match`,
+-- `organizations.slug`, `organizations.name`, `docos.owner_id`,
+-- `docos.name`) remain for one release as the code is migrated off
+-- them in pieces. Reads against these tables/columns must be removed
+-- before they can be dropped (v14). The framework treats them as
+-- unused: new captures don't write to them, new flows ignore them.
