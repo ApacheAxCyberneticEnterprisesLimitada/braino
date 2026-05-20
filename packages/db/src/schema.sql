@@ -672,6 +672,35 @@ CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_principal_idx
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
 
+-- Device Authorization Grant (RFC 8628). Designed for agents that
+-- cannot drive a localhost-redirect OAuth flow (no port-binding,
+-- no browser of their own): the agent calls
+-- POST /oauth/device_authorization, displays the short `user_code`
+-- to the human, then polls /oauth/token until the human approves
+-- in their browser at GET /device.
+--
+-- `status` transitions: pending → approved (principal_id +
+-- granted_doco_ids set) or denied or expired. The polling endpoint
+-- mints + returns access/refresh tokens iff `status = approved`,
+-- then deletes the row.
+CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
+  device_code      text PRIMARY KEY,
+  user_code        text NOT NULL UNIQUE,
+  client_id        text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
+  scope            text,
+  status           text NOT NULL DEFAULT 'pending'
+                     CHECK (status IN ('pending','approved','denied')),
+  principal_id     text REFERENCES principals(id) ON DELETE CASCADE,
+  granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
+  expires_at       timestamptz NOT NULL,
+  last_polled_at   timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
+  ON oauth_device_authorizations (user_code);
+CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
+  ON oauth_device_authorizations (expires_at);
+
 -- v12 hard cutover: invalidate every legacy SessionToken in tokens_blob
 -- the moment OAuth ships. Previous DOCO_ACCESS bearers stop working;
 -- runtimes get a 401 + WWW-Authenticate and kick off the OAuth flow.
