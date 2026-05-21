@@ -147,11 +147,9 @@ export type RuleKind = "guidance" | "tagged";
  * short-circuits and produces no violation if the candidate entity's
  * `node_type` is not in the list.
  *
- * v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX): the scope-flavored
- * predicate kinds (`mandatory_scope`, `unique-within-scope`,
- * `count-within-scope`, `graph-constraint`) were removed together with
- * the scopes concept. The remaining variants are all node-level
- * structural checks the engine could evaluate without a scope grain.
+ * Aggregate predicate kinds from the old model were removed. The
+ * remaining variants are node-level structural checks the engine can
+ * evaluate directly during capture.
  */
 export type AuthoringPredicate =
   | {

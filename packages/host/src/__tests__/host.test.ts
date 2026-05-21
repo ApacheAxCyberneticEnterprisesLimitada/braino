@@ -130,7 +130,7 @@ describe("host lifecycle", () => {
     const docoDir = join(root, "docos", "alice", "leftover");
     // Simulate the leftover that ENOENT used to produce: dir + empty subdirs.
     // Postgres is the source of truth now, so this should not block creation.
-    await mkdir(join(docoDir, "scopes"), { recursive: true });
+    await mkdir(join(docoDir, "states"), { recursive: true });
     await mkdir(join(docoDir, "actions"), { recursive: true });
     const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "leftover" });
     expect(rec.docoId).toMatch(/^doco_/);

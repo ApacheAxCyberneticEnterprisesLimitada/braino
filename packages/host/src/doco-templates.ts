@@ -1,29 +1,22 @@
 /**
- * Default scope templates (ADR-082; v7 reshape per
+ * Default Doco templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships six curated templates. Two are auto-installed
- * on every new Doco (flagged `auto_install: true`): `global` (the
- * Constitution) and `important` (catch-all for important Doco-wide
- * decisions that don't fit a topical scope). The other four are
- * opt-in: `user-flows` (opt-in at create time), `state-machines`
- * (opt-in via `doco install-template state-machines`), `test`, and
- * `business-processes` (each opt-in via `doco install-template
- * <name>`). Per the successor to
+ * The framework ships curated templates. `global` is the Constitution
+ * template; the others describe common Doco shapes such as user flows,
+ * state machines, tests, and business processes. Per the successor to
  * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
  * templates down to two) — every other previously-shipped template
  * stays project-owner-authored. Template names are plain handles.
  *
  * Each template ships:
- * - `purpose` — the description text rendered under the scope name on
- *   every surface (list card, detail page, bootstrap manifest). Written
- *   directly onto the Scope row's `purpose` column at install time.
+ * - `purpose` — the description text rendered in the picker and
+ *   bootstrap manifest.
  * - `rules` — legacy template field name. At install time entries seed
  *   constitution articles: prose-only entries become guidance_articles;
  *   predicate-bearing entries become node_authoring_articles.
- * - `allowed_node_types` (optional) — a generic scope attribute that
- *   restricts which node types can be tagged into the scope. global
- *   ships with constitution article types so the doco's constitution is
+ * - `allowed_node_types` (optional) — a Doco-level allowlist. `global`
+ *   ships with constitution article types so the Doco's constitution is
  *   kept separate from domain Rule nodes.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
@@ -46,8 +39,7 @@ export interface TemplateRule {
   summary: string;
   /**
    * Engine-readable predicate. When set, the seeder adds this Rule's id
-   * to the scope's `gated_by` so the citation makes it an authoring
-   * rule for that scope (v7).
+   * to a node_authoring_article so the check can run during capture.
    */
   predicate?: AuthoringPredicate;
   /**
@@ -69,19 +61,13 @@ export interface DocoTemplate {
   label: string;
   /** Recommended single-emoji icon. */
   icon: string;
-  /** Description text rendered under the scope name on every surface
-   * (list card, detail page, bootstrap manifest). Written directly onto
-   * the Scope row's `purpose` column at install time. */
+  /** Description text rendered in picker and bootstrap surfaces. */
   purpose: string;
   /** Atomic constitution articles seeded at install time. */
   rules: TemplateRule[];
   /**
-   * Generic scope attribute that restricts which node types are accepted
-   * into the scope. When set, captures of any node whose `scopes` list
-   * names this scope must have a `node_type` in this allowlist; others
-   * are rejected. global ships with `["rule"]` so the constitution is a
-   * pure constitution. Drives behavior without any name-based check (per
-   * rule_01KRRVPBS07HDBCXY6TJ5A5TAT).
+   * Doco-level allowlist for captured node types. `global` keeps the
+   * constitution pure by accepting only constitution article nodes.
    */
   allowed_node_types?: (
     | "decision"
@@ -97,42 +83,25 @@ export interface DocoTemplate {
     | "state"
   )[];
   /**
-   * v7: when set, captures into this scope (or descendants) default
+   * When set, captures into a Doco created from this template default
    * the new node's `lifecycle` to this value unless the author
    * overrides with an explicit flag. The state-machines template uses
    * `"drafted"` so authors can sketch incomplete machines without
    * tripping completeness rules.
    */
   default_node_lifecycle?: Lifecycle;
-  /**
-   * When true, the framework installs this scope on every new Doco
-   * automatically. When false/unset, the project owner opts in (via
-   * the create-time picker, the scope manager, or
-   * `doco install-template <name>`). Lets the auto-install set evolve
-   * without name-driven branching in the creation handler — see the
-   * Global rule "Keep framework behavior independent of scope names".
-   */
-  auto_install?: boolean;
-  /**
-   * Initial `watched` value applied when this template is auto-installed.
-   * Only meaningful when `auto_install` is true. The project owner can
-   * flip the value any time from the scope's edit page.
-   */
-  auto_install_watched?: boolean;
 }
 
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
-    // scope renamed from "constitution" → "global". The label keeps
+    // template renamed from "constitution" -> "global". The label keeps
     // "Constitution" as the readable handle next to "global" on the
-    // scope list ("your doco's constitution"); template names are
+    // picker ("your doco's constitution"); template names are
     // plain handles.
     name: "global",
     label: "global (your doco's constitution)",
     icon: "🌐",
-    auto_install: true,
-    auto_install_watched: true,
     purpose:
       "Your doco's constitution — guidance articles and node authoring articles that govern how contributors work.",
     allowed_node_types: ["guidance_article", "node_authoring_article"],
@@ -154,19 +123,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     ],
   },
   {
-    // Catch-all scope for important Doco-wide decisions that don't
-    // naturally fit a topical scope. Auto-installed alongside global
-    // on every new Doco so the project owner has a landing place for
-    // cross-cutting decisions from day one — the alternative is
-    // letting orphan decisions push agents toward minting new scopes
-    // (which Global Rule 1 explicitly forbids without confirmation).
+    // Catch-all template for important Doco-wide decisions that don't
+    // naturally fit a more specific subject area.
     name: "important",
     label: "important",
     icon: "⭐",
-    auto_install: true,
-    auto_install_watched: true,
-    purpose:
-      "Important doco-wide decisions that don't naturally fit a more specific subject-area scope.",
+    purpose: "Important doco-wide decisions that don't naturally fit a more specific subject area.",
     rules: [],
   },
   {
@@ -184,9 +146,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // tagged into user-flows *govern* how journeys are authored;
         // they aren't themselves journey content, so subjecting them
         // to the journey-prose check would lock out the rules that
-        // define the scope's contract.
+        // define the template's contract.
         summary:
-          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the scope rather than living inside it.)",
+          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the template rather than journey content.)",
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
@@ -283,15 +245,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7): formal state-machine
-    // modeling. The template is pure data — 18 atomic Rules attached
-    // to the parent scope via gated_by (auto-wired by the seeder).
-    // Framework primitives the rules use: State node + triggered_by /
-    // gated_by edges + drafted lifecycle + scope-level
-    // default_node_lifecycle + scope inheritance with excluded_rules.
-    // Project owners rename the parent scope freely — the framework
-    // treats every scope through the same generic interface (Global
-    // rules rule_01KRRPY12JEVQABNNRJ96YB91J,
-    // rule_01KRRPZTKDXT0RREZB37VPX2AG).
+    // modeling. The template is pure data: atomic constitution
+    // articles plus Doco-level defaults. Framework primitives the
+    // rules use: State node + triggered_by / gated_by edges + drafted
+    // lifecycle + default_node_lifecycle.
     name: "state-machines",
     label: "state-machines",
     icon: "🔁",
@@ -309,10 +266,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           node_types: ["state", "action", "decision", "eval", "reference", "intent", "rule"],
         },
       },
-      // v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX): the deterministic
-      // wiring rules that needed a scope grain (graph-constraint,
-      // unique-within-scope, count-within-scope) are dropped along with
-      // the engine that evaluated them. The semantics they encoded —
+      // Aggregate process checks are tracked as guidance until the
+      // evaluator can express them against a Doco-level process. The
+      // semantics they encode —
       // alternation, terminal-state outgoing-edge bound, unique state
       // names, ≥1 initial/terminal — are tracked as descriptive
       // guidance below until a v16-shape evaluator lands.
@@ -393,12 +349,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P4
         summary:
-          "The state-machines scope's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
+          "The state-machines doco's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "probabilistic",
           when_node_type: ["intent"],
-          spec: "The scope's purpose Intent names the entity being modeled.",
+          spec: "The Doco's purpose Intent names the entity being modeled.",
         },
       },
       {
@@ -415,12 +371,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P-regions
         summary:
-          "If a machine has multiple active States of kind `initial`, the scope's purpose Intent explains why — parallel regions, optional entry points, etc. — so readers don't assume it's a wiring mistake.",
+          "If a machine has multiple active States of kind `initial`, the Doco's purpose Intent explains why — parallel regions, optional entry points, etc. — so readers don't assume it's a wiring mistake.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "probabilistic",
           when_node_type: ["intent"],
-          spec: "When the scope has multiple active initial States, the scope's purpose Intent explains parallel regions or optional entry points.",
+          spec: "When the Doco has multiple active initial States, the purpose Intent explains parallel regions or optional entry points.",
         },
       },
       {
@@ -443,7 +399,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // D12 (descriptive)
         summary:
-          "Hierarchical / composite / parallel States are deliberately not modeled in v1. A machine that needs them models the sub-machine as a separate scope under this scope's parent.",
+          "Hierarchical / composite / parallel States are deliberately not modeled in v1. A machine that needs them models the sub-machine as a separate Doco or a clearly linked Intent.",
         kind: "guidance",
       },
     ],
@@ -466,7 +422,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // D1 — content-type gate. Evals belong here; constitution
         // articles seeded by this template live alongside them.
         summary:
-          "Only Eval and constitution-article nodes (guidance_article, node_authoring_article) belong to test. Domain content lives in its own scope.",
+          "Only Eval and constitution-article nodes (guidance_article, node_authoring_article) belong to test. Domain content lives in its own Doco.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["eval", "guidance_article", "node_authoring_article"],
@@ -585,15 +541,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Repeatable business processes modeled on BPMN swimlanes and
-    // gateways. Opt-in (no auto_install). The framework primitives the
+    // gateways. The framework primitives the
     // rules use overlap with the state-machines template (State + drafted
-    // lifecycle + default_node_lifecycle), but the scope reaches further:
+    // lifecycle + default_node_lifecycle), but the template reaches further:
     // Action/Decision/Intent shape rules push authors toward business
-    // outcomes, named gateways, and explicit handoffs. Three rules the
-    // briefing originally specified as scope-flavored predicates
-    // (`unique-within-scope`, `count-within-scope`, `graph-constraint`)
-    // were removed in v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX); they
-    // ship here as guidance until a v16-shape evaluator lands, mirroring
+    // outcomes, named gateways, and explicit handoffs. Aggregate checks
+    // that the evaluator cannot express yet ship as guidance, mirroring
     // the same fallback in state-machines.
     name: "business-processes",
     label: "business-processes",
@@ -604,9 +557,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     rules: [
       // ── Membership ──────────────────────────────────────────────
       {
-        // Probabilistic semantic gate. Rule nodes are exempt (they
-        // govern the scope rather than living inside it) — handled by
-        // omitting "rule" from when_node_type.
+        // Probabilistic semantic gate. Rule nodes are exempt because
+        // they govern process authoring rather than being process
+        // content; handled by omitting "rule" from when_node_type.
         summary:
           "A node belongs in business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
         predicate: {
@@ -810,12 +763,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Consistent level of abstraction — reject Actions that mix
         // operator-level granularity ("Onboard customer") with
         // implementation granularity ("Verify VAT checksum") inside one
-        // scope.
+        // process model.
         summary:
-          "Actions in one business-processes scope sit at a consistent level of abstraction. Reject scopes that mix operator-level Actions (`Onboard customer`) with implementation Actions (`Verify VAT checksum`) — split the lower-level steps into a sub-process.",
+          "Actions in one business process sit at a consistent level of abstraction. Reject models that mix operator-level Actions (`Onboard customer`) with implementation Actions (`Verify VAT checksum`) — split the lower-level steps into a sub-process.",
         predicate: {
           kind: "probabilistic",
-          spec: "Compare this Action's grain to the other Actions in the same business-processes scope (visible via the scope's Actions list). PASS when the Action sits at a similar level of abstraction to its siblings. FAIL with reason if the Action is markedly more granular (a small implementation step amid operator-level steps) or markedly broader (a phase among atomic steps). The fix is usually to split the lower-level steps into a sub-process.",
+          spec: "Compare this Action's grain to the other Actions in the same business-processes Doco. PASS when the Action sits at a similar level of abstraction to its siblings. FAIL with reason if the Action is markedly more granular (a small implementation step amid operator-level steps) or markedly broader (a phase among atomic steps). The fix is usually to split the lower-level steps into a sub-process.",
           when_node_type: ["action"],
         },
       },
@@ -868,24 +821,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── State shape & wiring ───────────────────────────────────
       // v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX) removed the
-      // scope-flavored predicates (`unique-within-scope`,
-      // `count-within-scope`, `graph-constraint`) that originally
-      // expressed the next six wiring rules. They ship as guidance
-      // until a v16-shape evaluator lands — matching the same
-      // accommodation in state-machines.
+      // Aggregate checks that originally expressed the next six wiring
+      // rules ship as guidance until the evaluator can express them
+      // directly — matching the same accommodation in state-machines.
       {
         summary:
-          "State `summary` is unique within a business-processes scope — duplicate milestone names ambiguate references and hide wiring mistakes.",
+          "State `summary` is unique within a business process — duplicate milestone names ambiguate references and hide wiring mistakes.",
         kind: "guidance",
       },
       {
         summary:
-          "An active business-processes scope has ≥1 active State of kind `initial` — every process starts somewhere.",
+          "An active business process has ≥1 active State of kind `initial` — every process starts somewhere.",
         kind: "guidance",
       },
       {
         summary:
-          "An active business-processes scope has ≥1 active State of kind `terminal` — every process has a business outcome (or an explicitly cancelled outcome).",
+          "An active business process has ≥1 active State of kind `terminal` — every process has a business outcome (or an explicitly cancelled outcome).",
         kind: "guidance",
       },
       {
@@ -900,7 +851,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "A `follows` edge must point at a node in the same business-processes scope — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
+          "A `follows` edge must point at a node in the same business-processes Doco — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
         kind: "guidance",
       },
       {
@@ -1016,7 +967,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Use one child scope per concrete process when the process is large (e.g. `customer-onboarding` under `business-processes`). Small processes share the parent; split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
+          "Use one linked Intent per concrete process when the Doco is large. Split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
       },
       {
         kind: "guidance",
@@ -1031,7 +982,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Sub-processes are themselves process scopes — reference them by their Intent, not by inlining their steps into the parent process.",
+          "Sub-processes are themselves process Intents — reference them by their Intent, not by inlining their steps into the parent process.",
       },
       {
         kind: "guidance",
@@ -1041,7 +992,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Rules in a business-processes scope are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
+          "Rules in a business-processes Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
       },
       {
         kind: "guidance",

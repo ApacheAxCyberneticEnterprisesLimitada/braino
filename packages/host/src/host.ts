@@ -493,8 +493,7 @@ export async function addOrganizationByHandle(opts: {
  * Create a Doco owned by an Organization (v15). Composes the doco
  * handle as `<org-handle>-<suffix>` and auto-suffixes on collision
  * when `autoSuffix` is true. The creator becomes `owner` in
- * `doco_users`. Skips filesystem setup and scope auto-install —
- * Postgres-only, scope-free.
+ * `doco_users`. Skips filesystem setup; durable state is Postgres-only.
  */
 export async function createDocoInOrg(opts: {
   orgId: string;
@@ -899,11 +898,6 @@ export async function createDocoInHost(
     );
   }
 
-  // v16: legacy scope auto-install loop removed. Scopes are gone;
-  // template-driven rule seeding now happens in createDocoInOrg
-  // (the /new-doco + API path), and createDocoInHost (this CLI path)
-  // leaves the new Doco rule-empty for the caller to populate.
-
   return {
     ownerSlug: opts.ownerSlug,
     docoSlug,
@@ -914,15 +908,6 @@ export async function createDocoInHost(
     path: hostDocoDir(root, opts.ownerSlug, docoSlug),
   };
 }
-
-// v16: scope helpers removed. Scopes are gone — createScopeInDoco,
-// seedScopeFromTemplate, updateScopeInDoco, setScopeWatchedInDoco,
-// readScopeWatchedInDoco, parseScopeNamesInput, materializeScopeTree,
-// migrateScopesInDoco, applyDocoTemplateUpdatesToDoco have all been
-// deleted, along with the per-scope createRuleInDoco / createIntentInDoco
-// that supported them. Template-driven rule seeding now lives entirely in
-// createDocoInOrg (which inserts directly into constitution article tables — no
-// in_scope_of edge).
 
 /**
  * Apply a partial update to a Doco's metadata (settings page) by
@@ -1021,7 +1006,7 @@ export async function renameDocoHandle(opts: {
 
 /**
  * Delete a Doco. This is a hard delete — `ON DELETE CASCADE` removes
- * every entity, edge, and scope tied to the Doco.
+ * every entity and edge tied to the Doco.
  */
 export async function softDeleteDoco(opts: {
   root: string;

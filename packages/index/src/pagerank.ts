@@ -16,7 +16,7 @@ export type PprEdgeAttribution = "explicit" | "doco-auto";
 export interface PprEdge {
   from: string;
   to: string;
-  /** Optional edge type; lets `edgeWeight` boost specific kinds (e.g. `in_scope_of`). */
+  /** Optional edge type; lets callers tune relevance by relationship kind. */
   edge_type?: string;
   /**
    * Optional edge attribution: 'explicit' (declared in source frontmatter)
@@ -43,8 +43,7 @@ export interface PprOptions {
   tol?: number;
   /**
    * Weight per edge type. Default returns 1 for every type. Higher weight =
-   * more random-walker mass flows along that edge. Per ADR-079, weighting
-   * `in_scope_of` higher pulls scope-shared neighbors closer in the ranking.
+   * more random-walker mass flows along that edge.
    *
    * The second arg is the edge attribution — implicit (LLM-detected) edges
    * default to 1/4 the weight of explicit ones, so a flood of auto-detected
@@ -54,18 +53,38 @@ export interface PprOptions {
 }
 
 /**
- * Default weight: 2× for `in_scope_of` (per ADR-079), 1× otherwise. Then
- * scale by attribution: explicit edges get full weight; doco-auto edges
+ * Default weight: 1× for every edge type, then scaled by attribution:
+ * explicit edges get full weight; doco-auto edges
  * get `IMPLICIT_EDGE_WEIGHT_FACTOR` (default 0.25). Tunable via the
  * `edgeWeight` option for callers that want different multipliers.
  */
 const IMPLICIT_EDGE_WEIGHT_FACTOR = 0.25;
 export function defaultEdgeWeight(
-  edge_type: string | undefined,
+  _edgeType: string | undefined,
   attribution?: PprEdgeAttribution,
 ): number {
-  const base = edge_type === "in_scope_of" ? 2 : 1;
+  const base = 1;
   return attribution === "doco-auto" ? base * IMPLICIT_EDGE_WEIGHT_FACTOR : base;
+}
+
+function mustGetIndex(index: Map<string, number>, id: string): number {
+  const value = index.get(id);
+  if (value === undefined) throw new Error(`Missing PageRank node index for ${id}`);
+  return value;
+}
+
+function mustGetBucket<T>(buckets: T[][], index: number): T[] {
+  const bucket = buckets[index];
+  if (!bucket) throw new Error(`Missing PageRank adjacency bucket ${index}`);
+  return bucket;
+}
+
+function read(values: Float64Array, index: number): number {
+  return values[index] ?? 0;
+}
+
+function add(values: Float64Array, index: number, amount: number): void {
+  values[index] = read(values, index) + amount;
 }
 
 export function personalizedPageRank(
@@ -97,7 +116,7 @@ export function personalizedPageRank(
   const n = idToIdx.size;
   const idxToId: string[] = new Array(n);
   for (const [id, i] of idToIdx) idxToId[i] = id;
-  const sourceIdx = idToIdx.get(sourceId)!;
+  const sourceIdx = mustGetIndex(idToIdx, sourceId);
 
   // Build undirected weighted adjacency (in semantic terms, "A → B" and
   // "B referenced by A" are equally informative for relevance — distinguishing
@@ -107,13 +126,13 @@ export function personalizedPageRank(
   // the sum of incident weights.
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
   for (const e of edges) {
-    const a = idToIdx.get(e.from)!;
-    const b = idToIdx.get(e.to)!;
+    const a = mustGetIndex(idToIdx, e.from);
+    const b = mustGetIndex(idToIdx, e.to);
     if (a === b) continue; // self-edges add nothing
     const w = edgeWeight(e.edge_type, e.attribution);
     if (w <= 0) continue;
-    neighbors[a]!.push({ idx: b, w });
-    neighbors[b]!.push({ idx: a, w });
+    mustGetBucket(neighbors, a).push({ idx: b, w });
+    mustGetBucket(neighbors, b).push({ idx: a, w });
   }
 
   // Personalization: 1 at source, 0 elsewhere. The "restart" target.
@@ -129,17 +148,17 @@ export function personalizedPageRank(
     let dangling = 0;
 
     for (let u = 0; u < n; u++) {
-      const out = neighbors[u]!;
+      const out = mustGetBucket(neighbors, u);
       if (out.length === 0) {
-        dangling += rank[u]!;
+        dangling += read(rank, u);
         continue;
       }
       // Weighted: distribute mass proportional to each outgoing edge's weight.
       let totalW = 0;
       for (const e of out) totalW += e.w;
-      const massPerWeight = rank[u]! / totalW;
+      const massPerWeight = read(rank, u) / totalW;
       for (const e of out) {
-        next[e.idx]! += massPerWeight * e.w;
+        add(next, e.idx, massPerWeight * e.w);
       }
     }
 
@@ -150,8 +169,10 @@ export function personalizedPageRank(
     let maxDelta = 0;
     for (let v = 0; v < n; v++) {
       const updated =
-        alpha * next[v]! + (1 - alpha) * personalization[v]! + alpha * dangling * personalization[v]!;
-      const d = Math.abs(updated - rank[v]!);
+        alpha * read(next, v) +
+        (1 - alpha) * read(personalization, v) +
+        alpha * dangling * read(personalization, v);
+      const d = Math.abs(updated - read(rank, v));
       if (d > maxDelta) maxDelta = d;
       next[v] = updated;
     }
@@ -163,8 +184,10 @@ export function personalizedPageRank(
   const sorted: PprNeighbor[] = [];
   for (let i = 0; i < n; i++) {
     if (i === sourceIdx) continue;
-    if (rank[i]! <= 0) continue;
-    sorted.push({ id: idxToId[i]!, score: rank[i]! });
+    const score = read(rank, i);
+    const id = idxToId[i];
+    if (score <= 0 || !id) continue;
+    sorted.push({ id, score });
   }
   sorted.sort((a, b) => b.score - a.score);
   return sorted.slice(0, topK);
@@ -205,13 +228,13 @@ export function globalPageRank(
 
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
   for (const e of edges) {
-    const a = idToIdx.get(e.from)!;
-    const b = idToIdx.get(e.to)!;
+    const a = mustGetIndex(idToIdx, e.from);
+    const b = mustGetIndex(idToIdx, e.to);
     if (a === b) continue;
     const w = edgeWeight(e.edge_type, e.attribution);
     if (w <= 0) continue;
-    neighbors[a]!.push({ idx: b, w });
-    neighbors[b]!.push({ idx: a, w });
+    mustGetBucket(neighbors, a).push({ idx: b, w });
+    mustGetBucket(neighbors, b).push({ idx: a, w });
   }
 
   // Uniform personalization: 1/N at every node. Initial rank also uniform.
@@ -223,23 +246,25 @@ export function globalPageRank(
     const next = new Float64Array(n);
     let dangling = 0;
     for (let u = 0; u < n; u++) {
-      const out = neighbors[u]!;
+      const out = mustGetBucket(neighbors, u);
       if (out.length === 0) {
-        dangling += rank[u]!;
+        dangling += read(rank, u);
         continue;
       }
       let totalW = 0;
       for (const e of out) totalW += e.w;
-      const massPerWeight = rank[u]! / totalW;
+      const massPerWeight = read(rank, u) / totalW;
       for (const e of out) {
-        next[e.idx]! += massPerWeight * e.w;
+        add(next, e.idx, massPerWeight * e.w);
       }
     }
     let maxDelta = 0;
     for (let v = 0; v < n; v++) {
       const updated =
-        alpha * next[v]! + (1 - alpha) * personalization[v]! + alpha * dangling * personalization[v]!;
-      const d = Math.abs(updated - rank[v]!);
+        alpha * read(next, v) +
+        (1 - alpha) * read(personalization, v) +
+        alpha * dangling * read(personalization, v);
+      const d = Math.abs(updated - read(rank, v));
       if (d > maxDelta) maxDelta = d;
       next[v] = updated;
     }
@@ -248,7 +273,11 @@ export function globalPageRank(
   }
 
   const out: PprNeighbor[] = [];
-  for (let i = 0; i < n; i++) out.push({ id: idxToId[i]!, score: rank[i]! });
+  for (let i = 0; i < n; i++) {
+    const id = idxToId[i];
+    if (!id) continue;
+    out.push({ id, score: read(rank, i) });
+  }
   out.sort((a, b) => b.score - a.score);
   return out;
 }

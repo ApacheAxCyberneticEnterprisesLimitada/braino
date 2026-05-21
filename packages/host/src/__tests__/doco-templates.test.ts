@@ -25,11 +25,6 @@ describe("business-processes template", () => {
     expect(template.purpose).toMatch(/BPMN/);
   });
 
-  it("is opt-in (auto_install is unset)", () => {
-    expect(template.auto_install).toBeUndefined();
-    expect(template.auto_install_watched).toBeUndefined();
-  });
-
   it("does NOT set the constitutional `allowed_node_types` field — that's reserved for `global`", () => {
     expect(template.allowed_node_types).toBeUndefined();
   });
@@ -122,15 +117,14 @@ describe("business-processes template", () => {
   });
 
   describe("State wiring", () => {
-    // v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX) removed the scope-flavored
-    // predicates that originally encoded these rules; they ship as
-    // guidance until a v16-shape evaluator lands. The tests below match
-    // the guidance summaries' shape rather than predicate kinds.
+    // Aggregate predicates that originally encoded these rules ship as
+    // guidance until the evaluator can express them directly. The tests
+    // below match the guidance summaries' shape rather than predicate kinds.
     const guidanceSummaries = template.rules
       .filter((r) => r.kind === "guidance" && !r.predicate)
       .map((r) => r.summary);
 
-    it("State summary uniqueness within the scope is documented", () => {
+    it("State summary uniqueness within the process is documented", () => {
       expect(guidanceSummaries.some((s) => /state.*summary.*unique/i.test(s))).toBe(true);
     });
     it("≥1 active initial State is documented", () => {
@@ -203,7 +197,7 @@ describe("business-processes template", () => {
     it("happy-path-first ordering", () => {
       expect(summaries.some((s) => /happy path first/i.test(s))).toBe(true);
     });
-    it("sub-process scoping (reference by Intent, don't inline)", () => {
+    it("sub-process modeling (reference by Intent, don't inline)", () => {
       expect(summaries.some((s) => /sub-process/i.test(s) && /intent/i.test(s))).toBe(true);
     });
     it("Log separation (instances live in a sibling Doco)", () => {

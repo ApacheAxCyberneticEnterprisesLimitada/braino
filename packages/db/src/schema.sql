@@ -386,10 +386,6 @@ CREATE TABLE IF NOT EXISTS states (
 CREATE INDEX IF NOT EXISTS states_doco_idx ON states (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS states_lifecycle_idx ON states (doco_id, lifecycle);
 
--- v16 (2026-05-20): the legacy `scopes` table was removed
--- (decision_01KS3DW9C2KN2X7Z80R18H1RAX). See the DROP TABLE block
--- at the bottom of this file for the cleanup DDL.
-
 CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -496,9 +492,6 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE INDEX IF NOT EXISTS embeddings_doco_idx  ON embeddings (doco_id);
 CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
 
--- (v16 — the legacy `scope_match` table was removed alongside the
--- scopes concept itself. See DROP TABLE block at the bottom.)
-
 -- Full-text search. One row per
 -- entity. The indexer populates summary + body; search_tsv is a
 -- generated tsvector with English stemming and weighting (A=summary,
@@ -539,13 +532,6 @@ DELETE FROM edges         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id 
 DELETE FROM embeddings    WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 
--- v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG): the framework dropped the
--- `Rule.kind="authoring"` marker. v16 dropped the surrounding scopes
--- concept entirely (decision_01KS3DW9C2KN2X7Z80R18H1RAX); both the
--- v7 migration runner and its `Scope.gated_by` half are gone. Kept
--- this note so a future archaeologist tracing old commits has the
--- pointer.
-
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
@@ -569,10 +555,9 @@ BEGIN
 END
 $org_role_widen$;
 
--- Per-doco user grants. Replaces the binary "any SessionToken bound to
--- this Doco = full admin" gate that doco-access.server.ts used pre-cutover.
--- Backfill writes one row per (principal, bound_doco_id) discovered in
--- the session-token blob with role='owner' (see v8 DO block below).
+-- Per-doco user grants. Invite redemption and owner/admin surfaces write
+-- these rows directly; OAuth tokens authenticate callers but do not store
+-- membership.
 CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
@@ -582,15 +567,10 @@ CREATE TABLE IF NOT EXISTS doco_users (
 );
 CREATE INDEX IF NOT EXISTS doco_users_principal_idx ON doco_users (principal_id, role);
 
--- (v16 — the legacy `scope_users` table was removed; the scopes
--- concept itself is gone. See DROP TABLE block at the bottom.)
-
 -- ──────────────────────────────────────────────────────────────────────────
--- Legacy token store. Kept as an empty shell so the v12 cutover
--- migration below can empty its `tokens` array idempotently. The
--- DOCO_ACCESS-bearer code path is gone (decision_01KS14CW9ZN23FF5CGG0Z7TH4G);
--- the table can be dropped entirely once we're sure no historical
--- data needs migration.
+-- Invite store backing blob. The old session-token and CLI authorization
+-- shapes are ignored by the app; this table remains only because invites
+-- are still stored as a compact host-level JSON document.
 CREATE TABLE IF NOT EXISTS tokens_blob (
   key        text PRIMARY KEY,
   blob       jsonb NOT NULL,
@@ -760,76 +740,12 @@ ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS requested_role text
     CHECK (requested_role IS NULL OR requested_role IN ('reader','author','approver','owner'));
 
--- v12 hard cutover: invalidate every legacy SessionToken in tokens_blob
--- the moment OAuth ships. Previous DOCO_ACCESS bearers stop working;
--- runtimes get a 401 + WWW-Authenticate and kick off the OAuth flow.
--- Gated on doco_meta.v12_doco_access_cutover so repeated boots no-op.
--- The doco_users grants stay intact (the v8 backfill already
--- preserved them) — only the bearer credentials themselves are voided.
-DO $v12_doco_access_cutover$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM doco_meta WHERE key = 'v12_doco_access_cutover' AND value = 'done'
-  ) THEN
-    RETURN;
-  END IF;
-  -- Empty the tokens_blob array (preserving any future shape). All
-  -- subsequent reads return 0 tokens; nothing relies on these for
-  -- authn anymore.
-  UPDATE tokens_blob
-     SET blob = jsonb_set(blob, '{tokens}', '[]'::jsonb)
-   WHERE blob ? 'tokens';
-  INSERT INTO doco_meta (key, value)
-  VALUES ('v12_doco_access_cutover', 'done')
-  ON CONFLICT (key) DO UPDATE SET value = 'done';
-END
-$v12_doco_access_cutover$;
-
--- v8 backfill (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62): every active SessionToken
--- bound to a Doco grandfathers its principal into doco_users with role='owner'
--- so the cutover loses no existing user access. Runs once per host
--- (gated on doco_meta.v8_doco_users_backfill, with a legacy compat check
--- for the pre-v9 'v8_doco_members_backfill' key); subsequent invite
--- redemptions write doco_users directly. ON CONFLICT DO NOTHING so manual
--- role changes made after the first run are not stomped.
-DO $v8_backfill$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM doco_meta
-    WHERE key IN ('v8_doco_users_backfill', 'v8_doco_members_backfill')
-      AND value = 'done'
-  ) THEN
-    RETURN;
-  END IF;
-
-  INSERT INTO doco_users (doco_id, principal_id, role)
-  SELECT DISTINCT
-    (tok->>'bound_doco_id'),
-    (tok->>'principal_id'),
-    'owner'
-  FROM tokens_blob
-  CROSS JOIN LATERAL jsonb_array_elements(blob->'tokens') AS tok
-  WHERE tok->>'kind' = 'session'
-    AND tok->>'bound_doco_id' IS NOT NULL
-    AND tok->>'principal_id' IS NOT NULL
-    AND COALESCE((tok->>'revoked')::boolean, false) = false
-    AND EXISTS (SELECT 1 FROM docos      WHERE id = tok->>'bound_doco_id')
-    AND EXISTS (SELECT 1 FROM principals WHERE id = tok->>'principal_id')
-  ON CONFLICT (doco_id, principal_id) DO NOTHING;
-
-  INSERT INTO doco_meta (key, value)
-  VALUES ('v8_doco_users_backfill', 'done')
-  ON CONFLICT (key) DO UPDATE SET value = 'done';
-END
-$v8_backfill$;
-
 -- ──────────────────────────────────────────────────────────────────────────
--- v15 (2026-05-20): additive schema for the scope→org cutover.
+-- v15 (2026-05-20): additive schema for the organization-ownership cutover.
 --
 -- v15 was the additive half: handle columns, org_id on docos,
 -- doco_templates table, personal-org backfill. The destructive half
--- (scope-tables DROP, NOT NULL relaxation on legacy columns) landed
--- in the v16 series below.
+-- (NOT NULL relaxation on legacy columns) landed in the v16 series below.
 --
 -- Goals delivered here:
 --   1. Every Organization has a `handle` (the public, kebab-case id).
@@ -861,16 +777,7 @@ CREATE TABLE IF NOT EXISTS doco_templates (
 CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
 
 -- ──────────────────────────────────────────────────────────────────────────
--- v16 (2026-05-20): scopes concept removed entirely
--- (decision_01KS3DW9C2KN2X7Z80R18H1RAX).
---
--- All scope-aware code paths were torn out in the v16 commit series.
--- This block drops the legacy tables + any leftover in_scope_of
--- edges that referenced them. Idempotent — `DROP TABLE IF EXISTS`
--- + `DELETE FROM edges WHERE edge_type = 'in_scope_of'` on every
--- boot.
---
--- Also relaxes NOT NULL on the legacy org/doco columns that v15
+-- v16 (2026-05-20): relax NOT NULL on the legacy org/doco columns that v15
 -- replaced (organizations.slug, organizations.name, docos.owner_id).
 -- @doco/host still writes them for back-compat with old SELECTs,
 -- but they're nullable so a future column drop is safe.
@@ -897,16 +804,6 @@ BEGIN
     ON CONFLICT (key) DO UPDATE SET value = 'done';
 END
 $v16_relax_columns$;
-
--- Drop the three legacy scope tables in dependency order. CASCADE
--- cleans any lingering foreign-key references (scope_users.scope_id
--- → scopes(id) is the only one). Then sweep stale in_scope_of
--- edges out of the edges table — those are the from-node → scope
--- back-references whose target rows are gone.
-DROP TABLE IF EXISTS scope_users CASCADE;
-DROP TABLE IF EXISTS scope_match CASCADE;
-DROP TABLE IF EXISTS scopes      CASCADE;
-DELETE FROM edges WHERE edge_type = 'in_scope_of';
 
 DO $v15_backfill$
 DECLARE
