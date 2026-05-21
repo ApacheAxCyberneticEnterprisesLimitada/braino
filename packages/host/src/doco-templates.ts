@@ -412,7 +412,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // that govern how those Evals are authored. Opt-in (not
     // auto-installed) — projects that want test add it explicitly.
     name: "test",
-    label: "test",
+    label: "Tests",
     icon: "🧪",
     description:
       "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
