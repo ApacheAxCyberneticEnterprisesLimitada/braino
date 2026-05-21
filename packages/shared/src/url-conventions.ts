@@ -58,6 +58,8 @@ export const ENTITY_TYPES = [
   "intent",
   "idea",
   "rule",
+  "guidance_article",
+  "node_authoring_article",
   "decision",
   "action",
   "log",

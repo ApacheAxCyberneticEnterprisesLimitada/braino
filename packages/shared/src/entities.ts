@@ -225,6 +225,22 @@ export interface Rule extends SummarizedFields {
   on_violation?: "block" | "warn" | "log";
 }
 
+// ─── Constitution Articles ────────────────────────────────────────────────
+
+export interface GuidanceArticle extends SummarizedFields {
+  node_type: "guidance_article";
+  article_type: "guidance";
+}
+
+export interface NodeAuthoringArticle extends SummarizedFields {
+  node_type: "node_authoring_article";
+  article_type: "node_authoring";
+  evaluation_kind: "deterministic" | "probabilistic";
+  predicate: AuthoringPredicate;
+  fires_when_node_lifecycle?: Lifecycle[];
+  on_violation?: "block" | "warn" | "log";
+}
+
 // ─── Decision ─────────────────────────────────────────────────────────────
 
 export interface DecisionAlternative {
@@ -427,6 +443,8 @@ export type Entity =
   | Intent
   | Idea
   | Rule
+  | GuidanceArticle
+  | NodeAuthoringArticle
   | Decision
   | Action
   | Log

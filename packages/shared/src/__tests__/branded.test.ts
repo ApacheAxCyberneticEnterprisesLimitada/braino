@@ -66,6 +66,8 @@ describe("isNodeType", () => {
       "intent",
       "idea",
       "rule",
+      "guidance_article",
+      "node_authoring_article",
       "decision",
       "action",
       "eval",

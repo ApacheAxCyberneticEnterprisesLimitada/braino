@@ -19,6 +19,8 @@ export const ENTITY_DIRS: Record<Exclude<NodeType, "doco">, EntityDirSpec> = {
   intent: { dir: "intents", format: "md" },
   idea: { dir: "ideas", format: "md" },
   rule: { dir: "rules", format: "md" },
+  guidance_article: { dir: "guidance_articles", format: "md" },
+  node_authoring_article: { dir: "node_authoring_articles", format: "md" },
   decision: { dir: "decisions", format: "md" },
   action: { dir: "actions", format: "md" },
   /** Log — recorded happening. Markdown body for prose context; concrete

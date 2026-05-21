@@ -9,6 +9,8 @@ export const NODE_TABLES: Record<string, { table: string; body: boolean }> = {
   intent: { table: "intents", body: true },
   decision: { table: "decisions", body: true },
   rule: { table: "rules", body: true },
+  guidance_article: { table: "guidance_articles", body: true },
+  node_authoring_article: { table: "node_authoring_articles", body: true },
   action: { table: "actions", body: true },
   log: { table: "logs", body: true },
   eval: { table: "evals", body: true },

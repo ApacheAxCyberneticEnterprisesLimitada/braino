@@ -12,6 +12,7 @@ import {
   validateRequestedDocoId,
 } from "@doco/shared";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { DEFAULT_DOCO_TEMPLATES, type DocoTemplate } from "./doco-templates.js";
 import {
   detectMode,
   hostDocoDir,
@@ -20,7 +21,6 @@ import {
   hostPrincipalsDir,
   hostYamlPath,
 } from "./mode.js";
-import { DEFAULT_DOCO_TEMPLATES, type DocoTemplate } from "./doco-templates.js";
 
 export interface HostConfig {
   id: string; // host_<ulid> — meta-Doco style
@@ -608,21 +608,30 @@ export async function createDocoInOrg(opts: {
        ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
       [docoId, opts.createdByPrincipalId, created],
     );
-    // Seed each template Rule directly onto the new Doco as a row in
-    // the `rules` table. No scope, no in_scope_of edge — scopes are
-    // gone in v15. Best-effort: a malformed rule is swallowed so it
-    // can't fail the whole create.
+    // Seed each template meta-rule as a Constitution Article. Prose-only
+    // entries become guidance_articles; predicate-bearing entries become
+    // node_authoring_articles. Domain Rule nodes stay available for
+    // project/business constraints.
     if (template && template.rules.length > 0) {
       for (const r of template.rules) {
-        const ruleId = makeEntityId("rule", generateUlid());
-        const kind = r.kind ?? (r.predicate ? "tagged" : "guidance");
-        const ruleYaml: Record<string, unknown> = {
-          id: ruleId,
+        const isAuthoring = Boolean(r.predicate);
+        const nodeType = isAuthoring ? "node_authoring_article" : "guidance_article";
+        const table = isAuthoring ? "node_authoring_articles" : "guidance_articles";
+        const articleId = `${nodeType}_${generateUlid()}`;
+        const articleYaml: Record<string, unknown> = {
+          id: articleId,
           doco_id: docoId,
-          node_type: "rule",
+          node_type: nodeType,
+          article_type: isAuthoring ? "node_authoring" : "guidance",
           summary: r.summary,
-          kind,
-          ...(r.predicate ? { predicate: r.predicate } : {}),
+          ...(r.predicate
+            ? {
+                evaluation_kind:
+                  r.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
+                predicate: r.predicate,
+                on_violation: "block",
+              }
+            : {}),
           ...(Array.isArray(r.fires_when_node_lifecycle) && r.fires_when_node_lifecycle.length > 0
             ? { fires_when_node_lifecycle: r.fires_when_node_lifecycle }
             : {}),
@@ -634,14 +643,14 @@ export async function createDocoInOrg(opts: {
         };
         try {
           await c.query(
-            `INSERT INTO rules (id, doco_id, summary, raw_yaml, body_md, lifecycle,
+            `INSERT INTO ${table} (id, doco_id, summary, raw_yaml, body_md, lifecycle,
                                 created_at, updated_at, created_by, updated_by)
              VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $7, $7)`,
             [
-              ruleId,
+              articleId,
               docoId,
               r.summary,
-              JSON.stringify(ruleYaml),
+              JSON.stringify(articleYaml),
               r.body_md ?? "",
               created,
               opts.createdByPrincipalId,
@@ -916,7 +925,7 @@ export async function createDocoInHost(
 // migrateScopesInDoco, applyDocoTemplateUpdatesToDoco have all been
 // deleted, along with the per-scope createRuleInDoco / createIntentInDoco
 // that supported them. Template-driven rule seeding now lives entirely in
-// createDocoInOrg (which inserts directly into the rules table — no
+// createDocoInOrg (which inserts directly into constitution article tables — no
 // in_scope_of edge).
 
 /**

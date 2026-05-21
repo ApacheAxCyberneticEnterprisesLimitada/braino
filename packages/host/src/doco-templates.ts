@@ -17,22 +17,18 @@
  * - `purpose` — the description text rendered under the scope name on
  *   every surface (list card, detail page, bootstrap manifest). Written
  *   directly onto the Scope row's `purpose` column at install time.
- * - `rules` — atomic Rule entities tagged with the scope. A Rule with a
- *   `predicate` becomes an authoring rule the engine evaluates; the
- *   seeder writes the Rule's id into the scope's `gated_by` so the
- *   citation drives evaluation, not a flag on the Rule itself (per v7).
+ * - `rules` — legacy template field name. At install time entries seed
+ *   constitution articles: prose-only entries become guidance_articles;
+ *   predicate-bearing entries become node_authoring_articles.
  * - `allowed_node_types` (optional) — a generic scope attribute that
  *   restricts which node types can be tagged into the scope. #global
- *   ships with `["rule"]` so the doco's constitution is a pure rule book;
- *   the framework rejects POSTs of any other node type whose `scopes`
- *   list names this scope.
+ *   ships with constitution article types so the doco's constitution is
+ *   kept separate from domain Rule nodes.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
- * rules "authoring" explicitly — any rule with a `predicate` is
- * automatically wired into the scope's `gated_by` at seed time. Use
- * `kind: "guidance"` for prose-only directives; leave `kind` unset (or
- * use "tagged") for rules with predicates.
+ * rules "authoring" explicitly. This branch now stores those meta-rules
+ * as Constitution Articles instead of overloading Rule.
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
@@ -76,14 +72,14 @@ export interface DocoTemplate {
    * (list card, detail page, bootstrap manifest). Written directly onto
    * the Scope row's `purpose` column at install time. */
   purpose: string;
-  /** Atomic rules seeded at install time. */
+  /** Atomic constitution articles seeded at install time. */
   rules: TemplateRule[];
   /**
    * Generic scope attribute that restricts which node types are accepted
    * into the scope. When set, captures of any node whose `scopes` list
    * names this scope must have a `node_type` in this allowlist; others
    * are rejected. #global ships with `["rule"]` so the constitution is a
-   * pure rule book. Drives behavior without any name-based check (per
+   * pure constitution. Drives behavior without any name-based check (per
    * rule_01KRRVPBS07HDBCXY6TJ5A5TAT).
    */
   allowed_node_types?: (
@@ -91,6 +87,8 @@ export interface DocoTemplate {
     | "intent"
     | "action"
     | "rule"
+    | "guidance_article"
+    | "node_authoring_article"
     | "log"
     | "eval"
     | "reference"
@@ -136,18 +134,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     auto_install: true,
     auto_install_watched: true,
     purpose:
-      "Your doco's rule book — the standing rules, invariants, and authority claims anyone can cite from anywhere. Rules only.",
-    allowed_node_types: ["rule"],
+      "Your doco's constitution — guidance articles and node authoring articles that govern how contributors work.",
+    allowed_node_types: ["guidance_article", "node_authoring_article"],
     rules: [
       {
         kind: "guidance",
         summary:
-          "Add each node to the most specific applicable scope. Don't create a new scope to fit a node. If you're an agent, propose it to your client and wait for their confirmation first.",
+          "Capture each meaningful decision, correction, and load-bearing implementation outcome in Doco.",
       },
       {
         kind: "guidance",
-        summary:
-          "If you're an agent, check with your client before adding a new rule to the global scope.",
+        summary: "If you're an agent, check with your client before changing the constitution.",
       },
       {
         kind: "guidance",
@@ -175,7 +172,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the #user-flows template
     // collapses from six guidance rules to deterministic authoring
-    // rules + a concise summary for picker/manifest surfaces.
+    // articles + a concise summary for picker/manifest surfaces.
     name: "#user-flows",
     label: "#user-flows",
     icon: "🌊",
