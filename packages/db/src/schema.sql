@@ -277,6 +277,44 @@ CREATE INDEX IF NOT EXISTS node_authoring_articles_doco_idx
 CREATE INDEX IF NOT EXISTS node_authoring_articles_lifecycle_idx
   ON node_authoring_articles (doco_id, lifecycle);
 
+-- Org-level constitution articles. Mirror the per-Doco shape but key on
+-- `org_id` instead of `doco_id`. An org's constitution applies to every
+-- Doco it owns, so the agent bootstrap aggregates these alongside the
+-- per-Doco constitutions for any org/doco the caller can read.
+CREATE TABLE IF NOT EXISTS org_guidance_articles (
+  id          text PRIMARY KEY,
+  org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  summary     text,
+  lifecycle   text,
+  body_md     text,
+  raw_yaml    text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+CREATE INDEX IF NOT EXISTS org_guidance_articles_org_idx
+  ON org_guidance_articles (org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS org_guidance_articles_lifecycle_idx
+  ON org_guidance_articles (org_id, lifecycle);
+
+CREATE TABLE IF NOT EXISTS org_node_authoring_articles (
+  id          text PRIMARY KEY,
+  org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  summary     text,
+  lifecycle   text,
+  body_md     text,
+  raw_yaml    text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+CREATE INDEX IF NOT EXISTS org_node_authoring_articles_org_idx
+  ON org_node_authoring_articles (org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS org_node_authoring_articles_lifecycle_idx
+  ON org_node_authoring_articles (org_id, lifecycle);
+
 CREATE TABLE IF NOT EXISTS actions (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
