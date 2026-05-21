@@ -666,19 +666,16 @@ export async function createDocoInOrg(opts: {
 }
 
 /**
- * v15 doco-template lookup. Maps the four shipped handles
- * (`generic`, `user-flows`, `state-machines`, `global-rules`) to the
- * legacy DEFAULT_DOCO_TEMPLATES rule sets. The rule content stays in
- * doco-templates.ts for now; this just aliases the new handles to
- * the existing entries.
+ * Doco-template lookup. Templates are stored under plain handles
+ * (`global`, `user-flows`, `state-machines`, `business-processes`).
+ * Strips a leading `#` from input for backwards compat with older
+ * clients that still pass hashtag-shaped handles, and keeps the
+ * `global-rules` legacy alias mapping to `global`.
  */
 export function findDocoTemplate(handle: string): DocoTemplate | null {
-  const aliased: Record<string, string> = {
-    "user-flows": "#user-flows",
-    "state-machines": "#state-machines",
-    "global-rules": "#global",
-  };
-  const lookup = aliased[handle] ?? handle;
+  const stripped = handle.startsWith("#") ? handle.slice(1) : handle;
+  const aliased: Record<string, string> = { "global-rules": "global" };
+  const lookup = aliased[stripped] ?? stripped;
   return DEFAULT_DOCO_TEMPLATES.find((tpl) => tpl.name === lookup) ?? null;
 }
 

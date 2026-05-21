@@ -1,0 +1,242 @@
+import { describe, expect, it } from "vitest";
+import { DEFAULT_DOCO_TEMPLATES, findDocoTemplateByName } from "../doco-templates.js";
+
+describe("business-processes template", () => {
+  const template = findDocoTemplateByName("business-processes");
+  if (!template) throw new Error("business-processes template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "business-processes")).toBeDefined();
+  });
+
+  it("is reachable via bare and (back-compat) hashtag-prefixed names", () => {
+    const bare = findDocoTemplateByName("business-processes");
+    const hashtagged = findDocoTemplateByName("#business-processes");
+    expect(bare).toBeDefined();
+    expect(hashtagged).toBeDefined();
+    expect(bare?.name).toBe("business-processes");
+    expect(hashtagged?.name).toBe("business-processes");
+  });
+
+  it("has the expected metadata (icon, label, default_node_lifecycle)", () => {
+    expect(template.icon).toBe("🏭");
+    expect(template.label).toBe("business-processes");
+    expect(template.default_node_lifecycle).toBe("drafted");
+    expect(template.purpose).toMatch(/repeatable business processes/i);
+    expect(template.purpose).toMatch(/BPMN/);
+  });
+
+  it("is opt-in (auto_install is unset)", () => {
+    expect(template.auto_install).toBeUndefined();
+    expect(template.auto_install_watched).toBeUndefined();
+  });
+
+  it("does NOT set the constitutional `allowed_node_types` field — that's reserved for `global`", () => {
+    expect(template.allowed_node_types).toBeUndefined();
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.rules.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("includes exactly the seven allowed types (Intent, Action, Decision, State, Eval, Reference, Rule)", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["action", "decision", "eval", "intent", "reference", "rule", "state"].sort(),
+      );
+    });
+
+    it("excludes Log and Idea (Logs live in a sibling Doco; Ideas live in their own home)", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      expect(allowlist.node_types).not.toContain("log");
+      expect(allowlist.node_types).not.toContain("idea");
+    });
+  });
+
+  describe("requires_field rules", () => {
+    function requiresField(field: string, nodeType: string) {
+      return template.rules.find(
+        (r) =>
+          r.predicate?.kind === "requires_field" &&
+          r.predicate.fields.includes(field) &&
+          r.predicate.when_node_type?.includes(nodeType as never),
+      );
+    }
+
+    it("`actors` on Intent", () => {
+      expect(requiresField("actors", "intent")).toBeDefined();
+    });
+    it("`stakeholders` on Intent", () => {
+      expect(requiresField("stakeholders", "intent")).toBeDefined();
+    });
+    it("`actor_id` on Action", () => {
+      expect(requiresField("actor_id", "action")).toBeDefined();
+    });
+    it("`inputs` on Action", () => {
+      expect(requiresField("inputs", "action")).toBeDefined();
+    });
+    it("`outputs` on Action", () => {
+      expect(requiresField("outputs", "action")).toBeDefined();
+    });
+    it("`target_ref` on Eval", () => {
+      expect(requiresField("target_ref", "eval")).toBeDefined();
+    });
+  });
+
+  describe("requires_edge rules", () => {
+    function requiresEdge(edgeType: string, target: string, on: string) {
+      return template.rules.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === edgeType &&
+          r.predicate.target_node_type === target &&
+          r.predicate.when_node_type?.includes(on as never),
+      );
+    }
+
+    it("Action serves Intent", () => {
+      expect(requiresEdge("serves", "intent", "action")).toBeDefined();
+    });
+    it("Decision serves Intent", () => {
+      expect(requiresEdge("serves", "intent", "decision")).toBeDefined();
+    });
+  });
+
+  describe("actor_id principal resolution", () => {
+    const rule = template.rules.find(
+      (r) => r.predicate?.kind === "requires_field_resolves_to_principal",
+    );
+
+    it("constrains `actor_id` on Actions", () => {
+      expect(rule?.predicate?.kind).toBe("requires_field_resolves_to_principal");
+      if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
+      expect(rule.predicate.field).toBe("actor_id");
+      expect(rule.predicate.when_node_type).toContain("action");
+    });
+
+    it("accepts both `human` and `agent` Principal types (team-roles are first-class)", () => {
+      if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
+      expect([...rule.predicate.allowed_principal_types].sort()).toEqual(["agent", "human"]);
+    });
+  });
+
+  describe("State wiring", () => {
+    // v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX) removed the scope-flavored
+    // predicates that originally encoded these rules; they ship as
+    // guidance until a v16-shape evaluator lands. The tests below match
+    // the guidance summaries' shape rather than predicate kinds.
+    const guidanceSummaries = template.rules
+      .filter((r) => r.kind === "guidance" && !r.predicate)
+      .map((r) => r.summary);
+
+    it("State summary uniqueness within the scope is documented", () => {
+      expect(guidanceSummaries.some((s) => /state.*summary.*unique/i.test(s))).toBe(true);
+    });
+    it("≥1 active initial State is documented", () => {
+      expect(guidanceSummaries.some((s) => /\binitial\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
+        true,
+      );
+    });
+    it("≥1 active terminal State is documented", () => {
+      expect(guidanceSummaries.some((s) => /\bterminal\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
+        true,
+      );
+    });
+    it("Terminal States have no successor Action is documented", () => {
+      expect(
+        guidanceSummaries.some((s) => /terminal/i.test(s) && /successor|no.*follows/i.test(s)),
+      ).toBe(true);
+    });
+    it("`follows` locality is documented", () => {
+      expect(guidanceSummaries.some((s) => /follows.*same/i.test(s))).toBe(true);
+    });
+  });
+
+  describe("graph-completeness coverage rule", () => {
+    const rule = template.rules.find((r) => r.predicate?.kind === "graph-completeness");
+
+    it("wires Intent.actors → Action.actor_id via `serves`", () => {
+      expect(rule?.predicate?.kind).toBe("graph-completeness");
+      if (rule?.predicate?.kind !== "graph-completeness") return;
+      expect(rule.predicate.list_field).toBe("actors");
+      expect(rule.predicate.edge_type).toBe("serves");
+      expect(rule.predicate.incoming_node_type).toBe("action");
+      expect(rule.predicate.incoming_field_must_match).toBe("actor_id");
+      expect(rule.predicate.when_node_type).toContain("intent");
+    });
+
+    it("fires only when the Intent is active (drafted Intents can be incomplete)", () => {
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
+    });
+  });
+
+  describe("probabilistic specs cover process-critical claims", () => {
+    const specs = template.rules
+      .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
+      .filter((s): s is string => s !== null);
+    const summaries = template.rules.map((r) => r.summary);
+    const haystack = [...specs, ...summaries].join("\n");
+
+    it("exhaustive gateway / branches", () => {
+      expect(/exhaustive|default\/else|enum/i.test(haystack)).toBe(true);
+    });
+    it("compensation for side-effecting Actions", () => {
+      expect(/compensat/i.test(haystack)).toBe(true);
+    });
+    it("bounded loops", () => {
+      expect(/loop|retry|iteration/i.test(haystack)).toBe(true);
+    });
+    it("timer-driven Actions name anchor + ISO 8601 offset", () => {
+      expect(/ISO 8601/i.test(haystack)).toBe(true);
+      expect(/anchor/i.test(haystack)).toBe(true);
+    });
+    it("trust-boundary crossings", () => {
+      expect(/trust boundary|trust-boundary|boundary/i.test(haystack)).toBe(true);
+    });
+  });
+
+  describe("guidance rules", () => {
+    const guidance = template.rules.filter((r) => r.kind === "guidance" && !r.predicate);
+    const summaries = guidance.map((r) => r.summary);
+
+    it("happy-path-first ordering", () => {
+      expect(summaries.some((s) => /happy path first/i.test(s))).toBe(true);
+    });
+    it("sub-process scoping (reference by Intent, don't inline)", () => {
+      expect(summaries.some((s) => /sub-process/i.test(s) && /intent/i.test(s))).toBe(true);
+    });
+    it("Log separation (instances live in a sibling Doco)", () => {
+      expect(
+        summaries.some(
+          (s) => /instance/i.test(s) && /(separate|sibling) doco/i.test(s) && /reference/i.test(s),
+        ),
+      ).toBe(true);
+    });
+    it("explicit handoffs (outputs line up with next consumer's inputs)", () => {
+      expect(
+        summaries.some((s) => /handoff/i.test(s) && /outputs/i.test(s) && /inputs/i.test(s)),
+      ).toBe(true);
+    });
+  });
+
+  describe("membership probabilistic gate", () => {
+    const gate = template.rules.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.spec.includes("#business-processes") &&
+        r.predicate.spec.includes("belongs"),
+    );
+
+    it("exists and fires on the process-content node types but not Rule", () => {
+      expect(gate?.predicate?.kind).toBe("probabilistic");
+      if (gate?.predicate?.kind !== "probabilistic") return;
+      const types = gate.predicate.when_node_type ?? [];
+      expect(types).toEqual(
+        expect.arrayContaining(["intent", "action", "decision", "state", "eval", "reference"]),
+      );
+      expect(types).not.toContain("rule");
+    });
+  });
+});
