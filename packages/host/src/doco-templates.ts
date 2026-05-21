@@ -12,9 +12,7 @@
  * <name>`). Per the successor to
  * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
  * templates down to two) — every other previously-shipped template
- * stays project-owner-authored. Template names are plain handles (no
- * leading `#`); the lookup helpers strip a leading `#` from input for
- * backwards compat with callers that still pass hashtag-shaped names.
+ * stays project-owner-authored. Template names are plain handles.
  *
  * Each template ships:
  * - `purpose` — the description text rendered under the scope name on
@@ -24,7 +22,7 @@
  *   constitution articles: prose-only entries become guidance_articles;
  *   predicate-bearing entries become node_authoring_articles.
  * - `allowed_node_types` (optional) — a generic scope attribute that
- *   restricts which node types can be tagged into the scope. #global
+ *   restricts which node types can be tagged into the scope. global
  *   ships with constitution article types so the doco's constitution is
  *   kept separate from domain Rule nodes.
  *
@@ -81,7 +79,7 @@ export interface DocoTemplate {
    * Generic scope attribute that restricts which node types are accepted
    * into the scope. When set, captures of any node whose `scopes` list
    * names this scope must have a `node_type` in this allowlist; others
-   * are rejected. #global ships with `["rule"]` so the constitution is a
+   * are rejected. global ships with `["rule"]` so the constitution is a
    * pure constitution. Drives behavior without any name-based check (per
    * rule_01KRRVPBS07HDBCXY6TJ5A5TAT).
    */
@@ -129,7 +127,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // scope renamed from "constitution" → "global". The label keeps
     // "Constitution" as the readable handle next to "global" on the
     // scope list ("your doco's constitution"); template names are
-    // plain handles — the hashtag-shaped form is back-compat only.
+    // plain handles.
     name: "global",
     label: "global (your doco's constitution)",
     icon: "🌐",
@@ -157,7 +155,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Catch-all scope for important Doco-wide decisions that don't
-    // naturally fit a topical scope. Auto-installed alongside #global
+    // naturally fit a topical scope. Auto-installed alongside global
     // on every new Doco so the project owner has a landing place for
     // cross-cutting decisions from day one — the alternative is
     // letting orphan decisions push agents toward minting new scopes
@@ -172,7 +170,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     rules: [],
   },
   {
-    // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the #user-flows template
+    // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
     // collapses from six guidance rules to deterministic authoring
     // articles + a concise summary for picker/manifest surfaces.
     name: "user-flows",
@@ -183,30 +181,30 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Membership check: probabilistic semantic gate, with a
         // deterministic node-type allowlist that excludes Rule. Rules
-        // tagged into #user-flows *govern* how journeys are authored;
+        // tagged into user-flows *govern* how journeys are authored;
         // they aren't themselves journey content, so subjecting them
         // to the journey-prose check would lock out the rules that
         // define the scope's contract.
         summary:
-          "A node belongs in #user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the scope rather than living inside it.)",
+          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the scope rather than living inside it.)",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in #user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
+          spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
           when_node_type: ["intent", "action", "decision", "reference"],
         },
       },
       {
         summary:
-          'Action nodes in #user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
         predicate: {
           kind: "probabilistic",
-          spec: 'Action nodes in #user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          spec: 'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
           when_node_type: ["action"],
         },
       },
       {
         summary:
-          "Only Intent, Action, Decision, Reference, and Rule nodes belong to #user-flows. Evals, Ideas, and Logs each have their own home.",
+          "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["intent", "action", "decision", "reference", "rule"],
@@ -214,7 +212,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Intent in #user-flows must declare the principal who wants the journey in the `wanted_by` field.",
+          "Every Intent in user-flows must declare the principal who wants the journey in the `wanted_by` field.",
         predicate: {
           kind: "requires_field",
           fields: ["wanted_by"],
@@ -223,7 +221,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Action in #user-flows must declare the principal who performs the designed step in the `actor_id` field.",
+          "Every Action in user-flows must declare the principal who performs the designed step in the `actor_id` field.",
         predicate: {
           kind: "requires_field",
           fields: ["actor_id"],
@@ -232,7 +230,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Decision in #user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
+          "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
         predicate: {
           kind: "requires_field",
           fields: ["decided_by"],
@@ -241,7 +239,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Action in #user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
+          "Every Action in user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
         predicate: {
           kind: "requires_edge",
           edge_type: "serves",
@@ -250,7 +248,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        // #user-flows v2: each principal listed on the Intent's
+        // user-flows v2: each principal listed on the Intent's
         // `actors` must be the actor_id of ≥1 Action serving the
         // Intent. Fires only when the Intent moves to `active` —
         // drafted Intents can be captured first and have their Actions
@@ -305,7 +303,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // D1 — Idea and Log have their own homes elsewhere.
         summary:
-          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a #state-machines doco. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
+          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a state-machines doco. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["state", "action", "decision", "eval", "reference", "intent", "rule"],
@@ -395,7 +393,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P4
         summary:
-          "The #state-machines scope's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
+          "The state-machines scope's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
         fires_when_node_lifecycle: ["active"],
         predicate: {
           kind: "probabilistic",
@@ -455,7 +453,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // checkable claim about a Decision, Article, Action, or other
     // load-bearing node; the template seeds the constitution articles
     // that govern how those Evals are authored. Opt-in (not
-    // auto-installed) — projects that want #test add it explicitly.
+    // auto-installed) — projects that want test add it explicitly.
     name: "test",
     label: "test",
     icon: "🧪",
@@ -468,7 +466,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // D1 — content-type gate. Evals belong here; constitution
         // articles seeded by this template live alongside them.
         summary:
-          "Only Eval and constitution-article nodes (guidance_article, node_authoring_article) belong to #test. Domain content lives in its own scope.",
+          "Only Eval and constitution-article nodes (guidance_article, node_authoring_article) belong to test. Domain content lives in its own scope.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["eval", "guidance_article", "node_authoring_article"],
@@ -610,10 +608,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // govern the scope rather than living inside it) — handled by
         // omitting "rule" from when_node_type.
         summary:
-          "A node belongs in #business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
+          "A node belongs in business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in #business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
+          spec: "A node belongs in business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
           when_node_type: ["intent", "action", "decision", "state", "eval", "reference"],
         },
       },
@@ -632,7 +630,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Intent shape ────────────────────────────────────────────
       {
         summary:
-          "Every Intent in #business-processes must declare `actors` — the principals expected to act in this process.",
+          "Every Intent in business-processes must declare `actors` — the principals expected to act in this process.",
         predicate: {
           kind: "requires_field",
           fields: ["actors"],
@@ -643,7 +641,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Stakeholders without an Action of their own surface via a
         // Reference, an Eval, or a Rule that cites them via `gated_by`.
         summary:
-          "Every Intent in #business-processes must declare `stakeholders` — the principals with a say in the outcome even if they don't act directly. Stakeholders without an Action surface via Reference, Eval, or a `gated_by` Rule.",
+          "Every Intent in business-processes must declare `stakeholders` — the principals with a say in the outcome even if they don't act directly. Stakeholders without an Action surface via Reference, Eval, or a `gated_by` Rule.",
         predicate: {
           kind: "requires_field",
           fields: ["stakeholders"],
@@ -666,7 +664,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Action shape & handoffs ─────────────────────────────────
       {
         summary:
-          "Every Action in #business-processes must declare the principal who performs the activity in the `actor_id` field.",
+          "Every Action in business-processes must declare the principal who performs the activity in the `actor_id` field.",
         predicate: {
           kind: "requires_field",
           fields: ["actor_id"],
@@ -688,7 +686,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Action in #business-processes must `serves` an Intent. Without it the process renderer can't tie the step to the business outcome it advances.",
+          "Every Action in business-processes must `serves` an Intent. Without it the process renderer can't tie the step to the business outcome it advances.",
         predicate: {
           kind: "requires_edge",
           edge_type: "serves",
@@ -698,7 +696,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Action in #business-processes must declare its `inputs` — the artifacts it consumes from upstream.",
+          "Every Action in business-processes must declare its `inputs` — the artifacts it consumes from upstream.",
         predicate: {
           kind: "requires_field",
           fields: ["inputs"],
@@ -709,7 +707,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Producer outputs line up with consumer inputs — the explicit
         // handoff guidance below depends on these being filled in.
         summary:
-          "Every Action in #business-processes must declare its `outputs` — the artifacts it hands to downstream Actions. A producer's outputs should line up with the next consumer's inputs.",
+          "Every Action in business-processes must declare its `outputs` — the artifacts it hands to downstream Actions. A producer's outputs should line up with the next consumer's inputs.",
         predicate: {
           kind: "requires_field",
           fields: ["outputs"],
@@ -814,10 +812,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // implementation granularity ("Verify VAT checksum") inside one
         // scope.
         summary:
-          "Actions in one #business-processes scope sit at a consistent level of abstraction. Reject scopes that mix operator-level Actions (`Onboard customer`) with implementation Actions (`Verify VAT checksum`) — split the lower-level steps into a sub-process.",
+          "Actions in one business-processes scope sit at a consistent level of abstraction. Reject scopes that mix operator-level Actions (`Onboard customer`) with implementation Actions (`Verify VAT checksum`) — split the lower-level steps into a sub-process.",
         predicate: {
           kind: "probabilistic",
-          spec: "Compare this Action's grain to the other Actions in the same #business-processes scope (visible via the scope's Actions list). PASS when the Action sits at a similar level of abstraction to its siblings. FAIL with reason if the Action is markedly more granular (a small implementation step amid operator-level steps) or markedly broader (a phase among atomic steps). The fix is usually to split the lower-level steps into a sub-process.",
+          spec: "Compare this Action's grain to the other Actions in the same business-processes scope (visible via the scope's Actions list). PASS when the Action sits at a similar level of abstraction to its siblings. FAIL with reason if the Action is markedly more granular (a small implementation step amid operator-level steps) or markedly broader (a phase among atomic steps). The fix is usually to split the lower-level steps into a sub-process.",
           when_node_type: ["action"],
         },
       },
@@ -825,7 +823,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Decision shape ──────────────────────────────────────────
       {
         summary:
-          "Every Decision in #business-processes must `serves` an Intent — gateways exist to advance a business outcome and need that link to be explicit.",
+          "Every Decision in business-processes must `serves` an Intent — gateways exist to advance a business outcome and need that link to be explicit.",
         predicate: {
           kind: "requires_edge",
           edge_type: "serves",
@@ -838,7 +836,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
         summary:
-          "Gateway Decisions in #business-processes have exhaustive branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` list either includes a default/else branch or names every enum value.",
+          "Gateway Decisions in business-processes have exhaustive branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` list either includes a default/else branch or names every enum value.",
         predicate: {
           kind: "probabilistic",
           spec: "Check the Decision's `question` and `alternatives`. PASS when the question reads as yes/no or an enumeration, AND the alternatives either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
@@ -874,20 +872,20 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // `count-within-scope`, `graph-constraint`) that originally
       // expressed the next six wiring rules. They ship as guidance
       // until a v16-shape evaluator lands — matching the same
-      // accommodation in #state-machines.
+      // accommodation in state-machines.
       {
         summary:
-          "State `summary` is unique within a #business-processes scope — duplicate milestone names ambiguate references and hide wiring mistakes.",
+          "State `summary` is unique within a business-processes scope — duplicate milestone names ambiguate references and hide wiring mistakes.",
         kind: "guidance",
       },
       {
         summary:
-          "An active #business-processes scope has ≥1 active State of kind `initial` — every process starts somewhere.",
+          "An active business-processes scope has ≥1 active State of kind `initial` — every process starts somewhere.",
         kind: "guidance",
       },
       {
         summary:
-          "An active #business-processes scope has ≥1 active State of kind `terminal` — every process has a business outcome (or an explicitly cancelled outcome).",
+          "An active business-processes scope has ≥1 active State of kind `terminal` — every process has a business outcome (or an explicitly cancelled outcome).",
         kind: "guidance",
       },
       {
@@ -902,7 +900,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "A `follows` edge must point at a node in the same #business-processes scope — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
+          "A `follows` edge must point at a node in the same business-processes scope — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
         kind: "guidance",
       },
       {
@@ -975,7 +973,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Eval ────────────────────────────────────────────────────
       {
         summary:
-          "Every Eval in #business-processes must declare its `target_ref` — the node whose claim the Eval pins.",
+          "Every Eval in business-processes must declare its `target_ref` — the node whose claim the Eval pins.",
         predicate: {
           kind: "requires_field",
           fields: ["target_ref"],
@@ -987,7 +985,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // handoff, SLA, branch coverage, policy compliance — not a
         // vague "this should work".
         summary:
-          "Evals in #business-processes pin a process-critical claim — a completeness check, a handoff invariant, an SLA bound, a branch coverage, or a policy compliance — not a vague `this should work`.",
+          "Evals in business-processes pin a process-critical claim — a completeness check, a handoff invariant, an SLA bound, a branch coverage, or a policy compliance — not a vague `this should work`.",
         predicate: {
           kind: "probabilistic",
           spec: "Check the Eval's `summary`, `criterion`, and `expected`. PASS when the Eval pins a process-critical claim: a completeness check (all required Actions exist), a handoff invariant (producer's output matches consumer's input), an SLA bound (process completes within X), a branch coverage (every Decision branch is exercised), or a policy compliance (a Rule's predicate holds). FAIL with reason if the claim is vague (`it should work`, `looks good`).",
@@ -997,11 +995,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Reference ───────────────────────────────────────────────
       {
-        // References in #business-processes must be authoritative
+        // References in business-processes must be authoritative
         // (policy doc, regulatory citation, vendor spec, or sibling
         // Doco with recorded runs). Decorative links are rejected.
         summary:
-          "References in #business-processes are authoritative — a policy document, a regulatory citation, a vendor specification, or a sibling Doco that records process *instances*. Decorative links (a marketing blog post, an unrelated tweet) belong elsewhere.",
+          "References in business-processes are authoritative — a policy document, a regulatory citation, a vendor specification, or a sibling Doco that records process *instances*. Decorative links (a marketing blog post, an unrelated tweet) belong elsewhere.",
         predicate: {
           kind: "probabilistic",
           spec: "Check the Reference's `ref_type`, `locator`, `summary`, and `body_md`. PASS when the Reference points at an authoritative source: a policy document, a regulatory citation, a vendor specification, an API contract, or a sibling Doco that records process *instances* (Logs of runs). FAIL with reason if the Reference is decorative or unrelated (a marketing blog post, an unrelated tweet, a generic explainer).",
@@ -1013,12 +1011,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys belong in #user-flows; pure state machines in #state-machines.",
+          "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys belong in user-flows; pure state machines in state-machines.",
       },
       {
         kind: "guidance",
         summary:
-          "Use one child scope per concrete process when the process is large (e.g. `#customer-onboarding` under `#business-processes`). Small processes share the parent; split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
+          "Use one child scope per concrete process when the process is large (e.g. `customer-onboarding` under `business-processes`). Small processes share the parent; split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
       },
       {
         kind: "guidance",
@@ -1043,7 +1041,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Rules in a #business-processes scope are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `#global`, not in any process using it.",
+          "Rules in a business-processes scope are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
       },
       {
         kind: "guidance",
@@ -1063,11 +1061,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  * Lookup a template by name. Returns undefined for unknown names.
  *
  * Templates are stored under plain handles (`global`, `user-flows`,
- * `state-machines`, `test`, `business-processes`). The lookup strips
- * a leading `#` from input for backwards compat with older clients
- * that still POST `template_name: "#user-flows"`.
+ * `state-machines`, `test`, `business-processes`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
-  const canonical = name.startsWith("#") ? name.slice(1) : name;
-  return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === canonical);
+  return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);
 }

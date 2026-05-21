@@ -9,13 +9,12 @@ describe("business-processes template", () => {
     expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "business-processes")).toBeDefined();
   });
 
-  it("is reachable via bare and (back-compat) hashtag-prefixed names", () => {
+  it("is reachable via its bare handle and is NOT reachable via the legacy hashtag-prefixed form", () => {
     const bare = findDocoTemplateByName("business-processes");
     const hashtagged = findDocoTemplateByName("#business-processes");
     expect(bare).toBeDefined();
-    expect(hashtagged).toBeDefined();
     expect(bare?.name).toBe("business-processes");
-    expect(hashtagged?.name).toBe("business-processes");
+    expect(hashtagged).toBeUndefined();
   });
 
   it("has the expected metadata (icon, label, default_node_lifecycle)", () => {
@@ -225,7 +224,7 @@ describe("business-processes template", () => {
     const gate = template.rules.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.spec.includes("#business-processes") &&
+        r.predicate.spec.includes("business-processes") &&
         r.predicate.spec.includes("belongs"),
     );
 
