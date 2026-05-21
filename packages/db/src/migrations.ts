@@ -24,6 +24,10 @@ interface MigrationFile {
 function locateMigrationsDir(): string | null {
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
+    // Production-bundled location: the vite plugin copies migrations
+    // alongside the bundled migrations.js.
+    join(here, MIGRATIONS_DIRNAME),
+    // tsx / dev: package source layout.
     join(here, "..", MIGRATIONS_DIRNAME),
     join(here, "..", "..", MIGRATIONS_DIRNAME),
   ];
