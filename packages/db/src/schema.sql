@@ -66,6 +66,16 @@ CREATE TABLE IF NOT EXISTS hosts (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Default host row. Every Doco install needs exactly one. Without it,
+-- loadHostConfig() throws "No host config in Postgres" on the first
+-- request after a fresh schema, which 500s every page that calls it
+-- (including /onboarding/create/human — the page new visitors hit).
+-- The ON CONFLICT keeps this idempotent: existing installs keep their
+-- custom host config untouched.
+INSERT INTO hosts (id, name, visibility, raw_yaml)
+VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}')
+ON CONFLICT (id) DO NOTHING;
+
 -- Identity layer.
 
 CREATE TABLE IF NOT EXISTS principals (
@@ -232,6 +242,40 @@ CREATE TABLE IF NOT EXISTS rules (
 );
 CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
+
+CREATE TABLE IF NOT EXISTS guidance_articles (
+  id          text PRIMARY KEY,
+  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  summary     text,
+  lifecycle   text,
+  body_md     text,
+  raw_yaml    text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+CREATE INDEX IF NOT EXISTS guidance_articles_doco_idx
+  ON guidance_articles (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS guidance_articles_lifecycle_idx
+  ON guidance_articles (doco_id, lifecycle);
+
+CREATE TABLE IF NOT EXISTS node_authoring_articles (
+  id          text PRIMARY KEY,
+  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  summary     text,
+  lifecycle   text,
+  body_md     text,
+  raw_yaml    text NOT NULL,
+  created_at  timestamptz NOT NULL DEFAULT now(),
+  created_by  text,
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  updated_by  text
+);
+CREATE INDEX IF NOT EXISTS node_authoring_articles_doco_idx
+  ON node_authoring_articles (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS node_authoring_articles_lifecycle_idx
+  ON node_authoring_articles (doco_id, lifecycle);
 
 CREATE TABLE IF NOT EXISTS actions (
   id          text PRIMARY KEY,
@@ -433,6 +477,8 @@ CREATE INDEX IF NOT EXISTS entity_fts_tsv_idx  ON entity_fts USING gin (search_t
 ALTER TABLE intents            DROP COLUMN IF EXISTS revision;
 ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
 ALTER TABLE rules              DROP COLUMN IF EXISTS revision;
+ALTER TABLE guidance_articles  DROP COLUMN IF EXISTS revision;
+ALTER TABLE node_authoring_articles DROP COLUMN IF EXISTS revision;
 ALTER TABLE actions            DROP COLUMN IF EXISTS revision;
 ALTER TABLE evals              DROP COLUMN IF EXISTS revision;
 ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
