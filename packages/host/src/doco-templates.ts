@@ -10,46 +10,46 @@
  * stays project-owner-authored. Template names are plain handles.
  *
  * Each template ships:
- * - `purpose` — the description text rendered in the picker and
+ * - `description` — the description text rendered in the picker and
  *   bootstrap manifest.
- * - `rules` — legacy template field name. At install time entries seed
+ * - `articles` — at install time entries seed
  *   constitution articles: prose-only entries become guidance_articles;
  *   predicate-bearing entries become node_authoring_articles.
- * - `allowed_node_types` (optional) — a Doco-level allowlist. `global`
+ * - `allowedNodeTypes` (optional) — a Doco-level allowlist. `global`
  *   ships with constitution article types so the Doco's constitution is
  *   kept separate from domain Rule nodes.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
- * rules "authoring" explicitly. This branch now stores those meta-rules
- * as Constitution Articles instead of overloading Rule.
+ * articles "authoring" explicitly. Templates now store those
+ * meta-constraints as Constitution Articles instead of overloading Rule.
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
-export interface TemplateRule {
+export interface TemplateArticle {
   /**
-   * Rule kind on the seeded Rule entity. Optional — defaults to
+   * Article kind on the seeded Constitution Article. Optional — defaults to
    * "tagged" when `predicate` is set, "guidance" otherwise. v7 dropped
    * "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
    */
   kind?: "guidance" | "tagged";
-  /** Human-authored prose. For rules with a predicate this is the reason
-   * text accompanying the structured check. For guidance rules this IS
-   * the rule. */
+  /** Human-authored prose. For predicate-bearing articles this is the
+   * reason text accompanying the structured check. For guidance articles
+   * this is the article body. */
   summary: string;
   /**
-   * Engine-readable predicate. When set, the seeder adds this Rule's id
-   * to a node_authoring_article so the check can run during capture.
+   * Engine-readable predicate. When set, the seeder creates a
+   * node_authoring_article so the check can run during capture.
    */
   predicate?: AuthoringPredicate;
   /**
-   * v7: when set, the engine only fires this Rule against candidates
+   * v7: when set, the engine only fires this article against candidates
    * whose `lifecycle` is in the list. Used by completeness rules that
    * skip drafted nodes during mid-construction.
    */
   fires_when_node_lifecycle?: Lifecycle[];
   /**
-   * Optional markdown body. Renders alongside the summary on the Rule's
+   * Optional markdown body. Renders alongside the summary on the article
    * detail page.
    */
   body_md?: string;
@@ -62,14 +62,14 @@ export interface DocoTemplate {
   /** Recommended single-emoji icon. */
   icon: string;
   /** Description text rendered in picker and bootstrap surfaces. */
-  purpose: string;
+  description: string;
   /** Atomic constitution articles seeded at install time. */
-  rules: TemplateRule[];
+  articles: TemplateArticle[];
   /**
    * Doco-level allowlist for captured node types. `global` keeps the
    * constitution pure by accepting only constitution article nodes.
    */
-  allowed_node_types?: (
+  allowedNodeTypes?: (
     | "decision"
     | "intent"
     | "action"
@@ -89,7 +89,7 @@ export interface DocoTemplate {
    * `"drafted"` so authors can sketch incomplete machines without
    * tripping completeness rules.
    */
-  default_node_lifecycle?: Lifecycle;
+  defaultNodeLifecycle?: Lifecycle;
 }
 
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
@@ -102,10 +102,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     name: "global",
     label: "global (your doco's constitution)",
     icon: "🌐",
-    purpose:
+    description:
       "Your doco's constitution — guidance articles and node authoring articles that govern how contributors work.",
-    allowed_node_types: ["guidance_article", "node_authoring_article"],
-    rules: [
+    allowedNodeTypes: ["guidance_article", "node_authoring_article"],
+    articles: [
       {
         kind: "guidance",
         summary:
@@ -128,8 +128,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     name: "important",
     label: "important",
     icon: "⭐",
-    purpose: "Important doco-wide decisions that don't naturally fit a more specific subject area.",
-    rules: [],
+    description:
+      "Important doco-wide decisions that don't naturally fit a more specific subject area.",
+    articles: [],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
@@ -138,8 +139,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     name: "user-flows",
     label: "user-flows",
     icon: "🌊",
-    purpose: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
-    rules: [
+    description: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
+    articles: [
       {
         // Membership check: probabilistic semantic gate, with a
         // deterministic node-type allowlist that excludes Rule. Rules
@@ -248,14 +249,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // modeling. The template is pure data: atomic constitution
     // articles plus Doco-level defaults. Framework primitives the
     // rules use: State node + triggered_by / gated_by edges + drafted
-    // lifecycle + default_node_lifecycle.
+    // lifecycle + defaultNodeLifecycle.
     name: "state-machines",
     label: "state-machines",
     icon: "🔁",
-    purpose:
+    description:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
-    default_node_lifecycle: "drafted",
-    rules: [
+    defaultNodeLifecycle: "drafted",
+    articles: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
         // D1 — Idea and Log have their own homes elsewhere.
@@ -413,10 +414,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     name: "test",
     label: "test",
     icon: "🧪",
-    purpose:
+    description:
       "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
-    default_node_lifecycle: "drafted",
-    rules: [
+    defaultNodeLifecycle: "drafted",
+    articles: [
       // ── Deterministic structural gates ──
       {
         // D1 — content-type gate. Evals belong here; constitution
@@ -543,7 +544,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // Repeatable business processes modeled on BPMN swimlanes and
     // gateways. The framework primitives the
     // rules use overlap with the state-machines template (State + drafted
-    // lifecycle + default_node_lifecycle), but the template reaches further:
+    // lifecycle + defaultNodeLifecycle), but the template reaches further:
     // Action/Decision/Intent shape rules push authors toward business
     // outcomes, named gateways, and explicit handoffs. Aggregate checks
     // that the evaluator cannot express yet ship as guidance, mirroring
@@ -551,10 +552,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     name: "business-processes",
     label: "business-processes",
     icon: "🏭",
-    purpose:
+    description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
-    default_node_lifecycle: "drafted",
-    rules: [
+    defaultNodeLifecycle: "drafted",
+    articles: [
       // ── Membership ──────────────────────────────────────────────
       {
         // Probabilistic semantic gate. Rule nodes are exempt because

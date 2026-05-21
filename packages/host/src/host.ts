@@ -8,7 +8,7 @@ import {
   generateUlid,
   makeEntityId,
   nowIso,
-  validateRequestedDocoId,
+  validateRequestedDocoId as validateRequestedDocoHandle,
 } from "@doco/shared";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import { DEFAULT_DOCO_TEMPLATES, type DocoTemplate } from "./doco-templates.js";
@@ -204,9 +204,9 @@ const SLUG_PATTERN = /^[a-z0-9_-]+$/;
 
 function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "doco"): void {
   if (kind === "doco") {
-    // Doco slugs use the stricter `validateRequestedDocoId` from
+    // Doco handles use the stricter `validateRequestedDocoHandle` from
     // @doco/shared (which also rejects `/` and enforces a length cap).
-    const err = validateRequestedDocoId(slug);
+    const err = validateRequestedDocoHandle(slug);
     if (err) throw new Error(err);
     return;
   }
@@ -338,7 +338,7 @@ export async function ensurePersonalOrganization(
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
     const existing = await c.query<{ id: string }>(
-      `SELECT id FROM organizations WHERE handle = $1 OR slug = $1 LIMIT 1`,
+      "SELECT id FROM organizations WHERE handle = $1 OR slug = $1 LIMIT 1",
       [username],
     );
     if (existing.rows[0]) {
@@ -426,7 +426,7 @@ export async function findAvailableDocoHandle(
     let candidate = base;
     let n = 2;
     while (true) {
-      const taken = await c.query(`SELECT 1 FROM docos WHERE handle = $1 LIMIT 1`, [candidate]);
+      const taken = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [candidate]);
       if (taken.rowCount === 0) return candidate;
       candidate = `${base}-${n}`;
       n += 1;
@@ -522,7 +522,7 @@ export async function createDocoInOrg(opts: {
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
     const orgRow = await c.query<{ id: string; handle: string }>(
-      `SELECT id, COALESCE(handle, slug) AS handle FROM organizations WHERE id = $1`,
+      "SELECT id, COALESCE(handle, slug) AS handle FROM organizations WHERE id = $1",
       [opts.orgId],
     );
     if (orgRow.rowCount === 0) {
@@ -571,12 +571,12 @@ export async function createDocoInOrg(opts: {
     // owner_id is still NOT NULL on the legacy schema; populate it
     // alongside org_id so existing readers keep working.
     // v15: template-driven Doco creation. The picked template seeds
-    // its rule set + sets the doco-level `allowed_node_types` and
-    // `default_node_lifecycle` columns. `generic` (or unknown handle)
-    // seeds nothing.
+    // constitution articles + sets the doco-level `allowed_node_types`
+    // and `default_node_lifecycle` columns. `generic` (or unknown
+    // handle) seeds nothing.
     const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
-    const allowedNodeTypes = template?.allowed_node_types ?? null;
-    const defaultNodeLifecycle = template?.default_node_lifecycle ?? null;
+    const allowedNodeTypes = template?.allowedNodeTypes ?? null;
+    const defaultNodeLifecycle = template?.defaultNodeLifecycle ?? null;
     if (allowedNodeTypes) {
       (docoYaml as Record<string, unknown>).allowed_node_types = allowedNodeTypes;
     }
@@ -606,13 +606,16 @@ export async function createDocoInOrg(opts: {
        ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
       [docoId, opts.createdByPrincipalId, created],
     );
-    // Seed each template meta-rule as a Constitution Article. Prose-only
+    // Seed each template article as a Constitution Article. Prose-only
     // entries become guidance_articles; predicate-bearing entries become
     // node_authoring_articles. Domain Rule nodes stay available for
     // project/business constraints.
-    if (template && template.rules.length > 0) {
-      for (const r of template.rules) {
-        const isAuthoring = Boolean(r.predicate);
+    if (template && template.articles.length > 0) {
+      for (const article of template.articles) {
+        const isAuthoring = Boolean(article.predicate);
+        const firesWhen = Array.isArray(article.fires_when_node_lifecycle)
+          ? article.fires_when_node_lifecycle
+          : [];
         const nodeType = isAuthoring ? "node_authoring_article" : "guidance_article";
         const table = isAuthoring ? "node_authoring_articles" : "guidance_articles";
         const articleId = `${nodeType}_${generateUlid()}`;
@@ -621,18 +624,16 @@ export async function createDocoInOrg(opts: {
           doco_id: docoId,
           node_type: nodeType,
           article_type: isAuthoring ? "node_authoring" : "guidance",
-          summary: r.summary,
-          ...(r.predicate
+          summary: article.summary,
+          ...(article.predicate
             ? {
                 evaluation_kind:
-                  r.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
-                predicate: r.predicate,
+                  article.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
+                predicate: article.predicate,
                 on_violation: "block",
               }
             : {}),
-          ...(Array.isArray(r.fires_when_node_lifecycle) && r.fires_when_node_lifecycle.length > 0
-            ? { fires_when_node_lifecycle: r.fires_when_node_lifecycle }
-            : {}),
+          ...(firesWhen.length > 0 ? { fires_when_node_lifecycle: firesWhen } : {}),
           template_seeded: true,
           template_handle: opts.templateHandle ?? null,
           created_at: created,
@@ -647,9 +648,9 @@ export async function createDocoInOrg(opts: {
             [
               articleId,
               docoId,
-              r.summary,
+              article.summary,
               JSON.stringify(articleYaml),
-              r.body_md ?? "",
+              article.body_md ?? "",
               created,
               opts.createdByPrincipalId,
             ],
@@ -807,7 +808,7 @@ export async function createDocoInHost(
   const baseHandle =
     normalizeHandleCandidate(opts.requestedId ?? `${opts.ownerSlug}-${docoSlug}`) ||
     `${opts.ownerSlug}-${docoSlug}`;
-  const handleErr = validateRequestedDocoId(baseHandle);
+  const handleErr = validateRequestedDocoHandle(baseHandle);
   if (handleErr) throw new Error(handleErr);
   let handle = baseHandle;
   {
@@ -978,7 +979,7 @@ export async function renameDocoHandle(opts: {
   newHandle: string;
 }): Promise<void> {
   const { oldHandle, newHandle } = opts;
-  const handleError = validateRequestedDocoId(newHandle);
+  const handleError = validateRequestedDocoHandle(newHandle);
   if (handleError) throw new Error(handleError);
   if (oldHandle === newHandle) return;
 

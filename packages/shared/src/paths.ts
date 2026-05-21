@@ -1,6 +1,9 @@
 import { join } from "node:path";
 import type { NodeType } from "./branded.js";
 
+// Legacy filesystem layout helpers. New runtime code should prefer
+// Postgres-backed metadata and use these only for compatibility adapters.
+
 export type EntityFileFormat = "yaml" | "md" | "json";
 
 export interface EntityDirSpec {

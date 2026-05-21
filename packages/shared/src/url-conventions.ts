@@ -1,18 +1,18 @@
 /**
  * URL conventions and reserved ids — single source of truth.
  *
- * Doco URLs are `/<doco-id>/...`. The Doco id is the human-readable
- * handle requested at creation time; it lives in the same flat
+ * Doco URLs are `/<doco-handle>/...`. The handle is requested at
+ * creation time; it lives in the same flat
  * namespace as the top-level host routes, so the reserved-id set
  * below prevents collisions.
  *
- * Entity URLs are `/<doco-id>/<type>/<id>` where `<id>` is the
+ * Entity URLs are `/<doco-handle>/<type>/<id>` where `<id>` is the
  * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`).
  */
 
 /**
  * Top-level path segments that exist as host routes. A doco's
- * requested id is rejected if it matches one of these.
+ * requested handle is rejected if it matches one of these.
  */
 export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "e",
@@ -74,13 +74,15 @@ export function isEntityType(s: string): s is EntityType {
 }
 
 /**
- * URL builders accept either the legacy `(ownerSlug, docoSlug)` pair
- * (current route shape `/<doco-handle>/...`) or a single `docoId`
- * (phase-2 route shape `/<doco-id>/...`). Callers that supply `docoId`
- * win; otherwise the function falls back to the slug pair.
+ * URL builders accept the current `docoHandle`, the legacy
+ * `(ownerSlug, docoSlug)` pair, or the old `docoId` alias. Callers
+ * that supply `docoHandle` win; `docoId` remains as a compatibility
+ * alias for older mapped rows where it already meant the public handle.
  */
 export interface EntityUrlInput {
-  /** Phase 2: globally-unique handle. When set, takes precedence. */
+  /** Current public route handle. When set, takes precedence. */
+  docoHandle?: string;
+  /** Compatibility alias for callers that still pass the route handle as `docoId`. */
   docoId?: string;
   ownerSlug?: string;
   docoSlug?: string;
@@ -89,14 +91,21 @@ export interface EntityUrlInput {
   id: string;
 }
 
-function docoPrefix(input: { docoId?: string; ownerSlug?: string; docoSlug?: string }): string {
+function docoPrefix(input: {
+  docoHandle?: string;
+  docoId?: string;
+  ownerSlug?: string;
+  docoSlug?: string;
+}): string {
   // Phase 3a+: every route uses `/<handle>/...` and `docoSlug` from
-  // `mapDocoRow` mirrors `handle` already. `docoId`, when set, is the
-  // canonical handle/ULID. `docoSlug`, when set, is the handle too (the
+  // `mapDocoRow` mirrors `handle` already. `docoHandle`, when set, is
+  // the canonical route segment. `docoId` remains a back-compat alias.
+  // `docoSlug`, when set, is the handle too (the
   // legacy slug-only form no longer exists in storage). Either field
   // is a valid URL identifier as-is — DO NOT re-synthesize with the
   // owner prefix or URLs become `/<owner>-<handle>/...` (the doubled
   // prefix bug).
+  if (input.docoHandle) return `/${input.docoHandle}`;
   if (input.docoId) return `/${input.docoId}`;
   if (input.docoSlug) return `/${input.docoSlug}`;
   if (input.ownerSlug) return `/${input.ownerSlug}`;
@@ -110,6 +119,7 @@ export function entityUrl(input: EntityUrlInput): string {
 }
 
 export interface EntityListUrlInput {
+  docoHandle?: string;
   docoId?: string;
   ownerSlug?: string;
   docoSlug?: string;
@@ -121,6 +131,7 @@ export function entityListUrl(input: EntityListUrlInput): string {
 }
 
 export interface DocoUrlInput {
+  docoHandle?: string;
   docoId?: string;
   ownerSlug?: string;
   docoSlug?: string;
@@ -131,32 +142,39 @@ export function docoUrl(input: DocoUrlInput): string {
 }
 
 /**
- * Validate a requested Doco id. Must be globally unique once
+ * Validate a requested Doco handle. Must be globally unique once
  * stored; this validator only checks shape — collision handling is
  * the create-flow's job (auto-suffix on conflict).
  */
-export function validateRequestedDocoId(id: string): string | null {
-  if (!/^[a-z0-9][a-z0-9_-]*$/.test(id)) {
-    return `Invalid Doco id "${id}" — expected kebab-case ([a-z0-9][a-z0-9_-]*).`;
+export function validateRequestedDocoHandle(handle: string): string | null {
+  if (!/^[a-z0-9][a-z0-9_-]*$/.test(handle)) {
+    return `Invalid Doco handle "${handle}" — expected kebab-case ([a-z0-9][a-z0-9_-]*).`;
   }
-  if (id.length > 64) {
-    return `Doco id "${id}" is too long (max 64 chars).`;
+  if (handle.length > 64) {
+    return `Doco handle "${handle}" is too long (max 64 chars).`;
   }
-  if (id.includes("/")) {
-    return `Doco id "${id}" must not contain '/'.`;
+  if (handle.includes("/")) {
+    return `Doco handle "${handle}" must not contain '/'.`;
   }
-  if (HOST_RESERVED_SLUGS.has(id)) {
-    return `Doco id "${id}" is reserved by Doco's URL routing.`;
+  if (HOST_RESERVED_SLUGS.has(handle)) {
+    return `Doco handle "${handle}" is reserved by Doco's URL routing.`;
   }
   return null;
 }
 
 /**
- * Normalize an arbitrary string into a candidate Doco id — lowercase,
+ * Compatibility alias for older code that used "id" for the public route handle.
+ */
+export function validateRequestedDocoId(handle: string): string | null {
+  return validateRequestedDocoHandle(handle);
+}
+
+/**
+ * Normalize an arbitrary string into a candidate Doco handle — lowercase,
  * collapse runs of non-alphanumerics into `-`, strip leading/trailing
  * dashes, truncate to 64 chars. Returns null if nothing survives.
  */
-export function normalizeRequestedDocoId(input: string): string | null {
+export function normalizeRequestedDocoHandle(input: string): string | null {
   const normalized = input
     .toLowerCase()
     .replace(/[^a-z0-9_-]+/g, "-")
@@ -167,3 +185,9 @@ export function normalizeRequestedDocoId(input: string): string | null {
   return normalized;
 }
 
+/**
+ * Compatibility alias for older code that used "id" for the public route handle.
+ */
+export function normalizeRequestedDocoId(input: string): string | null {
+  return normalizeRequestedDocoHandle(input);
+}

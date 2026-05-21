@@ -2,12 +2,7 @@
 //
 // Returns the `LoadedDoco` shape expected by the index pipeline.
 
-import {
-  type EntityRecord,
-  listEntitiesByDoco,
-  listIdentityRows,
-  withClient,
-} from "@doco/db";
+import { type EntityRecord, listEntitiesByDoco, listIdentityRows, withClient } from "@doco/db";
 import type {
   Doco,
   Entity,
@@ -43,10 +38,7 @@ const SCOPED_NODE_TYPES: NodeType[] = NODE_TYPES.filter(
  * still where the per-clone SQLite cache lives, but all entity content
  * comes from Postgres.
  */
-export async function loadDocoFromPostgres(
-  root: string,
-  docoId: string,
-): Promise<LoadedDoco> {
+export async function loadDocoFromPostgres(root: string, docoId: string): Promise<LoadedDoco> {
   // 1. Doco metadata.
   const docoRows = await withClient(async (c) => {
     const r = await c.query("SELECT raw_yaml FROM docos WHERE id = $1", [docoId]);
@@ -82,7 +74,7 @@ export async function loadDocoFromPostgres(
       const loaded: LoadedEntity = {
         entity: fm as unknown as Entity,
         filePath: `<postgres>:${t}/${row.id}`,
-        parsed: { data: fm, body: "", frontmatter: fm } as unknown as LoadedEntity["parsed"],
+        parsed: { data: fm, body: "", format: "json" },
       };
       entities.set(id as EntityId, loaded);
       byType.get(t as NodeType)?.push(loaded);
@@ -118,11 +110,8 @@ export async function loadDocoFromPostgres(
         parsed: {
           data: fm,
           body: row.body_md ?? "",
-          // Re-create a minimal "parsed" record for downstream consumers
-          // that expect frontmatter/body separation. The legacy code
-          // mostly reads `parsed.body` and ignores the rest.
-          frontmatter: fm,
-        } as unknown as LoadedEntity["parsed"],
+          format: "json",
+        },
       };
       entities.set(id as EntityId, loaded);
       byType.get(t)?.push(loaded);

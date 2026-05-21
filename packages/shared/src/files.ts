@@ -3,6 +3,9 @@ import matter from "gray-matter";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
 import type { EntityFileFormat } from "./paths.js";
 
+// Legacy filesystem adapter. Current app/server write paths are Postgres-backed;
+// keep this module deep-import-only so browser bundles do not pull Node fs.
+
 // gray-matter ships with js-yaml 1.x which rejects some valid-but-edge-case YAML
 // (e.g., colon-space inside backticks in unquoted list items). Wire the
 // spec-compliant `yaml` 2.x package as its engine so all our YAML parsing goes

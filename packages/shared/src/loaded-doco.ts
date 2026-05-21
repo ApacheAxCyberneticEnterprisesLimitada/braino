@@ -5,15 +5,24 @@
 // source-of-truth (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids
 // back-compat).
 
-import type { Doco, Entity } from "./entities.js";
 import type { EntityId, NodeType } from "./branded.js";
-import type { ParsedEntityFile } from "./files.js";
+import type { Doco, Entity } from "./entities.js";
 
-/** A loaded entity, optionally with its on-disk source (legacy export only). */
+export type LoadedEntitySourceFormat = "postgres" | "yaml" | "md" | "json";
+
+export interface LoadedEntityParsed {
+  data: Record<string, unknown>;
+  body: string;
+  format?: LoadedEntitySourceFormat;
+  /** Legacy alias kept for index consumers that still expect frontmatter/body separation. */
+  frontmatter?: Record<string, unknown>;
+}
+
+/** A loaded entity plus the source identifier that produced it. */
 export interface LoadedEntity {
   entity: Entity;
   filePath: string;
-  parsed: ParsedEntityFile;
+  parsed: LoadedEntityParsed;
 }
 
 export interface LoadFailure {

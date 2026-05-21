@@ -6,7 +6,8 @@ export * from "./public-url.js";
 export * from "./url-conventions.js";
 // Absorbed from @doco/core (dissolved 2026-05-14 — see audit reasoning_01KRM4R2S0WPV0CSK9H812A022 #3).
 //
-// files.ts and paths.ts use `node:fs/promises` and `node:path` at module
+// files.ts and paths.ts are legacy filesystem adapters. They use
+// `node:fs/promises` and `node:path` at module
 // top-level — they break the browser bundle if star-re-exported, because
 // Rollup walks the barrel and tries to resolve `readFile` against the
 // vite-browser-external shim (which exports nothing). No external consumer
@@ -14,7 +15,7 @@ export * from "./url-conventions.js";
 // readEntityFile / writeEntityFile / parseEntityContent / docoYamlPath /
 // entityDirPath / glossaryPath / entityFilenameRegex / ENTITY_DIRS). Their
 // types (ParsedEntityFile, EntityFileFormat, EntityDirSpec) are also unused
-// externally — sibling shared modules import them via relative paths.
+// externally. Shared public shapes must stay independent of those helpers.
 //
 // If you ever need to expose them, deep-import from "@doco/shared/dist/files.js"
 // (server-side only) or add a "@doco/shared/server" subpath export to

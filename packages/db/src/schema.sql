@@ -14,6 +14,8 @@
 --   - `body_md` is on the types that have a markdown narrative body.
 --   - `edges` materializes cross-entity references for graph queries.
 --   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
+--   - Historical DO/ALTER convergence blocks below are retained for old
+--     databases. New schema changes belong in packages/db/migrations/.
 
 -- Schema version. Tracked separately from app version so DB migrations
 -- don't gate code releases. v1 = initial Phase 2 cut.
@@ -883,68 +885,7 @@ END
 $v15_backfill$;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- v17 (2026-05-20): retroactively prefix legacy Doco handles with their
--- org handle (decision_01KS3DWZBNFJ8GG2S0VAMGJ0QQ — handles are flat
--- `/<org-handle>-<suffix>/` URLs).
---
--- v15 added the org_id pointer + minted personal orgs, but did NOT
--- rename existing Docos to match the new convention. Result: docos
--- created before v15 still have bare handles like `meta-doco` or
--- `test19g`. This block walks every Doco where the handle isn't
--- already prefixed and renames it to `<org_handle>-<old_handle>`,
--- auto-suffixing on collision.
---
--- Side effects:
--- - External links to `/meta-doco/...` BREAK. Callers must update.
---   The .doco/connections.md pointer file in this repo already
---   expected this rename.
--- - raw_yaml.handle is updated in lockstep with the docos.handle
---   column.
---
--- Idempotent: gates on doco_meta.v17_handle_prefix_backfill.
-DO $v17_handle_prefix$
-DECLARE
-  rec record;
-  new_handle text;
-  final_handle text;
-  n integer;
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM doco_meta WHERE key = 'v17_handle_prefix_backfill' AND value = 'done'
-  ) THEN
-    RETURN;
-  END IF;
-
-  FOR rec IN
-    SELECT d.id, d.handle AS old_handle, d.raw_yaml, o.handle AS org_handle
-      FROM docos d
-      JOIN organizations o ON o.id = d.org_id
-     WHERE o.handle IS NOT NULL
-       AND o.handle <> ''
-       AND d.handle NOT LIKE o.handle || '-%'
-       AND d.handle <> o.handle
-  LOOP
-    new_handle := rec.org_handle || '-' || rec.old_handle;
-    n := 1;
-    final_handle := new_handle;
-    WHILE EXISTS (SELECT 1 FROM docos WHERE handle = final_handle AND id <> rec.id) LOOP
-      n := n + 1;
-      final_handle := new_handle || '-' || n;
-      IF n > 999 THEN
-        RAISE EXCEPTION 'v17 auto-suffix exhausted for %', new_handle;
-      END IF;
-    END LOOP;
-
-    UPDATE docos
-       SET handle = final_handle,
-           raw_yaml = jsonb_set(rec.raw_yaml::jsonb, '{handle}', to_jsonb(final_handle), false)::text,
-           updated_at = now()
-     WHERE id = rec.id;
-
-    RAISE NOTICE 'v17 rename: % → %', rec.old_handle, final_handle;
-  END LOOP;
-
-  INSERT INTO doco_meta (key, value) VALUES ('v17_handle_prefix_backfill', 'done')
-    ON CONFLICT (key) DO UPDATE SET value = 'done';
-END
-$v17_handle_prefix$;
+-- v17 (2026-05-20) lives in
+-- packages/db/migrations/002_v17_handle_prefix_backfill.sql. Keep new
+-- convergence work out of this baseline and add forward-only migration
+-- files instead.
