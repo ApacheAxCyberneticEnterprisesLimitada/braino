@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { applyMigrations } from "./migrations.js";
 
 const { Pool } = pg;
 
@@ -78,14 +79,16 @@ async function applySchema(): Promise<void> {
   const c = await getPool().connect();
   try {
     await c.query(sql);
+    await applyMigrations(c);
   } finally {
     c.release();
   }
 }
 
 /**
- * Apply schema.sql to the connected database. Idempotent — every CREATE
- * uses IF NOT EXISTS, so it's safe to call on every startup.
+ * Apply baseline schema.sql, then any pending numbered migrations from
+ * packages/db/migrations/. Idempotent — schema.sql uses IF NOT EXISTS and
+ * `applied_migrations` skips migrations that already ran.
  */
 export async function ensureSchema(): Promise<void> {
   if (!_schemaReady) {

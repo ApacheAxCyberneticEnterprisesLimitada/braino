@@ -180,7 +180,6 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.
-  scopes: "in_scope_of", // ADR-078: was tags → "tagged"
   member: "member_of",
   follows: "follows", // ADR-077: BPMN ordering / dependency
   // EVO points at the entity it tests. The runner uses this edge to walk

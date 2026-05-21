@@ -41,10 +41,8 @@ export interface EntityRecord {
   body_md?: string;
   /** Mirrored hot-path columns for indexes — derived from raw_yaml. */
   summary?: string | null;
-  /** Scope-only mirrored hot-path column. Scope nodes do not carry `summary`. */
-  purpose?: string | null;
   lifecycle?: string | null;
-  name?: string | null; // scopes only
+  name?: string | null;
   created_at?: string | null;
   created_by?: string | null;
   updated_at?: string | null;

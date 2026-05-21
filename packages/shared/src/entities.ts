@@ -199,7 +199,7 @@ export type AuthoringPredicate =
   | {
       kind: "requires_field_resolves_to_principal";
       field: string;
-      allowed_principal_types: ("human" | "agent")[];
+      allowed_principal_types: ("person" | "agent")[];
       when_node_type?: NodeType[];
     }
   | { kind: "descriptive"; spec: string; when_node_type?: NodeType[] };

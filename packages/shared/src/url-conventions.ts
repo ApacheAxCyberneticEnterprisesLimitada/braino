@@ -46,10 +46,6 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
 
 /**
  * Entity node types — used as URL segments in the short form.
- *
- * v15 (decision_01KS3DW9C2KN2X7Z80R18H1RAX) removed `scope` from the
- * navigable set. Legacy raw_yaml may still mention scope nodes but
- * the URL layer rejects `scope` as an entity type.
  */
 export const ENTITY_TYPES = [
   "principal",
@@ -106,13 +102,7 @@ function docoPrefix(input: { docoId?: string; ownerSlug?: string; docoSlug?: str
   return "";
 }
 
-/**
- * Canonical URL for an entity — short form, no `/e/`.
- *
- * v15 removed the dedicated `/scopes/<id>` URL; scope entities fall
- * through to the generic `/<doco>/<nodeType>/<id>` path (which 404s
- * because `scope` is no longer a valid entity type).
- */
+/** Canonical URL for an entity — short form, no `/e/`. */
 export function entityUrl(input: EntityUrlInput): string {
   const prefix = docoPrefix(input);
   return `${prefix}/${input.nodeType}/${input.id}`;
@@ -127,11 +117,6 @@ export interface EntityListUrlInput {
 
 export function entityListUrl(input: EntityListUrlInput): string {
   return `${docoPrefix(input)}/${input.nodeType}`;
-}
-
-/** Legacy `/e/<type>/<id>` URL — kept as the redirect source. */
-export function legacyEntityUrl(input: EntityUrlInput): string {
-  return `${docoPrefix(input)}/e/${input.nodeType}/${input.id}`;
 }
 
 export interface DocoUrlInput {
@@ -181,8 +166,3 @@ export function normalizeRequestedDocoId(input: string): string | null {
   return normalized;
 }
 
-/**
- * @deprecated Compat alias for callers that still construct legacy
- * `(ownerSlug, docoSlug)` URLs. Forwards to `validateRequestedDocoId`.
- */
-export const validateDocoSlug = validateRequestedDocoId;

@@ -32,8 +32,8 @@ export interface IndexOptions {
   embeddingProvider?: EmbeddingProviderLike;
   /**
    * Explicit doco_id, bypassing the on-disk `doco.yaml` lookup. Callers
-   * that already hold the id (capture/patch handlers, scope edits) pass
-   * it through so the reindex works on Postgres-backed deploys whose
+   * that already hold the id (capture/patch handlers) pass it through
+   * so the reindex works on Postgres-backed deploys whose
    * serverless filesystem has no `<docoRoot>/doco.yaml`. When absent,
    * `reindex` falls back to reading the yaml — preserves the
    * filesystem-rooted developer flow.
@@ -47,9 +47,8 @@ export interface IndexOptions {
    * usual, so unchanged content is still skipped).
    *
    * Use for single-entity captures / patches where the caller knows
-   * exactly which row changed. Omit for first build, bulk import,
-   * scope rename, or anywhere the safe-but-slow full rebuild is the
-   * right move.
+   * exactly which row changed. Omit for first build, bulk import, or
+   * anywhere the safe-but-slow full rebuild is the right move.
    */
   changedEntityIds?: string[];
   /**
@@ -106,19 +105,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       if (!nodeType || nodeType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
       const e = le.entity as unknown as Record<string, unknown>;
-      let summary = "";
-      if (nodeType === "scope") {
-        summary = String(e.purpose ?? "");
-      } else {
-        summary = String(e.summary ?? "");
-      }
-      let body = le.parsed.body ?? "";
-      if (nodeType === "scope") {
-        const extras = [e.purpose, e.guidelines, e.description]
-          .filter((s): s is string => typeof s === "string" && s.length > 0)
-          .join("\n\n");
-        body = body ? `${body}\n\n${extras}` : extras;
-      }
+      const summary = String(e.summary ?? "");
+      const body = le.parsed.body ?? "";
       pgFts.push({
         entity_id: le.entity.id,
         node_type: nodeType,
@@ -142,13 +130,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      const entityRecord = le.entity as { summary?: string; purpose?: string; node_type?: string };
-      let summary = "";
-      if (entityRecord.node_type === "scope") {
-        summary = String(entityRecord.purpose ?? "");
-      } else {
-        summary = String(entityRecord.summary ?? "");
-      }
+      const entityRecord = le.entity as { summary?: string };
+      const summary = String(entityRecord.summary ?? "");
       const body = le.parsed.body ?? "";
       const text = `${summary}\n\n${body}`.trim();
       if (!text) continue;
@@ -188,7 +171,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
  * Pass `opts.changedEntityIds` for the incremental path (single-entity
  * captures): only those entities' FTS rows + outgoing edges are touched
  * and the embedding pass is scoped to them. Omit for the safe-but-slow
- * full rebuild — first build, scope rename, bulk import.
+ * full rebuild — first build, bulk import.
  */
 export async function reindex(docoRoot: string, opts: IndexOptions = {}): Promise<BuildReport> {
   const docoId = opts.docoId ?? readDocoIdFromYaml(docoRoot);

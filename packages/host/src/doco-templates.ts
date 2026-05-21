@@ -267,15 +267,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // user-flows v2: actor_id must point at a real Principal of
-        // type human or agent — rejects "the browser", "app.js",
+        // type person or agent — rejects "the browser", "app.js",
         // "the system" as actors. System-internal steps belong in
         // `apis` or `adrs`, not in a user-flow.
         summary:
-          "An Action's `actor_id` must resolve to an existing Principal whose type is `human` or `agent`. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
+          "An Action's `actor_id` must resolve to an existing Principal whose type is `person` or `agent`. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          allowed_principal_types: ["human", "agent"],
+          allowed_principal_types: ["person", "agent"],
           when_node_type: ["action"],
         },
       },
@@ -674,13 +674,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Team-roles (`kitchen`, `support`, `finance`) are first-class
         // Principals representing a role rather than an individual.
-        // Both `human` and `agent` Principal types are accepted.
+        // Both `person` and `agent` Principal types are accepted.
         summary:
-          "An Action's `actor_id` must resolve to an existing Principal whose type is `human` or `agent`. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
+          "An Action's `actor_id` must resolve to an existing Principal whose type is `person` or `agent`. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          allowed_principal_types: ["human", "agent"],
+          allowed_principal_types: ["person", "agent"],
           when_node_type: ["action"],
         },
       },

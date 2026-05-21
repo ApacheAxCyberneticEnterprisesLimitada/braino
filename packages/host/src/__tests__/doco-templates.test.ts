@@ -115,9 +115,9 @@ describe("business-processes template", () => {
       expect(rule.predicate.when_node_type).toContain("action");
     });
 
-    it("accepts both `human` and `agent` Principal types (team-roles are first-class)", () => {
+    it("accepts both `person` and `agent` Principal types (team-roles are first-class)", () => {
       if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
-      expect([...rule.predicate.allowed_principal_types].sort()).toEqual(["agent", "human"]);
+      expect([...rule.predicate.allowed_principal_types].sort()).toEqual(["agent", "person"]);
     });
   });
 

@@ -8,6 +8,19 @@ type Brand<T, B> = T & { readonly [__brand]: B };
 
 export type Ulid = Brand<string, "Ulid">;
 
+/**
+ * URL handle for a Doco — the value at the start of `/<handle>/...`.
+ *
+ * Post-Phase 3a, this is also the row's `docos.id` column AND the value
+ * `docoSlug` used to legacy-alias to. Callers should accept `DocoHandle`
+ * over plain `string` at API boundaries (URL builders, lookup helpers)
+ * to prevent passing arbitrary strings where a handle is expected.
+ */
+export type DocoHandle = Brand<string, "DocoHandle">;
+
+/** URL handle for an Organization — the segment after `/orgs/`. */
+export type OrgHandle = Brand<string, "OrgHandle">;
+
 export const NODE_TYPES = [
   "doco",
   "principal",
@@ -35,6 +48,27 @@ const ENTITY_ID_REGEX = new RegExp(`^(${NODE_TYPE_PATTERN})_([0-9A-HJKMNP-TV-Z]{
 
 export function isUlid(value: unknown): value is Ulid {
   return typeof value === "string" && ULID_REGEX.test(value);
+}
+
+const HANDLE_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
+
+/** Validate the shape of a handle (Doco or Org). Does not check uniqueness. */
+export function isHandle(value: unknown): value is DocoHandle | OrgHandle {
+  return typeof value === "string" && HANDLE_REGEX.test(value);
+}
+
+/**
+ * Coerce a string to a DocoHandle after validating shape. Returns null
+ * on invalid shape — use this at the boundary (URL params, JSON body)
+ * before passing into branded-typed helpers.
+ */
+export function asDocoHandle(value: string): DocoHandle | null {
+  return isHandle(value) ? (value as DocoHandle) : null;
+}
+
+/** Coerce a string to an OrgHandle after validating shape. */
+export function asOrgHandle(value: string): OrgHandle | null {
+  return isHandle(value) ? (value as OrgHandle) : null;
 }
 
 export function isEntityId(value: unknown): value is EntityId {

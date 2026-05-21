@@ -8,7 +8,6 @@ import {
   generateUlid,
   makeEntityId,
   nowIso,
-  validateDocoSlug,
   validateRequestedDocoId,
 } from "@doco/shared";
 import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
@@ -93,7 +92,7 @@ export async function createHost(
         [
           id,
           opts.ownerUsername,
-          "human",
+          "person",
           opts.ownerEmail ?? null,
           opts.ownerUsername,
           null,
@@ -205,9 +204,9 @@ const SLUG_PATTERN = /^[a-z0-9_-]+$/;
 
 function assertSlugAllowed(slug: string, kind: "principal" | "organization" | "doco"): void {
   if (kind === "doco") {
-    // Doco slugs use the stricter `validateDocoSlug` from @doco/shared
-    // (which also rejects `/` and enforces a length cap).
-    const err = validateDocoSlug(slug);
+    // Doco slugs use the stricter `validateRequestedDocoId` from
+    // @doco/shared (which also rejects `/` and enforces a length cap).
+    const err = validateRequestedDocoId(slug);
     if (err) throw new Error(err);
     return;
   }
@@ -302,7 +301,7 @@ export async function addPrincipal(
       [
         id,
         opts.username,
-        "human",
+        "person",
         opts.email ?? null,
         gh.github_login ?? null,
         null,

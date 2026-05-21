@@ -13,7 +13,7 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist", "src/schema.sql"],
+  "files": ["dist", "src/schema.sql", "migrations"],
   "scripts": {
     "build": "tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
     "typecheck": "tsc -p tsconfig.json --noEmit",

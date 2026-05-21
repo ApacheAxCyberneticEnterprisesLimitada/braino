@@ -23,6 +23,14 @@ CREATE TABLE IF NOT EXISTS doco_meta (
 );
 INSERT INTO doco_meta (key, value) VALUES ('schema_version', '1') ON CONFLICT DO NOTHING;
 
+-- Forward-only migration ledger. Populated by `applyMigrations()` in
+-- packages/db/src/migrations.ts. New schema changes go in
+-- `packages/db/migrations/NNN_short_name.sql`, not into this file.
+CREATE TABLE IF NOT EXISTS applied_migrations (
+  id          text PRIMARY KEY,
+  applied_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- v9 rename: per the constitution's "use 'user' as the inclusive term"
 -- rule, the membership tables drop the legacy "_members" suffix and read
 -- as "_users". Tables, indexes, and CHECK constraints rename in one
@@ -81,7 +89,7 @@ ON CONFLICT (id) DO NOTHING;
 CREATE TABLE IF NOT EXISTS principals (
   id              text PRIMARY KEY,
   username        text NOT NULL UNIQUE,
-  type            text NOT NULL CHECK (type IN ('human', 'agent')),
+  type            text NOT NULL CHECK (type IN ('person', 'agent')),
   email           text,
   github_login    text,
   avatar_url      text,

@@ -71,7 +71,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   const run = async (c: pg.PoolClient) => {
     if (rec.node_type === "principal") {
       const username = String(yamlObj.username ?? rec.id);
-      const type = String(yamlObj.type ?? "human");
+      const type = String(yamlObj.type ?? "person");
       const email = (yamlObj.email as string | null) ?? null;
       const github_login = (yamlObj.github_login as string | null) ?? null;
       const avatar_url = (yamlObj.avatar_url as string | null) ?? null;
@@ -173,7 +173,6 @@ function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityReco
   };
   if ("body_md" in row && row.body_md !== null) rec.body_md = String(row.body_md);
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
-  if ("purpose" in row && row.purpose !== null) rec.purpose = String(row.purpose);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
