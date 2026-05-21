@@ -341,11 +341,17 @@ export interface Log extends SummarizedFields {
 // An Eval is a named, executable test/eval that pins the meaning of a
 // load-bearing claim in the Doco. Inspired by TDD unit tests + AI evals.
 //
-// Run history is NOT captured in the Doco — that's CI/the runner's job.
-// Each Eval carries only its LATEST status (`last_status`, `last_run_at`,
-// `last_reason`); the runner updates those fields in place when it
-// executes the Eval. The test definition itself (`criterion`, `input`,
-// `expected`) is the editable, versioned document.
+// The test definition (`kind`, `criterion`, `input`, `expected`,
+// `how_to_run`) is the editable, versioned document. The runner updates
+// the snapshot fields (`last_status`, `last_run_at`, `last_reason`) in
+// place after each run.
+//
+// Per-run history lives in Log nodes, not on the Eval itself. To track
+// flakiness or build a run timeline, emit a Log per run with
+// `Log.target` pointing at the Eval, `verb` set to `"passed"` /
+// `"failed"`, `happened_at` set to the run time, and `outputs` carrying
+// the trace or reason. The Eval's `last_*` fields are a snapshot of the
+// most recent Log.
 //
 // Criterion kinds:
 //   exact     — `actual === expected` (deep equal for objects).
@@ -355,10 +361,6 @@ export interface Log extends SummarizedFields {
 //
 // A `target_ref` points the Eval at the claim it tests (a Decision, Rule,
 // Action, etc.). Derived edge: `tests` from Eval → target.
-//
-// Replaces both the original EVO placeholder name AND the abandoned
-// Evaluation node type (which was tied to Rules + meant to capture per-run
-// outcomes — never used, since run history lives outside the Doco).
 
 export interface EvalCriterion {
   kind: "exact" | "shape" | "llm-judge";
@@ -366,12 +368,48 @@ export interface EvalCriterion {
   spec?: string;
 }
 
+/**
+ * What flavor of test an Eval is. Frames how reviewers read the criterion
+ * and which authoring rules fire on it. The framework doesn't branch on
+ * the value — it's editorial, surfaced in UI and citable by authoring
+ * articles in the `#test` template.
+ *
+ *  - "unit"            — deterministic check on a piece of data/output.
+ *  - "integration"     — deterministic check across components.
+ *  - "eval"            — rubric / LLM-judged behavioral check.
+ *  - "process"         — does the agent/human follow the procedure?
+ *  - "doc-consistency" — does the codebase match what the Doco claims?
+ */
+export type EvalKind = "unit" | "integration" | "eval" | "process" | "doc-consistency";
+
 export interface Eval extends SummarizedFields {
   node_type: "eval";
   /** Readable name. */
   name: string;
+  /** What flavor of test this is. */
+  kind?: EvalKind;
   /** What the eval tests, in prose. */
   description?: string;
+  /**
+   * The status the author expects the runner to report. Defaults to
+   * `"pass"` when unset.
+   *
+   *  - `"pass"` — regression / steady-state check. A `last_status: "fail"`
+   *    is a real red that needs attention.
+   *  - `"fail"` — TDD-aspirational. The eval is authored before the
+   *    feature lands; a matching `"fail"` outcome counts as green for
+   *    dashboards (expected red). When the eval first reports `"pass"`,
+   *    flip `expected_status` to `"pass"` and the eval becomes a
+   *    regression guard.
+   */
+  expected_status?: "pass" | "fail";
+  /**
+   * Free-form reproduction steps that produce `actual` — the exact
+   * command, prompt, URL, or manual procedure. Required in spirit for
+   * non-trivial evals; the #test template's authoring articles enforce
+   * non-empty values once the eval activates.
+   */
+  how_to_run?: string;
   /** The eval's input fixture (any shape). */
   input?: unknown;
   /** The expected outcome (any shape). For llm-judge this is a prose criterion. */

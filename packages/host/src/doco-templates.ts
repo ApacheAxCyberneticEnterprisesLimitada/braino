@@ -448,6 +448,141 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
     ],
   },
+  {
+    // Executable tests inspired by TDD and AI evals. Each Eval pins one
+    // checkable claim about a Decision, Article, Action, or other
+    // load-bearing node; the template seeds the constitution articles
+    // that govern how those Evals are authored. Opt-in (not
+    // auto-installed) — projects that want #test add it explicitly.
+    name: "#test",
+    label: "#test",
+    icon: "🧪",
+    purpose:
+      "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
+    default_node_lifecycle: "drafted",
+    rules: [
+      // ── Deterministic structural gates ──
+      {
+        // D1 — content-type gate. Evals belong here; constitution
+        // articles seeded by this template live alongside them.
+        summary:
+          "Only Eval and constitution-article nodes (guidance_article, node_authoring_article) belong to #test. Domain content lives in its own scope.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["eval", "guidance_article", "node_authoring_article"],
+        },
+      },
+      {
+        // D2
+        summary:
+          "Every Eval declares what it is and how it's graded — `name` and `criterion` are required from creation.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["name", "criterion"],
+          when_node_type: ["eval"],
+        },
+      },
+      {
+        // D3
+        summary:
+          "Every Eval declares its `kind` (unit, integration, eval, process, doc-consistency). Choosing one frames how reviewers read the criterion and how the runner produces `actual`.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["kind"],
+          when_node_type: ["eval"],
+        },
+      },
+      {
+        // D4 — only fires on activate so drafts can be sketched without a target.
+        summary:
+          "An active Eval points at the claim it tests via `target_ref`. Drafted Evals can be captured without a target while the test is being shaped.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["target_ref"],
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: ["active"],
+      },
+      {
+        // D5 — only fires on activate; drafts can be incomplete.
+        summary:
+          "An active Eval ships its reproduction steps in `how_to_run` — the exact command, prompt, URL, or manual procedure. Without it the test can't be re-run.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["how_to_run"],
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: ["active"],
+      },
+      // ── Probabilistic style gates ──
+      {
+        // P1
+        summary:
+          "Eval `name` reads as a checkable property of the system (e.g. `user-email-validation accepts .+@.+ form`), not a serial label (`test 1`, `eval A`, `it works`).",
+        predicate: {
+          kind: "probabilistic",
+          when_node_type: ["eval"],
+          spec: "Check ONLY the Eval's `name` field. It must read as a checkable property of the system — a phrase describing what should be true (e.g. `user-email-validation accepts .+@.+ form`, `merge button disabled until reviewers approve`). It must NOT be a serial or meaningless label (`test 1`, `eval A`, `it works`, `tbd`).",
+        },
+      },
+      {
+        // P2
+        summary:
+          "An Eval tests one property. If `description` or `criterion.spec` joins multiple independent claims with 'and', it's a split candidate.",
+        predicate: {
+          kind: "probabilistic",
+          when_node_type: ["eval"],
+          spec: "Check the Eval's `description` and `criterion.spec`. The Eval should test ONE checkable property. If either field describes multiple independent properties joined by 'and' (e.g. 'the form validates emails AND rejects empty submissions AND shows a toast'), it's a split candidate — FAIL with a reason naming the split.",
+        },
+      },
+      {
+        // P3
+        summary:
+          "`exact` and `shape` criteria need a concrete `expected` value, not prose. `llm-judge` criteria put the prose property into `criterion.spec` (or `expected` when more natural) and read crisply enough that two reviewers would reach the same verdict.",
+        predicate: {
+          kind: "probabilistic",
+          when_node_type: ["eval"],
+          spec: "Inspect the Eval's `criterion.kind` and `expected`. If criterion.kind is `exact` or `shape`, `expected` MUST be a concrete value or shape (number, string, object, array) — prose like 'the user is signed in' FAILS. If criterion.kind is `llm-judge`, the prose property lives in `criterion.spec` (or `expected` when more natural) and reads crisply enough that two reviewers would reach the same verdict. Vague or subjective specs (`the output is good`) FAIL.",
+        },
+      },
+      // ── Guidance ──
+      {
+        kind: "guidance",
+        summary:
+          'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafted"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `active` — it\'s now a regression guard.',
+      },
+      {
+        kind: "guidance",
+        summary:
+          "A regression eval (one written to lock in a bug fix) stays in the doco forever. Removing it requires a Decision linking back to the eval that explains why the guard is no longer needed.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          'To track per-run history (e.g. for flakiness), capture a Log per run with `Log.target` pointing at the Eval, `verb` set to `"passed"` or `"failed"`, and `happened_at` set to the run time. The Eval\'s `last_*` fields are a snapshot of the most recent Log.',
+      },
+      {
+        kind: "guidance",
+        summary:
+          'A `last_status: "pass"` from long ago is effectively unknown — re-run before citing it. Project owners pick the freshness threshold; the framework doesn\'t impose one.',
+      },
+      {
+        kind: "guidance",
+        summary:
+          'Process and doc-consistency evals are graded by `criterion.kind: "llm-judge"` whose spec describes the procedure or claim to check (e.g. `the agent reads connections.md before posting captures`). The runner produces `actual` from the trace or a human transcript and submits it for judging.',
+      },
+      {
+        kind: "guidance",
+        summary:
+          "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a node_authoring_article or guidance_article when it tests a constitution claim, an Action when it tests designed behavior.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "An Eval tests entities in its own doco via `target_ref`. Tests that span multiple docos wait for the imports machinery — the framework doesn't yet resolve cross-doco refs (refs.ts:14-15).",
+      },
+    ],
+  },
 ];
 
 /**
