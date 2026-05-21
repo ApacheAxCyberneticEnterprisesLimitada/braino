@@ -643,6 +643,14 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- where they're owner) but never raise it. Missing entries mean
   -- "inherit the principal's actual role" — i.e. no scope-down.
   granted_doco_roles    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Org-level grants. When the user approves access to an org, every
+  -- Doco owned by that org becomes reachable through this token —
+  -- including Docos created under the org after the token was minted
+  -- ("live" grant, not a snapshot). `granted_org_roles[org_id]` caps
+  -- the effective role on Docos under that org, same semantics as
+  -- granted_doco_roles.
+  granted_org_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_org_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope                 text,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
@@ -661,6 +669,8 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -684,6 +694,8 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -716,6 +728,8 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   principal_id     text REFERENCES principals(id) ON DELETE CASCADE,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   expires_at       timestamptz NOT NULL,
   last_polled_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
@@ -737,6 +751,27 @@ ALTER TABLE oauth_refresh_tokens
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+-- Org-level grants. A token can carry a list of org ids the user
+-- approved; access then follows org-owned Docos live (including ones
+-- created under the org after the token was minted). Same IF NOT EXISTS
+-- guard for idempotent boot against existing deployments.
+ALTER TABLE oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
+ALTER TABLE oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_access_tokens
+  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
+ALTER TABLE oauth_access_tokens
+  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_refresh_tokens
+  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
+ALTER TABLE oauth_refresh_tokens
+  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
 
 -- Targeted-grant hints. When the agent already knows which Doco it
 -- wants access to (and at what role), it passes these to POST
