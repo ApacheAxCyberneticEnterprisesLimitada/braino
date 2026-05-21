@@ -445,6 +445,14 @@ CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DE
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_actor_idx ON audit_events (by_principal, at DESC);
 
+-- Org-scope audit events: org constitutions are first-class node-like
+-- entries (audit-tracked even though they don't live in a Doco). For
+-- those rows, `org_id` is set and `doco_id` is NULL.
+ALTER TABLE audit_events
+  ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE CASCADE;
+ALTER TABLE audit_events ALTER COLUMN doco_id DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events (org_id, at DESC);
+
 -- Indexing layer tables. These hold the derived-data the read side
 -- consumes — graph edges, vector embeddings, denormalized rule targets,
 -- and full-text search rows. Supersedes ADR-023 (tiered architecture)

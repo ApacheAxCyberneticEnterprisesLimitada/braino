@@ -636,7 +636,10 @@ export interface AuditEventRow {
   event_id: string;
   at: string;
   by_principal: string | null;
-  doco_id: string;
+  /** Exactly one of doco_id or org_id is set. Org constitution
+   *  articles are tracked under org_id; everything else is doco_id. */
+  doco_id: string | null;
+  org_id?: string | null;
   entity_type: string;
   entity_id: string;
   op: string;
@@ -648,13 +651,14 @@ export interface AuditEventRow {
 export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO audit_events (event_id, at, by_principal, doco_id, entity_type, entity_id, op, before_json, after_json, reason)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      `INSERT INTO audit_events (event_id, at, by_principal, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         evt.event_id,
         evt.at,
         evt.by_principal,
         evt.doco_id,
+        evt.org_id ?? null,
         evt.entity_type,
         evt.entity_id,
         evt.op,
@@ -668,6 +672,7 @@ export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
 
 export async function readAuditEventRows(filters: {
   doco_id?: string;
+  org_id?: string;
   entity_id?: string;
   entity_type?: string;
   op?: string[];
@@ -682,6 +687,10 @@ export async function readAuditEventRows(filters: {
   if (filters.doco_id) {
     where.push(`doco_id = $${idx++}`);
     vals.push(filters.doco_id);
+  }
+  if (filters.org_id) {
+    where.push(`org_id = $${idx++}`);
+    vals.push(filters.org_id);
   }
   if (filters.entity_id) {
     where.push(`entity_id = $${idx++}`);
@@ -708,7 +717,7 @@ export async function readAuditEventRows(filters: {
     vals.push(filters.until);
   }
   const limit = Math.min(Math.max(filters.limit ?? 200, 1), 1000);
-  const sql = `SELECT event_id, at, by_principal, doco_id, entity_type, entity_id, op, before_json, after_json, reason
+  const sql = `SELECT event_id, at, by_principal, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason
                FROM audit_events
                ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
                ORDER BY at DESC
@@ -720,7 +729,8 @@ export async function readAuditEventRows(filters: {
       event_id: String(row.event_id),
       at: row.at instanceof Date ? row.at.toISOString() : String(row.at),
       by_principal: row.by_principal ? String(row.by_principal) : null,
-      doco_id: String(row.doco_id),
+      doco_id: row.doco_id ? String(row.doco_id) : null,
+      org_id: row.org_id ? String(row.org_id) : null,
       entity_type: String(row.entity_type),
       entity_id: String(row.entity_id),
       op: String(row.op),
