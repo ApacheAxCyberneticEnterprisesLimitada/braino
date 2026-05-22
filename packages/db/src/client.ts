@@ -10,6 +10,7 @@
 // imports that vite/rollup would drag into browser graphs.
 
 import pg from "pg";
+import { applyMigrations } from "./migrations.js";
 import { SCHEMA_SQL } from "./schema-embedded.js";
 
 const { Pool } = pg;
@@ -64,13 +65,6 @@ async function applySchema(): Promise<void> {
   const c = await getPool().connect();
   try {
     await c.query(SCHEMA_SQL);
-    // Indirect specifier so vite/rollup can't trace migrations.ts (the
-    // module that runs the embedded migrations) into the browser graph
-    // through the @doco/db barrel.
-    const migrationsPath = `./${"migrations"}.js`;
-    const { applyMigrations } = (await import(/* @vite-ignore */ migrationsPath)) as typeof import(
-      "./migrations.js"
-    );
     await applyMigrations(c);
   } finally {
     c.release();
