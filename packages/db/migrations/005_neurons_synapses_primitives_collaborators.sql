@@ -743,8 +743,10 @@ BEGIN
 
   -- intents
   UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE intents SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
@@ -752,8 +754,10 @@ BEGIN
 
   -- decisions
   UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE decisions SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
@@ -761,8 +765,10 @@ BEGIN
 
   -- rules
   UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE rules SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
@@ -770,8 +776,10 @@ BEGIN
 
   -- guidance_primitives
   UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
@@ -779,8 +787,10 @@ BEGIN
 
   -- neuron_authoring_primitives
   UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
@@ -788,15 +798,19 @@ BEGIN
 
   -- org_guidance_primitives
   UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
   UPDATE org_guidance_primitives SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring',          'neuron_authoring',          'g');
 
   -- org_neuron_authoring_primitives
   UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE org_neuron_authoring_primitives SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
@@ -804,62 +818,82 @@ BEGIN
 
   -- actions
   UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
   UPDATE actions SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
 
   -- logs
   UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE logs SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
 
   -- evals
   UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, '\mauto_edges\M',          'auto_synapses',             'g');
   UPDATE evals SET raw_yaml = regexp_replace(raw_yaml, '\medge_type\M',           'synapse_type',              'g');
 
   -- ideas
   UPDATE ideas SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE ideas SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE ideas SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE ideas SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE ideas SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE ideas SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
 
   -- reference_entities
   UPDATE reference_entities SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE reference_entities SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE reference_entities SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE reference_entities SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE reference_entities SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE reference_entities SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
 
   -- states
   UPDATE states SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE states SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE states SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE states SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE states SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE states SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
 
   -- tags
   UPDATE tags SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE tags SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE tags SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
+  UPDATE tags SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
 
   -- principals
   UPDATE principals SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE principals SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE principals SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
-  UPDATE principals SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE principals SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
+  UPDATE principals SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
 
   -- docos
   UPDATE docos SET raw_yaml = regexp_replace(raw_yaml, '\mallowed_node_types\M',      'allowed_neuron_types',     'g');
   UPDATE docos SET raw_yaml = regexp_replace(raw_yaml, '\mdefault_node_lifecycle\M',  'default_neuron_lifecycle', 'g');
   UPDATE docos SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_',     'neuron_authoring_primitive_', 'g');
+  UPDATE docos SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE docos SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',           'guidance_primitive_',       'g');
+  UPDATE docos SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
 
   -- doco_templates
   UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring_article_', 'neuron_authoring_primitive_', 'g');
+  UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\mnode_authoring_article\M', 'neuron_authoring_primitive', 'g');
   UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, 'guidance_article_',       'guidance_primitive_',       'g');
+  UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\mguidance_article\M', 'guidance_primitive', 'g');
   UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\mallowed_node_types\M',      'allowed_neuron_types',     'g');
   UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\mdefault_node_lifecycle\M',  'default_neuron_lifecycle', 'g');
-  UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'neuron_type',               'g');
+  UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\mnode_type\M',           'entity_type',               'g');
   UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, '\marticle_type\M',        'primitive_kind',            'g');
   UPDATE doco_templates SET raw_yaml = regexp_replace(raw_yaml, 'node_authoring',          'neuron_authoring',          'g');
 

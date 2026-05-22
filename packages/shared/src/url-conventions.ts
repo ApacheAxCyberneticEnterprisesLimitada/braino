@@ -2,13 +2,14 @@
  * URL conventions and reserved ids — single source of truth.
  *
  * Doco URLs are `/<doco-handle>/...`. The handle is requested at
- * creation time; it lives in the same flat
- * namespace as the top-level host routes, so the reserved-id set
- * below prevents collisions.
+ * creation time; it lives in the same flat namespace as the top-level
+ * host routes, so the reserved-id set below prevents collisions.
  *
  * Entity URLs are `/<doco-handle>/<type>/<id>` where `<id>` is the
  * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`).
  */
+
+import { ENTITY_TYPES as BRANDED_ENTITY_TYPES, type EntityType } from "./branded.js";
 
 /**
  * Top-level path segments that exist as host routes. A doco's
@@ -46,26 +47,12 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Entity node types — used as URL segments in the short form.
+ * Entity types — used as URL segments in the short form.
+ * Re-exported from branded.ts so there's one source of truth.
  */
-export const ENTITY_TYPES = [
-  "principal",
-  "doco",
-  "organization",
-  "intent",
-  "idea",
-  "rule",
-  "guidance_article",
-  "node_authoring_article",
-  "decision",
-  "action",
-  "log",
-  "eval",
-  "reference",
-  "state",
-] as const;
+export const ENTITY_TYPES = BRANDED_ENTITY_TYPES;
 
-export type EntityType = (typeof ENTITY_TYPES)[number];
+export type { EntityType };
 
 const ENTITY_TYPES_SET: ReadonlySet<string> = new Set(ENTITY_TYPES);
 
@@ -75,9 +62,7 @@ export function isEntityType(s: string): s is EntityType {
 
 /**
  * URL builders accept the current `docoHandle`, the legacy
- * `(ownerSlug, docoSlug)` pair, or the old `docoId` alias. Callers
- * that supply `docoHandle` win; `docoId` remains as a compatibility
- * alias for older mapped rows where it already meant the public handle.
+ * `(ownerSlug, docoSlug)` pair, or the old `docoId` alias.
  */
 export interface EntityUrlInput {
   /** Current public route handle. When set, takes precedence. */
@@ -86,7 +71,8 @@ export interface EntityUrlInput {
   docoId?: string;
   ownerSlug?: string;
   docoSlug?: string;
-  nodeType: string;
+  /** Entity type discriminator string. */
+  entityType: string;
   /** Entity ULID id (`<type>_<ULID>`). */
   id: string;
 }
@@ -97,14 +83,6 @@ function docoPrefix(input: {
   ownerSlug?: string;
   docoSlug?: string;
 }): string {
-  // Phase 3a+: every route uses `/<handle>/...` and `docoSlug` from
-  // `mapDocoRow` mirrors `handle` already. `docoHandle`, when set, is
-  // the canonical route segment. `docoId` remains a back-compat alias.
-  // `docoSlug`, when set, is the handle too (the
-  // legacy slug-only form no longer exists in storage). Either field
-  // is a valid URL identifier as-is — DO NOT re-synthesize with the
-  // owner prefix or URLs become `/<owner>-<handle>/...` (the doubled
-  // prefix bug).
   if (input.docoHandle) return `/${input.docoHandle}`;
   if (input.docoId) return `/${input.docoId}`;
   if (input.docoSlug) return `/${input.docoSlug}`;
@@ -115,7 +93,7 @@ function docoPrefix(input: {
 /** Canonical URL for an entity — short form, no `/e/`. */
 export function entityUrl(input: EntityUrlInput): string {
   const prefix = docoPrefix(input);
-  return `${prefix}/${input.nodeType}/${input.id}`;
+  return `${prefix}/${input.entityType}/${input.id}`;
 }
 
 export interface EntityListUrlInput {
@@ -123,11 +101,11 @@ export interface EntityListUrlInput {
   docoId?: string;
   ownerSlug?: string;
   docoSlug?: string;
-  nodeType: string;
+  entityType: string;
 }
 
 export function entityListUrl(input: EntityListUrlInput): string {
-  return `${docoPrefix(input)}/${input.nodeType}`;
+  return `${docoPrefix(input)}/${input.entityType}`;
 }
 
 export interface DocoUrlInput {
