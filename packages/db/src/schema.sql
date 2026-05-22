@@ -598,9 +598,8 @@ CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events (org_id, at DESC
 -- and read-side index.
 
 -- Graph synapses (ADR-025). Materialized from frontmatter ID-shaped fields
--- by the indexer. attribution=='explicit' means declared in source;
--- 'doco-auto' means LLM-detected. Doco-scoped via doco_id; both
--- endpoints can be any neuron_type so we can't FK them.
+-- by the indexer. Doco-scoped via doco_id; both endpoints can be any
+-- neuron_type so we can't FK them.
 CREATE TABLE IF NOT EXISTS synapses (
   from_id         text NOT NULL,
   from_neuron_type  text NOT NULL,
@@ -609,14 +608,12 @@ CREATE TABLE IF NOT EXISTS synapses (
   synapse_type       text NOT NULL,
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   synapse_props_json jsonb,
-  attribution     text NOT NULL DEFAULT 'explicit' CHECK (attribution IN ('explicit', 'doco-auto')),
   PRIMARY KEY (from_id, to_id, synapse_type)
 );
 CREATE INDEX IF NOT EXISTS synapses_doco_idx        ON synapses (doco_id);
 CREATE INDEX IF NOT EXISTS synapses_to_idx          ON synapses (to_id, synapse_type);
 CREATE INDEX IF NOT EXISTS synapses_from_type_idx   ON synapses (from_id, synapse_type);
 CREATE INDEX IF NOT EXISTS synapses_type_idx        ON synapses (synapse_type);
-CREATE INDEX IF NOT EXISTS synapses_attribution_idx ON synapses (attribution);
 CREATE INDEX IF NOT EXISTS synapses_doco_type_from_idx ON synapses (doco_id, synapse_type, from_id);
 CREATE INDEX IF NOT EXISTS synapses_doco_type_to_idx   ON synapses (doco_id, synapse_type, to_id);
 
