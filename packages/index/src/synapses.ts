@@ -1,7 +1,5 @@
 import { type Entity, isEntityId } from "@doco/shared";
 
-export type EdgeAttribution = "explicit" | "doco-auto";
-
 export interface Synapse {
   from_id: string;
   from_neuron_type: string;
@@ -9,14 +7,6 @@ export interface Synapse {
   to_neuron_type: string;
   synapse_type: string;
   synapse_props?: Record<string, unknown>;
-  /**
-   * Where the edge came from: 'explicit' when the source entity declared
-   * the ref in its frontmatter (the normal case); 'doco-auto' when the
-   * LLM auto-detected it (per `llm-auto-synapse-detection-on-capture` ADR).
-   * Auto synapses are weighted lower in PageRank and rendered differently.
-   * Defaults to 'explicit'.
-   */
-  attribution?: EdgeAttribution;
 }
 
 /**
@@ -31,12 +21,7 @@ export function deriveSynapses(entity: Entity): Synapse[] {
   // ID prefix instead — it's always present + matches the table name.
   const fromType = fromId.split("_").slice(0, -1).join("_");
 
-  function emit(
-    field: string,
-    target: unknown,
-    props?: Record<string, unknown>,
-    attribution: EdgeAttribution = "explicit",
-  ): void {
+  function emit(field: string, target: unknown, props?: Record<string, unknown>): void {
     if (typeof target !== "string") return;
     if (target.includes(":")) return; // cross-Doco, skip for now
     if (!isEntityId(target)) return;
@@ -50,7 +35,6 @@ export function deriveSynapses(entity: Entity): Synapse[] {
       to_id: target,
       to_neuron_type: toType,
       synapse_type: FIELD_TO_SYNAPSE_TYPE[field] ?? field,
-      attribution,
       ...(props ? { synapse_props: props } : {}),
     });
   }
@@ -60,7 +44,6 @@ export function deriveSynapses(entity: Entity): Synapse[] {
   for (const [field, value] of Object.entries(obj)) {
     if (value === null || value === undefined) continue;
     if (SKIP_FIELDS.has(field)) continue; // structural metadata, not a relationship
-    if (field === AUTO_SYNAPSES_FIELD) continue; // handled below — needs special attribution
     if (Array.isArray(value)) {
       for (const v of value) {
         if (typeof v === "string") emit(field, v);
@@ -76,40 +59,8 @@ export function deriveSynapses(entity: Entity): Synapse[] {
       handleObject(field, value as Record<string, unknown>, emit);
     }
   }
-
-  // Auto-detected synapses, per the `llm-auto-synapse-detection-on-capture` ADR.
-  // The capture/auto-edge helper writes these into the frontmatter as
-  //   auto_synapses: [{ to_id, synapse_type, reason }]
-  // We emit each as an Synapse with attribution: 'doco-auto'. PageRank then
-  // weights them lower than explicit synapses.
-  const autoEdges = obj[AUTO_SYNAPSES_FIELD];
-  if (Array.isArray(autoEdges)) {
-    for (const ae of autoEdges) {
-      if (!ae || typeof ae !== "object") continue;
-      const rec = ae as Record<string, unknown>;
-      const toId = rec.to_id;
-      const synapseType = typeof rec.synapse_type === "string" ? rec.synapse_type : "relates_to";
-      if (typeof toId !== "string" || !isEntityId(toId) || toId === fromId) continue;
-      const m = /^(\w+)_/.exec(toId);
-      if (!m) continue;
-      const toType = m[1] as string;
-      const props: Record<string, unknown> = {};
-      if (typeof rec.reason === "string") props.reason = rec.reason;
-      synapses.push({
-        from_id: fromId,
-        from_neuron_type: fromType,
-        to_id: toId,
-        to_neuron_type: toType,
-        synapse_type: synapseType,
-        attribution: "doco-auto",
-        ...(Object.keys(props).length > 0 ? { synapse_props: props } : {}),
-      });
-    }
-  }
   return synapses;
 }
-
-const AUTO_SYNAPSES_FIELD = "auto_synapses";
 
 function handleObject(
   parentField: string,

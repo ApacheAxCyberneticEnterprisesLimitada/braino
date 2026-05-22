@@ -50,7 +50,6 @@ export interface SynapseRowInput {
   to_neuron_type: string;
   synapse_type: string;
   synapse_props?: Record<string, unknown> | undefined;
-  attribution?: "explicit" | "doco-auto" | undefined;
 }
 
 export interface RebuildOptions {
@@ -150,21 +149,20 @@ export async function rebuildDocoDerivedData(
       await c.query(
         `INSERT INTO synapses (
             from_id, from_neuron_type, to_id, to_neuron_type, synapse_type,
-            doco_id, synapse_props_json, attribution
+            doco_id, synapse_props_json
          )
          SELECT u.from_id, u.from_neuron_type, u.to_id, u.to_neuron_type,
-                u.synapse_type, $1, u.props::jsonb, u.attribution
+                u.synapse_type, $1, u.props::jsonb
          FROM unnest(
                 $2::text[], $3::text[], $4::text[], $5::text[],
-                $6::text[], $7::text[], $8::text[]
+                $6::text[], $7::text[]
               ) AS u(from_id, from_neuron_type, to_id, to_neuron_type,
-                     synapse_type, props, attribution)
+                     synapse_type, props)
          ON CONFLICT (from_id, to_id, synapse_type) DO UPDATE SET
             from_neuron_type   = EXCLUDED.from_neuron_type,
             to_neuron_type     = EXCLUDED.to_neuron_type,
             doco_id            = EXCLUDED.doco_id,
-            synapse_props_json = EXCLUDED.synapse_props_json,
-            attribution        = EXCLUDED.attribution`,
+            synapse_props_json = EXCLUDED.synapse_props_json`,
         [
           docoId,
           dedupedEdges.map((e) => e.from_id),
@@ -173,7 +171,6 @@ export async function rebuildDocoDerivedData(
           dedupedEdges.map((e) => e.to_neuron_type),
           dedupedEdges.map((e) => e.synapse_type),
           dedupedEdges.map((e) => (e.synapse_props ? JSON.stringify(e.synapse_props) : null)),
-          dedupedEdges.map((e) => e.attribution ?? "explicit"),
         ],
       );
     }

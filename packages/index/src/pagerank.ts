@@ -11,20 +11,11 @@
  * tolerance; capped at iters.
  */
 
-export type PprSynapseAttribution = "explicit" | "doco-auto";
-
 export interface PprSynapse {
   from: string;
   to: string;
   /** Optional edge type; lets callers tune relevance by relationship kind. */
   synapse_type?: string;
-  /**
-   * Optional edge attribution: 'explicit' (declared in source frontmatter)
-   * or 'doco-auto' (LLM-detected). Auto synapses are down-weighted by default
-   * so a flood of LLM suggestions can't dominate the graph. Per the
-   * `pagerank-weights-explicit-synapses-higher` ADR.
-   */
-  attribution?: PprSynapseAttribution;
 }
 
 export interface PprNeighbor {
@@ -41,30 +32,13 @@ export interface PprOptions {
   topK?: number;
   /** Convergence tolerance on max rank delta; default 1e-6. */
   tol?: number;
-  /**
-   * Weight per edge type. Default returns 1 for every type. Higher weight =
-   * more random-walker mass flows along that edge.
-   *
-   * The second arg is the edge attribution — implicit (LLM-detected) synapses
-   * default to 1/4 the weight of explicit ones, so a flood of auto-detected
-   * synapses can't dominate the ranking.
-   */
-  synapseWeight?: (synapse_type: string | undefined, attribution?: PprSynapseAttribution) => number;
+  /** Weight per edge type. Default returns 1 for every type. Higher weight =
+   * more random-walker mass flows along that edge. */
+  synapseWeight?: (synapse_type: string | undefined) => number;
 }
 
-/**
- * Default weight: 1× for every edge type, then scaled by attribution:
- * explicit synapses get full weight; doco-auto synapses
- * get `IMPLICIT_EDGE_WEIGHT_FACTOR` (default 0.25). Tunable via the
- * `synapseWeight` option for callers that want different multipliers.
- */
-const IMPLICIT_EDGE_WEIGHT_FACTOR = 0.25;
-export function defaultSynapseWeight(
-  _synapseType: string | undefined,
-  attribution?: PprSynapseAttribution,
-): number {
-  const base = 1;
-  return attribution === "doco-auto" ? base * IMPLICIT_EDGE_WEIGHT_FACTOR : base;
+export function defaultSynapseWeight(_synapseType: string | undefined): number {
+  return 1;
 }
 
 function mustGetIndex(index: Map<string, number>, id: string): number {
@@ -129,7 +103,7 @@ export function personalizedPageRank(
     const a = mustGetIndex(idToIdx, e.from);
     const b = mustGetIndex(idToIdx, e.to);
     if (a === b) continue; // self-synapses add nothing
-    const w = synapseWeight(e.synapse_type, e.attribution);
+    const w = synapseWeight(e.synapse_type);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
     mustGetBucket(neighbors, b).push({ idx: a, w });
@@ -231,7 +205,7 @@ export function globalPageRank(
     const a = mustGetIndex(idToIdx, e.from);
     const b = mustGetIndex(idToIdx, e.to);
     if (a === b) continue;
-    const w = synapseWeight(e.synapse_type, e.attribution);
+    const w = synapseWeight(e.synapse_type);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
     mustGetBucket(neighbors, b).push({ idx: a, w });
