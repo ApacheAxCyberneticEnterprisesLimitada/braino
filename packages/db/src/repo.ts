@@ -18,6 +18,18 @@ function tableFor(entityType: string): { table: string; body: boolean } {
 }
 
 /**
+ * Coerce a row's `data` (jsonb, parsed to an object by node-pg) or
+ * `raw_yaml` (legacy text column) into the JSON-string shape that
+ * older callers expect under `EntityRecord.raw_yaml`. Idempotent: a
+ * value already received as a string passes through unchanged.
+ */
+function serializeData(value: unknown): string {
+  if (value === null || value === undefined) return "{}";
+  if (typeof value === "string") return value;
+  return JSON.stringify(value);
+}
+
+/**
  * Upsert one entity. Identity tables (principals/organizations/docos/
  * collaborators) have richer columns and use their own writers — the
  * generic path here covers Doco entity types.
@@ -32,13 +44,31 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   ) {
     return upsertIdentity(rec, client);
   }
-  const cols = ["id", "doco_id", "lifecycle", "raw_yaml"];
+  const cols = ["id", "doco_id", "lifecycle", "data"];
   const vals: unknown[] = [rec.id, rec.doco_id, rec.lifecycle ?? null, rec.raw_yaml];
+  const placeholderOverrides = new Map<number, string>();
+  // data is jsonb; the client passes a JSON string. Force the cast.
+  placeholderOverrides.set(4, "$4::jsonb");
   cols.push("summary");
   vals.push(rec.summary ?? null);
   if (spec.body) {
     cols.push("body_md");
     vals.push(rec.body_md ?? null);
+  }
+  // Promoted FK columns (migration 013). Extract from rec.raw_yaml so
+  // captures land typed-column values on the way in — the synapses
+  // table still materializes via deriveSynapses for the array-shaped
+  // refs (intent_ids, decision_ids, …).
+  const fmRaw = (() => {
+    try {
+      return JSON.parse(rec.raw_yaml) as Record<string, unknown>;
+    } catch {
+      return {} as Record<string, unknown>;
+    }
+  })();
+  for (const [col, source] of fkColumnSources(rec.entity_type, fmRaw)) {
+    cols.push(col);
+    vals.push(source);
   }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
@@ -47,7 +77,9 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
     rec.updated_at ?? new Date().toISOString(),
     rec.updated_by ?? null,
   );
-  const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
+  const placeholders = cols
+    .map((_, i) => placeholderOverrides.get(i + 1) ?? `$${i + 1}`)
+    .join(",");
   const updates = cols
     .filter((c) => c !== "id" && c !== "created_at" && c !== "created_by")
     .map((c) => `${c} = EXCLUDED.${c}`)
@@ -64,6 +96,45 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   }
 }
 
+/**
+ * Map an entity's frontmatter to the typed FK column values added in
+ * migration 013. Returns [columnName, value] pairs to splice into the
+ * INSERT/UPSERT. Polymorphic refs (target, target_ref, born_from) and
+ * arrays (intent_ids, decision_ids) are excluded — those stay in the
+ * data jsonb bag, materialized into synapses by the indexer.
+ */
+function fkColumnSources(
+  entityType: string,
+  fm: Record<string, unknown>,
+): Array<[string, string | null]> {
+  const out: Array<[string, string | null]> = [];
+  const stringOrNull = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
+  switch (entityType) {
+    case "intent":
+      out.push(["parent_intent_id", stringOrNull(fm.parent_intent_id)]);
+      break;
+    case "idea":
+      out.push(["proposer_id", stringOrNull(fm.proposer_id)]);
+      break;
+    case "decision": {
+      out.push(["decided_by", stringOrNull(fm.decided_by)]);
+      // superseded_by in frontmatter is polymorphic; only persist when
+      // it looks like a decision id so the FK constraint holds.
+      const sb = stringOrNull(fm.superseded_by);
+      out.push(["superseded_by_decision_id", sb && sb.startsWith("decision_") ? sb : null]);
+      break;
+    }
+    case "action":
+      out.push(["actor_id", stringOrNull(fm.actor_id)]);
+      break;
+    case "log":
+      out.push(["actor_id", stringOrNull(fm.actor_id)]);
+      out.push(["template_id", stringOrNull(fm.template_id)]);
+      break;
+  }
+  return out;
+}
+
 async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const yamlObj = JSON.parse(rec.raw_yaml.startsWith("{") ? rec.raw_yaml : "{}") as Record<
     string,
@@ -73,12 +144,12 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
     if (rec.entity_type === "principal") {
       const username = String(yamlObj.username ?? rec.id);
       await c.query(
-        `INSERT INTO principals (id, username, doco_id, summary, lifecycle, body_md, raw_yaml,
+        `INSERT INTO principals (id, username, doco_id, summary, lifecycle, body_md, data,
                                   created_at, created_by, updated_at, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,
            doco_id=EXCLUDED.doco_id, summary=EXCLUDED.summary, lifecycle=EXCLUDED.lifecycle,
-           body_md=EXCLUDED.body_md, raw_yaml=EXCLUDED.raw_yaml,
+           body_md=EXCLUDED.body_md, data=EXCLUDED.data,
            updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
         [
           rec.id,
@@ -103,12 +174,12 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       const owner_id = (yamlObj.owner_id as string | null) ?? null;
       const deactivated_at = (yamlObj.deactivated_at as string | null) ?? null;
       await c.query(
-        `INSERT INTO collaborators (id, kind, github_id, github_login, email, avatar_url, owner_id, raw_yaml, deactivated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+        `INSERT INTO collaborators (id, kind, github_id, github_login, email, avatar_url, owner_id, data, deactivated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
          ON CONFLICT (id) DO UPDATE SET kind=EXCLUDED.kind,
            github_id=EXCLUDED.github_id, github_login=EXCLUDED.github_login,
            email=EXCLUDED.email, avatar_url=EXCLUDED.avatar_url,
-           owner_id=EXCLUDED.owner_id, raw_yaml=EXCLUDED.raw_yaml,
+           owner_id=EXCLUDED.owner_id, data=EXCLUDED.data,
            deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
         [rec.id, kind, github_id, github_login, email, avatar_url, owner_id, rec.raw_yaml, deactivated_at],
       );
@@ -116,9 +187,9 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       const slug = String(yamlObj.slug ?? rec.id);
       const name = String(yamlObj.name ?? slug);
       await c.query(
-        `INSERT INTO organizations (id, slug, name, raw_yaml) VALUES ($1,$2,$3,$4)
+        `INSERT INTO organizations (id, slug, name, data) VALUES ($1,$2,$3,$4::jsonb)
          ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug, name=EXCLUDED.name,
-           raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
+           data=EXCLUDED.data, updated_at=now()`,
         [rec.id, slug, name, rec.raw_yaml],
       );
     } else if (rec.entity_type === "doco") {
@@ -133,11 +204,11 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         (yamlObj.name as string | null) ?? (yamlObj.display_name as string | null) ?? null;
       const visibility = String(yamlObj.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, handle, owner_id, name, visibility, raw_yaml)
-         VALUES ($1,$2,$3,$4,$5,$6)
+        `INSERT INTO docos (id, handle, owner_id, name, visibility, data)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
            owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
-           visibility=EXCLUDED.visibility, raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
+           visibility=EXCLUDED.visibility, data=EXCLUDED.data, updated_at=now()`,
         [rec.id, handle, owner_id, name, visibility, rec.raw_yaml],
       );
     }
@@ -180,11 +251,15 @@ export async function listIdentityRows(
 }
 
 function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
+  // SELECT * returns the jsonb column as a parsed object; stringify it
+  // back to a JSON string so EntityRecord.raw_yaml stays the legacy
+  // text-shaped contract callers expect. Tolerant of the pre-migration
+  // raw_yaml column name and of strings already passed through.
   const rec: EntityRecord = {
     id: String(row.id),
     doco_id: row.doco_id ? String(row.doco_id) : "",
     entity_type: entityType,
-    raw_yaml: String(row.raw_yaml),
+    raw_yaml: serializeData(row.data ?? row.raw_yaml),
   };
   if ("body_md" in row && row.body_md !== null) rec.body_md = String(row.body_md);
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
@@ -217,7 +292,9 @@ export interface HostConfigRow {
 
 export async function getHostConfig(): Promise<HostConfigRow | null> {
   return withClient(async (c) => {
-    const r = await c.query("SELECT id, name, visibility, raw_yaml FROM hosts LIMIT 1");
+    const r = await c.query(
+      "SELECT id, name, visibility, data::text AS raw_yaml FROM hosts LIMIT 1",
+    );
     if (r.rowCount === 0) return null;
     const row = r.rows[0];
     return {
@@ -237,10 +314,10 @@ export async function upsertHostConfig(opts: {
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO hosts (id, name, visibility, raw_yaml)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO hosts (id, name, visibility, data)
+       VALUES ($1, $2, $3, $4::jsonb)
        ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, visibility=EXCLUDED.visibility,
-         raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
+         data=EXCLUDED.data, updated_at=now()`,
       [opts.id, opts.name, opts.visibility, opts.raw_yaml],
     );
   });
@@ -276,7 +353,7 @@ function mapCollaboratorRow(row: Record<string, unknown>): CollaboratorRow {
 export async function getCollaboratorById(id: string): Promise<CollaboratorRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, kind, github_id, github_login, email, avatar_url, raw_yaml FROM collaborators WHERE id = $1",
+      "SELECT id, kind, github_id, github_login, email, avatar_url, data::text AS raw_yaml FROM collaborators WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -289,7 +366,7 @@ export async function getCollaboratorByGithubLogin(
 ): Promise<CollaboratorRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, kind, github_id, github_login, email, avatar_url, raw_yaml FROM collaborators WHERE github_login = $1",
+      "SELECT id, kind, github_id, github_login, email, avatar_url, data::text AS raw_yaml FROM collaborators WHERE github_login = $1",
       [login],
     );
     if (r.rowCount === 0) return null;
@@ -309,7 +386,7 @@ export async function listCollaborators(opts: { kind?: "person" | "agent" } = {}
     }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
     const r = await c.query(
-      `SELECT id, kind, github_id, github_login, email, avatar_url, raw_yaml
+      `SELECT id, kind, github_id, github_login, email, avatar_url, data::text AS raw_yaml
        FROM collaborators ${where} ORDER BY github_login NULLS LAST, id`,
       vals,
     );
@@ -340,7 +417,7 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, doco_id, summary, raw_yaml FROM principals WHERE id = $1",
+      "SELECT id, username, doco_id, summary, data::text AS raw_yaml FROM principals WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -351,7 +428,7 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
 export async function getPrincipalByUsername(username: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, doco_id, summary, raw_yaml FROM principals WHERE username = $1",
+      "SELECT id, username, doco_id, summary, data::text AS raw_yaml FROM principals WHERE username = $1",
       [username],
     );
     if (r.rowCount === 0) return null;
@@ -367,9 +444,9 @@ export async function getPrincipalByUsername(username: string): Promise<Principa
 export async function listPrincipals(): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, username, doco_id, summary, raw_yaml
+      `SELECT id, username, doco_id, summary, data::text AS raw_yaml
        FROM principals
-       WHERE (raw_yaml::jsonb->>'bootstrap_placeholder' IS NULL OR raw_yaml::jsonb->>'bootstrap_placeholder' != 'true')
+       WHERE (data->>'bootstrap_placeholder' IS NULL OR data->>'bootstrap_placeholder' != 'true')
        ORDER BY username`,
     );
     return r.rows.map(mapPrincipalRow);
@@ -389,7 +466,7 @@ export interface OrganizationRow {
 export async function listOrganizations(): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.slug, o.name, o.raw_yaml,
+      `SELECT o.id, o.slug, o.name, o.data::text AS raw_yaml,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o ORDER BY o.slug`,
     );
@@ -409,7 +486,7 @@ export async function listOrganizationsForCollaborator(
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.slug, o.name, o.raw_yaml,
+      `SELECT o.id, o.slug, o.name, o.data::text AS raw_yaml,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o
        JOIN org_users m ON m.org_id = o.id
@@ -630,7 +707,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
  * `organizations.slug` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.raw_yaml,
+  SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.data::text AS raw_yaml,
          COALESCE(c.github_login, o.slug, '') AS owner_slug
     FROM docos d
     LEFT JOIN collaborators c ON c.id = d.owner_id
@@ -683,7 +760,7 @@ export async function resolveOwnerSlug(
   if (collab) return { kind: "collaborator", collaborator: collab };
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, slug, name, raw_yaml,
+      `SELECT id, slug, name, data::text AS raw_yaml,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = organizations.id), 0) AS member_count
        FROM organizations WHERE slug = $1`,
       [slug],

@@ -80,8 +80,8 @@ export async function createHost(
       }
       await c.query(
         `INSERT INTO collaborators
-          (id, kind, github_login, email, raw_yaml, created_at, updated_at)
-         VALUES ($1, 'person', $2, $3, $4, $5, $5)`,
+          (id, kind, github_login, email, data, created_at, updated_at)
+         VALUES ($1, 'person', $2, $3, $4::jsonb, $5, $5)`,
         [
           id,
           opts.ownerUsername,
@@ -292,8 +292,8 @@ export async function addPrincipal(
     }
     await c.query(
       `INSERT INTO collaborators
-        (id, kind, github_login, email, raw_yaml, created_at, updated_at)
-       VALUES ($1, 'person', $2, $3, $4, $5, $5)`,
+        (id, kind, github_login, email, data, created_at, updated_at)
+       VALUES ($1, 'person', $2, $3, $4::jsonb, $5, $5)`,
       [
         id,
         gh.github_login ?? opts.username,
@@ -346,8 +346,8 @@ export async function ensurePersonalOrganization(
     // The legacy schema still has NOT NULL on slug/name. Populate them
     // with the same handle so the upsert path stays happy.
     await c.query(
-      `INSERT INTO organizations (id, slug, name, handle, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      `INSERT INTO organizations (id, slug, name, handle, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6)`,
       [
         id,
         username,
@@ -449,8 +449,8 @@ export async function addOrganizationByHandle(opts: {
     const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
     const created = nowIso();
     await c.query(
-      `INSERT INTO organizations (id, slug, name, handle, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+      `INSERT INTO organizations (id, slug, name, handle, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6)`,
       [
         id,
         finalHandle,
@@ -568,10 +568,10 @@ export async function createDocoInOrg(opts: {
       (docoYaml as Record<string, unknown>).default_neuron_lifecycle = defaultNeuronLifecycle;
     }
     await c.query(
-      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml,
+      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data,
                           allowed_neuron_types, default_neuron_lifecycle,
                           created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $9)`,
       [
         docoId,
         handle,
@@ -627,9 +627,9 @@ export async function createDocoInOrg(opts: {
         };
         try {
           await c.query(
-            `INSERT INTO ${table} (id, doco_id, summary, raw_yaml, body_md, lifecycle,
+            `INSERT INTO ${table} (id, doco_id, summary, data, body_md, lifecycle,
                                 created_at, updated_at, created_by, updated_by)
-             VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $7, $7)`,
+             VALUES ($1, $2, $3, $4::jsonb, $5, 'active', $6, $6, $7, $7)`,
             [
               primitiveId,
               docoId,
@@ -763,8 +763,8 @@ export async function addOrganization(
     );
     if (dup.rows.length > 0) throw new Error(`Slug "${opts.slug}" is already taken.`);
     await c.query(
-      `INSERT INTO organizations (id, slug, name, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $5)`,
+      `INSERT INTO organizations (id, slug, name, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4::jsonb, $5, $5)`,
       [id, opts.slug, opts.display_name ?? opts.slug, JSON.stringify(yaml), created],
     );
     await c.query(
@@ -899,8 +899,8 @@ export async function createDocoInHost(
   };
   await withClient((c) =>
     c.query(
-      `INSERT INTO docos (id, handle, owner_id, name, visibility, raw_yaml, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
+      `INSERT INTO docos (id, handle, owner_id, name, visibility, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $7)`,
       [
         docoId,
         handle,
@@ -972,7 +972,7 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const cur = await c.query<{ raw_yaml: string }>(
-      "SELECT raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
+      "SELECT data::text AS raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
       [handle],
     );
     if (!cur.rows[0]) throw new Error(`Doco "${handle}" not found.`);
@@ -990,7 +990,7 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
       `UPDATE docos
           SET name       = $2,
               visibility = COALESCE($3, visibility),
-              raw_yaml   = $4,
+              data       = $4::jsonb,
               updated_at = now()
         WHERE handle = $1`,
       [
@@ -1019,7 +1019,7 @@ export async function renameDocoHandle(opts: {
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const cur = await c.query<{ raw_yaml: string }>(
-      "SELECT raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
+      "SELECT data::text AS raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
       [oldHandle],
     );
     if (!cur.rows[0]) throw new Error(`Doco "${oldHandle}" not found.`);
@@ -1030,7 +1030,7 @@ export async function renameDocoHandle(opts: {
     await c.query(
       `UPDATE docos
           SET handle     = $2,
-              raw_yaml   = $3,
+              data       = $3::jsonb,
               updated_at = now()
         WHERE handle = $1`,
       [oldHandle, newHandle, JSON.stringify(yaml)],

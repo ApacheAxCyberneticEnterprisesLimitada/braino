@@ -41,7 +41,7 @@ const SCOPED_NODE_TYPES: EntityType[] = NODE_TYPES.filter(
 export async function loadDocoFromPostgres(root: string, docoId: string): Promise<LoadedDoco> {
   // 1. Doco metadata.
   const docoRows = await withClient(async (c) => {
-    const r = await c.query("SELECT raw_yaml FROM docos WHERE id = $1", [docoId]);
+    const r = await c.query("SELECT data::text AS raw_yaml FROM docos WHERE id = $1", [docoId]);
     return r.rows;
   });
   if (docoRows.length === 0) {

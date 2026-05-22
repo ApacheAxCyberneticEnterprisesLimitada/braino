@@ -252,7 +252,7 @@ CREATE TABLE IF NOT EXISTS principals (
                                                -- "customer-service-rep")
   -- Principals are host-scoped (no doco_id NOT NULL) so role-personas can
   -- be shared across Docos. The optional doco_id, set lazily when a role
-  -- is authored within a specific Doco, lives in raw_yaml and is hydrated
+  -- is authored within a specific Doco, lives in raw_yaml/data and is hydrated
   -- at read time by the repo. No FK constraint to avoid a forward ref to
   -- the docos table that is created later in this file.
   summary         text,
@@ -343,8 +343,10 @@ END
 $uniq$;
 
 -- Per-Doco entity tables. `body_md` carries the markdown narrative
--- on types that have one; the rest of the structured data lives in
--- `raw_yaml` (round-trippable to/from the legacy file format).
+-- on types that have one; the structured fields land in `raw_yaml`
+-- here and are converted to `data jsonb` by migration 014 (kept text
+-- in the baseline so legacy migrations 002+ that reference raw_yaml
+-- still run cleanly on fresh installs).
 
 CREATE TABLE IF NOT EXISTS intents (
   id          text PRIMARY KEY,
@@ -509,7 +511,7 @@ CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
 
 -- Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7) — State is a node in a
 -- formal state machine. Mirrors the actions table shape; the structured
--- frontmatter (`kind`, `invariants`) lives in raw_yaml.
+-- frontmatter (`kind`, `invariants`) lives in raw_yaml/data.
 CREATE TABLE IF NOT EXISTS states (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -657,19 +659,16 @@ CREATE INDEX IF NOT EXISTS entity_fts_neurons_tsv_idx  ON entity_fts_neurons USI
 
 CREATE TABLE IF NOT EXISTS entity_fts_primitives (
   entity_id       text PRIMARY KEY,
-  doco_id         text REFERENCES docos(id) ON DELETE CASCADE,
-  org_id          text REFERENCES organizations(id) ON DELETE CASCADE,
+  doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   primitive_kind  text NOT NULL CHECK (primitive_kind IN ('guidance', 'neuron_authoring')),
   summary         text,
   body            text,
   search_tsv      tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
-  ) STORED,
-  CHECK ((doco_id IS NOT NULL) OR (org_id IS NOT NULL))
+  ) STORED
 );
 CREATE INDEX IF NOT EXISTS entity_fts_primitives_doco_idx ON entity_fts_primitives (doco_id);
-CREATE INDEX IF NOT EXISTS entity_fts_primitives_org_idx  ON entity_fts_primitives (org_id);
 CREATE INDEX IF NOT EXISTS entity_fts_primitives_tsv_idx  ON entity_fts_primitives USING gin (search_tsv);
 
 CREATE TABLE IF NOT EXISTS entity_fts_collaborators (

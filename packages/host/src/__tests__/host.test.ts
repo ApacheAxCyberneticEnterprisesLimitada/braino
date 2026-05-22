@@ -219,18 +219,18 @@ describe("organization handle creation", () => {
 
     await withClient(async (c) => {
       await c.query(
-        `INSERT INTO collaborators (id, kind, github_login, raw_yaml)
-         VALUES ($1, 'person', 'owner', $2)`,
+        `INSERT INTO collaborators (id, kind, github_login, data)
+         VALUES ($1, 'person', 'owner', $2::jsonb)`,
         [ownerId, JSON.stringify({ id: ownerId, kind: "person", github_login: "owner" })],
       );
       await c.query(
-        `INSERT INTO principals (id, username, raw_yaml)
-         VALUES ($1, $2, $3)`,
+        `INSERT INTO principals (id, username, data)
+         VALUES ($1, $2, $3::jsonb)`,
         [principalId, handle, JSON.stringify({ id: principalId, username: handle })],
       );
       await c.query(
-        `INSERT INTO docos (id, handle, owner_id, visibility, raw_yaml)
-         VALUES ($1, $2, $3, 'private', $4)`,
+        `INSERT INTO docos (id, handle, owner_id, visibility, data)
+         VALUES ($1, $2, $3, 'private', $4::jsonb)`,
         [docoId, handle, ownerId, JSON.stringify({ id: docoId, handle })],
       );
     });

@@ -45,50 +45,92 @@ ALTER TABLE logs
 CREATE INDEX IF NOT EXISTS logs_actor_idx    ON logs (actor_id);
 CREATE INDEX IF NOT EXISTS logs_template_idx ON logs (template_id);
 
--- 2. Backfill the new columns from raw_yaml. Cast to jsonb here —
---    raw_yaml has carried JSON since the Postgres cut, so the cast
---    is safe on every populated row. Anything that fails the cast
---    is a corrupt row that needs manual triage; failing the
---    migration on it is the right surfacing.
+-- 2. Backfill the new columns from raw_yaml. The cast to jsonb is
+--    safe because the column has carried JSON since the Postgres
+--    cut. Wrapped in a DO block conditional on raw_yaml still
+--    being present so this is a no-op on fresh installs (where
+--    schema.sql + migration 014 leave the bag as `data jsonb` and
+--    nothing to backfill from).
 
-UPDATE intents
-   SET parent_intent_id = raw_yaml::jsonb->>'parent_intent_id'
- WHERE parent_intent_id IS NULL
-   AND raw_yaml::jsonb->>'parent_intent_id' IS NOT NULL;
+DO $backfill_from_raw_yaml$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'intents'
+       AND column_name = 'raw_yaml'
+  ) THEN
+    RETURN;
+  END IF;
 
-UPDATE ideas
-   SET proposer_id = raw_yaml::jsonb->>'proposer_id'
- WHERE proposer_id IS NULL
-   AND raw_yaml::jsonb->>'proposer_id' IS NOT NULL;
+  UPDATE intents
+     SET parent_intent_id = raw_yaml::jsonb->>'parent_intent_id'
+   WHERE parent_intent_id IS NULL
+     AND raw_yaml::jsonb->>'parent_intent_id' IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM intents parent
+        WHERE parent.id = raw_yaml::jsonb->>'parent_intent_id'
+     );
 
-UPDATE decisions
-   SET decided_by = raw_yaml::jsonb->>'decided_by'
- WHERE decided_by IS NULL
-   AND raw_yaml::jsonb->>'decided_by' IS NOT NULL;
+  UPDATE ideas
+     SET proposer_id = raw_yaml::jsonb->>'proposer_id'
+   WHERE proposer_id IS NULL
+     AND raw_yaml::jsonb->>'proposer_id' IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM collaborators proposer
+        WHERE proposer.id = raw_yaml::jsonb->>'proposer_id'
+     );
 
--- superseded_by in raw_yaml is polymorphic (could point at
--- non-decision targets historically). Only backfill when it's a
--- decision_<ulid> shape so the FK constraint below is safe.
-UPDATE decisions
-   SET superseded_by_decision_id = raw_yaml::jsonb->>'superseded_by'
- WHERE superseded_by_decision_id IS NULL
-   AND raw_yaml::jsonb->>'superseded_by' IS NOT NULL
-   AND raw_yaml::jsonb->>'superseded_by' LIKE 'decision\_%' ESCAPE '\';
+  UPDATE decisions
+     SET decided_by = raw_yaml::jsonb->>'decided_by'
+   WHERE decided_by IS NULL
+     AND raw_yaml::jsonb->>'decided_by' IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM collaborators decider
+        WHERE decider.id = raw_yaml::jsonb->>'decided_by'
+     );
 
-UPDATE actions
-   SET actor_id = raw_yaml::jsonb->>'actor_id'
- WHERE actor_id IS NULL
-   AND raw_yaml::jsonb->>'actor_id' IS NOT NULL;
+  -- superseded_by in raw_yaml is polymorphic (could point at
+  -- non-decision targets historically). Only backfill when it's a
+  -- decision_<ulid> shape so the FK constraint below is safe.
+  UPDATE decisions
+     SET superseded_by_decision_id = raw_yaml::jsonb->>'superseded_by'
+   WHERE superseded_by_decision_id IS NULL
+     AND raw_yaml::jsonb->>'superseded_by' IS NOT NULL
+     AND raw_yaml::jsonb->>'superseded_by' LIKE 'decision\_%' ESCAPE '\'
+     AND EXISTS (
+       SELECT 1 FROM decisions superseding
+        WHERE superseding.id = raw_yaml::jsonb->>'superseded_by'
+     );
 
-UPDATE logs
-   SET actor_id = raw_yaml::jsonb->>'actor_id'
- WHERE actor_id IS NULL
-   AND raw_yaml::jsonb->>'actor_id' IS NOT NULL;
+  UPDATE actions
+     SET actor_id = raw_yaml::jsonb->>'actor_id'
+   WHERE actor_id IS NULL
+     AND raw_yaml::jsonb->>'actor_id' IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM principals actor
+        WHERE actor.id = raw_yaml::jsonb->>'actor_id'
+     );
 
-UPDATE logs
-   SET template_id = raw_yaml::jsonb->>'template_id'
- WHERE template_id IS NULL
-   AND raw_yaml::jsonb->>'template_id' IS NOT NULL;
+  UPDATE logs
+     SET actor_id = raw_yaml::jsonb->>'actor_id'
+   WHERE actor_id IS NULL
+     AND raw_yaml::jsonb->>'actor_id' IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM principals actor
+        WHERE actor.id = raw_yaml::jsonb->>'actor_id'
+     );
+
+  UPDATE logs
+     SET template_id = raw_yaml::jsonb->>'template_id'
+   WHERE template_id IS NULL
+     AND raw_yaml::jsonb->>'template_id' IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM actions template
+        WHERE template.id = raw_yaml::jsonb->>'template_id'
+     );
+END
+$backfill_from_raw_yaml$;
 
 -- 3. Foreign-key constraints AFTER backfill so the constraint check
 --    passes on every populated row. NOT VALID + VALIDATE so the
