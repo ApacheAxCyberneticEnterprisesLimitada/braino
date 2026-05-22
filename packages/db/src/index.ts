@@ -24,16 +24,25 @@ export {
   // Host + identity helpers
   getHostConfig,
   upsertHostConfig,
+  // Collaborators (OAuth identity layer — new in migration 005)
+  getCollaboratorById,
+  getCollaboratorByGithubLogin,
+  listCollaborators,
+  type CollaboratorRow,
+  // Principals (role-personas — neuron type)
   getPrincipalById,
   getPrincipalByUsername,
   listPrincipals,
+  type PrincipalRow,
+  // Organizations
   listOrganizations,
-  listOrganizationsForPrincipal,
+  listOrganizationsForCollaborator,
   upsertOrgUser,
   removeOrgUser,
   isOrgUser,
   isOrgAdmin,
   getOrgRole,
+  type OrganizationRow,
   // Doco membership (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62)
   type DocoRole,
   type DocoUserRow,
@@ -42,21 +51,27 @@ export {
   maxRole,
   getDocoUserRole,
   listDocoUsers,
-  listDocoIdsForUserPrincipal,
+  listDocoIdsForCollaborator,
   upsertDocoUser,
   removeDocoUser,
+  // Docos
   listAllDocos,
   getDocoById,
   getDocoByHandle,
   getDocoByIdOrHandle,
   resolveOwnerSlug,
-  type HostConfigRow,
-  type PrincipalRow,
-  type OrganizationRow,
   type DocoRow,
+  type HostConfigRow,
 } from "./repo.js";
 
-export { NODE_TABLES, type EntityRecord } from "./types.js";
+export {
+  ALL_ENTITY_TABLES,
+  NEURON_TABLES,
+  PRIMITIVE_TABLES,
+  COLLABORATOR_TABLES,
+  CONTAINER_TABLES,
+  type EntityRecord,
+} from "./types.js";
 
 export {
   upsertEmbeddings,
@@ -75,7 +90,7 @@ export {
 export {
   rebuildDocoDerivedData,
   type FtsRowInput,
-  type EdgeRowInput,
+  type SynapseRowInput,
 } from "./indexer.js";
 
 // Postgres is the only source-of-truth. There is no legacy filesystem

@@ -1,33 +1,34 @@
-// CRUD helpers for entity rows. Generic across node types via NODE_TABLES.
+// CRUD helpers for entity rows. Generic across categories via the maps
+// in `./types.js`.
+//
+// Post-migration-005:
+//   * `principals` table is SLIMMED — role-personas only, no OAuth fields.
+//   * `collaborators` is a NEW table — OAuth identity (person or agent).
+//   * Membership + OAuth tables reference `collaborator_id` (was `principal_id`).
+//   * `docos.owner_id` is polymorphic: `collaborator_<ulid>` or `organization_<ulid>`.
 
 import type pg from "pg";
 import { withClient } from "./client.js";
-import { type EntityRecord, NODE_TABLES } from "./types.js";
+import { ALL_ENTITY_TABLES, type EntityRecord } from "./types.js";
 
-function tableFor(nodeType: string): { table: string; body: boolean } {
-  const spec = NODE_TABLES[nodeType];
-  if (!spec) throw new Error(`Unknown node type for storage: ${nodeType}`);
+function tableFor(entityType: string): { table: string; body: boolean } {
+  const spec = ALL_ENTITY_TABLES[entityType];
+  if (!spec) throw new Error(`Unknown entity type for storage: ${entityType}`);
   return spec;
 }
 
-function stripPrincipalDisplayName(rawYaml: string, yamlObj: Record<string, unknown>): string {
-  if (!("display_name" in yamlObj)) return rawYaml;
-  return JSON.stringify(
-    Object.fromEntries(Object.entries(yamlObj).filter(([key]) => key !== "display_name")),
-  );
-}
-
 /**
- * Upsert one entity. Identity tables (principals/organizations/docos)
- * have richer columns and use their own writers — the generic path
- * here covers Doco entity types.
+ * Upsert one entity. Identity tables (principals/organizations/docos/
+ * collaborators) have richer columns and use their own writers — the
+ * generic path here covers Doco entity types.
  */
 export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
-  const spec = tableFor(rec.node_type);
+  const spec = tableFor(rec.entity_type);
   if (
-    rec.node_type === "principal" ||
-    rec.node_type === "organization" ||
-    rec.node_type === "doco"
+    rec.entity_type === "principal" ||
+    rec.entity_type === "organization" ||
+    rec.entity_type === "doco" ||
+    rec.entity_type === "collaborator"
   ) {
     return upsertIdentity(rec, client);
   }
@@ -69,35 +70,49 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
     unknown
   >;
   const run = async (c: pg.PoolClient) => {
-    if (rec.node_type === "principal") {
+    if (rec.entity_type === "principal") {
       const username = String(yamlObj.username ?? rec.id);
-      const type = String(yamlObj.type ?? "person");
-      const email = (yamlObj.email as string | null) ?? null;
-      const github_login = (yamlObj.github_login as string | null) ?? null;
-      const avatar_url = (yamlObj.avatar_url as string | null) ?? null;
-      const owner_id = (yamlObj.owner_id as string | null) ?? null;
-      const deactivated_at = (yamlObj.deactivated_at as string | null) ?? null;
-      const raw_yaml = stripPrincipalDisplayName(rec.raw_yaml, yamlObj);
       await c.query(
-        `INSERT INTO principals (id, username, type, email, github_login, avatar_url, owner_id, raw_yaml, deactivated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-         ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username, type=EXCLUDED.type,
-           email=EXCLUDED.email, github_login=EXCLUDED.github_login,
-           avatar_url=EXCLUDED.avatar_url, owner_id=EXCLUDED.owner_id, raw_yaml=EXCLUDED.raw_yaml,
-           deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
+        `INSERT INTO principals (id, username, doco_id, summary, lifecycle, body_md, raw_yaml,
+                                  created_at, created_by, updated_at, updated_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+         ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,
+           doco_id=EXCLUDED.doco_id, summary=EXCLUDED.summary, lifecycle=EXCLUDED.lifecycle,
+           body_md=EXCLUDED.body_md, raw_yaml=EXCLUDED.raw_yaml,
+           updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
         [
           rec.id,
           username,
-          type,
-          email,
-          github_login,
-          avatar_url,
-          owner_id,
-          raw_yaml,
-          deactivated_at,
+          rec.doco_id || null,
+          rec.summary ?? null,
+          rec.lifecycle ?? null,
+          rec.body_md ?? null,
+          rec.raw_yaml,
+          rec.created_at ?? new Date().toISOString(),
+          rec.created_by ?? null,
+          rec.updated_at ?? new Date().toISOString(),
+          rec.updated_by ?? null,
         ],
       );
-    } else if (rec.node_type === "organization") {
+    } else if (rec.entity_type === "collaborator") {
+      const kind = String(yamlObj.kind ?? "person");
+      const github_id = (yamlObj.github_id as string | null) ?? null;
+      const github_login = (yamlObj.github_login as string | null) ?? null;
+      const email = (yamlObj.email as string | null) ?? null;
+      const avatar_url = (yamlObj.avatar_url as string | null) ?? null;
+      const owner_id = (yamlObj.owner_id as string | null) ?? null;
+      const deactivated_at = (yamlObj.deactivated_at as string | null) ?? null;
+      await c.query(
+        `INSERT INTO collaborators (id, kind, github_id, github_login, email, avatar_url, owner_id, raw_yaml, deactivated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         ON CONFLICT (id) DO UPDATE SET kind=EXCLUDED.kind,
+           github_id=EXCLUDED.github_id, github_login=EXCLUDED.github_login,
+           email=EXCLUDED.email, avatar_url=EXCLUDED.avatar_url,
+           owner_id=EXCLUDED.owner_id, raw_yaml=EXCLUDED.raw_yaml,
+           deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
+        [rec.id, kind, github_id, github_login, email, avatar_url, owner_id, rec.raw_yaml, deactivated_at],
+      );
+    } else if (rec.entity_type === "organization") {
       const slug = String(yamlObj.slug ?? rec.id);
       const name = String(yamlObj.name ?? slug);
       await c.query(
@@ -106,7 +121,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
            raw_yaml=EXCLUDED.raw_yaml, updated_at=now()`,
         [rec.id, slug, name, rec.raw_yaml],
       );
-    } else if (rec.node_type === "doco") {
+    } else if (rec.entity_type === "doco") {
       const owner_id = String(yamlObj.owner_id ?? "");
       const handle = String(yamlObj.handle ?? "");
       if (!handle) {
@@ -134,41 +149,41 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   }
 }
 
-export async function getEntity(nodeType: string, id: string): Promise<EntityRecord | null> {
-  const spec = tableFor(nodeType);
+export async function getEntity(entityType: string, id: string): Promise<EntityRecord | null> {
+  const spec = tableFor(entityType);
   return withClient(async (c) => {
     const r = await c.query(`SELECT * FROM ${spec.table} WHERE id = $1`, [id]);
     if (r.rowCount === 0) return null;
-    return rowToRecord(nodeType, r.rows[0]);
+    return rowToRecord(entityType, r.rows[0]);
   });
 }
 
 export async function listEntitiesByDoco(
-  nodeType: string,
+  entityType: string,
   docoId: string,
 ): Promise<EntityRecord[]> {
-  const spec = tableFor(nodeType);
+  const spec = tableFor(entityType);
   return withClient(async (c) => {
     const r = await c.query(`SELECT * FROM ${spec.table} WHERE doco_id = $1`, [docoId]);
-    return r.rows.map((row) => rowToRecord(nodeType, row));
+    return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
 
 export async function listIdentityRows(
-  nodeType: "principal" | "organization" | "doco",
+  entityType: "principal" | "organization" | "doco" | "collaborator",
 ): Promise<EntityRecord[]> {
-  const spec = tableFor(nodeType);
+  const spec = tableFor(entityType);
   return withClient(async (c) => {
     const r = await c.query(`SELECT * FROM ${spec.table}`);
-    return r.rows.map((row) => rowToRecord(nodeType, row));
+    return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
 
-function rowToRecord(nodeType: string, row: Record<string, unknown>): EntityRecord {
+function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
   const rec: EntityRecord = {
     id: String(row.id),
     doco_id: row.doco_id ? String(row.doco_id) : "",
-    node_type: nodeType,
+    entity_type: entityType,
     raw_yaml: String(row.raw_yaml),
   };
   if ("body_md" in row && row.body_md !== null) rec.body_md = String(row.body_md);
@@ -191,7 +206,7 @@ export async function resolveDocoIdByHandle(handle: string): Promise<string | nu
   });
 }
 
-// ─── Host + identity queries (Phase 3 — replace FS reads) ──────────────────
+// ─── Host config ──────────────────────────────────────────────────────────
 
 export interface HostConfigRow {
   id: string;
@@ -231,12 +246,84 @@ export async function upsertHostConfig(opts: {
   });
 }
 
+// ─── Collaborators (OAuth identity layer) ─────────────────────────────────
+
+export interface CollaboratorRow {
+  id: string;
+  kind: "person" | "agent";
+  github_id: string | null;
+  github_login: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  raw_yaml: string;
+}
+
+function mapCollaboratorRow(row: Record<string, unknown>): CollaboratorRow {
+  const kind = row.kind === "agent" ? "agent" : "person";
+  return {
+    id: String(row.id),
+    kind,
+    github_id: row.github_id === null || row.github_id === undefined ? null : String(row.github_id),
+    github_login:
+      row.github_login === null || row.github_login === undefined ? null : String(row.github_login),
+    email: row.email === null || row.email === undefined ? null : String(row.email),
+    avatar_url:
+      row.avatar_url === null || row.avatar_url === undefined ? null : String(row.avatar_url),
+    raw_yaml: String(row.raw_yaml),
+  };
+}
+
+export async function getCollaboratorById(id: string): Promise<CollaboratorRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      "SELECT id, kind, github_id, github_login, email, avatar_url, raw_yaml FROM collaborators WHERE id = $1",
+      [id],
+    );
+    if (r.rowCount === 0) return null;
+    return mapCollaboratorRow(r.rows[0]);
+  });
+}
+
+export async function getCollaboratorByGithubLogin(
+  login: string,
+): Promise<CollaboratorRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      "SELECT id, kind, github_id, github_login, email, avatar_url, raw_yaml FROM collaborators WHERE github_login = $1",
+      [login],
+    );
+    if (r.rowCount === 0) return null;
+    return mapCollaboratorRow(r.rows[0]);
+  });
+}
+
+export async function listCollaborators(opts: { kind?: "person" | "agent" } = {}): Promise<
+  CollaboratorRow[]
+> {
+  return withClient(async (c) => {
+    const conds: string[] = [];
+    const vals: unknown[] = [];
+    if (opts.kind) {
+      vals.push(opts.kind);
+      conds.push(`kind = $${vals.length}`);
+    }
+    const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
+    const r = await c.query(
+      `SELECT id, kind, github_id, github_login, email, avatar_url, raw_yaml
+       FROM collaborators ${where} ORDER BY github_login NULLS LAST, id`,
+      vals,
+    );
+    return r.rows.map(mapCollaboratorRow);
+  });
+}
+
+// ─── Principals (role-personas, neuron) ───────────────────────────────────
+
 export interface PrincipalRow {
   id: string;
   username: string;
-  type: string;
-  email: string | null;
-  github_login: string | null;
+  doco_id: string | null;
+  summary: string | null;
   raw_yaml: string;
 }
 
@@ -244,10 +331,8 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
   return {
     id: String(row.id),
     username: String(row.username),
-    type: String(row.type),
-    email: row.email === null || row.email === undefined ? null : String(row.email),
-    github_login:
-      row.github_login === null || row.github_login === undefined ? null : String(row.github_login),
+    doco_id: row.doco_id === null || row.doco_id === undefined ? null : String(row.doco_id),
+    summary: row.summary === null || row.summary === undefined ? null : String(row.summary),
     raw_yaml: String(row.raw_yaml),
   };
 }
@@ -255,7 +340,7 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, type, email, github_login, raw_yaml FROM principals WHERE id = $1",
+      "SELECT id, username, doco_id, summary, raw_yaml FROM principals WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -266,7 +351,7 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
 export async function getPrincipalByUsername(username: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, type, email, github_login, raw_yaml FROM principals WHERE username = $1",
+      "SELECT id, username, doco_id, summary, raw_yaml FROM principals WHERE username = $1",
       [username],
     );
     if (r.rowCount === 0) return null;
@@ -275,28 +360,23 @@ export async function getPrincipalByUsername(username: string): Promise<Principa
 }
 
 /**
- * List Principals of a given type. `bootstrap_placeholder: true` rows
- * (per ADR-073) are filtered out of all listings — they exist only to
- * own host-bootstrap docos and are never user-facing.
+ * List Principals (role-personas). `bootstrap_placeholder: true` rows
+ * (per ADR-073) are filtered out — they exist only to own host-bootstrap
+ * docos and are never user-facing.
  */
-export async function listPrincipals(opts: { type?: string } = {}): Promise<PrincipalRow[]> {
+export async function listPrincipals(): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
-    const conds: string[] = [
-      "(raw_yaml::jsonb->>'bootstrap_placeholder' IS NULL OR raw_yaml::jsonb->>'bootstrap_placeholder' != 'true')",
-    ];
-    const vals: unknown[] = [];
-    if (opts.type) {
-      vals.push(opts.type);
-      conds.push(`type = $${vals.length}`);
-    }
     const r = await c.query(
-      `SELECT id, username, type, email, github_login, raw_yaml
-       FROM principals WHERE ${conds.join(" AND ")} ORDER BY username`,
-      vals,
+      `SELECT id, username, doco_id, summary, raw_yaml
+       FROM principals
+       WHERE (raw_yaml::jsonb->>'bootstrap_placeholder' IS NULL OR raw_yaml::jsonb->>'bootstrap_placeholder' != 'true')
+       ORDER BY username`,
     );
     return r.rows.map(mapPrincipalRow);
   });
 }
+
+// ─── Organizations ────────────────────────────────────────────────────────
 
 export interface OrganizationRow {
   id: string;
@@ -323,8 +403,8 @@ export async function listOrganizations(): Promise<OrganizationRow[]> {
   });
 }
 
-export async function listOrganizationsForPrincipal(
-  principalId: string,
+export async function listOrganizationsForCollaborator(
+  collaboratorId: string,
   roles: string[] = ["owner", "approver", "author", "reader"],
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
@@ -333,9 +413,9 @@ export async function listOrganizationsForPrincipal(
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o
        JOIN org_users m ON m.org_id = o.id
-       WHERE m.principal_id = $1 AND m.role = ANY($2)
+       WHERE m.collaborator_id = $1 AND m.role = ANY($2)
        ORDER BY o.slug`,
-      [principalId, roles],
+      [collaboratorId, roles],
     );
     return r.rows.map((row) => ({
       id: String(row.id),
@@ -347,27 +427,26 @@ export async function listOrganizationsForPrincipal(
   });
 }
 
-export async function isOrgUser(orgId: string, principalId: string): Promise<boolean> {
+export async function isOrgUser(orgId: string, collaboratorId: string): Promise<boolean> {
   return withClient(async (c) => {
-    const r = await c.query(`SELECT 1 FROM org_users WHERE org_id = $1 AND principal_id = $2`, [
+    const r = await c.query(`SELECT 1 FROM org_users WHERE org_id = $1 AND collaborator_id = $2`, [
       orgId,
-      principalId,
+      collaboratorId,
     ]);
     return r.rowCount !== null && r.rowCount > 0;
   });
 }
 
 /**
- * "Has admin-tier rights on the org." Post-cutover
- * (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62), admin-tier collapses onto the new
- * `owner` role; legacy 'admin'/'member' rows backfill to 'owner' so the
- * behavior is unchanged for existing data.
+ * "Has admin-tier rights on the org." Post-cutover, admin-tier collapses
+ * onto the new `owner` role; legacy 'admin'/'member' rows backfill to
+ * 'owner' so the behavior is unchanged for existing data.
  */
-export async function isOrgAdmin(orgId: string, principalId: string): Promise<boolean> {
+export async function isOrgAdmin(orgId: string, collaboratorId: string): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT 1 FROM org_users WHERE org_id = $1 AND principal_id = $2 AND role = 'owner'`,
-      [orgId, principalId],
+      `SELECT 1 FROM org_users WHERE org_id = $1 AND collaborator_id = $2 AND role = 'owner'`,
+      [orgId, collaboratorId],
     );
     return r.rowCount !== null && r.rowCount > 0;
   });
@@ -375,24 +454,24 @@ export async function isOrgAdmin(orgId: string, principalId: string): Promise<bo
 
 export async function upsertOrgUser(opts: {
   org_id: string;
-  principal_id: string;
+  collaborator_id: string;
   role: DocoRole;
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO org_users (org_id, principal_id, role)
+      `INSERT INTO org_users (org_id, collaborator_id, role)
        VALUES ($1, $2, $3)
-       ON CONFLICT (org_id, principal_id) DO UPDATE SET role=EXCLUDED.role`,
-      [opts.org_id, opts.principal_id, opts.role],
+       ON CONFLICT (org_id, collaborator_id) DO UPDATE SET role=EXCLUDED.role`,
+      [opts.org_id, opts.collaborator_id, opts.role],
     );
   });
 }
 
-export async function removeOrgUser(orgId: string, principalId: string): Promise<void> {
+export async function removeOrgUser(orgId: string, collaboratorId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(`DELETE FROM org_users WHERE org_id = $1 AND principal_id = $2`, [
+    await c.query(`DELETE FROM org_users WHERE org_id = $1 AND collaborator_id = $2`, [
       orgId,
-      principalId,
+      collaboratorId,
     ]);
   });
 }
@@ -401,7 +480,6 @@ export async function removeOrgUser(orgId: string, principalId: string): Promise
 
 export type DocoRole = "owner" | "approver" | "author" | "reader";
 
-/** Role precedence. Higher rank = more privilege. */
 export const ROLE_RANK: Record<DocoRole, number> = {
   owner: 3,
   approver: 2,
@@ -415,13 +493,11 @@ function toRole(v: unknown): DocoRole | null {
   return typeof v === "string" && ROLE_VALUES.has(v as DocoRole) ? (v as DocoRole) : null;
 }
 
-/** True iff `role` is at least as privileged as `threshold`. Null = no grant. */
 export function roleAtLeast(role: DocoRole | null, threshold: DocoRole): boolean {
   if (!role) return false;
   return ROLE_RANK[role] >= ROLE_RANK[threshold];
 }
 
-/** Highest-privilege role across all inputs. Null if no input has a role. */
 export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | null {
   let best: DocoRole | null = null;
   let bestRank = -1;
@@ -435,12 +511,11 @@ export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | n
   return best;
 }
 
-/** Lookup the principal's row on an org, returning its role (or null). */
-export async function getOrgRole(orgId: string, principalId: string): Promise<DocoRole | null> {
+export async function getOrgRole(orgId: string, collaboratorId: string): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM org_users WHERE org_id = $1 AND principal_id = $2`,
-      [orgId, principalId],
+      `SELECT role FROM org_users WHERE org_id = $1 AND collaborator_id = $2`,
+      [orgId, collaboratorId],
     );
     if (r.rowCount === 0) return null;
     return toRole(r.rows[0]?.role);
@@ -451,19 +526,19 @@ export async function getOrgRole(orgId: string, principalId: string): Promise<Do
 
 export interface DocoUserRow {
   doco_id: string;
-  principal_id: string;
+  collaborator_id: string;
   role: DocoRole;
   joined_at: string;
 }
 
 export async function getDocoUserRole(
   docoId: string,
-  principalId: string,
+  collaboratorId: string,
 ): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM doco_users WHERE doco_id = $1 AND principal_id = $2`,
-      [docoId, principalId],
+      `SELECT role FROM doco_users WHERE doco_id = $1 AND collaborator_id = $2`,
+      [docoId, collaboratorId],
     );
     if (r.rowCount === 0) return null;
     return toRole(r.rows[0]?.role);
@@ -473,13 +548,13 @@ export async function getDocoUserRole(
 export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT doco_id, principal_id, role, joined_at FROM doco_users
+      `SELECT doco_id, collaborator_id, role, joined_at FROM doco_users
        WHERE doco_id = $1 ORDER BY joined_at`,
       [docoId],
     );
     return r.rows.map((row) => ({
       doco_id: String(row.doco_id),
-      principal_id: String(row.principal_id),
+      collaborator_id: String(row.collaborator_id),
       role: (toRole(row.role) ?? "reader") as DocoRole,
       joined_at:
         row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
@@ -487,11 +562,11 @@ export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
   });
 }
 
-export async function listDocoIdsForUserPrincipal(principalId: string): Promise<string[]> {
+export async function listDocoIdsForCollaborator(collaboratorId: string): Promise<string[]> {
   return withClient(async (c) => {
     const r = await c.query<{ doco_id: string }>(
-      `SELECT doco_id FROM doco_users WHERE principal_id = $1`,
-      [principalId],
+      `SELECT doco_id FROM doco_users WHERE collaborator_id = $1`,
+      [collaboratorId],
     );
     return r.rows.map((row) => String(row.doco_id));
   });
@@ -499,38 +574,37 @@ export async function listDocoIdsForUserPrincipal(principalId: string): Promise<
 
 export async function upsertDocoUser(opts: {
   doco_id: string;
-  principal_id: string;
+  collaborator_id: string;
   role: DocoRole;
 }): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO doco_users (doco_id, principal_id, role)
+      `INSERT INTO doco_users (doco_id, collaborator_id, role)
        VALUES ($1, $2, $3)
-       ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = EXCLUDED.role`,
-      [opts.doco_id, opts.principal_id, opts.role],
+       ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = EXCLUDED.role`,
+      [opts.doco_id, opts.collaborator_id, opts.role],
     );
   });
 }
 
-export async function removeDocoUser(docoId: string, principalId: string): Promise<void> {
+export async function removeDocoUser(docoId: string, collaboratorId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(`DELETE FROM doco_users WHERE doco_id = $1 AND principal_id = $2`, [
+    await c.query(`DELETE FROM doco_users WHERE doco_id = $1 AND collaborator_id = $2`, [
       docoId,
-      principalId,
+      collaboratorId,
     ]);
   });
 }
 
+// ─── Docos ────────────────────────────────────────────────────────────────
+
 export interface DocoRow {
-  /** Internal ULID — every entity table FKs to this. Never user-visible. */
   id: string;
-  /** Public, globally-unique URL identifier. */
   handle: string;
   /**
-   * Owner's identifier-as-a-slug — Principal.username for human/agent
-   * owners, Organization.slug for org owners. Derived via JOIN in
-   * `mapDocoRow` from `owner_id`. Useful for "owned by alice" labels.
-   * NOT a doco identifier.
+   * Owner's identifier-as-a-slug — Collaborator.github_login for human/agent
+   * owners, Organization.slug for org owners. Derived via JOIN in `mapDocoRow`
+   * from `owner_id`. NOT a doco identifier.
    */
   owner_slug: string;
   owner_id: string;
@@ -552,16 +626,14 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
 }
 
 /**
- * Common SELECT fragment for the `getDoco*` readers. The LEFT JOIN
- * resolves `owner_slug` from `principals.username` /
- * `organizations.slug` keyed by `docos.owner_id` (the doco itself no
- * longer carries a slug column — phase 3a dropped it).
+ * Resolves `owner_slug` from `collaborators.github_login` /
+ * `organizations.slug` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
   SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.raw_yaml,
-         COALESCE(p.username, o.slug, '') AS owner_slug
+         COALESCE(c.github_login, o.slug, '') AS owner_slug
     FROM docos d
-    LEFT JOIN principals p ON p.id = d.owner_id
+    LEFT JOIN collaborators c ON c.id = d.owner_id
     LEFT JOIN organizations o ON o.id = d.owner_id`;
 
 export async function listAllDocos(): Promise<DocoRow[]> {
@@ -587,7 +659,6 @@ export async function getDocoByHandle(handle: string): Promise<DocoRow | null> {
   });
 }
 
-/** Resolve a Doco by its handle (public URL id) or internal ULID. */
 export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow | null> {
   if (idOrHandle.startsWith("doco_")) {
     const byId = await getDocoById(idOrHandle);
@@ -597,19 +668,19 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
 }
 
 /**
- * Resolve a top-level slug to either a Principal (by username) or an
+ * Resolve a top-level slug to either a Collaborator (by github_login) or an
  * Organization (by slug). Used by the owner-profile route to render
  * `/<owner>` for either kind.
  */
 export async function resolveOwnerSlug(
   slug: string,
 ): Promise<
-  | { kind: "principal"; principal: PrincipalRow }
+  | { kind: "collaborator"; collaborator: CollaboratorRow }
   | { kind: "organization"; org: OrganizationRow }
   | null
 > {
-  const p = await getPrincipalByUsername(slug);
-  if (p) return { kind: "principal", principal: p };
+  const collab = await getCollaboratorByGithubLogin(slug);
+  if (collab) return { kind: "collaborator", collaborator: collab };
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id, slug, name, raw_yaml,
@@ -632,12 +703,12 @@ export async function resolveOwnerSlug(
   });
 }
 
+// ─── Audit events ─────────────────────────────────────────────────────────
+
 export interface AuditEventRow {
   event_id: string;
   at: string;
-  by_principal: string | null;
-  /** Exactly one of doco_id or org_id is set. Org constitution
-   *  articles are tracked under org_id; everything else is doco_id. */
+  by_collaborator: string | null;
   doco_id: string | null;
   org_id?: string | null;
   entity_type: string;
@@ -651,12 +722,12 @@ export interface AuditEventRow {
 export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO audit_events (event_id, at, by_principal, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason)
+      `INSERT INTO audit_events (event_id, at, by_collaborator, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         evt.event_id,
         evt.at,
-        evt.by_principal,
+        evt.by_collaborator,
         evt.doco_id,
         evt.org_id ?? null,
         evt.entity_type,
@@ -705,7 +776,7 @@ export async function readAuditEventRows(filters: {
     vals.push(filters.op);
   }
   if (filters.by) {
-    where.push(`by_principal = $${idx++}`);
+    where.push(`by_collaborator = $${idx++}`);
     vals.push(filters.by);
   }
   if (filters.since) {
@@ -717,7 +788,7 @@ export async function readAuditEventRows(filters: {
     vals.push(filters.until);
   }
   const limit = Math.min(Math.max(filters.limit ?? 200, 1), 1000);
-  const sql = `SELECT event_id, at, by_principal, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason
+  const sql = `SELECT event_id, at, by_collaborator, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason
                FROM audit_events
                ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
                ORDER BY at DESC
@@ -728,7 +799,7 @@ export async function readAuditEventRows(filters: {
     return r.rows.map((row) => ({
       event_id: String(row.event_id),
       at: row.at instanceof Date ? row.at.toISOString() : String(row.at),
-      by_principal: row.by_principal ? String(row.by_principal) : null,
+      by_collaborator: row.by_collaborator ? String(row.by_collaborator) : null,
       doco_id: row.doco_id ? String(row.doco_id) : null,
       org_id: row.org_id ? String(row.org_id) : null,
       entity_type: String(row.entity_type),

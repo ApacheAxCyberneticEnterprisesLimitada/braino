@@ -1,142 +1,184 @@
-// Postgres-backed derived-data builder. Computes the same `edges` and
-// `entity_fts` rows the SQLite indexer (@doco/index) builds, but writes
-// them straight to Postgres. Part of the SQLite-removal migration that
-// supersedes ADR-023 / ADR-024.
+// Postgres-backed derived-data builder. Computes the `synapses` and FTS
+// rows the indexer (@doco/index) builds, and writes them straight to
+// Postgres.
 //
 // Pure side-effecting writer: caller supplies the entities + computed
-// edges (we keep edge derivation in @doco/index where the shared logic
-// already lives) and the doco_id; we wipe and rebuild PG-side derived
-// rows for that doco atomically.
+// synapses and the doco_id; we wipe and rebuild PG-side derived rows for
+// that Doco atomically.
+//
+// Post-migration-005 FTS shape: ONE table per top-level category
+// (neurons, primitives, collaborators, docos, organizations). The
+// indexer only ever populates the per-Doco categories: `entity_fts_neurons`
+// and `entity_fts_primitives`. Collaborators/docos/organizations are
+// host-level entities; their FTS rows are written by their own upsert
+// paths (or by the migration), not by this builder.
 
 import { withTransaction } from "./client.js";
 
+const NEURON_TYPES = new Set([
+  "intent",
+  "idea",
+  "rule",
+  "decision",
+  "action",
+  "log",
+  "eval",
+  "reference",
+  "state",
+  "principal",
+]);
+
+const PRIMITIVE_TYPES = new Set(["guidance_primitive", "neuron_authoring_primitive"]);
+
+function primitiveKindFor(entityType: string): "guidance" | "neuron_authoring" {
+  if (entityType === "guidance_primitive") return "guidance";
+  if (entityType === "neuron_authoring_primitive") return "neuron_authoring";
+  throw new Error(`Not a primitive type: ${entityType}`);
+}
+
 export interface FtsRowInput {
   entity_id: string;
-  node_type: string;
+  entity_type: string;
   summary: string;
   body: string;
 }
 
-export interface EdgeRowInput {
+export interface SynapseRowInput {
   from_id: string;
-  from_node_type: string;
+  from_neuron_type: string;
   to_id: string;
-  to_node_type: string;
-  edge_type: string;
-  edge_props?: Record<string, unknown> | undefined;
+  to_neuron_type: string;
+  synapse_type: string;
+  synapse_props?: Record<string, unknown> | undefined;
   attribution?: "explicit" | "doco-auto" | undefined;
 }
 
 export interface RebuildOptions {
   /**
-   * When set, scope the wipe to FTS rows / outgoing edges for these
+   * When set, scope the wipe to FTS rows / outgoing synapses for these
    * entity ids only — leaving the rest of the Doco's derived data
    * untouched. Use this for single-entity captures where rebuilding
    * the whole Doco would be wasteful.
    *
-   * When unset (default), every FTS row and edge for the Doco is
-   * wiped before re-insert — the right move for first build, bulk
-   * import, or operations that touch many entities at once.
+   * When unset (default), every FTS row and synapse for the Doco is
+   * wiped before re-insert.
    */
   onlyEntityIds?: string[];
 }
 
 /**
- * Replace edge and entity_fts rows in Postgres. Runs in a single
- * transaction — readers see the old set or the new set, never a
- * partial mix.
- *
- * Full rebuild (no `onlyEntityIds`): wipes every derived row for the
- * Doco and reinserts. Incremental (`onlyEntityIds` set): wipes only
- * FTS rows + outgoing edges for the named entities and reinserts those.
- * Caller must pre-filter `fts` / `edges` to match the scope.
+ * Replace synapse and FTS rows in Postgres. Runs in a single transaction —
+ * readers see the old set or the new set, never a partial mix.
  */
 export async function rebuildDocoDerivedData(
   docoId: string,
   fts: FtsRowInput[],
-  edges: EdgeRowInput[],
+  synapses: SynapseRowInput[],
   opts: RebuildOptions = {},
-): Promise<{ ftsRows: number; edgeRows: number }> {
-  // Dedupe by primary key — pg rejects "command cannot affect row a
-  // second time" when one INSERT statement tries to upsert the same
-  // key twice. Row-by-row INSERTs were tolerant of this; batched
-  // INSERTs are not. The dedupe is cheap and the right last-write-wins
-  // semantics for both shapes.
+): Promise<{ ftsRows: number; synapseRows: number }> {
   const dedupedFts = dedupeFts(fts);
-  const dedupedEdges = dedupeEdges(edges);
+  const dedupedEdges = dedupeEdges(synapses);
+
+  // Split FTS rows by category — neurons vs primitives.
+  const neuronFts = dedupedFts.filter((r) => NEURON_TYPES.has(r.entity_type));
+  const primitiveFts = dedupedFts.filter((r) => PRIMITIVE_TYPES.has(r.entity_type));
 
   return withTransaction(async (c) => {
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
-      // Incremental: only wipe rows for the named entities. Outgoing
-      // edges live under `from_id`; inbound edges from OTHER entities
-      // (their `from_id` is unchanged) are left in place.
+      // Incremental wipe.
       await c.query(
-        "DELETE FROM edges WHERE doco_id = $1 AND from_id = ANY($2::text[])",
+        "DELETE FROM synapses WHERE doco_id = $1 AND from_id = ANY($2::text[])",
         [docoId, opts.onlyEntityIds],
       );
       await c.query(
-        "DELETE FROM entity_fts WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
+        "DELETE FROM entity_fts_neurons WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
+        [docoId, opts.onlyEntityIds],
+      );
+      await c.query(
+        "DELETE FROM entity_fts_primitives WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
         [docoId, opts.onlyEntityIds],
       );
     } else {
-      await c.query("DELETE FROM edges WHERE doco_id = $1", [docoId]);
-      await c.query("DELETE FROM entity_fts WHERE doco_id = $1", [docoId]);
+      await c.query("DELETE FROM synapses WHERE doco_id = $1", [docoId]);
+      await c.query("DELETE FROM entity_fts_neurons WHERE doco_id = $1", [docoId]);
+      await c.query("DELETE FROM entity_fts_primitives WHERE doco_id = $1", [docoId]);
     }
 
-    if (dedupedFts.length > 0) {
+    if (neuronFts.length > 0) {
       await c.query(
-        `INSERT INTO entity_fts (entity_id, doco_id, node_type, summary, body)
-         SELECT u.entity_id, $1, u.node_type, u.summary, u.body
+        `INSERT INTO entity_fts_neurons (entity_id, doco_id, neuron_type, summary, body)
+         SELECT u.entity_id, $1, u.neuron_type, u.summary, u.body
          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-              AS u(entity_id, node_type, summary, body)
+              AS u(entity_id, neuron_type, summary, body)
          ON CONFLICT (entity_id) DO UPDATE SET
-              doco_id   = EXCLUDED.doco_id,
-              node_type = EXCLUDED.node_type,
-              summary   = EXCLUDED.summary,
-              body      = EXCLUDED.body`,
+              doco_id     = EXCLUDED.doco_id,
+              neuron_type = EXCLUDED.neuron_type,
+              summary     = EXCLUDED.summary,
+              body        = EXCLUDED.body`,
         [
           docoId,
-          dedupedFts.map((r) => r.entity_id),
-          dedupedFts.map((r) => r.node_type),
-          dedupedFts.map((r) => r.summary),
-          dedupedFts.map((r) => r.body),
+          neuronFts.map((r) => r.entity_id),
+          neuronFts.map((r) => r.entity_type),
+          neuronFts.map((r) => r.summary),
+          neuronFts.map((r) => r.body),
+        ],
+      );
+    }
+
+    if (primitiveFts.length > 0) {
+      await c.query(
+        `INSERT INTO entity_fts_primitives (entity_id, doco_id, primitive_kind, summary, body)
+         SELECT u.entity_id, $1, u.primitive_kind, u.summary, u.body
+         FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
+              AS u(entity_id, primitive_kind, summary, body)
+         ON CONFLICT (entity_id) DO UPDATE SET
+              doco_id        = EXCLUDED.doco_id,
+              primitive_kind = EXCLUDED.primitive_kind,
+              summary        = EXCLUDED.summary,
+              body           = EXCLUDED.body`,
+        [
+          docoId,
+          primitiveFts.map((r) => r.entity_id),
+          primitiveFts.map((r) => primitiveKindFor(r.entity_type)),
+          primitiveFts.map((r) => r.summary),
+          primitiveFts.map((r) => r.body),
         ],
       );
     }
 
     if (dedupedEdges.length > 0) {
       await c.query(
-        `INSERT INTO edges (
-            from_id, from_node_type, to_id, to_node_type, edge_type,
-            doco_id, edge_props_json, attribution
+        `INSERT INTO synapses (
+            from_id, from_neuron_type, to_id, to_neuron_type, synapse_type,
+            doco_id, synapse_props_json, attribution
          )
-         SELECT u.from_id, u.from_node_type, u.to_id, u.to_node_type,
-                u.edge_type, $1, u.props::jsonb, u.attribution
+         SELECT u.from_id, u.from_neuron_type, u.to_id, u.to_neuron_type,
+                u.synapse_type, $1, u.props::jsonb, u.attribution
          FROM unnest(
                 $2::text[], $3::text[], $4::text[], $5::text[],
                 $6::text[], $7::text[], $8::text[]
-              ) AS u(from_id, from_node_type, to_id, to_node_type,
-                     edge_type, props, attribution)
-         ON CONFLICT (from_id, to_id, edge_type) DO UPDATE SET
-            from_node_type  = EXCLUDED.from_node_type,
-            to_node_type    = EXCLUDED.to_node_type,
-            doco_id         = EXCLUDED.doco_id,
-            edge_props_json = EXCLUDED.edge_props_json,
-            attribution     = EXCLUDED.attribution`,
+              ) AS u(from_id, from_neuron_type, to_id, to_neuron_type,
+                     synapse_type, props, attribution)
+         ON CONFLICT (from_id, to_id, synapse_type) DO UPDATE SET
+            from_neuron_type   = EXCLUDED.from_neuron_type,
+            to_neuron_type     = EXCLUDED.to_neuron_type,
+            doco_id            = EXCLUDED.doco_id,
+            synapse_props_json = EXCLUDED.synapse_props_json,
+            attribution        = EXCLUDED.attribution`,
         [
           docoId,
           dedupedEdges.map((e) => e.from_id),
-          dedupedEdges.map((e) => e.from_node_type),
+          dedupedEdges.map((e) => e.from_neuron_type),
           dedupedEdges.map((e) => e.to_id),
-          dedupedEdges.map((e) => e.to_node_type),
-          dedupedEdges.map((e) => e.edge_type),
-          dedupedEdges.map((e) => (e.edge_props ? JSON.stringify(e.edge_props) : null)),
+          dedupedEdges.map((e) => e.to_neuron_type),
+          dedupedEdges.map((e) => e.synapse_type),
+          dedupedEdges.map((e) => (e.synapse_props ? JSON.stringify(e.synapse_props) : null)),
           dedupedEdges.map((e) => e.attribution ?? "explicit"),
         ],
       );
     }
 
-    return { ftsRows: dedupedFts.length, edgeRows: dedupedEdges.length };
+    return { ftsRows: dedupedFts.length, synapseRows: dedupedEdges.length };
   });
 }
 
@@ -147,11 +189,11 @@ function dedupeFts(rows: FtsRowInput[]): FtsRowInput[] {
   return [...map.values()];
 }
 
-function dedupeEdges(edges: EdgeRowInput[]): EdgeRowInput[] {
-  if (edges.length < 2) return edges;
-  const map = new Map<string, EdgeRowInput>();
-  for (const e of edges) {
-    map.set(`${e.from_id}|${e.to_id}|${e.edge_type}`, e);
+function dedupeEdges(synapses: SynapseRowInput[]): SynapseRowInput[] {
+  if (synapses.length < 2) return synapses;
+  const map = new Map<string, SynapseRowInput>();
+  for (const e of synapses) {
+    map.set(`${e.from_id}|${e.to_id}|${e.synapse_type}`, e);
   }
   return [...map.values()];
 }
