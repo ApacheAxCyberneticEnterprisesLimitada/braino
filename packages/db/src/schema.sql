@@ -216,9 +216,28 @@ CREATE TABLE IF NOT EXISTS hosts (
 -- (including /onboarding/create/human — the page new visitors hit).
 -- The ON CONFLICT keeps this idempotent: existing installs keep their
 -- custom host config untouched.
-INSERT INTO hosts (id, name, visibility, raw_yaml)
-VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}')
-ON CONFLICT (id) DO NOTHING;
+-- Bootstrap host row. Schema.sql runs on every cold boot; after
+-- migration 014 renames raw_yaml→data this INSERT must target the
+-- right column for whichever state the live DB is in. The DO block
+-- branches on the column shape and is a no-op once a host row exists.
+DO $bootstrap_host$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM hosts WHERE id = 'host') THEN
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'hosts' AND column_name = 'data'
+    ) THEN
+      INSERT INTO hosts (id, name, visibility, data)
+      VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}'::jsonb)
+      ON CONFLICT (id) DO NOTHING;
+    ELSE
+      INSERT INTO hosts (id, name, visibility, raw_yaml)
+      VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}')
+      ON CONFLICT (id) DO NOTHING;
+    END IF;
+  END IF;
+END
+$bootstrap_host$;
 
 -- Identity layer.
 --
