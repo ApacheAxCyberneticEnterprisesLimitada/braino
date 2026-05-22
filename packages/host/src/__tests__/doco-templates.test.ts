@@ -17,45 +17,45 @@ describe("business-processes template", () => {
     expect(hashtagged).toBeUndefined();
   });
 
-  it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
+  it("has the expected metadata (icon, label, defaultNeuronLifecycle)", () => {
     expect(template.icon).toBe("🏭");
     expect(template.label).toBe("business-processes");
-    expect(template.defaultNodeLifecycle).toBe("drafted");
+    expect(template.defaultNeuronLifecycle).toBe("drafted");
     expect(template.description).toMatch(/repeatable business processes/i);
     expect(template.description).toMatch(/BPMN/);
   });
 
-  it("does NOT set the constitutional `allowedNodeTypes` field — that's reserved for `global`", () => {
-    expect(template.allowedNodeTypes).toBeUndefined();
+  it("does NOT set the constitutional `allowedNeuronTypes` field — that's reserved for `global`", () => {
+    expect(template.allowedNeuronTypes).toBeUndefined();
   });
 
   describe("node-type allowlist", () => {
     const allowlist = template.articles.find(
-      (r) => r.predicate?.kind === "requires_node_type",
+      (r) => r.predicate?.kind === "requires_neuron_type",
     )?.predicate;
 
     it("includes exactly the seven allowed types (Intent, Action, Decision, State, Eval, Reference, Rule)", () => {
-      expect(allowlist?.kind).toBe("requires_node_type");
-      if (allowlist?.kind !== "requires_node_type") return;
-      expect([...allowlist.node_types].sort()).toEqual(
+      expect(allowlist?.kind).toBe("requires_neuron_type");
+      if (allowlist?.kind !== "requires_neuron_type") return;
+      expect([...allowlist.neuron_types].sort()).toEqual(
         ["action", "decision", "eval", "intent", "reference", "rule", "state"].sort(),
       );
     });
 
     it("excludes Log and Idea (Logs live in a sibling Doco; Ideas live in their own home)", () => {
-      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
-      expect(allowlist.node_types).not.toContain("log");
-      expect(allowlist.node_types).not.toContain("idea");
+      if (allowlist?.kind !== "requires_neuron_type") throw new Error("allowlist missing");
+      expect(allowlist.neuron_types).not.toContain("log");
+      expect(allowlist.neuron_types).not.toContain("idea");
     });
   });
 
   describe("requires_field rules", () => {
-    function requiresField(field: string, nodeType: string) {
+    function requiresField(field: string, entityType: string) {
       return template.articles.find(
         (r) =>
           r.predicate?.kind === "requires_field" &&
           r.predicate.fields.includes(field) &&
-          r.predicate.when_node_type?.includes(nodeType as never),
+          r.predicate.when_neuron_type?.includes(entityType as never),
       );
     }
 
@@ -79,14 +79,14 @@ describe("business-processes template", () => {
     });
   });
 
-  describe("requires_edge rules", () => {
-    function requiresEdge(edgeType: string, target: string, on: string) {
+  describe("requires_synapse rules", () => {
+    function requiresEdge(synapseType: string, target: string, on: string) {
       return template.articles.find(
         (r) =>
-          r.predicate?.kind === "requires_edge" &&
-          r.predicate.edge_type === edgeType &&
-          r.predicate.target_node_type === target &&
-          r.predicate.when_node_type?.includes(on as never),
+          r.predicate?.kind === "requires_synapse" &&
+          r.predicate.synapse_type === synapseType &&
+          r.predicate.target_neuron_type === target &&
+          r.predicate.when_neuron_type?.includes(on as never),
       );
     }
 
@@ -107,7 +107,7 @@ describe("business-processes template", () => {
       expect(rule?.predicate?.kind).toBe("requires_field_resolves_to_principal");
       if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
       expect(rule.predicate.field).toBe("actor_id");
-      expect(rule.predicate.when_node_type).toContain("action");
+      expect(rule.predicate.when_neuron_type).toContain("action");
     });
 
     it("accepts both `person` and `agent` Principal types (team-roles are first-class)", () => {
@@ -154,14 +154,14 @@ describe("business-processes template", () => {
       expect(rule?.predicate?.kind).toBe("graph-completeness");
       if (rule?.predicate?.kind !== "graph-completeness") return;
       expect(rule.predicate.list_field).toBe("actors");
-      expect(rule.predicate.edge_type).toBe("serves");
-      expect(rule.predicate.incoming_node_type).toBe("action");
+      expect(rule.predicate.synapse_type).toBe("serves");
+      expect(rule.predicate.incoming_neuron_type).toBe("action");
       expect(rule.predicate.incoming_field_must_match).toBe("actor_id");
-      expect(rule.predicate.when_node_type).toContain("intent");
+      expect(rule.predicate.when_neuron_type).toContain("intent");
     });
 
     it("fires only when the Intent is active (drafted Intents can be incomplete)", () => {
-      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
     });
   });
 
@@ -225,7 +225,7 @@ describe("business-processes template", () => {
     it("exists and fires on the process-content node types but not Rule", () => {
       expect(gate?.predicate?.kind).toBe("probabilistic");
       if (gate?.predicate?.kind !== "probabilistic") return;
-      const types = gate.predicate.when_node_type ?? [];
+      const types = gate.predicate.when_neuron_type ?? [];
       expect(types).toEqual(
         expect.arrayContaining(["intent", "action", "decision", "state", "eval", "reference"]),
       );

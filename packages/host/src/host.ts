@@ -62,7 +62,7 @@ export async function createHost(
       // host bootstrap: principals at host level live without a single doco_id;
       // we synthesize a host self-id below for the schema's required field.
       doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
-      node_type: "principal",
+      entity_type: "principal",
       summary: `Host owner ${opts.ownerUsername}.`,
       type: "person",
       username: opts.ownerUsername,
@@ -272,7 +272,7 @@ export async function addPrincipal(
   const yaml: Principal = {
     id,
     doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
-    node_type: "principal",
+    entity_type: "principal",
     summary: `User ${opts.username}.`,
     type: "person",
     username: opts.username,
@@ -343,9 +343,9 @@ export async function ensurePersonalOrganization(
     );
     if (existing.rows[0]) {
       await c.query(
-        `INSERT INTO org_users (org_id, principal_id, role)
+        `INSERT INTO org_users (org_id, collaborator_id, role)
          VALUES ($1, $2, 'owner')
-         ON CONFLICT (org_id, principal_id) DO NOTHING`,
+         ON CONFLICT (org_id, collaborator_id) DO NOTHING`,
         [existing.rows[0].id, principalId],
       );
       return existing.rows[0].id as EntityId<"organization">;
@@ -372,7 +372,7 @@ export async function ensurePersonalOrganization(
       ],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, principal_id, role, joined_at)
+      `INSERT INTO org_users (org_id, collaborator_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
       [id, principalId, created],
     );
@@ -481,7 +481,7 @@ export async function addOrganizationByHandle(opts: {
       ],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, principal_id, role, joined_at)
+      `INSERT INTO org_users (org_id, collaborator_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
       [id, opts.ownerPrincipalId, created],
     );
@@ -557,7 +557,7 @@ export async function createDocoInOrg(opts: {
     const visibility = opts.visibility ?? "private";
     const docoYaml = {
       id: docoId,
-      node_type: "doco",
+      entity_type: "doco",
       handle,
       visibility,
       owner_id: opts.orgId,
@@ -571,21 +571,21 @@ export async function createDocoInOrg(opts: {
     // owner_id is still NOT NULL on the legacy schema; populate it
     // alongside org_id so existing readers keep working.
     // v15: template-driven Doco creation. The picked template seeds
-    // constitution articles + sets the doco-level `allowed_node_types`
-    // and `default_node_lifecycle` columns. `generic` (or unknown
+    // constitution articles + sets the doco-level `allowed_neuron_types`
+    // and `default_neuron_lifecycle` columns. `generic` (or unknown
     // handle) seeds nothing.
     const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
-    const allowedNodeTypes = template?.allowedNodeTypes ?? null;
-    const defaultNodeLifecycle = template?.defaultNodeLifecycle ?? null;
-    if (allowedNodeTypes) {
-      (docoYaml as Record<string, unknown>).allowed_node_types = allowedNodeTypes;
+    const allowedNeuronTypes = template?.allowedNeuronTypes ?? null;
+    const defaultNeuronLifecycle = template?.defaultNeuronLifecycle ?? null;
+    if (allowedNeuronTypes) {
+      (docoYaml as Record<string, unknown>).allowed_neuron_types = allowedNeuronTypes;
     }
-    if (defaultNodeLifecycle) {
-      (docoYaml as Record<string, unknown>).default_node_lifecycle = defaultNodeLifecycle;
+    if (defaultNeuronLifecycle) {
+      (docoYaml as Record<string, unknown>).default_neuron_lifecycle = defaultNeuronLifecycle;
     }
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, raw_yaml,
-                          allowed_node_types, default_node_lifecycle,
+                          allowed_neuron_types, default_neuron_lifecycle,
                           created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9)`,
       [
@@ -595,35 +595,35 @@ export async function createDocoInOrg(opts: {
         opts.orgId,
         visibility,
         JSON.stringify(docoYaml),
-        allowedNodeTypes,
-        defaultNodeLifecycle,
+        allowedNeuronTypes,
+        defaultNeuronLifecycle,
         created,
       ],
     );
     await c.query(
-      `INSERT INTO doco_users (doco_id, principal_id, role, joined_at)
+      `INSERT INTO doco_users (doco_id, collaborator_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)
-       ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
+       ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = 'owner'`,
       [docoId, opts.createdByPrincipalId, created],
     );
     // Seed each template article as a Constitution Article. Prose-only
-    // entries become guidance_articles; predicate-bearing entries become
-    // node_authoring_articles. Domain Rule nodes stay available for
+    // entries become guidance_primitives; predicate-bearing entries become
+    // neuron_authoring_primitives. Domain Rule nodes stay available for
     // project/business constraints.
     if (template && template.articles.length > 0) {
       for (const article of template.articles) {
         const isAuthoring = Boolean(article.predicate);
-        const firesWhen = Array.isArray(article.fires_when_node_lifecycle)
-          ? article.fires_when_node_lifecycle
+        const firesWhen = Array.isArray(article.fires_when_neuron_lifecycle)
+          ? article.fires_when_neuron_lifecycle
           : [];
-        const nodeType = isAuthoring ? "node_authoring_article" : "guidance_article";
-        const table = isAuthoring ? "node_authoring_articles" : "guidance_articles";
-        const articleId = `${nodeType}_${generateUlid()}`;
+        const entityType = isAuthoring ? "neuron_authoring_primitive" : "guidance_primitive";
+        const table = isAuthoring ? "neuron_authoring_primitives" : "guidance_primitives";
+        const articleId = `${entityType}_${generateUlid()}`;
         const articleYaml: Record<string, unknown> = {
           id: articleId,
           doco_id: docoId,
-          node_type: nodeType,
-          article_type: isAuthoring ? "node_authoring" : "guidance",
+          entity_type: entityType,
+          primitive_kind: isAuthoring ? "node_authoring" : "guidance",
           summary: article.summary,
           ...(article.predicate
             ? {
@@ -633,7 +633,7 @@ export async function createDocoInOrg(opts: {
                 on_violation: "block",
               }
             : {}),
-          ...(firesWhen.length > 0 ? { fires_when_node_lifecycle: firesWhen } : {}),
+          ...(firesWhen.length > 0 ? { fires_when_neuron_lifecycle: firesWhen } : {}),
           template_seeded: true,
           template_handle: opts.templateHandle ?? null,
           created_at: created,
@@ -700,7 +700,7 @@ export async function addOrganization(
   const yaml: Organization = {
     id,
     doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
-    node_type: "organization",
+    entity_type: "organization",
     summary: `Organization ${opts.slug}.`,
     slug: opts.slug,
     display_name: opts.display_name ?? opts.slug,
@@ -708,7 +708,7 @@ export async function addOrganization(
     visibility: opts.visibility ?? "private",
     members: [
       {
-        principal_id: owner.id,
+        collaborator_id: owner.id,
         role: "owner",
         permissions: ["read", "write", "execute", "admin"],
       },
@@ -734,7 +734,7 @@ export async function addOrganization(
       [id, opts.slug, opts.display_name ?? opts.slug, JSON.stringify(yaml), created],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, principal_id, role, joined_at)
+      `INSERT INTO org_users (org_id, collaborator_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
       [id, owner.id, created],
     );
@@ -840,7 +840,7 @@ export async function createDocoInHost(
   const created = nowIso();
   const docoYaml = {
     id: docoId,
-    node_type: "doco",
+    entity_type: "doco",
     handle,
     display_name: handle,
     visibility: opts.visibility ?? "private",
@@ -856,7 +856,7 @@ export async function createDocoInHost(
       owner.kind === "principal"
         ? [
             {
-              principal_id: owner.id,
+              collaborator_id: owner.id,
               role: "owner",
               permissions: ["read", "write", "execute", "admin"],
             },
@@ -881,7 +881,7 @@ export async function createDocoInHost(
   );
 
   // Stamp the creator as the owner in `doco_users` so downstream
-  // role + listing queries find them. `listDocoIdsForUserPrincipal`
+  // role + listing queries find them. `listDocoIdsForCollaborator`
   // (used by the OAuth authorize page + the dashboard's "your docos"
   // panel) reads from this table, not from `docos.owner_id` — a fresh
   // creator who isn't grandfathered in by the v8 backfill is otherwise
@@ -891,9 +891,9 @@ export async function createDocoInHost(
   if (owner.kind === "principal") {
     await withClient((c) =>
       c.query(
-        `INSERT INTO doco_users (doco_id, principal_id, role)
+        `INSERT INTO doco_users (doco_id, collaborator_id, role)
          VALUES ($1, $2, 'owner')
-         ON CONFLICT (doco_id, principal_id) DO UPDATE SET role = 'owner'`,
+         ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = 'owner'`,
         [docoId, owner.id],
       ),
     );
