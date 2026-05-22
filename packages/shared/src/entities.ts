@@ -16,7 +16,7 @@
  * `decided_by` continue to reference principals (the role-personas).
  */
 
-import type { EntityId, NeuronType } from "./branded.js";
+import type { EntityId, EntityType, NeuronType } from "./branded.js";
 
 export type Lifecycle =
   | "drafted"
@@ -193,6 +193,12 @@ export type AuthoringPredicate =
   | { kind: "requires_field"; fields: string[]; when_neuron_type?: NeuronType[] }
   | { kind: "forbids_field"; fields: string[]; when_neuron_type?: NeuronType[] }
   | { kind: "requires_neuron_type"; neuron_types: NeuronType[] }
+  /**
+   * Like `requires_neuron_type` but accepts any entity type, including
+   * primitives. Used by the constitution template to allow Eval +
+   * the two primitive kinds.
+   */
+  | { kind: "requires_entity_type"; entity_types: EntityType[] }
   | { kind: "probabilistic"; spec: string; when_neuron_type?: NeuronType[] }
   | {
       kind: "graph-completeness";
@@ -204,9 +210,14 @@ export type AuthoringPredicate =
     }
   /**
    * Field-resolution check: `entity[field]` must be the id of an
-   * existing Principal (role-persona), and that Principal's category
-   * must match. Used to reject e.g. an Action whose `actor_id` is a
-   * free-text string rather than a real principal id.
+   * existing Principal (role-persona). Used to reject e.g. an Action
+   * whose `actor_id` is a free-text string rather than a real
+   * principal id.
+   *
+   * Post-rename: principals no longer carry a `type` field — the
+   * person/agent split moved to Collaborator. The predicate no longer
+   * constrains by `allowed_principal_types`; it just enforces that the
+   * field resolves to an existing principal.
    */
   | {
       kind: "requires_field_resolves_to_principal";

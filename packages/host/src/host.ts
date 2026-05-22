@@ -57,10 +57,13 @@ export async function createHost(
   if (opts.ownerUsername) {
     const created = nowIso();
     const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
-    const principal: Principal = {
+    // TODO(rename): rework host bootstrap to create a Collaborator
+    // (OAuth identity) entity rather than a Principal. The legacy shape
+    // below carries OAuth fields (type, github_identity) that the slimmed
+    // Principal no longer has; the literal is cast to bypass the type
+    // mismatch until the bootstrap flow is rewritten in a follow-up.
+    const principal = {
       id,
-      // host bootstrap: principals at host level live without a single doco_id;
-      // we synthesize a host self-id below for the schema's required field.
       doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
       entity_type: "principal",
       summary: `Host owner ${opts.ownerUsername}.`,
@@ -70,9 +73,9 @@ export async function createHost(
         ? { github_identity: { github_login: opts.ownerUsername, email: opts.ownerEmail } }
         : { github_identity: { github_login: opts.ownerUsername } }),
       created_at: created,
-      created_by: id,
+      created_by: id as unknown as EntityId<"collaborator">,
       lifecycle: "active",
-    };
+    } as unknown as Principal;
     const { withClient } = await import("@doco/db");
     await withClient(async (c) => {
       const dup = await c.query(
@@ -269,7 +272,8 @@ export async function addPrincipal(
     github_login: opts.username,
     ...(opts.email ? { email: opts.email } : {}),
   };
-  const yaml: Principal = {
+  // TODO(rename): see host bootstrap TODO above — same legacy shape.
+  const yaml = {
     id,
     doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
     entity_type: "principal",
@@ -278,9 +282,9 @@ export async function addPrincipal(
     username: opts.username,
     github_identity: gh,
     created_at: created,
-    created_by: id,
+    created_by: id as unknown as EntityId<"collaborator">,
     lifecycle: "active",
-  };
+  } as unknown as Principal;
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
@@ -708,13 +712,13 @@ export async function addOrganization(
     visibility: opts.visibility ?? "private",
     members: [
       {
-        collaborator_id: owner.id,
+        collaborator_id: owner.id as unknown as EntityId<"collaborator">,
         role: "owner",
         permissions: ["read", "write", "execute", "admin"],
       },
     ],
     created_at: created,
-    created_by: owner.id,
+    created_by: owner.id as unknown as EntityId<"collaborator">,
     lifecycle: "active",
   };
 

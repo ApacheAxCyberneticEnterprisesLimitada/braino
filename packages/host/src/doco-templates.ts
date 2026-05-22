@@ -238,7 +238,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          allowed_principal_types: ["person", "agent"],
           when_neuron_type: ["action"],
         },
       },
@@ -425,8 +424,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         summary:
           "Only Eval and constitution-article nodes (guidance_primitive, neuron_authoring_primitive) belong to test. Domain content lives in its own Doco.",
         predicate: {
-          kind: "requires_neuron_type",
-          neuron_types: ["eval", "guidance_primitive", "neuron_authoring_primitive"],
+          kind: "requires_entity_type",
+          entity_types: ["eval", "guidance_primitive", "neuron_authoring_primitive"],
         },
       },
       {
@@ -634,7 +633,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          allowed_principal_types: ["person", "agent"],
           when_neuron_type: ["action"],
         },
       },
