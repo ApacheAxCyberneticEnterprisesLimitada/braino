@@ -655,6 +655,56 @@ export async function createDocoInOrg(opts: {
         }
       }
     }
+
+    // Attach the two ship-by-default visualization perspectives (graph
+    // is the default tab, list is position 1). Templates may also
+    // declare additional perspectives — those land at the end. A
+    // template entry with `isDefault: true` overrides the graph
+    // default. Failures are non-fatal; the index loader's
+    // `ensureDefaultsAttached` will paper over a missing attach on
+    // first read.
+    try {
+      const extraPerspectives = template?.perspectives ?? [];
+      const templateDefault = extraPerspectives.find((p) => p.isDefault) ?? null;
+      const graphIsDefault = !templateDefault;
+      await c.query(
+        `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
+              VALUES ($1, 'perspective_graph', 0, $2, $3, $4)
+         ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
+        [docoId, graphIsDefault, created, opts.createdByPrincipalId],
+      );
+      await c.query(
+        `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
+              VALUES ($1, 'perspective_list', 1, false, $2, $3)
+         ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
+        [docoId, created, opts.createdByPrincipalId],
+      );
+      let position = 2;
+      for (const entry of extraPerspectives) {
+        const { rows: pRows } = await c.query<{ id: string }>(
+          `SELECT id FROM perspectives WHERE slug = $1`,
+          [entry.slug],
+        );
+        const perspectiveId = pRows[0]?.id;
+        if (!perspectiveId) continue;
+        const isDefault = templateDefault?.slug === entry.slug;
+        await c.query(
+          `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
+                VALUES ($1, $2, $3, $4, $5, $6)
+           ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
+          [docoId, perspectiveId, position, isDefault, created, opts.createdByPrincipalId],
+        );
+        position += 1;
+      }
+    } catch (err) {
+      // Best-effort — log but don't fail Doco creation. The lazy
+      // ensureDefaultsAttached on first index load will recover the
+      // graph + list defaults if this block silently failed.
+      console.warn(
+        `[doco-host] failed to attach perspectives to ${docoId}:`,
+        (err as Error).message,
+      );
+    }
     return { docoId, orgId: opts.orgId, orgHandle, handle };
   });
 }

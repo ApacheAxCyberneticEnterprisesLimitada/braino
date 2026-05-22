@@ -56,6 +56,22 @@ export interface TemplatePrimitive {
   body_md?: string;
 }
 
+export interface TemplatePerspectiveAttachment {
+  /**
+   * Slug of a perspective in the `perspectives` table. The host
+   * resolves the slug at template-application time, so a template
+   * referencing a slug that no longer exists silently skips it
+   * rather than failing the whole Doco creation.
+   */
+  slug: string;
+  /**
+   * When true, this perspective becomes the new Doco's default tab,
+   * superseding the `graph` default. Only the first `isDefault: true`
+   * in the list takes effect — additional defaults are ignored.
+   */
+  isDefault?: boolean;
+}
+
 export interface DocoTemplate {
   name: string;
   /** Short readable label for the picker UI. */
@@ -66,6 +82,14 @@ export interface DocoTemplate {
   description: string;
   /** Atomic constitution primitives seeded at install time. */
   primitives: TemplatePrimitive[];
+  /**
+   * Optional perspectives to attach on Doco creation. The two
+   * built-in perspectives (graph, list) are always attached even
+   * if this list is empty; entries here append after them. The
+   * business-processes template ships `[{slug:"bpmn"}]` so a Doco
+   * created from that template arrives with the BPMN tab ready.
+   */
+  perspectives?: TemplatePerspectiveAttachment[];
   /**
    * Doco-level allowlist for captured neuron types. `global` keeps the
    * constitution pure by accepting only constitution primitive types.
@@ -555,6 +579,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
     defaultNeuronLifecycle: "drafted",
+    // Ship the BPMN perspective pre-attached so a freshly-created
+    // business-processes Doco renders with swim lanes immediately.
+    // Graph + list defaults are always attached on top.
+    perspectives: [{ slug: "bpmn" }],
     primitives: [
       // ── Membership ──────────────────────────────────────────────
       {
