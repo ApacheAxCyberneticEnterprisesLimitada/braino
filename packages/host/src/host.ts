@@ -122,14 +122,10 @@ export async function createHost(
 
 A multi-tenant Doco Host. See [ADR-061](https://example.invalid).
 
-## Quick start
-
-\`\`\`bash
-doco host user create alice
-doco host org create my-org --owner alice
-doco host doco new alice/my-doco
-doco host list
-\`\`\`
+Host administration (creating users, organizations, and Docos) is done
+through the Doco web admin UI at the host root URL. There is no host
+admin CLI — \`doco-cli\` only carries \`login\` and \`install-agent-bootstrap\`
+for connecting individual repos to their Doco.
 `,
     "utf8",
   );
