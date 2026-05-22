@@ -45,47 +45,10 @@ BEGIN
 
   RAISE NOTICE 'rename_v005: starting';
 
-  -- ──────────────────────────────────────────────────────────────────
-  -- PRE-STEP: drop empty new-named tables that schema.sql may have
-  -- created on this boot. We're about to rename old → new and need the
-  -- new names to be free.
-  --
-  -- Safety: we ONLY drop if the OLD-named table exists (proves we're
-  -- on an upgrading DB, not a fresh DB where the new tables hold real
-  -- data). On a fresh DB the OLD names don't exist, this whole pre-step
-  -- is a no-op, and the renames further down are no-ops too.
-  -- ──────────────────────────────────────────────────────────────────
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_articles')
-     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_primitives') THEN
-    DROP TABLE guidance_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'node_authoring_articles')
-     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neuron_authoring_primitives') THEN
-    DROP TABLE neuron_authoring_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_guidance_articles')
-     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_guidance_primitives') THEN
-    DROP TABLE org_guidance_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_node_authoring_articles')
-     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_neuron_authoring_primitives') THEN
-    DROP TABLE org_neuron_authoring_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'edges')
-     AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'synapses') THEN
-    DROP TABLE synapses;
-  END IF;
-  -- The five entity_fts_* tables are created by schema.sql. If the old
-  -- single entity_fts table exists (legacy state), the new five must
-  -- have been created by schema.sql on this boot; drop them so we can
-  -- repopulate from entity_fts below.
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'entity_fts') THEN
-    DROP TABLE IF EXISTS entity_fts_neurons;
-    DROP TABLE IF EXISTS entity_fts_primitives;
-    DROP TABLE IF EXISTS entity_fts_collaborators;
-    DROP TABLE IF EXISTS entity_fts_docos;
-    DROP TABLE IF EXISTS entity_fts_organizations;
-  END IF;
+  -- Table + column renames are handled by the v18 pre-rename DO block in
+  -- schema.sql (which runs before this migration). This migration only
+  -- does the data work: principal classification, collaborator inserts,
+  -- FK rewrites, ID-prefix rewrites, raw_yaml regex passes, FTS split.
 
   -- ──────────────────────────────────────────────────────────────────
   -- STEP 1: Create new `collaborators` table.
@@ -141,10 +104,10 @@ BEGIN
       SELECT 1 FROM intents WHERE created_by = p.id OR updated_by = p.id
       UNION ALL SELECT 1 FROM decisions WHERE created_by = p.id OR updated_by = p.id
       UNION ALL SELECT 1 FROM rules WHERE created_by = p.id OR updated_by = p.id
-      UNION ALL SELECT 1 FROM guidance_articles WHERE created_by = p.id OR updated_by = p.id
-      UNION ALL SELECT 1 FROM node_authoring_articles WHERE created_by = p.id OR updated_by = p.id
-      UNION ALL SELECT 1 FROM org_guidance_articles WHERE created_by = p.id OR updated_by = p.id
-      UNION ALL SELECT 1 FROM org_node_authoring_articles WHERE created_by = p.id OR updated_by = p.id
+      UNION ALL SELECT 1 FROM guidance_primitives WHERE created_by = p.id OR updated_by = p.id
+      UNION ALL SELECT 1 FROM neuron_authoring_primitives WHERE created_by = p.id OR updated_by = p.id
+      UNION ALL SELECT 1 FROM org_guidance_primitives WHERE created_by = p.id OR updated_by = p.id
+      UNION ALL SELECT 1 FROM org_neuron_authoring_primitives WHERE created_by = p.id OR updated_by = p.id
       UNION ALL SELECT 1 FROM actions WHERE created_by = p.id OR updated_by = p.id
       UNION ALL SELECT 1 FROM logs WHERE created_by = p.id OR updated_by = p.id
       UNION ALL SELECT 1 FROM evals WHERE created_by = p.id OR updated_by = p.id
@@ -302,58 +265,58 @@ BEGIN
     )
     WHERE updated_by IS NOT NULL AND updated_by LIKE 'principal_%';
 
-  -- guidance_articles (will rename to guidance_primitives in STEP 7)
-  UPDATE guidance_articles SET created_by =
+  -- guidance_primitives (will rename to guidance_primitives in STEP 7)
+  UPDATE guidance_primitives SET created_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = guidance_articles.created_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = guidance_primitives.created_by),
       bootstrap_collab_id
     )
     WHERE created_by IS NOT NULL AND created_by LIKE 'principal_%';
-  UPDATE guidance_articles SET updated_by =
+  UPDATE guidance_primitives SET updated_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = guidance_articles.updated_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = guidance_primitives.updated_by),
       bootstrap_collab_id
     )
     WHERE updated_by IS NOT NULL AND updated_by LIKE 'principal_%';
 
-  -- node_authoring_articles (will rename to neuron_authoring_primitives)
-  UPDATE node_authoring_articles SET created_by =
+  -- neuron_authoring_primitives (will rename to neuron_authoring_primitives)
+  UPDATE neuron_authoring_primitives SET created_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = node_authoring_articles.created_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = neuron_authoring_primitives.created_by),
       bootstrap_collab_id
     )
     WHERE created_by IS NOT NULL AND created_by LIKE 'principal_%';
-  UPDATE node_authoring_articles SET updated_by =
+  UPDATE neuron_authoring_primitives SET updated_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = node_authoring_articles.updated_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = neuron_authoring_primitives.updated_by),
       bootstrap_collab_id
     )
     WHERE updated_by IS NOT NULL AND updated_by LIKE 'principal_%';
 
-  -- org_guidance_articles
-  UPDATE org_guidance_articles SET created_by =
+  -- org_guidance_primitives
+  UPDATE org_guidance_primitives SET created_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_guidance_articles.created_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_guidance_primitives.created_by),
       bootstrap_collab_id
     )
     WHERE created_by IS NOT NULL AND created_by LIKE 'principal_%';
-  UPDATE org_guidance_articles SET updated_by =
+  UPDATE org_guidance_primitives SET updated_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_guidance_articles.updated_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_guidance_primitives.updated_by),
       bootstrap_collab_id
     )
     WHERE updated_by IS NOT NULL AND updated_by LIKE 'principal_%';
 
-  -- org_node_authoring_articles
-  UPDATE org_node_authoring_articles SET created_by =
+  -- org_neuron_authoring_primitives
+  UPDATE org_neuron_authoring_primitives SET created_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_node_authoring_articles.created_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_neuron_authoring_primitives.created_by),
       bootstrap_collab_id
     )
     WHERE created_by IS NOT NULL AND created_by LIKE 'principal_%';
-  UPDATE org_node_authoring_articles SET updated_by =
+  UPDATE org_neuron_authoring_primitives SET updated_by =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_node_authoring_articles.updated_by),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = org_neuron_authoring_primitives.updated_by),
       bootstrap_collab_id
     )
     WHERE updated_by IS NOT NULL AND updated_by LIKE 'principal_%';
@@ -456,54 +419,66 @@ BEGIN
   ALTER TABLE doco_users                DROP CONSTRAINT IF EXISTS doco_users_principal_id_fkey;
   ALTER TABLE org_users                 DROP CONSTRAINT IF EXISTS org_users_principal_id_fkey;
 
+  -- Delete rows whose principal has no collaborator counterpart BEFORE
+  -- the UPDATE (NOT NULL constraint would otherwise fire on rows whose
+  -- subquery returns NULL). These tokens/memberships can't grant access
+  -- to anything anyway.
+  DELETE FROM oauth_authorization_codes WHERE collaborator_id LIKE 'principal_%'
+    AND NOT EXISTS (SELECT 1 FROM principal_classification pc WHERE pc.old_id = collaborator_id AND pc.new_collaborator_id IS NOT NULL);
+  DELETE FROM oauth_access_tokens WHERE collaborator_id LIKE 'principal_%'
+    AND NOT EXISTS (SELECT 1 FROM principal_classification pc WHERE pc.old_id = collaborator_id AND pc.new_collaborator_id IS NOT NULL);
+  DELETE FROM oauth_refresh_tokens WHERE collaborator_id LIKE 'principal_%'
+    AND NOT EXISTS (SELECT 1 FROM principal_classification pc WHERE pc.old_id = collaborator_id AND pc.new_collaborator_id IS NOT NULL);
+  DELETE FROM oauth_device_authorizations WHERE collaborator_id LIKE 'principal_%'
+    AND NOT EXISTS (SELECT 1 FROM principal_classification pc WHERE pc.old_id = collaborator_id AND pc.new_collaborator_id IS NOT NULL);
+  DELETE FROM doco_users WHERE collaborator_id LIKE 'principal_%'
+    AND NOT EXISTS (SELECT 1 FROM principal_classification pc WHERE pc.old_id = collaborator_id AND pc.new_collaborator_id IS NOT NULL);
+  DELETE FROM org_users WHERE collaborator_id LIKE 'principal_%'
+    AND NOT EXISTS (SELECT 1 FROM principal_classification pc WHERE pc.old_id = collaborator_id AND pc.new_collaborator_id IS NOT NULL);
+
   -- Rewrite values: principal_<ulid> → collaborator_<ulid>.
-  UPDATE oauth_authorization_codes SET principal_id =
-    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = principal_id)
-    WHERE principal_id LIKE 'principal_%';
+  UPDATE oauth_authorization_codes SET collaborator_id =
+    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = collaborator_id)
+    WHERE collaborator_id LIKE 'principal_%';
 
-  UPDATE oauth_access_tokens SET principal_id =
-    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = principal_id)
-    WHERE principal_id LIKE 'principal_%';
+  UPDATE oauth_access_tokens SET collaborator_id =
+    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = collaborator_id)
+    WHERE collaborator_id LIKE 'principal_%';
 
-  UPDATE oauth_refresh_tokens SET principal_id =
-    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = principal_id)
-    WHERE principal_id LIKE 'principal_%';
+  UPDATE oauth_refresh_tokens SET collaborator_id =
+    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = collaborator_id)
+    WHERE collaborator_id LIKE 'principal_%';
 
-  UPDATE oauth_device_authorizations SET principal_id =
-    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = principal_id)
-    WHERE principal_id LIKE 'principal_%';
+  UPDATE oauth_device_authorizations SET collaborator_id =
+    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = collaborator_id)
+    WHERE collaborator_id LIKE 'principal_%';
 
-  UPDATE doco_users SET principal_id =
-    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = principal_id)
-    WHERE principal_id LIKE 'principal_%';
+  UPDATE doco_users SET collaborator_id =
+    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = collaborator_id)
+    WHERE collaborator_id LIKE 'principal_%';
 
-  UPDATE org_users SET principal_id =
-    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = principal_id)
-    WHERE principal_id LIKE 'principal_%';
+  UPDATE org_users SET collaborator_id =
+    (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = collaborator_id)
+    WHERE collaborator_id LIKE 'principal_%';
 
-  -- Delete any rows whose principal had no collaborator counterpart
-  -- (i.e. princ_only or drop classification). These tokens/memberships
-  -- can't grant access to anything anyway.
-  DELETE FROM oauth_authorization_codes WHERE principal_id IS NULL;
-  DELETE FROM oauth_access_tokens       WHERE principal_id IS NULL;
-  DELETE FROM oauth_refresh_tokens      WHERE principal_id IS NULL;
-  DELETE FROM oauth_device_authorizations WHERE principal_id IS NULL;
-  DELETE FROM doco_users                WHERE principal_id IS NULL;
-  DELETE FROM org_users                 WHERE principal_id IS NULL;
+  -- (No-op cleanup; the DELETEs above already removed rows without a
+  -- collaborator counterpart.)
+  DELETE FROM oauth_authorization_codes WHERE collaborator_id IS NULL;
+  DELETE FROM oauth_access_tokens       WHERE collaborator_id IS NULL;
+  DELETE FROM oauth_refresh_tokens      WHERE collaborator_id IS NULL;
+  DELETE FROM oauth_device_authorizations WHERE collaborator_id IS NULL;
+  DELETE FROM doco_users                WHERE collaborator_id IS NULL;
+  DELETE FROM org_users                 WHERE collaborator_id IS NULL;
 
   -- Rename principal_id → collaborator_id.
-  ALTER TABLE oauth_authorization_codes RENAME COLUMN principal_id TO collaborator_id;
-  ALTER TABLE oauth_access_tokens       RENAME COLUMN principal_id TO collaborator_id;
-  ALTER TABLE oauth_refresh_tokens      RENAME COLUMN principal_id TO collaborator_id;
-  ALTER TABLE oauth_device_authorizations RENAME COLUMN principal_id TO collaborator_id;
-  ALTER TABLE doco_users                RENAME COLUMN principal_id TO collaborator_id;
-  ALTER TABLE org_users                 RENAME COLUMN principal_id TO collaborator_id;
-
+  -- (handled by v18 in schema.sql)  -- (handled by v18 in schema.sql)  -- (handled by v18 in schema.sql)  -- (handled by v18 in schema.sql)  -- (handled by v18 in schema.sql)  -- (handled by v18 in schema.sql)
   -- Rename indexes that name the old column.
-  ALTER INDEX IF EXISTS oauth_access_tokens_principal_idx     RENAME TO oauth_access_tokens_collaborator_idx;
-  ALTER INDEX IF EXISTS oauth_refresh_tokens_principal_idx    RENAME TO oauth_refresh_tokens_collaborator_idx;
-  ALTER INDEX IF EXISTS doco_users_principal_idx              RENAME TO doco_users_collaborator_idx;
-  ALTER INDEX IF EXISTS org_users_principal_idx               RENAME TO org_users_collaborator_idx;
+  -- Legacy index names get DROPped — schema.sql already created the
+  -- new-named equivalents on this boot. Idempotent.
+  DROP INDEX IF EXISTS oauth_access_tokens_principal_idx;
+  DROP INDEX IF EXISTS oauth_refresh_tokens_principal_idx;
+  DROP INDEX IF EXISTS doco_users_principal_idx;
+  DROP INDEX IF EXISTS org_users_principal_idx;
 
   -- Re-add FK constraints pointing at the new collaborators table.
   ALTER TABLE oauth_authorization_codes
@@ -525,15 +500,15 @@ BEGIN
     ADD CONSTRAINT org_users_collaborator_id_fkey
     FOREIGN KEY (collaborator_id) REFERENCES collaborators(id) ON DELETE CASCADE;
 
-  -- audit_events.by_principal — points at collaborators now, rename column.
-  UPDATE audit_events SET by_principal =
+  -- audit_events.by_collaborator (column already renamed by v18) —
+  -- rewrite the values that still carry principal_<ulid> form.
+  UPDATE audit_events SET by_collaborator =
     COALESCE(
-      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = audit_events.by_principal),
+      (SELECT pc.new_collaborator_id FROM principal_classification pc WHERE pc.old_id = audit_events.by_collaborator),
       bootstrap_collab_id
     )
-    WHERE by_principal IS NOT NULL AND by_principal LIKE 'principal_%';
-  ALTER TABLE audit_events RENAME COLUMN by_principal TO by_collaborator;
-  ALTER INDEX IF EXISTS audit_events_actor_idx RENAME TO audit_events_collaborator_idx;
+    WHERE by_collaborator IS NOT NULL AND by_collaborator LIKE 'principal_%';
+  DROP INDEX IF EXISTS audit_events_actor_idx;
   -- Recreate the dropped expression-on-column for sanity.
 
   -- docos.owner_id (polymorphic — held principal_<ulid> OR organization_<ulid>).
@@ -587,43 +562,40 @@ BEGIN
   ALTER TABLE principals ADD COLUMN IF NOT EXISTS updated_by text;
 
   -- ──────────────────────────────────────────────────────────────────
-  -- STEP 9: Rename article tables → primitive tables.
+  -- STEP 9: Article → primitive table renames are now handled by the
+  -- v18 pre-rename block in schema.sql. This block only renames the
+  -- INDEXES that pointed at the old table names (the indexes track
+  -- columns by oid so the rename above doesn't update their names).
   -- ──────────────────────────────────────────────────────────────────
-  ALTER TABLE IF EXISTS guidance_articles            RENAME TO guidance_primitives;
-  ALTER TABLE IF EXISTS node_authoring_articles      RENAME TO neuron_authoring_primitives;
-  ALTER TABLE IF EXISTS org_guidance_articles        RENAME TO org_guidance_primitives;
-  ALTER TABLE IF EXISTS org_node_authoring_articles  RENAME TO org_neuron_authoring_primitives;
+  -- Legacy article-named indexes get dropped — schema.sql already
+  -- created the primitive-named equivalents. Idempotent.
+  DROP INDEX IF EXISTS guidance_articles_doco_idx;
+  DROP INDEX IF EXISTS guidance_articles_lifecycle_idx;
+  DROP INDEX IF EXISTS node_authoring_articles_doco_idx;
+  DROP INDEX IF EXISTS node_authoring_articles_lifecycle_idx;
+  DROP INDEX IF EXISTS org_guidance_articles_org_idx;
+  DROP INDEX IF EXISTS org_guidance_articles_lifecycle_idx;
+  DROP INDEX IF EXISTS org_node_authoring_articles_org_idx;
+  DROP INDEX IF EXISTS org_node_authoring_articles_lifecycle_idx;
 
-  ALTER INDEX IF EXISTS guidance_articles_doco_idx                  RENAME TO guidance_primitives_doco_idx;
-  ALTER INDEX IF EXISTS guidance_articles_lifecycle_idx             RENAME TO guidance_primitives_lifecycle_idx;
-  ALTER INDEX IF EXISTS node_authoring_articles_doco_idx            RENAME TO neuron_authoring_primitives_doco_idx;
-  ALTER INDEX IF EXISTS node_authoring_articles_lifecycle_idx       RENAME TO neuron_authoring_primitives_lifecycle_idx;
-  ALTER INDEX IF EXISTS org_guidance_articles_org_idx               RENAME TO org_guidance_primitives_org_idx;
-  ALTER INDEX IF EXISTS org_guidance_articles_lifecycle_idx         RENAME TO org_guidance_primitives_lifecycle_idx;
-  ALTER INDEX IF EXISTS org_node_authoring_articles_org_idx         RENAME TO org_neuron_authoring_primitives_org_idx;
-  ALTER INDEX IF EXISTS org_node_authoring_articles_lifecycle_idx   RENAME TO org_neuron_authoring_primitives_lifecycle_idx;
-
   -- ──────────────────────────────────────────────────────────────────
-  -- STEP 10: Rename edges → synapses + columns + indexes.
+  -- STEP 10: edges → synapses table + column renames handled by v18.
+  -- Only the index renames remain.
   -- ──────────────────────────────────────────────────────────────────
-  ALTER TABLE IF EXISTS edges RENAME TO synapses;
-  ALTER TABLE IF EXISTS synapses RENAME COLUMN from_node_type   TO from_neuron_type;
-  ALTER TABLE IF EXISTS synapses RENAME COLUMN to_node_type     TO to_neuron_type;
-  ALTER TABLE IF EXISTS synapses RENAME COLUMN edge_type        TO synapse_type;
-  ALTER TABLE IF EXISTS synapses RENAME COLUMN edge_props_json  TO synapse_props_json;
-  ALTER INDEX IF EXISTS edges_doco_idx          RENAME TO synapses_doco_idx;
-  ALTER INDEX IF EXISTS edges_to_idx            RENAME TO synapses_to_idx;
-  ALTER INDEX IF EXISTS edges_from_type_idx     RENAME TO synapses_from_type_idx;
-  ALTER INDEX IF EXISTS edges_type_idx          RENAME TO synapses_type_idx;
-  ALTER INDEX IF EXISTS edges_attribution_idx   RENAME TO synapses_attribution_idx;
-  ALTER INDEX IF EXISTS edges_doco_type_from_idx RENAME TO synapses_doco_type_from_idx;
-  ALTER INDEX IF EXISTS edges_doco_type_to_idx   RENAME TO synapses_doco_type_to_idx;
+  DROP INDEX IF EXISTS edges_doco_idx;
+  DROP INDEX IF EXISTS edges_to_idx;
+  DROP INDEX IF EXISTS edges_from_type_idx;
+  DROP INDEX IF EXISTS edges_type_idx;
+  DROP INDEX IF EXISTS edges_attribution_idx;
+  DROP INDEX IF EXISTS edges_doco_type_from_idx;
+  DROP INDEX IF EXISTS edges_doco_type_to_idx;
 
   -- ──────────────────────────────────────────────────────────────────
   -- STEP 11: Rename node-typed columns on docos.
   -- ──────────────────────────────────────────────────────────────────
-  ALTER TABLE docos RENAME COLUMN allowed_node_types     TO allowed_neuron_types;
-  ALTER TABLE docos RENAME COLUMN default_node_lifecycle TO default_neuron_lifecycle;
+  -- docos column renames (allowed_node_types → allowed_neuron_types,
+  -- default_node_lifecycle → default_neuron_lifecycle) are handled by
+  -- the v18 pre-rename block in schema.sql.
 
   -- ──────────────────────────────────────────────────────────────────
   -- STEP 12: ID-prefix rewrites — primary keys on primitive tables.

@@ -42,6 +42,131 @@ CREATE TABLE IF NOT EXISTS applied_migrations (
   applied_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- v18 pre-rename (migration 005 partner): when an EXISTING DB has the
+-- pre-rename column shape (principal_id, by_principal, edge_type, etc.),
+-- rename in place so the CREATE TABLE / CREATE INDEX statements below
+-- (which reference the new names) don't fail on the upgrade boot. On a
+-- fresh DB the old names don't exist; each guard is a no-op.
+--
+-- Migration 005 still runs (after schema.sql, see client.ts) and handles
+-- the rest of the work: ID-prefix rewrites, raw_yaml transforms, FTS
+-- split, principal/collaborator data migration. This block just gets
+-- the column shape ahead of the baseline schema.
+DO $v18_pre_rename$
+BEGIN
+  -- Column renames on existing membership / OAuth / audit tables.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'org_users' AND column_name = 'principal_id'
+  ) THEN
+    ALTER TABLE org_users RENAME COLUMN principal_id TO collaborator_id;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'doco_users' AND column_name = 'principal_id'
+  ) THEN
+    ALTER TABLE doco_users RENAME COLUMN principal_id TO collaborator_id;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'oauth_authorization_codes' AND column_name = 'principal_id'
+  ) THEN
+    ALTER TABLE oauth_authorization_codes RENAME COLUMN principal_id TO collaborator_id;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'oauth_access_tokens' AND column_name = 'principal_id'
+  ) THEN
+    ALTER TABLE oauth_access_tokens RENAME COLUMN principal_id TO collaborator_id;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'oauth_refresh_tokens' AND column_name = 'principal_id'
+  ) THEN
+    ALTER TABLE oauth_refresh_tokens RENAME COLUMN principal_id TO collaborator_id;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'oauth_device_authorizations' AND column_name = 'principal_id'
+  ) THEN
+    ALTER TABLE oauth_device_authorizations RENAME COLUMN principal_id TO collaborator_id;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'audit_events' AND column_name = 'by_principal'
+  ) THEN
+    ALTER TABLE audit_events RENAME COLUMN by_principal TO by_collaborator;
+  END IF;
+
+  -- Table renames so subsequent CREATE TABLE IF NOT EXISTS doesn't
+  -- create empty new-named tables alongside the populated old ones.
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'edges') THEN
+    ALTER TABLE edges RENAME TO synapses;
+    -- Column renames within the renamed table.
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'synapses' AND column_name = 'from_node_type'
+    ) THEN
+      ALTER TABLE synapses RENAME COLUMN from_node_type TO from_neuron_type;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'synapses' AND column_name = 'to_node_type'
+    ) THEN
+      ALTER TABLE synapses RENAME COLUMN to_node_type TO to_neuron_type;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'synapses' AND column_name = 'edge_type'
+    ) THEN
+      ALTER TABLE synapses RENAME COLUMN edge_type TO synapse_type;
+    END IF;
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'synapses' AND column_name = 'edge_props_json'
+    ) THEN
+      ALTER TABLE synapses RENAME COLUMN edge_props_json TO synapse_props_json;
+    END IF;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_articles') THEN
+    ALTER TABLE guidance_articles RENAME TO guidance_primitives;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'node_authoring_articles') THEN
+    ALTER TABLE node_authoring_articles RENAME TO neuron_authoring_primitives;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_guidance_articles') THEN
+    ALTER TABLE org_guidance_articles RENAME TO org_guidance_primitives;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_node_authoring_articles') THEN
+    ALTER TABLE org_node_authoring_articles RENAME TO org_neuron_authoring_primitives;
+  END IF;
+
+  -- docos column renames.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'docos' AND column_name = 'allowed_node_types'
+  ) THEN
+    ALTER TABLE docos RENAME COLUMN allowed_node_types TO allowed_neuron_types;
+  END IF;
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'docos' AND column_name = 'default_node_lifecycle'
+  ) THEN
+    ALTER TABLE docos RENAME COLUMN default_node_lifecycle TO default_neuron_lifecycle;
+  END IF;
+
+  -- Drop old OAuth-only columns from principals (the slim Principal
+  -- only carries role/persona fields; OAuth identity moves to the new
+  -- `collaborators` table created below). Migration 005 handles the
+  -- data move (read existing rows → INSERT INTO collaborators) before
+  -- this DO block fires on the next boot; this block just brings the
+  -- schema in line if for some reason the column survived.
+  -- Note: this happens AFTER migration 005 runs in normal operation
+  -- because migration 005 reads from these columns. The IF EXISTS
+  -- guards make re-runs safe.
+END
+$v18_pre_rename$;
+
 -- v9 rename: per the constitution's "use 'user' as the inclusive term"
 -- rule, the membership tables drop the legacy "_members" suffix and read
 -- as "_users". Tables, indexes, and CHECK constraints rename in one
