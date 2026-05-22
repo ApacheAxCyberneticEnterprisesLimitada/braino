@@ -23,3 +23,4 @@ export * from "./url-conventions.js";
 export * from "./loaded-doco.js";
 export * from "./refs.js";
 export * from "./validate.js";
+export * from "./authoring-evaluator.js";
