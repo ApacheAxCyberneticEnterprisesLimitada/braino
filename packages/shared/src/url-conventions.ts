@@ -9,7 +9,7 @@
  * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`).
  */
 
-import { ENTITY_TYPES as BRANDED_ENTITY_TYPES, type EntityType } from "./branded.js";
+import type { EntityType } from "./branded.js";
 
 /**
  * Top-level path segments that exist as host routes. A doco's
@@ -48,17 +48,11 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
 
 /**
  * Entity types — used as URL segments in the short form.
- * Re-exported from branded.ts so there's one source of truth.
+ * Source of truth lives in branded.ts. The barrel re-exports both
+ * `ENTITY_TYPES` and `isEntityType` from there; url-conventions itself
+ * doesn't re-export to avoid duplicate-export ambiguity.
  */
-export const ENTITY_TYPES = BRANDED_ENTITY_TYPES;
-
 export type { EntityType };
-
-const ENTITY_TYPES_SET: ReadonlySet<string> = new Set(ENTITY_TYPES);
-
-export function isEntityType(s: string): s is EntityType {
-  return ENTITY_TYPES_SET.has(s);
-}
 
 /**
  * URL builders accept the current `docoHandle`, the legacy

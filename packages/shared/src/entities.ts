@@ -16,7 +16,7 @@
  * `decided_by` continue to reference principals (the role-personas).
  */
 
-import type { EntityId, NeuronType, PrimitiveType } from "./branded.js";
+import type { EntityId, NeuronType } from "./branded.js";
 
 export type Lifecycle =
   | "drafted"
