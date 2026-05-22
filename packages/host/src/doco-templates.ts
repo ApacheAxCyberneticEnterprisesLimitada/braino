@@ -579,10 +579,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
     defaultNeuronLifecycle: "drafted",
-    // Ship the BPMN perspective pre-attached so a freshly-created
-    // business-processes Doco renders with swim lanes immediately.
-    // Graph + list defaults are always attached on top.
-    perspectives: [{ slug: "bpmn" }],
+    // Ship the BPMN perspective pre-attached and as the default tab,
+    // so a freshly-created business-processes Doco opens directly on
+    // the swim-lane view (where the template's authoring rules are
+    // most naturally visible). Graph + list defaults are still
+    // attached behind it.
+    perspectives: [{ slug: "bpmn", isDefault: true }],
     primitives: [
       // ── Membership ──────────────────────────────────────────────
       {
