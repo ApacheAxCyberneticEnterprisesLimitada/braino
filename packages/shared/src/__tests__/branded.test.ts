@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isEntityId,
   isEntityIdOf,
-  isNodeType,
+  isEntityType,
   isUlid,
   makeEntityId,
   parseEntityId,
@@ -57,7 +57,7 @@ describe("isEntityIdOf", () => {
   });
 });
 
-describe("isNodeType", () => {
+describe("isEntityType", () => {
   it("accepts every known kind", () => {
     for (const t of [
       "doco",
@@ -66,21 +66,21 @@ describe("isNodeType", () => {
       "intent",
       "idea",
       "rule",
-      "guidance_article",
-      "node_authoring_article",
+      "guidance_primitive",
+      "neuron_authoring_primitive",
       "decision",
       "action",
       "eval",
       "reference",
     ]) {
-      expect(isNodeType(t)).toBe(true);
+      expect(isEntityType(t)).toBe(true);
     }
   });
 
   it("rejects unknown kinds", () => {
-    expect(isNodeType("widget")).toBe(false);
-    expect(isNodeType("tag")).toBe(false);
-    expect(isNodeType("scope")).toBe(false);
+    expect(isEntityType("widget")).toBe(false);
+    expect(isEntityType("tag")).toBe(false);
+    expect(isEntityType("scope")).toBe(false);
   });
 });
 

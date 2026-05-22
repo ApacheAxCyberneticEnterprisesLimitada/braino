@@ -5,7 +5,7 @@
 // source-of-truth (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids
 // back-compat).
 
-import type { EntityId, NodeType } from "./branded.js";
+import type { EntityId, EntityType } from "./branded.js";
 import type { Doco, Entity } from "./entities.js";
 
 export type LoadedEntitySourceFormat = "postgres" | "yaml" | "md" | "json";
@@ -34,6 +34,6 @@ export interface LoadedDoco {
   root: string;
   doco: Doco;
   entities: Map<EntityId, LoadedEntity>;
-  byType: Map<NodeType, LoadedEntity[]>;
+  byType: Map<EntityType, LoadedEntity[]>;
   failures: LoadFailure[];
 }

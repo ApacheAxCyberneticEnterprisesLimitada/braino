@@ -4,20 +4,20 @@ import { parseEntityContent, serializeEntityContent } from "../files.js";
 describe("parseEntityContent", () => {
   it("parses YAML files into a data record", () => {
     const yaml = `id: tag_01KR441EA37E3M5V0ZV6ZRB97D
-node_type: tag
+entity_type: tag
 name: tag_adr
 `;
     const parsed = parseEntityContent(yaml, "yaml");
     expect(parsed.format).toBe("yaml");
     expect(parsed.body).toBe("");
     expect(parsed.data.id).toBe("tag_01KR441EA37E3M5V0ZV6ZRB97D");
-    expect(parsed.data.node_type).toBe("tag");
+    expect(parsed.data.entity_type).toBe("tag");
   });
 
   it("parses Markdown frontmatter + body", () => {
     const md = `---
 id: decision_01KR441EAMKYKCEBSEYHGJ8M3Z
-node_type: decision
+entity_type: decision
 summary: Optimization priority order
 ---
 
@@ -31,7 +31,7 @@ summary: Optimization priority order
   });
 
   it("parses JSON files generically", () => {
-    const json = `{"id": "rule_01KR441EA37E3M5V0ZV6ZRB97D", "node_type": "rule", "result": "pass"}`;
+    const json = `{"id": "rule_01KR441EA37E3M5V0ZV6ZRB97D", "entity_type": "rule", "result": "pass"}`;
     const parsed = parseEntityContent(json, "json");
     expect(parsed.data.result).toBe("pass");
   });
@@ -40,7 +40,7 @@ summary: Optimization priority order
 describe("serializeEntityContent", () => {
   it("round-trips a Markdown entity", () => {
     const input = {
-      data: { id: "decision_01KR441EAMKYKCEBSEYHGJ8M3Z", node_type: "decision" as const },
+      data: { id: "decision_01KR441EAMKYKCEBSEYHGJ8M3Z", entity_type: "decision" as const },
       body: "# Body content\n",
       format: "md" as const,
     };
@@ -55,7 +55,7 @@ describe("serializeEntityContent", () => {
 
   it("round-trips a YAML entity", () => {
     const input = {
-      data: { id: "tag_01KR441EA37E3M5V0ZV6ZRB97D", node_type: "tag" as const, name: "tag_adr" },
+      data: { id: "tag_01KR441EA37E3M5V0ZV6ZRB97D", entity_type: "tag" as const, name: "tag_adr" },
       body: "",
       format: "yaml" as const,
     };
