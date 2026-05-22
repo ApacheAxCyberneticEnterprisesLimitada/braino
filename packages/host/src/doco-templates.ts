@@ -12,30 +12,31 @@
  * Each template ships:
  * - `description` — the description text rendered in the picker and
  *   bootstrap manifest.
- * - `articles` — at install time entries seed
- *   constitution articles: prose-only entries become guidance_primitives;
+ * - `primitives` — at install time entries seed constitution
+ *   primitives: prose-only entries become guidance_primitives;
  *   predicate-bearing entries become neuron_authoring_primitives.
  * - `allowedNeuronTypes` (optional) — a Doco-level allowlist. `global`
- *   ships with constitution article types so the Doco's constitution is
- *   kept separate from domain Rule nodes.
+ *   ships with constitution primitive types so the Doco's constitution
+ *   is kept separate from domain Rule neurons.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
- * articles "authoring" explicitly. Templates now store those
- * meta-constraints as Constitution Articles instead of overloading Rule.
+ * primitives "authoring" explicitly. Templates now store those
+ * meta-constraints as Constitution Primitives instead of overloading
+ * Rule.
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
-export interface TemplateArticle {
+export interface TemplatePrimitive {
   /**
-   * Article kind on the seeded Constitution Article. Optional — defaults to
-   * "tagged" when `predicate` is set, "guidance" otherwise. v7 dropped
-   * "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
+   * Primitive kind on the seeded Constitution Primitive. Optional —
+   * defaults to "tagged" when `predicate` is set, "guidance" otherwise.
+   * v7 dropped "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
    */
   kind?: "guidance" | "tagged";
-  /** Human-authored prose. For predicate-bearing articles this is the
-   * reason text accompanying the structured check. For guidance articles
-   * this is the article body. */
+  /** Human-authored prose. For predicate-bearing primitives this is the
+   * reason text accompanying the structured check. For guidance
+   * primitives this is the primitive body. */
   summary: string;
   /**
    * Engine-readable predicate. When set, the seeder creates a
@@ -43,14 +44,14 @@ export interface TemplateArticle {
    */
   predicate?: AuthoringPredicate;
   /**
-   * v7: when set, the engine only fires this article against candidates
-   * whose `lifecycle` is in the list. Used by completeness rules that
-   * skip drafted nodes during mid-construction.
+   * v7: when set, the engine only fires this primitive against
+   * candidates whose `lifecycle` is in the list. Used by completeness
+   * rules that skip drafted neurons during mid-construction.
    */
   fires_when_neuron_lifecycle?: Lifecycle[];
   /**
-   * Optional markdown body. Renders alongside the summary on the article
-   * detail page.
+   * Optional markdown body. Renders alongside the summary on the
+   * primitive detail page.
    */
   body_md?: string;
 }
@@ -63,11 +64,11 @@ export interface DocoTemplate {
   icon: string;
   /** Description text rendered in picker and bootstrap surfaces. */
   description: string;
-  /** Atomic constitution articles seeded at install time. */
-  articles: TemplateArticle[];
+  /** Atomic constitution primitives seeded at install time. */
+  primitives: TemplatePrimitive[];
   /**
-   * Doco-level allowlist for captured node types. `global` keeps the
-   * constitution pure by accepting only constitution article nodes.
+   * Doco-level allowlist for captured neuron types. `global` keeps the
+   * constitution pure by accepting only constitution primitive types.
    */
   allowedNeuronTypes?: (
     | "decision"
@@ -105,7 +106,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Your doco's constitution — guidance primitives and neuron-authoring primitives that govern how contributors work.",
     allowedNeuronTypes: ["guidance_primitive", "neuron_authoring_primitive"],
-    articles: [
+    primitives: [
       {
         kind: "guidance",
         summary:
@@ -130,17 +131,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "⭐",
     description:
       "Important doco-wide decisions that don't naturally fit a more specific subject area.",
-    articles: [],
+    primitives: [],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
     // collapses from six guidance rules to deterministic authoring
-    // articles + a concise summary for picker/manifest surfaces.
+    // primitives + a concise summary for picker/manifest surfaces.
     name: "user-flows",
     label: "user-flows",
     icon: "🌊",
     description: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
-    articles: [
+    primitives: [
       {
         // Membership check: probabilistic semantic gate, with a
         // deterministic node-type allowlist that excludes Rule. Rules
@@ -246,16 +247,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7): formal state-machine
     // modeling. The template is pure data: atomic constitution
-    // articles plus Doco-level defaults. Framework primitives the
-    // rules use: State node + triggered_by / gated_by synapses + drafted
-    // lifecycle + defaultNeuronLifecycle.
+    // primitives plus Doco-level defaults. Framework primitives the
+    // rules use: State neuron + triggered_by / gated_by synapses +
+    // drafted lifecycle + defaultNeuronLifecycle.
     name: "state-machines",
     label: "state-machines",
     icon: "🔁",
     description:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
     defaultNeuronLifecycle: "drafted",
-    articles: [
+    primitives: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
         // D1 — Idea and Log have their own homes elsewhere.
@@ -406,23 +407,23 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Executable tests inspired by TDD and AI evals. Each Eval pins one
-    // checkable claim about a Decision, Article, Action, or other
-    // load-bearing node; the template seeds the constitution articles
-    // that govern how those Evals are authored. Opt-in (not
-    // auto-installed) — projects that want test add it explicitly.
+    // checkable claim about a Decision, Primitive, Action, or other
+    // load-bearing neuron; the template seeds the constitution
+    // primitives that govern how those Evals are authored. Opt-in
+    // (not auto-installed) — projects that want test add it explicitly.
     name: "test",
     label: "Tests",
     icon: "🧪",
     description:
       "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
     defaultNeuronLifecycle: "drafted",
-    articles: [
+    primitives: [
       // ── Deterministic structural gates ──
       {
         // D1 — content-type gate. Evals belong here; constitution
-        // articles seeded by this template live alongside them.
+        // primitives seeded by this template live alongside them.
         summary:
-          "Only Eval and constitution-article nodes (guidance_primitive, neuron_authoring_primitive) belong to test. Domain content lives in its own Doco.",
+          "Only Eval neurons and constitution primitives (guidance_primitive, neuron_authoring_primitive) belong to test. Domain content lives in its own Doco.",
         predicate: {
           kind: "requires_entity_type",
           entity_types: ["eval", "guidance_primitive", "neuron_authoring_primitive"],
@@ -554,7 +555,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
     defaultNeuronLifecycle: "drafted",
-    articles: [
+    primitives: [
       // ── Membership ──────────────────────────────────────────────
       {
         // Probabilistic semantic gate. Rule nodes are exempt because

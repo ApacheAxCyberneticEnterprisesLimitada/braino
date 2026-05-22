@@ -565,9 +565,9 @@ export async function createDocoInOrg(opts: {
     // owner_id is still NOT NULL on the legacy schema; populate it
     // alongside org_id so existing readers keep working.
     // v15: template-driven Doco creation. The picked template seeds
-    // constitution articles + sets the doco-level `allowed_neuron_types`
-    // and `default_neuron_lifecycle` columns. `generic` (or unknown
-    // handle) seeds nothing.
+    // constitution primitives + sets the doco-level
+    // `allowed_neuron_types` and `default_neuron_lifecycle` columns.
+    // `generic` (or unknown handle) seeds nothing.
     const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
     const allowedNeuronTypes = template?.allowedNeuronTypes ?? null;
     const defaultNeuronLifecycle = template?.defaultNeuronLifecycle ?? null;
@@ -600,29 +600,31 @@ export async function createDocoInOrg(opts: {
        ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = 'owner'`,
       [docoId, opts.createdByPrincipalId, created],
     );
-    // Seed each template article as a Constitution Article. Prose-only
-    // entries become guidance_primitives; predicate-bearing entries become
-    // neuron_authoring_primitives. Domain Rule nodes stay available for
-    // project/business constraints.
-    if (template && template.articles.length > 0) {
-      for (const article of template.articles) {
-        const isAuthoring = Boolean(article.predicate);
-        const firesWhen = Array.isArray(article.fires_when_neuron_lifecycle)
-          ? article.fires_when_neuron_lifecycle
+    // Seed each template primitive as a Constitution Primitive.
+    // Prose-only entries become guidance_primitives; predicate-bearing
+    // entries become neuron_authoring_primitives. Domain Rule neurons
+    // stay available for project/business constraints.
+    if (template && template.primitives.length > 0) {
+      for (const primitive of template.primitives) {
+        const isAuthoring = Boolean(primitive.predicate);
+        const firesWhen = Array.isArray(primitive.fires_when_neuron_lifecycle)
+          ? primitive.fires_when_neuron_lifecycle
           : [];
         const entityType = isAuthoring ? "neuron_authoring_primitive" : "guidance_primitive";
         const table = isAuthoring ? "neuron_authoring_primitives" : "guidance_primitives";
-        const articleId = `${entityType}_${generateUlid()}`;
-        const articleYaml: Record<string, unknown> = {
-          id: articleId,
+        const primitiveId = `${entityType}_${generateUlid()}`;
+        const primitiveYaml: Record<string, unknown> = {
+          id: primitiveId,
           doco_id: docoId,
-                    primitive_kind: isAuthoring ? "neuron_authoring" : "guidance",
-          summary: article.summary,
-          ...(article.predicate
+          primitive_kind: isAuthoring ? "neuron_authoring" : "guidance",
+          summary: primitive.summary,
+          ...(primitive.predicate
             ? {
                 evaluation_kind:
-                  article.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
-                predicate: article.predicate,
+                  primitive.predicate.kind === "probabilistic"
+                    ? "probabilistic"
+                    : "deterministic",
+                predicate: primitive.predicate,
                 on_violation: "block",
               }
             : {}),
@@ -639,17 +641,17 @@ export async function createDocoInOrg(opts: {
                                 created_at, updated_at, created_by, updated_by)
              VALUES ($1, $2, $3, $4, $5, 'active', $6, $6, $7, $7)`,
             [
-              articleId,
+              primitiveId,
               docoId,
-              article.summary,
-              JSON.stringify(articleYaml),
-              article.body_md ?? "",
+              primitive.summary,
+              JSON.stringify(primitiveYaml),
+              primitive.body_md ?? "",
               created,
               opts.createdByPrincipalId,
             ],
           );
         } catch {
-          // ignore — one bad rule shouldn't fail the doco create.
+          // ignore — one bad primitive shouldn't fail the doco create.
         }
       }
     }

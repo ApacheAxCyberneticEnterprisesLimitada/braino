@@ -29,8 +29,8 @@ describe("business-processes template", () => {
     expect(template.allowedNeuronTypes).toBeUndefined();
   });
 
-  describe("node-type allowlist", () => {
-    const allowlist = template.articles.find(
+  describe("neuron-type allowlist", () => {
+    const allowlist = template.primitives.find(
       (r) => r.predicate?.kind === "requires_neuron_type",
     )?.predicate;
 
@@ -51,7 +51,7 @@ describe("business-processes template", () => {
 
   describe("requires_field rules", () => {
     function requiresField(field: string, entityType: string) {
-      return template.articles.find(
+      return template.primitives.find(
         (r) =>
           r.predicate?.kind === "requires_field" &&
           r.predicate.fields.includes(field) &&
@@ -81,7 +81,7 @@ describe("business-processes template", () => {
 
   describe("requires_synapse rules", () => {
     function requiresEdge(synapseType: string, target: string, on: string) {
-      return template.articles.find(
+      return template.primitives.find(
         (r) =>
           r.predicate?.kind === "requires_synapse" &&
           r.predicate.synapse_type === synapseType &&
@@ -99,7 +99,7 @@ describe("business-processes template", () => {
   });
 
   describe("actor_id principal resolution", () => {
-    const rule = template.articles.find(
+    const rule = template.primitives.find(
       (r) => r.predicate?.kind === "requires_field_resolves_to_principal",
     );
 
@@ -125,7 +125,7 @@ describe("business-processes template", () => {
     // Aggregate predicates that originally encoded these rules ship as
     // guidance until the evaluator can express them directly. The tests
     // below match the guidance summaries' shape rather than predicate kinds.
-    const guidanceSummaries = template.articles
+    const guidanceSummaries = template.primitives
       .filter((r) => r.kind === "guidance" && !r.predicate)
       .map((r) => r.summary);
 
@@ -153,7 +153,7 @@ describe("business-processes template", () => {
   });
 
   describe("graph-completeness coverage rule", () => {
-    const rule = template.articles.find((r) => r.predicate?.kind === "graph-completeness");
+    const rule = template.primitives.find((r) => r.predicate?.kind === "graph-completeness");
 
     it("wires Intent.actors → Action.actor_id via `serves`", () => {
       expect(rule?.predicate?.kind).toBe("graph-completeness");
@@ -171,10 +171,10 @@ describe("business-processes template", () => {
   });
 
   describe("probabilistic specs cover process-critical claims", () => {
-    const specs = template.articles
+    const specs = template.primitives
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.articles.map((r) => r.summary);
+    const summaries = template.primitives.map((r) => r.summary);
     const haystack = [...specs, ...summaries].join("\n");
 
     it("exhaustive gateway / branches", () => {
@@ -196,7 +196,7 @@ describe("business-processes template", () => {
   });
 
   describe("guidance rules", () => {
-    const guidance = template.articles.filter((r) => r.kind === "guidance" && !r.predicate);
+    const guidance = template.primitives.filter((r) => r.kind === "guidance" && !r.predicate);
     const summaries = guidance.map((r) => r.summary);
 
     it("happy-path-first ordering", () => {
@@ -220,7 +220,7 @@ describe("business-processes template", () => {
   });
 
   describe("membership probabilistic gate", () => {
-    const gate = template.articles.find(
+    const gate = template.primitives.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.spec.includes("business-processes") &&
