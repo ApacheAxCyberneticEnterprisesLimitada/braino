@@ -17,6 +17,7 @@ import {
   listOrganizations,
   listPrincipals,
   resolveOwnerSlug,
+  softDeleteDoco,
 } from "../index.js";
 
 let tmp: string;
@@ -197,6 +198,28 @@ describe("host lifecycle", () => {
     expect(list.length).toBe(2);
     expect(list.find((r) => r.ownerSlug === "alice")?.ownerKind).toBe("principal");
     expect(list.find((r) => r.ownerSlug === "anthropic")?.ownerKind).toBe("organization");
+  });
+
+  it("softDeleteDoco accepts a route docoSlug that is already the full handle", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "demo" });
+
+    await softDeleteDoco({ root, ownerSlug: "alice", docoSlug: rec.handle });
+
+    expect((await listDocos(root)).some((doco) => doco.docoId === rec.docoId)).toBe(false);
+  });
+
+  it("softDeleteDoco deletes by immutable Doco id", async () => {
+    const root = join(tmp, "host");
+    await createHost(root, { name: "Test" });
+    await addPrincipal(root, { username: "alice" });
+    const rec = await createDocoInHost(root, { ownerSlug: "alice", docoSlug: "stable" });
+
+    await softDeleteDoco({ docoId: rec.docoId, handle: rec.handle });
+
+    expect((await listDocos(root)).some((doco) => doco.docoId === rec.docoId)).toBe(false);
   });
 
   it("resolveOwnerSlug returns the right kind", async () => {

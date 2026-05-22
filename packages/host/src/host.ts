@@ -1033,20 +1033,47 @@ export async function renameDocoHandle(opts: {
  * every entity and edge tied to the Doco.
  */
 export async function softDeleteDoco(opts: {
-  root: string;
-  ownerSlug: string;
-  docoSlug: string;
+  root?: string;
+  ownerSlug?: string;
+  docoSlug?: string;
+  handle?: string;
+  docoId?: string;
 }): Promise<{ deletedPath: string }> {
-  const { ownerSlug, docoSlug } = opts;
-  const handle = `${ownerSlug}-${docoSlug}`;
   const { withClient } = await import("@doco/db");
-  const result = await withClient((c) =>
-    c.query("DELETE FROM docos WHERE handle = $1 RETURNING id", [handle]),
-  );
-  if (result.rowCount === 0) {
-    throw new Error(`Doco "${handle}" not found.`);
+
+  let label: string;
+  let result: { rowCount: number | null; rows: Array<{ id: string; handle: string }> };
+  if (opts.docoId) {
+    label = opts.docoId;
+    result = await withClient((c) =>
+      c.query<{ id: string; handle: string }>(
+        "DELETE FROM docos WHERE id = $1 RETURNING id, handle",
+        [opts.docoId],
+      ),
+    );
+  } else {
+    const handle =
+      opts.handle ??
+      (opts.ownerSlug && opts.docoSlug
+        ? opts.docoSlug.startsWith(`${opts.ownerSlug}-`)
+          ? opts.docoSlug
+          : `${opts.ownerSlug}-${opts.docoSlug}`
+        : opts.docoSlug);
+    if (!handle) throw new Error("Doco id or handle is required.");
+    label = handle;
+    result = await withClient((c) =>
+      c.query<{ id: string; handle: string }>(
+        "DELETE FROM docos WHERE handle = $1 RETURNING id, handle",
+        [handle],
+      ),
+    );
   }
-  return { deletedPath: `postgres:docos/${handle}` };
+
+  if (result.rowCount === 0) {
+    throw new Error(`Doco "${label}" not found.`);
+  }
+  const deleted = result.rows[0];
+  return { deletedPath: `postgres:docos/${deleted.handle}` };
 }
 
 export async function listDocos(root: string): Promise<DocoRecord[]> {
