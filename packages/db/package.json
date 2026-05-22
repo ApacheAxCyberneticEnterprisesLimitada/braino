@@ -16,9 +16,9 @@
   "sideEffects": false,
   "files": ["dist", "src/schema.sql", "migrations"],
   "scripts": {
-    "build": "tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run --passWithNoTests"
+    "build": "node scripts/embed-schema.mjs && tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
+    "typecheck": "node scripts/embed-schema.mjs && tsc -p tsconfig.json --noEmit",
+    "test": "node scripts/embed-schema.mjs && vitest run --passWithNoTests"
   },
   "dependencies": {
     "@doco/shared": "workspace:*",

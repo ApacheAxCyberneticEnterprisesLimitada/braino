@@ -3,19 +3,19 @@
 // DATABASE_URL reads from env (or override via opts). Defaults to the
 // Phase 2 dev container at postgres://postgres:doco@127.0.0.1:5433/doco.
 //
-// node:* imports + ./migrations.js live inside dynamic imports so the
-// barrel that's pulled into web route bundles doesn't drag node-only
-// modules into the browser graph. vite/rollup statically follow every
-// top-level import; deferring these to runtime means the browser
-// bundle never sees `node:fs` / `node:path` / etc.
+// schema.sql + every migrations/*.sql are bundled into JS strings by
+// scripts/embed-schema.mjs (regenerated at build time into
+// src/schema-embedded.ts). This sidesteps Vercel's serverless function
+// packaging dropping sibling .sql files and avoids static node:fs
+// imports that vite/rollup would drag into browser graphs.
 
 import pg from "pg";
+import { SCHEMA_SQL } from "./schema-embedded.js";
 
 const { Pool } = pg;
 
 let _pool: pg.Pool | null = null;
 let _schemaReady: Promise<void> | null = null;
-let _schemaSql: string | null = null;
 
 export function getPool(): pg.Pool {
   if (_pool) return _pool;
@@ -60,46 +60,13 @@ export async function withTransaction<T>(fn: (c: pg.PoolClient) => Promise<T>): 
   });
 }
 
-async function readSchemaSql(): Promise<string> {
-  if (_schemaSql) return _schemaSql;
-  const { readFileSync } = await import(/* @vite-ignore */ "node:fs");
-  const { dirname, join, resolve } = await import(/* @vite-ignore */ "node:path");
-  const { fileURLToPath } = await import(/* @vite-ignore */ "node:url");
-  const here = dirname(fileURLToPath(import.meta.url));
-  const cwd = process.cwd();
-  const candidates = [
-    join(here, "schema.sql"),
-    join(here, "..", "src", "schema.sql"),
-    // Vercel serverless layout: the bundled module ends up under
-    // `/var/task/packages/web/build/server/.../assets/<bundle>.js` but
-    // the schema.sql is copied to a sibling `assets/schema.sql` of the
-    // SAME chunk dir. `here` should match — these extra candidates are
-    // defensive fallbacks if the runtime resolves `import.meta.url`
-    // differently from the file's on-disk location.
-    resolve(cwd, "packages/web/build/server/nodejs_eyJydW50aW1lIjoibm9kZWpzIn0/assets/schema.sql"),
-    resolve(cwd, "packages/db/dist/schema.sql"),
-    resolve(cwd, "packages/db/src/schema.sql"),
-  ];
-  for (const c of candidates) {
-    try {
-      _schemaSql = readFileSync(c, "utf8");
-      return _schemaSql;
-    } catch {}
-  }
-  throw new Error(
-    `Could not locate schema.sql alongside @doco/db build. ` +
-      `tried=${JSON.stringify(candidates)} here=${here} cwd=${cwd}`,
-  );
-}
-
 async function applySchema(): Promise<void> {
-  const sql = await readSchemaSql();
   const c = await getPool().connect();
   try {
-    await c.query(sql);
-    // Indirect specifier so vite/rollup can't statically resolve and
-    // bundle migrations.ts (which uses node:fs / node:path / etc.) into
-    // browser graphs that pull from the @doco/db barrel.
+    await c.query(SCHEMA_SQL);
+    // Indirect specifier so vite/rollup can't trace migrations.ts (the
+    // module that runs the embedded migrations) into the browser graph
+    // through the @doco/db barrel.
     const migrationsPath = `./${"migrations"}.js`;
     const { applyMigrations } = (await import(/* @vite-ignore */ migrationsPath)) as typeof import(
       "./migrations.js"

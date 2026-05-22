@@ -7,66 +7,36 @@
 // `NNN_short_name.sql` under `packages/db/migrations/` instead. Each
 // migration runs once; if it must be idempotent (e.g. picks up legacy state)
 // say so in the filename + a comment at the top.
+//
+// scripts/embed-schema.mjs bundles every migrations/*.sql into JS strings
+// in `./schema-embedded.ts`; this module reads from that array rather
+// than walking the filesystem at runtime. Sidesteps Vercel's serverless
+// function packaging dropping sibling .sql files.
 
-import { readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { PoolClient } from "pg";
-
-const MIGRATIONS_DIRNAME = "migrations";
-const FILE_PATTERN = /^(\d{3,})_[a-z0-9_]+\.sql$/i;
-
-interface MigrationFile {
-  id: string;
-  path: string;
-}
-
-function locateMigrationsDir(): string | null {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const candidates = [
-    // Production-bundled location: the vite plugin copies migrations
-    // alongside the bundled migrations.js.
-    join(here, MIGRATIONS_DIRNAME),
-    // tsx / dev: package source layout.
-    join(here, "..", MIGRATIONS_DIRNAME),
-    join(here, "..", "..", MIGRATIONS_DIRNAME),
-  ];
-  for (const c of candidates) {
-    try {
-      readdirSync(c);
-      return c;
-    } catch {}
-  }
-  return null;
-}
-
-function listMigrationFiles(): MigrationFile[] {
-  const dir = locateMigrationsDir();
-  if (!dir) return [];
-  const entries = readdirSync(dir).filter((name) => FILE_PATTERN.test(name));
-  entries.sort();
-  return entries.map((name) => ({ id: name.replace(/\.sql$/i, ""), path: join(dir, name) }));
-}
+import { type EmbeddedMigration, MIGRATIONS } from "./schema-embedded.js";
 
 export async function applyMigrations(c: PoolClient): Promise<void> {
-  const files = listMigrationFiles();
-  if (files.length === 0) return;
+  if (MIGRATIONS.length === 0) return;
 
   const applied = new Set(
     (await c.query<{ id: string }>("SELECT id FROM applied_migrations")).rows.map((r) => r.id),
   );
 
-  for (const file of files) {
+  for (const file of MIGRATIONS) {
     if (applied.has(file.id)) continue;
-    const sql = readFileSync(file.path, "utf8");
-    await c.query("BEGIN");
-    try {
-      await c.query(sql);
-      await c.query("INSERT INTO applied_migrations (id) VALUES ($1)", [file.id]);
-      await c.query("COMMIT");
-    } catch (err) {
-      await c.query("ROLLBACK");
-      throw new Error(`Migration ${file.id} failed: ${(err as Error).message}`);
-    }
+    await runOne(c, file);
+  }
+}
+
+async function runOne(c: PoolClient, file: EmbeddedMigration): Promise<void> {
+  await c.query("BEGIN");
+  try {
+    await c.query(file.sql);
+    await c.query("INSERT INTO applied_migrations (id) VALUES ($1)", [file.id]);
+    await c.query("COMMIT");
+  } catch (err) {
+    await c.query("ROLLBACK");
+    throw new Error(`Migration ${file.id} failed: ${(err as Error).message}`);
   }
 }
