@@ -65,8 +65,6 @@ beforeEach(async () => {
         rules,
         guidance_primitives,
         neuron_authoring_primitives,
-        org_guidance_primitives,
-        org_neuron_authoring_primitives,
         actions,
         logs,
         evals,

@@ -425,10 +425,9 @@ CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_doco_idx
 CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_lifecycle_idx
   ON neuron_authoring_primitives (doco_id, lifecycle);
 
--- Org-level constitution articles. Mirror the per-Doco shape but key on
--- `org_id` instead of `doco_id`. An org's constitution applies to every
--- Doco it owns, so the agent bootstrap aggregates these alongside the
--- per-Doco constitutions for any org/doco the caller can read.
+-- Legacy org-level primitive tables. They are created here only so older
+-- one-shot migrations can run on fresh databases; migration 011 drops them
+-- from the live schema because primitives are Doco-scoped only.
 CREATE TABLE IF NOT EXISTS org_guidance_primitives (
   id          text PRIMARY KEY,
   org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -585,9 +584,8 @@ CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DE
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_collaborator_idx ON audit_events (by_collaborator, at DESC);
 
--- Org-scope audit events: org constitutions are first-class node-like
--- entries (audit-tracked even though they don't live in a Doco). For
--- those rows, `org_id` is set and `doco_id` is NULL.
+-- Org-scope audit events. For those rows, `org_id` is set and `doco_id`
+-- is NULL.
 ALTER TABLE audit_events
   ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE CASCADE;
 ALTER TABLE audit_events ALTER COLUMN doco_id DROP NOT NULL;

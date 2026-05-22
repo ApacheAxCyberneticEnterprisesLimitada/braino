@@ -21,16 +21,14 @@ export const NEURON_TABLES: Record<string, { table: string; body: boolean }> = {
   principal: { table: "principals", body: true },
 };
 
-/** The 2 primitive types (constitution metadata). Per-Doco and per-org variants. */
-export const PRIMITIVE_TABLES: Record<string, { docoTable: string; orgTable: string; body: boolean }> = {
+/** The 2 primitive types (constitution metadata). Primitives are always Doco-scoped. */
+export const PRIMITIVE_TABLES: Record<string, { table: string; body: boolean }> = {
   guidance_primitive: {
-    docoTable: "guidance_primitives",
-    orgTable: "org_guidance_primitives",
+    table: "guidance_primitives",
     body: true,
   },
   neuron_authoring_primitive: {
-    docoTable: "neuron_authoring_primitives",
-    orgTable: "org_neuron_authoring_primitives",
+    table: "neuron_authoring_primitives",
     body: true,
   },
 };
