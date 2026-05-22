@@ -2,12 +2,14 @@
 //
 // DATABASE_URL reads from env (or override via opts). Defaults to the
 // Phase 2 dev container at postgres://postgres:doco@127.0.0.1:5433/doco.
+//
+// node:* imports + ./migrations.js live inside dynamic imports so the
+// barrel that's pulled into web route bundles doesn't drag node-only
+// modules into the browser graph. vite/rollup statically follow every
+// top-level import; deferring these to runtime means the browser
+// bundle never sees `node:fs` / `node:path` / etc.
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import pg from "pg";
-import { applyMigrations } from "./migrations.js";
 
 const { Pool } = pg;
 
@@ -58,8 +60,11 @@ export async function withTransaction<T>(fn: (c: pg.PoolClient) => Promise<T>): 
   });
 }
 
-function readSchemaSql(): string {
+async function readSchemaSql(): Promise<string> {
   if (_schemaSql) return _schemaSql;
+  const { readFileSync } = await import(/* @vite-ignore */ "node:fs");
+  const { dirname, join } = await import(/* @vite-ignore */ "node:path");
+  const { fileURLToPath } = await import(/* @vite-ignore */ "node:url");
   const here = dirname(fileURLToPath(import.meta.url));
   const candidates = [
     join(here, "schema.sql"),
@@ -75,10 +80,17 @@ function readSchemaSql(): string {
 }
 
 async function applySchema(): Promise<void> {
-  const sql = readSchemaSql();
+  const sql = await readSchemaSql();
   const c = await getPool().connect();
   try {
     await c.query(sql);
+    // Indirect specifier so vite/rollup can't statically resolve and
+    // bundle migrations.ts (which uses node:fs / node:path / etc.) into
+    // browser graphs that pull from the @doco/db barrel.
+    const migrationsPath = `./${"migrations"}.js`;
+    const { applyMigrations } = (await import(/* @vite-ignore */ migrationsPath)) as typeof import(
+      "./migrations.js"
+    );
     await applyMigrations(c);
   } finally {
     c.release();

@@ -7,7 +7,8 @@
 // to pgvector's `vector(N)` type is a column-type migration with no
 // reformat.
 
-import { createHash } from "node:crypto";
+// node:crypto deferred to a dynamic import inside computeContentHash so
+// vite/rollup don't drag it into browser bundles via the @doco/db barrel.
 import { withClient, withTransaction } from "./client.js";
 
 export interface EmbeddingProviderLike {
@@ -17,7 +18,8 @@ export interface EmbeddingProviderLike {
 }
 
 /** SHA-1 of (summary + "\n\n" + body). Stable across runs. */
-export function computeContentHash(summary: string, body: string): string {
+export async function computeContentHash(summary: string, body: string): Promise<string> {
+  const { createHash } = await import(/* @vite-ignore */ "node:crypto");
   return createHash("sha1").update(`${summary}\n\n${body}`).digest("hex");
 }
 

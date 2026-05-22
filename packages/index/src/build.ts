@@ -139,7 +139,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         entity_id: (le.entity as { id: string }).id,
         doco_id: docoId,
         text,
-        content_hash: computeContentHash(summary, body),
+        content_hash: await computeContentHash(summary, body),
       });
     }
     try {
