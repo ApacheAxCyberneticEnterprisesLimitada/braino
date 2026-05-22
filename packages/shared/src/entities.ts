@@ -27,10 +27,9 @@ export type Lifecycle =
   | "drafted"
   | "proposed"
   | "active"
-  | "succeeded"
-  | "failed"
-  | "superseded"
-  | "abandoned";
+  | "retired";
+
+export type Outcome = "succeeded" | "failed";
 
 /**
  * Common fields present on every neuron + primitive entity (D-006,
@@ -46,7 +45,10 @@ export interface CommonFields {
   updated_at?: string;
   updated_by?: EntityId<"collaborator">;
   lifecycle?: Lifecycle;
+  deprecated?: boolean;
+  outcome?: Outcome;
   born_from?: EntityId;
+  superseded_by?: EntityId | null;
   /** Ordering / dependency. This entity comes after the listed ones. */
   follows?: EntityId[];
 }
