@@ -103,7 +103,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     label: "global (your doco's constitution)",
     icon: "🌐",
     description:
-      "Your doco's constitution — guidance articles and node authoring articles that govern how contributors work.",
+      "Your doco's constitution — guidance primitives and neuron-authoring primitives that govern how contributors work.",
     allowedNeuronTypes: ["guidance_primitive", "neuron_authoring_primitive"],
     articles: [
       {
@@ -971,7 +971,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Edge vocabulary: `follows` for order, `triggered_by` for event causality, `gated_by` for policy guards, `decision_ids` for gateway rationale.",
+          "Synapse vocabulary: `follows` for order, `triggered_by` for event causality, `gated_by` for policy guards, `decision_ids` for gateway rationale.",
       },
       {
         kind: "guidance",
