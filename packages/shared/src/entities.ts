@@ -10,7 +10,7 @@
  *   - Collaborator (1): OAuth identity layer (separate from principal)
  *   - Doco, Organization: workspace + org containers
  *
- * Per-category discriminator fields (matches stored raw_yaml):
+ * Per-category discriminator fields (matches stored data jsonb):
  *   - Neurons   → `neuron_type: NeuronType`
  *   - Primitives → `primitive_kind: "guidance" | "neuron_authoring"`
  *   - Collaborator → `kind: "person" | "agent"`
@@ -137,7 +137,6 @@ export interface Doco {
   visibility: "private" | "public";
   default_branch?: string;
   owner_id: OwnerRef;
-  description?: string;
   summary?: string;
   created_at?: string;
   created_by?: EntityId<"collaborator">;

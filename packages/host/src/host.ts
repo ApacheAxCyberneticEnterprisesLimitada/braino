@@ -484,7 +484,6 @@ export async function createDocoInOrg(opts: {
   orgId: string;
   requestedSuffix: string;
   createdByPrincipalId: string;
-  description?: string;
   visibility?: "private" | "public";
   templateHandle?: string | null;
   autoSuffix?: boolean;
@@ -546,7 +545,6 @@ export async function createDocoInOrg(opts: {
       visibility,
       owner_id: opts.orgId,
       org_id: opts.orgId,
-      description: opts.description ?? `Doco "${handle}" in org "${orgHandle}".`,
       template_handle: opts.templateHandle ?? null,
       created_at: created,
       created_by: opts.createdByPrincipalId,
@@ -794,7 +792,6 @@ export interface CreateDocoInHostOptions {
    * `-3`, … until a free id is found.
    */
   requestedId?: string;
-  description?: string;
   visibility?: "private" | "public";
   /**
    * If true and `docoSlug` is already taken, silently try `<slug>-2`,
@@ -879,8 +876,6 @@ export async function createDocoInHost(
     visibility: opts.visibility ?? "private",
     default_branch: "main",
     owner_id: owner.id,
-    description:
-      opts.description ?? `Doco created in host (owned by ${owner.kind} "${opts.ownerSlug}").`,
     summary: `Created in host on ${created}.`,
     created_at: created,
     created_by: owner.kind === "principal" ? owner.id : null,
@@ -945,17 +940,16 @@ export async function createDocoInHost(
 
 /**
  * Apply a partial update to a Doco's metadata (settings page) by
- * UPDATEing the Postgres row + `raw_yaml`.
+ * UPDATEing the Postgres row + `data`.
  *
  *   - Each field undefined → leave it alone.
- *   - description / display_name: empty string clears the key.
+ *   - display_name: empty string clears the key.
  *   - visibility: only "private" or "public" accepted; other values rejected.
  *
  * Caller is expected to reindex.
  */
 export interface UpdateDocoOptions {
   handle: string;
-  description?: string | null;
   display_name?: string | null;
   visibility?: "private" | "public";
 }
@@ -971,16 +965,12 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
   const { handle } = opts;
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const cur = await c.query<{ raw_yaml: string }>(
-      "SELECT data::text AS raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
+    const cur = await c.query<{ data: Record<string, unknown> | null }>(
+      "SELECT data FROM docos WHERE handle = $1 LIMIT 1",
       [handle],
     );
     if (!cur.rows[0]) throw new Error(`Doco "${handle}" not found.`);
-    const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
-    if (opts.description !== undefined) {
-      if (opts.description === null || opts.description === "") yaml.description = undefined;
-      else yaml.description = opts.description;
-    }
+    const yaml: Record<string, unknown> = { ...(cur.rows[0].data ?? {}) };
     if (opts.display_name !== undefined) {
       if (opts.display_name === null || opts.display_name === "") yaml.display_name = undefined;
       else yaml.display_name = opts.display_name;
@@ -1018,14 +1008,14 @@ export async function renameDocoHandle(opts: {
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const cur = await c.query<{ raw_yaml: string }>(
-      "SELECT data::text AS raw_yaml FROM docos WHERE handle = $1 LIMIT 1",
+    const cur = await c.query<{ data: Record<string, unknown> | null }>(
+      "SELECT data FROM docos WHERE handle = $1 LIMIT 1",
       [oldHandle],
     );
     if (!cur.rows[0]) throw new Error(`Doco "${oldHandle}" not found.`);
     const dup = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [newHandle]);
     if (dup.rows[0]) throw new Error(`Doco "${newHandle}" already exists.`);
-    const yaml = parseYaml(cur.rows[0].raw_yaml) as Record<string, unknown>;
+    const yaml: Record<string, unknown> = { ...(cur.rows[0].data ?? {}) };
     yaml.handle = newHandle;
     await c.query(
       `UPDATE docos

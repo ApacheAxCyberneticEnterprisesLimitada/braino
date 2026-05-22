@@ -81,9 +81,11 @@ export interface EntityRecord {
   id: string;
   doco_id: string;
   entity_type: string;
-  raw_yaml: string;
+  /** Bag of structured fields. Stored as `data jsonb` in Postgres;
+   *  node-pg parses jsonb columns to JS objects on read. */
+  data: Record<string, unknown>;
   body_md?: string;
-  /** Mirrored hot-path columns for indexes — derived from raw_yaml. */
+  /** Mirrored hot-path columns for indexes — derived from data. */
   summary?: string | null;
   lifecycle?: string | null;
   name?: string | null;

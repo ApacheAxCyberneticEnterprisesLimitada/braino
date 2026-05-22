@@ -49,9 +49,9 @@ CREATE TABLE IF NOT EXISTS applied_migrations (
 -- fresh DB the old names don't exist; each guard is a no-op.
 --
 -- Migration 005 still runs (after schema.sql, see client.ts) and handles
--- the rest of the work: ID-prefix rewrites, raw_yaml transforms, FTS
--- split, principal/collaborator data migration. This block just gets
--- the column shape ahead of the baseline schema.
+-- the rest of the work: ID-prefix rewrites, structured-data transforms,
+-- FTS split, principal/collaborator data migration. This block just
+-- gets the column shape ahead of the baseline schema.
 DO $v18_pre_rename$
 BEGIN
   -- Column renames on existing membership / OAuth / audit tables.
@@ -205,7 +205,7 @@ CREATE TABLE IF NOT EXISTS hosts (
   id          text PRIMARY KEY,
   name        text NOT NULL,
   visibility  text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -216,28 +216,12 @@ CREATE TABLE IF NOT EXISTS hosts (
 -- (including /onboarding/create/human — the page new visitors hit).
 -- The ON CONFLICT keeps this idempotent: existing installs keep their
 -- custom host config untouched.
--- Bootstrap host row. Schema.sql runs on every cold boot; after
--- migration 014 renames raw_yaml→data this INSERT must target the
--- right column for whichever state the live DB is in. The DO block
--- branches on the column shape and is a no-op once a host row exists.
-DO $bootstrap_host$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM hosts WHERE id = 'host') THEN
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-       WHERE table_schema = 'public' AND table_name = 'hosts' AND column_name = 'data'
-    ) THEN
-      INSERT INTO hosts (id, name, visibility, data)
-      VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}'::jsonb)
-      ON CONFLICT (id) DO NOTHING;
-    ELSE
-      INSERT INTO hosts (id, name, visibility, raw_yaml)
-      VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}')
-      ON CONFLICT (id) DO NOTHING;
-    END IF;
-  END IF;
-END
-$bootstrap_host$;
+-- Bootstrap host row. The seed below keeps /home from 500'ing on a
+-- fresh install (every layout reads host config). Idempotent — the
+-- ON CONFLICT keeps existing host configs untouched.
+INSERT INTO hosts (id, name, visibility, data)
+VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
 
 -- Identity layer.
 --
@@ -257,7 +241,7 @@ CREATE TABLE IF NOT EXISTS collaborators (
   email           text,
   avatar_url      text,
   owner_id        text REFERENCES collaborators(id) ON DELETE SET NULL,
-  raw_yaml        text NOT NULL,
+  data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deactivated_at  timestamptz
@@ -271,13 +255,13 @@ CREATE TABLE IF NOT EXISTS principals (
                                                -- "customer-service-rep")
   -- Principals are host-scoped (no doco_id NOT NULL) so role-personas can
   -- be shared across Docos. The optional doco_id, set lazily when a role
-  -- is authored within a specific Doco, lives in raw_yaml/data and is hydrated
-  -- at read time by the repo. No FK constraint to avoid a forward ref to
-  -- the docos table that is created later in this file.
+  -- is authored within a specific Doco, lives in the `data` jsonb bag
+  -- and is hydrated at read time by the repo. No FK constraint to avoid
+  -- a forward ref to the docos table that is created later in this file.
   summary         text,
   lifecycle       text,
   body_md         text,
-  raw_yaml        text NOT NULL,
+  data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      text,                        -- collaborator_<ulid>
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -288,7 +272,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   id          text PRIMARY KEY,
   slug        text NOT NULL UNIQUE,
   name        text NOT NULL,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
@@ -327,7 +311,7 @@ CREATE TABLE IF NOT EXISTS docos (
   owner_id        text NOT NULL,    -- principal_<ulid> OR organization_<ulid>
   name            text,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  raw_yaml        text NOT NULL,
+  data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
@@ -362,10 +346,9 @@ END
 $uniq$;
 
 -- Per-Doco entity tables. `body_md` carries the markdown narrative
--- on types that have one; the structured fields land in `raw_yaml`
--- here and are converted to `data jsonb` by migration 014 (kept text
--- in the baseline so legacy migrations 002+ that reference raw_yaml
--- still run cleanly on fresh installs).
+-- on types that have one; the remaining structured fields live in
+-- `data` (jsonb). Scalar ID refs are promoted to typed FK columns
+-- (e.g. actions.actor_id → principals(id)).
 
 CREATE TABLE IF NOT EXISTS intents (
   id          text PRIMARY KEY,
@@ -373,7 +356,7 @@ CREATE TABLE IF NOT EXISTS intents (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -388,7 +371,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -403,7 +386,7 @@ CREATE TABLE IF NOT EXISTS rules (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -418,7 +401,7 @@ CREATE TABLE IF NOT EXISTS guidance_primitives (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -435,7 +418,7 @@ CREATE TABLE IF NOT EXISTS neuron_authoring_primitives (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -455,7 +438,7 @@ CREATE TABLE IF NOT EXISTS org_guidance_primitives (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -472,7 +455,7 @@ CREATE TABLE IF NOT EXISTS org_neuron_authoring_primitives (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -489,7 +472,7 @@ CREATE TABLE IF NOT EXISTS actions (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -504,7 +487,7 @@ CREATE TABLE IF NOT EXISTS logs (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -519,7 +502,7 @@ CREATE TABLE IF NOT EXISTS evals (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -530,14 +513,14 @@ CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
 
 -- Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7) — State is a node in a
 -- formal state machine. Mirrors the actions table shape; the structured
--- frontmatter (`kind`, `invariants`) lives in raw_yaml/data.
+-- frontmatter (`kind`, `invariants`) lives in `data`.
 CREATE TABLE IF NOT EXISTS states (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -550,7 +533,7 @@ CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   name        text NOT NULL,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (doco_id, name)
 );
@@ -561,7 +544,7 @@ CREATE TABLE IF NOT EXISTS ideas (
   summary     text,
   lifecycle   text,
   body_md     text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -573,7 +556,7 @@ CREATE TABLE IF NOT EXISTS reference_entities (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
   lifecycle   text,
-  raw_yaml    text NOT NULL,
+  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
@@ -1018,7 +1001,7 @@ CREATE TABLE IF NOT EXISTS doco_templates (
   owner_id     text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   label        text NOT NULL,
   description  text NOT NULL,
-  raw_yaml     text NOT NULL,
+  data         jsonb NOT NULL,
   created_at   timestamptz NOT NULL DEFAULT now(),
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
@@ -1086,14 +1069,14 @@ BEGIN
     new_org_id := 'organization_v15_' || replace(gen_random_uuid()::text, '-', '');
     -- slug + name are still NOT NULL on the legacy schema; populate
     -- them with the same handle so existing readers stay happy.
-    INSERT INTO organizations (id, slug, name, handle, raw_yaml)
+    INSERT INTO organizations (id, slug, name, handle, data)
     VALUES (
       new_org_id,
       princ.username,
       princ.username,
       princ.username,
       jsonb_build_object('id', new_org_id, 'handle', princ.username,
-                         'owner_id', princ.id)::text
+                         'owner_id', princ.id)
     )
     ON CONFLICT (slug) DO NOTHING;
 

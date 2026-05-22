@@ -95,7 +95,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // entity_fts.entity_type is NOT NULL. Some legacy host-level
       // identity rows (principals minted before the entity_type field
-      // existed in raw_yaml) load with `entity.entity_type === undefined`,
+      // existed in data) load with `entity.entity_type === undefined`,
       // which would crash the batch INSERT and block every Doco rebuild
       // on the host. Always derive entity_type from the entity id
       // prefix (`principal_…` → `principal`, `decision_…` → `decision`,
