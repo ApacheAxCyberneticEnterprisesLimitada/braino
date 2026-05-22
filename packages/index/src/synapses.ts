@@ -26,7 +26,10 @@ export interface Synapse {
 export function deriveSynapses(entity: Entity): Synapse[] {
   const synapses: Synapse[] = [];
   const fromId = entity.id;
-  const fromType = entity.entity_type as string;
+  // Entity interfaces use per-category discriminators (neuron_type /
+  // primitive_kind / kind), not a uniform entity_type. Derive from the
+  // ID prefix instead — it's always present + matches the table name.
+  const fromType = fromId.split("_").slice(0, -1).join("_");
 
   function emit(
     field: string,

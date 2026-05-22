@@ -59,7 +59,6 @@ export async function createHost(
     const id = makeEntityId("collaborator", generateUlid()) as EntityId<"collaborator">;
     const collaborator = {
       id,
-      entity_type: "collaborator",
       kind: "person",
       github_login: opts.ownerUsername,
       ...(opts.ownerEmail ? { email: opts.ownerEmail } : {}),
@@ -274,7 +273,6 @@ export async function addPrincipal(
   };
   const collaborator = {
     id,
-    entity_type: "collaborator",
     kind: "person",
     github_login: gh.github_login,
     ...(gh.email ? { email: gh.email } : {}),
@@ -554,7 +552,6 @@ export async function createDocoInOrg(opts: {
     const visibility = opts.visibility ?? "private";
     const docoYaml = {
       id: docoId,
-      entity_type: "doco",
       handle,
       visibility,
       owner_id: opts.orgId,
@@ -619,8 +616,7 @@ export async function createDocoInOrg(opts: {
         const articleYaml: Record<string, unknown> = {
           id: articleId,
           doco_id: docoId,
-          entity_type: entityType,
-          primitive_kind: isAuthoring ? "node_authoring" : "guidance",
+                    primitive_kind: isAuthoring ? "neuron_authoring" : "guidance",
           summary: article.summary,
           ...(article.predicate
             ? {
@@ -697,7 +693,6 @@ export async function addOrganization(
   const yaml: Organization = {
     id,
     doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
-    entity_type: "organization",
     summary: `Organization ${opts.slug}.`,
     slug: opts.slug,
     display_name: opts.display_name ?? opts.slug,
@@ -837,7 +832,6 @@ export async function createDocoInHost(
   const created = nowIso();
   const docoYaml = {
     id: docoId,
-    entity_type: "doco",
     handle,
     display_name: handle,
     visibility: opts.visibility ?? "private",

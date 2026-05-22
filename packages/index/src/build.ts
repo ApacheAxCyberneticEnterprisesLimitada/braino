@@ -97,11 +97,13 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       // identity rows (principals minted before the entity_type field
       // existed in raw_yaml) load with `entity.entity_type === undefined`,
       // which would crash the batch INSERT and block every Doco rebuild
-      // on the host. Fall back to deriving entity_type from the entity id
+      // on the host. Always derive entity_type from the entity id
       // prefix (`principal_…` → `principal`, `decision_…` → `decision`,
-      // etc.) which is always present and unambiguous.
-      const entityType =
-        (le.entity.entity_type as string | undefined) ?? le.entity.id.split("_")[0] ?? "unknown";
+      // etc.) which is present + unambiguous on every entity. Per-
+      // category interfaces no longer carry a uniform `entity_type`
+      // field — they have `neuron_type` / `primitive_kind` / `kind`
+      // instead.
+      const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
       const e = le.entity as unknown as Record<string, unknown>;

@@ -10,10 +10,15 @@
  *   - Collaborator (1): OAuth identity layer (separate from principal)
  *   - Doco, Organization: workspace + org containers
  *
- * The discriminator field on each entity interface is `entity_type`
- * (uniform across categories). `created_by` / `updated_by` reference
- * collaborators (the OAuth identity). `actor_id` / `actors[]` /
- * `decided_by` continue to reference principals (the role-personas).
+ * Per-category discriminator fields (matches stored raw_yaml):
+ *   - Neurons   → `neuron_type: NeuronType`
+ *   - Primitives → `primitive_kind: "guidance" | "neuron_authoring"`
+ *   - Collaborator → `kind: "person" | "agent"`
+ *   - Doco, Organization → no per-row discriminator
+ *
+ * `created_by` / `updated_by` reference collaborators (the OAuth
+ * identity). `actor_id` / `actors[]` / `decided_by` continue to
+ * reference principals (the role-personas).
  */
 
 import type { EntityId, EntityType, NeuronType } from "./branded.js";
@@ -27,11 +32,15 @@ export type Lifecycle =
   | "superseded"
   | "abandoned";
 
-/** Common fields present on every entity (D-006, D-007). */
+/**
+ * Common fields present on every neuron + primitive entity (D-006,
+ * D-007). The per-category discriminator (`neuron_type` /
+ * `primitive_kind` / `kind`) lives on each concrete interface, not
+ * here — different categories use different discriminator names.
+ */
 export interface CommonFields {
   id: EntityId;
   doco_id: EntityId<"doco">;
-  entity_type: string;
   created_at: string; // ISO 8601 UTC
   created_by: EntityId<"collaborator">;
   updated_at?: string;
@@ -73,7 +82,6 @@ export interface AgentMetadata {
  */
 export interface Collaborator {
   id: EntityId<"collaborator">;
-  entity_type: "collaborator";
   kind: "person" | "agent";
   github_id?: string;
   github_login: string;
@@ -95,7 +103,7 @@ export interface Collaborator {
  * also held OAuth identity; that concern is now `Collaborator`.
  */
 export interface Principal extends SummarizedFields {
-  entity_type: "principal";
+  neuron_type: "principal";
   username: string; // role label: "system", "customer-service-rep", "user"
   display_name?: string;
   description?: string;
@@ -122,7 +130,6 @@ export type OwnerRef = EntityId<"collaborator"> | EntityId<"organization">;
 
 export interface Doco {
   id: EntityId<"doco">;
-  entity_type: "doco";
   slug: string;
   display_name: string;
   visibility: "private" | "public";
@@ -142,7 +149,7 @@ export interface Doco {
 // ─── Intent ───────────────────────────────────────────────────────────────
 
 export interface Intent extends SummarizedFields {
-  entity_type: "intent";
+  neuron_type: "intent";
   title: string;
   parent_intent_id?: EntityId<"intent"> | null;
   priority?: "p0" | "p1" | "p2" | "p3";
@@ -157,7 +164,7 @@ export interface Intent extends SummarizedFields {
 // ─── Idea ─────────────────────────────────────────────────────────────────
 
 export interface Idea extends SummarizedFields {
-  entity_type: "idea";
+  neuron_type: "idea";
   /** Who proposed it. Collaborator (the OAuth identity), not a principal. */
   proposer_id?: EntityId<"collaborator">;
   body?: string;
@@ -227,7 +234,7 @@ export type AuthoringPredicate =
   | { kind: "descriptive"; spec: string; when_neuron_type?: NeuronType[] };
 
 export interface Rule extends SummarizedFields {
-  entity_type: "rule";
+  neuron_type: "rule";
   kind?: RuleKind;
   predicate?: AuthoringPredicate;
   fires_when_neuron_lifecycle?: Lifecycle[];
@@ -241,12 +248,10 @@ export interface Rule extends SummarizedFields {
 // ─── Primitives (constitution metadata) ───────────────────────────────────
 
 export interface GuidancePrimitive extends SummarizedFields {
-  entity_type: "guidance_primitive";
   primitive_kind: "guidance";
 }
 
 export interface NeuronAuthoringPrimitive extends SummarizedFields {
-  entity_type: "neuron_authoring_primitive";
   primitive_kind: "neuron_authoring";
   evaluation_kind: "deterministic" | "probabilistic";
   predicate: AuthoringPredicate;
@@ -262,7 +267,7 @@ export interface DecisionAlternative {
 }
 
 export interface Decision extends SummarizedFields {
-  entity_type: "decision";
+  neuron_type: "decision";
   intent_ids?: EntityId<"intent">[];
   question: string;
   chosen: string | null; // null when lifecycle is "proposed"
@@ -277,7 +282,7 @@ export interface Decision extends SummarizedFields {
 // ─── Action (designed step) ───────────────────────────────────────────────
 
 export interface Action extends SummarizedFields {
-  entity_type: "action";
+  neuron_type: "action";
   verb: string;
   /** Who performs the step — a role-principal. */
   actor_id: EntityId<"principal">;
@@ -293,7 +298,7 @@ export interface Action extends SummarizedFields {
 // ─── Log (recorded happening) ─────────────────────────────────────────────
 
 export interface Log extends SummarizedFields {
-  entity_type: "log";
+  neuron_type: "log";
   verb: string;
   /** The principal (role) who performed it. */
   actor_id: EntityId<"principal">;
@@ -316,7 +321,7 @@ export interface EvalCriterion {
 export type EvalKind = "unit" | "integration" | "eval" | "process" | "doc-consistency";
 
 export interface Eval extends SummarizedFields {
-  entity_type: "eval";
+  neuron_type: "eval";
   name: string;
   kind?: EvalKind;
   description?: string;
@@ -335,7 +340,7 @@ export interface Eval extends SummarizedFields {
 // ─── Reference ────────────────────────────────────────────────────────────
 
 export interface Reference extends SummarizedFields {
-  entity_type: "reference";
+  neuron_type: "reference";
   ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
   locator: string;
   content_hash?: string | null;
@@ -346,7 +351,7 @@ export interface Reference extends SummarizedFields {
 export type StateKind = "initial" | "intermediate" | "terminal";
 
 export interface State extends SummarizedFields {
-  entity_type: "state";
+  neuron_type: "state";
   kind: StateKind;
   invariants?: string[];
 }
@@ -360,7 +365,6 @@ export interface OrganizationMember {
 }
 
 export interface Organization extends SummarizedFields {
-  entity_type: "organization";
   slug: string;
   display_name: string;
   description?: string;
@@ -389,4 +393,11 @@ export type Primitive = GuidancePrimitive | NeuronAuthoringPrimitive;
 /** Every entity across all categories. */
 export type Entity = Neuron | Primitive | Collaborator | Doco | Organization;
 
-export type EntityByType<T extends Entity["entity_type"]> = Extract<Entity, { entity_type: T }>;
+/** Look up a Neuron interface by its `neuron_type` literal. */
+export type NeuronByType<T extends Neuron["neuron_type"]> = Extract<Neuron, { neuron_type: T }>;
+
+/** Look up a Primitive interface by its `primitive_kind` literal. */
+export type PrimitiveByKind<T extends Primitive["primitive_kind"]> = Extract<
+  Primitive,
+  { primitive_kind: T }
+>;
