@@ -2,31 +2,31 @@ import { type Entity, isEntityId } from "@doco/shared";
 
 export type EdgeAttribution = "explicit" | "doco-auto";
 
-export interface Edge {
+export interface Synapse {
   from_id: string;
-  from_node_type: string;
+  from_neuron_type: string;
   to_id: string;
-  to_node_type: string;
-  edge_type: string;
-  edge_props?: Record<string, unknown>;
+  to_neuron_type: string;
+  synapse_type: string;
+  synapse_props?: Record<string, unknown>;
   /**
    * Where the edge came from: 'explicit' when the source entity declared
    * the ref in its frontmatter (the normal case); 'doco-auto' when the
-   * LLM auto-detected it (per `llm-auto-edge-detection-on-capture` ADR).
-   * Auto edges are weighted lower in PageRank and rendered differently.
+   * LLM auto-detected it (per `llm-auto-synapse-detection-on-capture` ADR).
+   * Auto synapses are weighted lower in PageRank and rendered differently.
    * Defaults to 'explicit'.
    */
   attribution?: EdgeAttribution;
 }
 
 /**
- * Derive edges from an entity's ID-shaped fields per D-017 ("fields-as-edges").
- * Returns one edge per ID reference; field name → edge type via FIELD_TO_EDGE_TYPE.
+ * Derive synapses from an entity's ID-shaped fields per D-017 ("fields-as-synapses").
+ * Returns one edge per ID reference; field name → edge type via FIELD_TO_SYNAPSE_TYPE.
  */
-export function deriveEdges(entity: Entity): Edge[] {
-  const edges: Edge[] = [];
+export function deriveSynapses(entity: Entity): Synapse[] {
+  const synapses: Synapse[] = [];
   const fromId = entity.id;
-  const fromType = entity.node_type as string;
+  const fromType = entity.entity_type as string;
 
   function emit(
     field: string,
@@ -37,18 +37,18 @@ export function deriveEdges(entity: Entity): Edge[] {
     if (typeof target !== "string") return;
     if (target.includes(":")) return; // cross-Doco, skip for now
     if (!isEntityId(target)) return;
-    if (target === fromId) return; // self-edges add no graph info (e.g. bootstrap principal's `created_by`)
+    if (target === fromId) return; // self-synapses add no graph info (e.g. bootstrap principal's `created_by`)
     const m = /^(\w+)_/.exec(target);
     if (!m) return;
     const toType = m[1] as string;
-    edges.push({
+    synapses.push({
       from_id: fromId,
-      from_node_type: fromType,
+      from_neuron_type: fromType,
       to_id: target,
-      to_node_type: toType,
-      edge_type: FIELD_TO_EDGE_TYPE[field] ?? field,
+      to_neuron_type: toType,
+      synapse_type: FIELD_TO_SYNAPSE_TYPE[field] ?? field,
       attribution,
-      ...(props ? { edge_props: props } : {}),
+      ...(props ? { synapse_props: props } : {}),
     });
   }
 
@@ -57,7 +57,7 @@ export function deriveEdges(entity: Entity): Edge[] {
   for (const [field, value] of Object.entries(obj)) {
     if (value === null || value === undefined) continue;
     if (SKIP_FIELDS.has(field)) continue; // structural metadata, not a relationship
-    if (field === AUTO_EDGES_FIELD) continue; // handled below — needs special attribution
+    if (field === AUTO_SYNAPSES_FIELD) continue; // handled below — needs special attribution
     if (Array.isArray(value)) {
       for (const v of value) {
         if (typeof v === "string") emit(field, v);
@@ -74,46 +74,46 @@ export function deriveEdges(entity: Entity): Edge[] {
     }
   }
 
-  // Auto-detected edges, per the `llm-auto-edge-detection-on-capture` ADR.
+  // Auto-detected synapses, per the `llm-auto-synapse-detection-on-capture` ADR.
   // The capture/auto-edge helper writes these into the frontmatter as
-  //   auto_edges: [{ to_id, edge_type, reason }]
-  // We emit each as an Edge with attribution: 'doco-auto'. PageRank then
-  // weights them lower than explicit edges.
-  const autoEdges = obj[AUTO_EDGES_FIELD];
+  //   auto_synapses: [{ to_id, synapse_type, reason }]
+  // We emit each as an Synapse with attribution: 'doco-auto'. PageRank then
+  // weights them lower than explicit synapses.
+  const autoEdges = obj[AUTO_SYNAPSES_FIELD];
   if (Array.isArray(autoEdges)) {
     for (const ae of autoEdges) {
       if (!ae || typeof ae !== "object") continue;
       const rec = ae as Record<string, unknown>;
       const toId = rec.to_id;
-      const edgeType = typeof rec.edge_type === "string" ? rec.edge_type : "relates_to";
+      const synapseType = typeof rec.synapse_type === "string" ? rec.synapse_type : "relates_to";
       if (typeof toId !== "string" || !isEntityId(toId) || toId === fromId) continue;
       const m = /^(\w+)_/.exec(toId);
       if (!m) continue;
       const toType = m[1] as string;
       const props: Record<string, unknown> = {};
       if (typeof rec.reason === "string") props.reason = rec.reason;
-      edges.push({
+      synapses.push({
         from_id: fromId,
-        from_node_type: fromType,
+        from_neuron_type: fromType,
         to_id: toId,
-        to_node_type: toType,
-        edge_type: edgeType,
+        to_neuron_type: toType,
+        synapse_type: synapseType,
         attribution: "doco-auto",
-        ...(Object.keys(props).length > 0 ? { edge_props: props } : {}),
+        ...(Object.keys(props).length > 0 ? { synapse_props: props } : {}),
       });
     }
   }
-  return edges;
+  return synapses;
 }
 
-const AUTO_EDGES_FIELD = "auto_edges";
+const AUTO_SYNAPSES_FIELD = "auto_synapses";
 
 function handleObject(
   parentField: string,
   obj: Record<string, unknown>,
   emit: (field: string, target: unknown, props?: Record<string, unknown>) => void,
 ): void {
-  // Reasoning.premises[]: { node_type, ref, as }
+  // Reasoning.premises[]: { entity_type, ref, as }
   if (typeof obj.ref === "string" && parentField === "premises") {
     emit("premise", obj.ref, { as: obj.as });
     return;
@@ -143,10 +143,10 @@ function handleObject(
  * - `inputs` / `outputs`: free-form bags on Action. Their nested keys are
  *   ad-hoc descriptive fields ("founder_direction", "asset_files",
  *   "completion_note") not relationships. Walking them produced noisy
- *   pseudo-edges like `inputs.assets_provided_by`. Per ADR-091.
+ *   pseudo-synapses like `inputs.assets_provided_by`. Per ADR-091.
  * - `created_by` / `updated_by`: provenance audit columns on every entity.
  *   The DB still tracks them as scalar columns; we just don't materialize
- *   them as graph edges anymore (they were already filtered from the graph
+ *   them as graph synapses anymore (they were already filtered from the graph
  *   render, and they carried no traversal value).
  */
 const SKIP_FIELDS = new Set([
@@ -164,7 +164,7 @@ const SKIP_FIELDS = new Set([
 ]);
 
 /** Field name → canonical edge type. Anything not listed defaults to the field name. */
-const FIELD_TO_EDGE_TYPE: Record<string, string> = {
+const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   intent_ids: "serves",
   rules_consulted: "consults",
   decision_ids: "enacts",
@@ -177,7 +177,7 @@ const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   owner_id: "owned_by",
   born_from: "born_from",
   superseded_by: "superseded_by",
-  // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
+  // rule_id / target_id were the Evaluation-specific synapses (evaluates_rule,
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.
   member: "member_of",

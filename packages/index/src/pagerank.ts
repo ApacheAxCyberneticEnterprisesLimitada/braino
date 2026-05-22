@@ -1,7 +1,7 @@
 /**
  * Personalized PageRank (PPR) — given a source node, returns the most
  * relevant other nodes by random-walk-with-restart, treating the
- * indexer's edges as undirected.
+ * indexer's synapses as undirected.
  *
  * Used by the entity-detail page's graph view (ADR-076) to pick which
  * neighbors to surface around the focal node.
@@ -11,20 +11,20 @@
  * tolerance; capped at iters.
  */
 
-export type PprEdgeAttribution = "explicit" | "doco-auto";
+export type PprSynapseAttribution = "explicit" | "doco-auto";
 
-export interface PprEdge {
+export interface PprSynapse {
   from: string;
   to: string;
   /** Optional edge type; lets callers tune relevance by relationship kind. */
-  edge_type?: string;
+  synapse_type?: string;
   /**
    * Optional edge attribution: 'explicit' (declared in source frontmatter)
-   * or 'doco-auto' (LLM-detected). Auto edges are down-weighted by default
+   * or 'doco-auto' (LLM-detected). Auto synapses are down-weighted by default
    * so a flood of LLM suggestions can't dominate the graph. Per the
-   * `pagerank-weights-explicit-edges-higher` ADR.
+   * `pagerank-weights-explicit-synapses-higher` ADR.
    */
-  attribution?: PprEdgeAttribution;
+  attribution?: PprSynapseAttribution;
 }
 
 export interface PprNeighbor {
@@ -45,23 +45,23 @@ export interface PprOptions {
    * Weight per edge type. Default returns 1 for every type. Higher weight =
    * more random-walker mass flows along that edge.
    *
-   * The second arg is the edge attribution — implicit (LLM-detected) edges
+   * The second arg is the edge attribution — implicit (LLM-detected) synapses
    * default to 1/4 the weight of explicit ones, so a flood of auto-detected
-   * edges can't dominate the ranking.
+   * synapses can't dominate the ranking.
    */
-  edgeWeight?: (edge_type: string | undefined, attribution?: PprEdgeAttribution) => number;
+  synapseWeight?: (synapse_type: string | undefined, attribution?: PprSynapseAttribution) => number;
 }
 
 /**
  * Default weight: 1× for every edge type, then scaled by attribution:
- * explicit edges get full weight; doco-auto edges
+ * explicit synapses get full weight; doco-auto synapses
  * get `IMPLICIT_EDGE_WEIGHT_FACTOR` (default 0.25). Tunable via the
- * `edgeWeight` option for callers that want different multipliers.
+ * `synapseWeight` option for callers that want different multipliers.
  */
 const IMPLICIT_EDGE_WEIGHT_FACTOR = 0.25;
-export function defaultEdgeWeight(
-  _edgeType: string | undefined,
-  attribution?: PprEdgeAttribution,
+export function defaultSynapseWeight(
+  _synapseType: string | undefined,
+  attribution?: PprSynapseAttribution,
 ): number {
   const base = 1;
   return attribution === "doco-auto" ? base * IMPLICIT_EDGE_WEIGHT_FACTOR : base;
@@ -88,7 +88,7 @@ function add(values: Float64Array, index: number, amount: number): void {
 }
 
 export function personalizedPageRank(
-  edges: PprEdge[],
+  synapses: PprSynapse[],
   sourceId: string,
   options: PprOptions = {},
 ): PprNeighbor[] {
@@ -96,7 +96,7 @@ export function personalizedPageRank(
   const iters = options.iters ?? 50;
   const topK = options.topK ?? 30;
   const tol = options.tol ?? 1e-6;
-  const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
+  const synapseWeight = options.synapseWeight ?? defaultSynapseWeight;
 
   // Build node index. Walk every edge endpoint plus the source.
   const idToIdx = new Map<string, number>();
@@ -109,7 +109,7 @@ export function personalizedPageRank(
     return i;
   }
   idx(sourceId);
-  for (const e of edges) {
+  for (const e of synapses) {
     idx(e.from);
     idx(e.to);
   }
@@ -120,16 +120,16 @@ export function personalizedPageRank(
 
   // Build undirected weighted adjacency (in semantic terms, "A → B" and
   // "B referenced by A" are equally informative for relevance — distinguishing
-  // them in PPR would weight the central node toward only its outbound edges,
+  // them in PPR would weight the central node toward only its outbound synapses,
   // which is wrong for context discovery).
-  // Per-edge weight via options.edgeWeight (default 1.0). Out-degree becomes
+  // Per-edge weight via options.synapseWeight (default 1.0). Out-degree becomes
   // the sum of incident weights.
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
-  for (const e of edges) {
+  for (const e of synapses) {
     const a = mustGetIndex(idToIdx, e.from);
     const b = mustGetIndex(idToIdx, e.to);
-    if (a === b) continue; // self-edges add nothing
-    const w = edgeWeight(e.edge_type, e.attribution);
+    if (a === b) continue; // self-synapses add nothing
+    const w = synapseWeight(e.synapse_type, e.attribution);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
     mustGetBucket(neighbors, b).push({ idx: a, w });
@@ -200,13 +200,13 @@ export function personalizedPageRank(
  * to compute on every entity-detail page load.
  */
 export function globalPageRank(
-  edges: PprEdge[],
+  synapses: PprSynapse[],
   options: Omit<PprOptions, "topK"> = {},
 ): PprNeighbor[] {
   const alpha = options.alpha ?? 0.85;
   const iters = options.iters ?? 50;
   const tol = options.tol ?? 1e-6;
-  const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
+  const synapseWeight = options.synapseWeight ?? defaultSynapseWeight;
 
   const idToIdx = new Map<string, number>();
   function idx(id: string): number {
@@ -217,7 +217,7 @@ export function globalPageRank(
     }
     return i;
   }
-  for (const e of edges) {
+  for (const e of synapses) {
     idx(e.from);
     idx(e.to);
   }
@@ -227,11 +227,11 @@ export function globalPageRank(
   for (const [id, i] of idToIdx) idxToId[i] = id;
 
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
-  for (const e of edges) {
+  for (const e of synapses) {
     const a = mustGetIndex(idToIdx, e.from);
     const b = mustGetIndex(idToIdx, e.to);
     if (a === b) continue;
-    const w = edgeWeight(e.edge_type, e.attribution);
+    const w = synapseWeight(e.synapse_type, e.attribution);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
     mustGetBucket(neighbors, b).push({ idx: a, w });

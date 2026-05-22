@@ -10,7 +10,7 @@ import type {
   LoadFailure,
   LoadedDoco,
   LoadedEntity,
-  NodeType,
+  EntityType,
 } from "@doco/shared";
 import { NODE_TYPES, isEntityId } from "@doco/shared";
 import { parse as parseYamlText } from "yaml";
@@ -25,9 +25,9 @@ function parseRawYaml(text: string): Record<string, unknown> {
 }
 
 // Doco-scoped types (have a `doco_id` column, queryable via listEntitiesByDoco).
-const SCOPED_NODE_TYPES: NodeType[] = NODE_TYPES.filter(
+const SCOPED_NODE_TYPES: EntityType[] = NODE_TYPES.filter(
   (t) => t !== "doco" && t !== "principal" && t !== "organization",
-) as NodeType[];
+) as EntityType[];
 
 /**
  * Build a `LoadedDoco` from Postgres rows for the given doco_id.
@@ -51,7 +51,7 @@ export async function loadDocoFromPostgres(root: string, docoId: string): Promis
 
   // 2. Entity tables (per-type rows -> LoadedEntity records).
   const entities = new Map<EntityId, LoadedEntity>();
-  const byType = new Map<NodeType, LoadedEntity[]>();
+  const byType = new Map<EntityType, LoadedEntity[]>();
   for (const t of NODE_TYPES) byType.set(t, []);
   const failures: LoadFailure[] = [];
 
@@ -77,7 +77,7 @@ export async function loadDocoFromPostgres(root: string, docoId: string): Promis
         parsed: { data: fm, body: "", format: "json" },
       };
       entities.set(id as EntityId, loaded);
-      byType.get(t as NodeType)?.push(loaded);
+      byType.get(t as EntityType)?.push(loaded);
     }
   }
 
