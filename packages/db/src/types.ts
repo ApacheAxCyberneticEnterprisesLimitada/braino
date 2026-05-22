@@ -17,7 +17,8 @@ export const NEURON_TABLES: Record<string, { table: string; body: boolean }> = {
   state: { table: "states", body: true },
   // Principal = documented role/persona, referenced by actor_id/actors[].
   // NOT the OAuth identity layer — that lives in collaborators.
-  principal: { table: "principals", body: false },
+  // body_md carries prose description of the role.
+  principal: { table: "principals", body: true },
 };
 
 /** The 2 primitive types (constitution metadata). Per-Doco and per-org variants. */
