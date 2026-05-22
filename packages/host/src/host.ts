@@ -377,10 +377,10 @@ export async function ensurePersonalOrganization(
 
 /**
  * Find the next available organization handle starting from `requested`.
- * Appends `-2`, `-3`, … until a free slot is found. Checks both
- * `organizations.handle` and `principals.username` (top-level slug
- * collisions). Used by both the web suggestion path and the API
- * `autoSuffix` path.
+ * Appends `-2`, `-3`, … until a free slot is found. Organization handles
+ * are scoped to organizations: Doco handles live at top-level URLs and
+ * principal names are role labels, while org pages live under `/orgs`.
+ * Used by both the web suggestion path and the API `autoSuffix` path.
  */
 export async function findAvailableOrgHandle(requested: string): Promise<string> {
   const base = requested.trim().toLowerCase();
@@ -391,10 +391,7 @@ export async function findAvailableOrgHandle(requested: string): Promise<string>
     let n = 2;
     while (true) {
       const taken = await c.query(
-        `SELECT 1 FROM organizations WHERE handle = $1 OR slug = $1
-         UNION ALL
-         SELECT 1 FROM principals WHERE username = $1
-         LIMIT 1`,
+        "SELECT 1 FROM organizations WHERE handle = $1 OR slug = $1 LIMIT 1",
         [candidate],
       );
       if (taken.rows.length === 0) return candidate;
@@ -446,10 +443,7 @@ export async function addOrganizationByHandle(opts: {
   return withClient(async (c) => {
     if (!opts.autoSuffix) {
       const taken = await c.query(
-        `SELECT 1 FROM organizations WHERE handle = $1 OR slug = $1
-         UNION ALL
-         SELECT 1 FROM principals WHERE username = $1
-         LIMIT 1`,
+        "SELECT 1 FROM organizations WHERE handle = $1 OR slug = $1 LIMIT 1",
         [finalHandle],
       );
       if (taken.rows.length > 0) {

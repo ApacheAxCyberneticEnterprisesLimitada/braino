@@ -2,14 +2,17 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { withClient } from "@doco/db";
 import { type EntityId, generateUlid, makeEntityId } from "@doco/shared";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   addOrganization,
+  addOrganizationByHandle,
   addPrincipal,
   createDocoInHost,
   createHost,
   detectMode,
+  findAvailableOrgHandle,
   listDocos,
   listOrganizations,
   listPrincipals,
@@ -204,5 +207,40 @@ describe("host lifecycle", () => {
     expect((await resolveOwnerSlug(root, "alice"))?.kind).toBe("principal");
     expect((await resolveOwnerSlug(root, "anthropic"))?.kind).toBe("organization");
     expect(await resolveOwnerSlug(root, "nobody")).toBeNull();
+  });
+});
+
+describe("organization handle creation", () => {
+  it("scopes v15 organization handle availability to organizations only", async () => {
+    const ownerId = makeEntityId("collaborator", generateUlid()) as EntityId<"collaborator">;
+    const principalId = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
+    const docoId = makeEntityId("doco", generateUlid()) as EntityId<"doco">;
+    const handle = "me-torrenegra-com";
+
+    await withClient(async (c) => {
+      await c.query(
+        `INSERT INTO collaborators (id, kind, github_login, raw_yaml)
+         VALUES ($1, 'person', 'owner', $2)`,
+        [ownerId, JSON.stringify({ id: ownerId, kind: "person", github_login: "owner" })],
+      );
+      await c.query(
+        `INSERT INTO principals (id, username, raw_yaml)
+         VALUES ($1, $2, $3)`,
+        [principalId, handle, JSON.stringify({ id: principalId, username: handle })],
+      );
+      await c.query(
+        `INSERT INTO docos (id, handle, owner_id, visibility, raw_yaml)
+         VALUES ($1, $2, $3, 'private', $4)`,
+        [docoId, handle, ownerId, JSON.stringify({ id: docoId, handle })],
+      );
+    });
+
+    await expect(findAvailableOrgHandle(handle)).resolves.toBe(handle);
+
+    await expect(
+      addOrganizationByHandle({ handle, ownerPrincipalId: ownerId }),
+    ).resolves.toMatchObject({ handle });
+
+    await expect(findAvailableOrgHandle(handle)).resolves.toBe(`${handle}-2`);
   });
 });
