@@ -43,6 +43,20 @@ BEGIN
     RETURN;
   END IF;
 
+  -- Fresh-DB short-circuit: if the principals table doesn't have the
+  -- legacy OAuth columns, it was created from the new schema.sql
+  -- baseline already — there's nothing to migrate. Mark this migration
+  -- applied and return.
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'principals' AND column_name = 'github_login'
+  ) THEN
+    INSERT INTO doco_meta (key, value) VALUES ('rename_v005', 'done')
+      ON CONFLICT (key) DO UPDATE SET value = 'done';
+    RAISE NOTICE 'rename_v005: principals already in post-rename shape, no migration work needed';
+    RETURN;
+  END IF;
+
   RAISE NOTICE 'rename_v005: starting';
 
   -- Table + column renames are handled by the v18 pre-rename DO block in

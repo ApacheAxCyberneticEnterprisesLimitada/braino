@@ -110,9 +110,14 @@ describe("business-processes template", () => {
       expect(rule.predicate.when_neuron_type).toContain("action");
     });
 
-    it("accepts both `person` and `agent` Principal types (team-roles are first-class)", () => {
+    // Post-rename: `allowed_principal_types` removed from the predicate.
+    // Principals no longer carry a `type` field (person/agent moved to
+    // Collaborator). The predicate simply enforces that the field
+    // resolves to an existing Principal — the test below now asserts the
+    // shape stays minimal.
+    it("predicate carries only field + when_neuron_type after the rename", () => {
       if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
-      expect([...rule.predicate.allowed_principal_types].sort()).toEqual(["agent", "person"]);
+      expect(Object.keys(rule.predicate).sort()).toEqual(["field", "kind", "when_neuron_type"]);
     });
   });
 

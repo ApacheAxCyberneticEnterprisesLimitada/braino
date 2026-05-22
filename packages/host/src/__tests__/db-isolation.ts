@@ -55,6 +55,7 @@ beforeEach(async () => {
     await client.query(
       `TRUNCATE
         hosts,
+        collaborators,
         principals,
         organizations,
         org_users,
@@ -64,6 +65,8 @@ beforeEach(async () => {
         rules,
         guidance_primitives,
         neuron_authoring_primitives,
+        org_guidance_primitives,
+        org_neuron_authoring_primitives,
         actions,
         logs,
         evals,
@@ -74,7 +77,11 @@ beforeEach(async () => {
         audit_events,
         synapses,
         embeddings,
-        entity_fts,
+        entity_fts_neurons,
+        entity_fts_primitives,
+        entity_fts_collaborators,
+        entity_fts_docos,
+        entity_fts_organizations,
         doco_users,
         tokens_blob
       RESTART IDENTITY CASCADE`,

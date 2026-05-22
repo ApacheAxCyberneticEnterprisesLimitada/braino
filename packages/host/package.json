@@ -24,5 +24,9 @@
     "@doco/db": "workspace:*",
     "@doco/shared": "workspace:*",
     "yaml": "^2.6.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.13.0",
+    "pg": "^8.13.1"
   }
 }

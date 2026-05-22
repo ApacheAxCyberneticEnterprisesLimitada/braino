@@ -4,7 +4,6 @@ import {
   type EntityId,
   HOST_RESERVED_SLUGS,
   type Organization,
-  type Principal,
   generateUlid,
   makeEntityId,
   nowIso,
@@ -26,7 +25,7 @@ export interface HostConfig {
   schema_version: string;
   name: string;
   created_at: string;
-  created_by: EntityId<"principal"> | null;
+  created_by: EntityId<"collaborator"> | null;
   visibility: "private" | "public";
 }
 
@@ -40,7 +39,7 @@ export interface CreateHostOptions {
 export async function createHost(
   root: string,
   opts: CreateHostOptions,
-): Promise<{ host: HostConfig; bootstrapPrincipalId: EntityId<"principal"> | null }> {
+): Promise<{ host: HostConfig; bootstrapPrincipalId: EntityId<"collaborator"> | null }> {
   if (detectMode(root) !== "empty") {
     throw new Error(`Refusing to overwrite: ${root} is already a Host or Doco.`);
   }
@@ -52,34 +51,26 @@ export async function createHost(
   await mkdir(hostOrganizationsDir(root), { recursive: true });
   await mkdir(hostDocosDir(root), { recursive: true });
 
-  // Optional bootstrap Principal.
-  let bootstrapId: EntityId<"principal"> | null = null;
+  // Optional bootstrap Collaborator (was "Principal" pre-rename; the
+  // OAuth identity layer is now `collaborators`).
+  let bootstrapId: EntityId<"collaborator"> | null = null;
   if (opts.ownerUsername) {
     const created = nowIso();
-    const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
-    // TODO(rename): rework host bootstrap to create a Collaborator
-    // (OAuth identity) entity rather than a Principal. The legacy shape
-    // below carries OAuth fields (type, github_identity) that the slimmed
-    // Principal no longer has; the literal is cast to bypass the type
-    // mismatch until the bootstrap flow is rewritten in a follow-up.
-    const principal = {
+    const id = makeEntityId("collaborator", generateUlid()) as EntityId<"collaborator">;
+    const collaborator = {
       id,
-      doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
-      entity_type: "principal",
-      summary: `Host owner ${opts.ownerUsername}.`,
-      type: "person",
-      username: opts.ownerUsername,
-      ...(opts.ownerEmail
-        ? { github_identity: { github_login: opts.ownerUsername, email: opts.ownerEmail } }
-        : { github_identity: { github_login: opts.ownerUsername } }),
+      entity_type: "collaborator",
+      kind: "person",
+      github_login: opts.ownerUsername,
+      ...(opts.ownerEmail ? { email: opts.ownerEmail } : {}),
       created_at: created,
-      created_by: id as unknown as EntityId<"collaborator">,
-      lifecycle: "active",
-    } as unknown as Principal;
+    };
     const { withClient } = await import("@doco/db");
     await withClient(async (c) => {
       const dup = await c.query(
-        `SELECT 1 FROM principals WHERE username = $1
+        `SELECT 1 FROM collaborators WHERE github_login = $1
+         UNION
+         SELECT 1 FROM principals WHERE username = $1
          UNION
          SELECT 1 FROM organizations WHERE slug = $1
          LIMIT 1`,
@@ -89,23 +80,23 @@ export async function createHost(
         throw new Error(`Slug "${opts.ownerUsername}" is already taken.`);
       }
       await c.query(
-        `INSERT INTO principals
-          (id, username, type, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, NULL)`,
+        `INSERT INTO collaborators
+          (id, kind, github_login, email, raw_yaml, created_at, updated_at)
+         VALUES ($1, 'person', $2, $3, $4, $5, $5)`,
         [
           id,
           opts.ownerUsername,
-          "person",
           opts.ownerEmail ?? null,
-          opts.ownerUsername,
-          null,
-          null,
-          JSON.stringify(principal),
+          JSON.stringify(collaborator),
           created,
         ],
       );
     });
-    await writeFile(join(hostPrincipalsDir(root), `${id}.yaml`), stringifyYaml(principal), "utf8");
+    await writeFile(
+      join(hostPrincipalsDir(root), `${id}.yaml`),
+      stringifyYaml(collaborator),
+      "utf8",
+    );
     bootstrapId = id;
   }
 
@@ -162,17 +153,20 @@ export type OwnerSummary =
   | { kind: "organization"; id: EntityId<"organization">; slug: string; display_name: string };
 
 export async function listPrincipals(_root: string): Promise<OwnerSummary[]> {
+  // Post-rename: list users-of-the-host = list collaborators (the OAuth
+  // identity layer). The function name is kept for caller compatibility;
+  // role-personas (the neuron type "principal") aren't host-level users.
   const { withClient } = await import("@doco/db");
   const r = await withClient((c) =>
-    c.query<{ id: string; username: string }>(
-      "SELECT id, username FROM principals WHERE deactivated_at IS NULL ORDER BY username",
+    c.query<{ id: string; github_login: string | null }>(
+      "SELECT id, github_login FROM collaborators WHERE deactivated_at IS NULL ORDER BY github_login NULLS LAST",
     ),
   );
   return r.rows.map((row) => ({
     kind: "principal" as const,
     id: row.id as EntityId<"principal">,
-    slug: row.username,
-    label: row.username,
+    slug: row.github_login ?? row.id,
+    label: row.github_login ?? row.id,
   }));
 }
 
@@ -247,49 +241,53 @@ export async function findPrincipalByGitHubLogin(
   _root: string,
   githubLogin: string,
 ): Promise<{ id: EntityId<"principal">; username: string } | null> {
+  // Post-rename: lookup by github_login lives on collaborators.
   const { withClient } = await import("@doco/db");
   const r = await withClient((c) =>
-    c.query<{ id: string; username: string }>(
-      "SELECT id, username FROM principals WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
+    c.query<{ id: string; github_login: string | null }>(
+      "SELECT id, github_login FROM collaborators WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
       [githubLogin],
     ),
   );
   if (!r.rows[0]) return null;
   return {
     id: r.rows[0].id as EntityId<"principal">,
-    username: r.rows[0].username,
+    username: r.rows[0].github_login ?? r.rows[0].id,
   };
 }
 
+/**
+ * Add a new collaborator (OAuth-identity user) to the host. Function
+ * name kept for caller compatibility, but post-rename the entity is a
+ * Collaborator, not a Principal. Returns the new collaborator id.
+ */
 export async function addPrincipal(
   _root: string,
   opts: AddPrincipalOptions,
-): Promise<EntityId<"principal">> {
+): Promise<EntityId<"collaborator">> {
   assertSlugAllowed(opts.username, "principal");
-  const id = makeEntityId("principal", generateUlid()) as EntityId<"principal">;
+  const id = makeEntityId("collaborator", generateUlid()) as EntityId<"collaborator">;
   const created = nowIso();
   const gh = opts.github_identity ?? {
     github_login: opts.username,
     ...(opts.email ? { email: opts.email } : {}),
   };
-  // TODO(rename): see host bootstrap TODO above — same legacy shape.
-  const yaml = {
+  const collaborator = {
     id,
-    doco_id: `doco_${generateUlid()}` as EntityId<"doco">,
-    entity_type: "principal",
-    summary: `User ${opts.username}.`,
-    type: "person",
-    username: opts.username,
-    github_identity: gh,
+    entity_type: "collaborator",
+    kind: "person",
+    github_login: gh.github_login,
+    ...(gh.email ? { email: gh.email } : {}),
+    ...(opts.email && !gh.email ? { email: opts.email } : {}),
     created_at: created,
-    created_by: id as unknown as EntityId<"collaborator">,
-    lifecycle: "active",
-  } as unknown as Principal;
+  };
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const dup = await c.query(
-      `SELECT 1 FROM principals WHERE username = $1
+      `SELECT 1 FROM collaborators WHERE github_login = $1
+       UNION
+       SELECT 1 FROM principals WHERE username = $1
        UNION
        SELECT 1 FROM organizations WHERE slug = $1
        LIMIT 1`,
@@ -299,25 +297,20 @@ export async function addPrincipal(
       throw new Error(`Slug "${opts.username}" is already taken.`);
     }
     await c.query(
-      `INSERT INTO principals
-        (id, username, type, email, github_login, avatar_url, owner_id, raw_yaml, created_at, updated_at, deactivated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, NULL)`,
+      `INSERT INTO collaborators
+        (id, kind, github_login, email, raw_yaml, created_at, updated_at)
+       VALUES ($1, 'person', $2, $3, $4, $5, $5)`,
       [
         id,
-        opts.username,
-        "person",
-        opts.email ?? null,
-        gh.github_login ?? null,
-        null,
-        null,
-        JSON.stringify(yaml),
+        gh.github_login ?? opts.username,
+        opts.email ?? gh.email ?? null,
+        JSON.stringify(collaborator),
         created,
       ],
     );
   });
-  // v16: every Principal gets a personal Organization with
-  // handle = username at sign-up. Idempotent — no-op if one already
-  // exists from an earlier sign-in pass.
+  // Every collaborator gets a personal Organization with handle =
+  // username at sign-up. Idempotent.
   await ensurePersonalOrganization(id, opts.username);
   return id;
 }
@@ -1032,14 +1025,14 @@ export async function softDeleteDoco(opts: {
 
 export async function listDocos(root: string): Promise<DocoRecord[]> {
   const { withClient } = await import("@doco/db");
-  // Phase 3a: slug columns dropped. Derive owner_slug via JOIN to
-  // identity tables and use the doco's handle as its slug stand-in.
+  // Post-rename: doco.owner_id is collaborator_<ulid> or organization_<ulid>.
+  // Owner-slug derives from collaborators.github_login or organizations.slug.
   const r = await withClient((c) =>
     c.query<{ id: string; handle: string; owner_slug: string; owner_id: string }>(
       `SELECT d.id, d.handle, d.owner_id,
-              COALESCE(p.username, o.slug, '') AS owner_slug
+              COALESCE(c.github_login, o.slug, '') AS owner_slug
          FROM docos d
-         LEFT JOIN principals p ON p.id = d.owner_id
+         LEFT JOIN collaborators c ON c.id = d.owner_id
          LEFT JOIN organizations o ON o.id = d.owner_id
         ORDER BY d.handle`,
     ),
