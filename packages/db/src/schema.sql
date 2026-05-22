@@ -12,10 +12,19 @@
 --     in a consistent order (id, doco_id, summary, lifecycle, ...).
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
---   - `edges` materializes cross-entity references for graph queries.
+--   - `synapses` materializes cross-entity references for graph queries
+--     (renamed from `synapses` in migration 005).
 --   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
 --   - Historical DO/ALTER convergence blocks below are retained for old
 --     databases. New schema changes belong in packages/db/migrations/.
+--
+-- Vocabulary (post-migration-005):
+--   neurons   — graph entities (10 types: intent/idea/rule/decision/action/
+--               log/eval/reference/state/principal)
+--   primitives — constitution metadata (2 kinds: guidance / neuron_authoring)
+--   synapses   — relationships between neurons
+--   collaborators — OAuth identities (person/agent), separate from principals
+--                   (which are role-personas referenced by actor_id/actors[]).
 
 -- Schema version. Tracked separately from app version so DB migrations
 -- don't gate code releases. v1 = initial Phase 2 cut.
@@ -45,14 +54,14 @@ BEGIN
     ALTER TABLE doco_members RENAME TO doco_users;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'doco_members_principal_idx') THEN
-    ALTER INDEX doco_members_principal_idx RENAME TO doco_users_principal_idx;
+    ALTER INDEX doco_members_principal_idx RENAME TO doco_users_collaborator_idx;
   END IF;
 
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_members') THEN
     ALTER TABLE org_members RENAME TO org_users;
   END IF;
   IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'org_members_principal_idx') THEN
-    ALTER INDEX org_members_principal_idx RENAME TO org_users_principal_idx;
+    ALTER INDEX org_members_principal_idx RENAME TO org_users_collaborator_idx;
   END IF;
 
   -- Constraints don't auto-rename when tables rename.
@@ -87,45 +96,49 @@ VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"publ
 ON CONFLICT (id) DO NOTHING;
 
 -- Identity layer.
+--
+-- Two distinct concerns, split into two tables (migration 005):
+--   `collaborators` — OAuth identity (person or agent runtime that holds
+--                     auth tokens). Authored neurons via `created_by` /
+--                     `updated_by`. Members of orgs/docos.
+--   `principals`    — role-personas (the "actor" in a documented business
+--                     process). Referenced by Action.actor_id, Log.actor_id,
+--                     Intent.actors[], etc. Modeled as a neuron type.
 
-CREATE TABLE IF NOT EXISTS principals (
-  id              text PRIMARY KEY,
-  username        text NOT NULL UNIQUE,
-  type            text NOT NULL CHECK (type IN ('person', 'agent')),
+CREATE TABLE IF NOT EXISTS collaborators (
+  id              text PRIMARY KEY,            -- collaborator_<ulid>
+  kind            text NOT NULL CHECK (kind IN ('person', 'agent')),
+  github_id       text,                        -- GitHub numeric id (immutable)
+  github_login    text,                        -- current GitHub login (mutable)
   email           text,
-  github_login    text,
   avatar_url      text,
-  owner_id        text REFERENCES principals(id) ON DELETE SET NULL,
+  owner_id        text REFERENCES collaborators(id) ON DELETE SET NULL,
   raw_yaml        text NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deactivated_at  timestamptz
 );
+CREATE INDEX IF NOT EXISTS collaborators_github_login_idx ON collaborators (github_login);
+CREATE INDEX IF NOT EXISTS collaborators_kind_idx          ON collaborators (kind);
 
--- v10 username-only principals: users do not carry standalone display
--- names. The database stores usernames plus identity metadata; any old
--- `display_name` column and embedded raw_yaml key are removed in place.
-DO $v10_principal_username_only$
-DECLARE
-  principal_row record;
-BEGIN
-  FOR principal_row IN
-    SELECT id, raw_yaml FROM principals WHERE raw_yaml LIKE '%display_name%'
-  LOOP
-    BEGIN
-      UPDATE principals
-         SET raw_yaml = (principal_row.raw_yaml::jsonb - 'display_name')::text
-       WHERE id = principal_row.id;
-    EXCEPTION WHEN others THEN
-      -- Legacy host files may have stored YAML text here. The column drop
-      -- still removes the indexed display name; future principal writes
-      -- strip the JSON key before storing raw_yaml.
-      NULL;
-    END;
-  END LOOP;
-END
-$v10_principal_username_only$;
-ALTER TABLE principals DROP COLUMN IF EXISTS display_name;
+CREATE TABLE IF NOT EXISTS principals (
+  id              text PRIMARY KEY,            -- principal_<ulid>
+  username        text NOT NULL UNIQUE,        -- role string (e.g. "system",
+                                               -- "customer-service-rep")
+  -- Principals are host-scoped (no doco_id NOT NULL) so role-personas can
+  -- be shared across Docos. The optional doco_id, set lazily when a role
+  -- is authored within a specific Doco, lives in raw_yaml and is hydrated
+  -- at read time by the repo. No FK constraint to avoid a forward ref to
+  -- the docos table that is created later in this file.
+  summary         text,
+  lifecycle       text,
+  body_md         text,
+  raw_yaml        text NOT NULL,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      text,                        -- collaborator_<ulid>
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  updated_by      text
+);
 
 CREATE TABLE IF NOT EXISTS organizations (
   id          text PRIMARY KEY,
@@ -141,12 +154,12 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- existing installs in place. Fresh installs land here directly.
 CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (org_id, principal_id)
+  PRIMARY KEY (org_id, collaborator_id)
 );
-CREATE INDEX IF NOT EXISTS org_users_principal_idx ON org_users (principal_id, role);
+CREATE INDEX IF NOT EXISTS org_users_collaborator_idx ON org_users (collaborator_id, role);
 
 -- Slug removal — every Doco has a single human-readable identifier:
 -- `handle`. It lives in the same flat global namespace as the
@@ -253,7 +266,7 @@ CREATE TABLE IF NOT EXISTS rules (
 CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS guidance_articles (
+CREATE TABLE IF NOT EXISTS guidance_primitives (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
@@ -265,12 +278,12 @@ CREATE TABLE IF NOT EXISTS guidance_articles (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS guidance_articles_doco_idx
-  ON guidance_articles (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS guidance_articles_lifecycle_idx
-  ON guidance_articles (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS guidance_primitives_doco_idx
+  ON guidance_primitives (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS guidance_primitives_lifecycle_idx
+  ON guidance_primitives (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS node_authoring_articles (
+CREATE TABLE IF NOT EXISTS neuron_authoring_primitives (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
@@ -282,16 +295,16 @@ CREATE TABLE IF NOT EXISTS node_authoring_articles (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS node_authoring_articles_doco_idx
-  ON node_authoring_articles (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS node_authoring_articles_lifecycle_idx
-  ON node_authoring_articles (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_doco_idx
+  ON neuron_authoring_primitives (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_lifecycle_idx
+  ON neuron_authoring_primitives (doco_id, lifecycle);
 
 -- Org-level constitution articles. Mirror the per-Doco shape but key on
 -- `org_id` instead of `doco_id`. An org's constitution applies to every
 -- Doco it owns, so the agent bootstrap aggregates these alongside the
 -- per-Doco constitutions for any org/doco the caller can read.
-CREATE TABLE IF NOT EXISTS org_guidance_articles (
+CREATE TABLE IF NOT EXISTS org_guidance_primitives (
   id          text PRIMARY KEY,
   org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   summary     text,
@@ -303,12 +316,12 @@ CREATE TABLE IF NOT EXISTS org_guidance_articles (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS org_guidance_articles_org_idx
-  ON org_guidance_articles (org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS org_guidance_articles_lifecycle_idx
-  ON org_guidance_articles (org_id, lifecycle);
+CREATE INDEX IF NOT EXISTS org_guidance_primitives_org_idx
+  ON org_guidance_primitives (org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS org_guidance_primitives_lifecycle_idx
+  ON org_guidance_primitives (org_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS org_node_authoring_articles (
+CREATE TABLE IF NOT EXISTS org_neuron_authoring_primitives (
   id          text PRIMARY KEY,
   org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   summary     text,
@@ -320,10 +333,10 @@ CREATE TABLE IF NOT EXISTS org_node_authoring_articles (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS org_node_authoring_articles_org_idx
-  ON org_node_authoring_articles (org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS org_node_authoring_articles_lifecycle_idx
-  ON org_node_authoring_articles (org_id, lifecycle);
+CREATE INDEX IF NOT EXISTS org_neuron_authoring_primitives_org_idx
+  ON org_neuron_authoring_primitives (org_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS org_neuron_authoring_primitives_lifecycle_idx
+  ON org_neuron_authoring_primitives (org_id, lifecycle);
 
 CREATE TABLE IF NOT EXISTS actions (
   id          text PRIMARY KEY,
@@ -433,11 +446,11 @@ CREATE TABLE IF NOT EXISTS reference_entities (
 CREATE TABLE IF NOT EXISTS audit_events (
   event_id      text PRIMARY KEY,
   at            timestamptz NOT NULL,
-  by_principal  text,
+  by_collaborator  text,
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
-  op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'entity.delete', 'lifecycle.transition', 'edge.add')),
+  op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'entity.delete', 'lifecycle.transition', 'synapse.add')),
   before_json   jsonb,
   after_json    jsonb,
   reason        text
@@ -445,7 +458,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
-CREATE INDEX IF NOT EXISTS audit_events_actor_idx ON audit_events (by_principal, at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_collaborator_idx ON audit_events (by_collaborator, at DESC);
 
 -- Org-scope audit events: org constitutions are first-class node-like
 -- entries (audit-tracked even though they don't live in a Doco). For
@@ -456,33 +469,33 @@ ALTER TABLE audit_events ALTER COLUMN doco_id DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events (org_id, at DESC);
 
 -- Indexing layer tables. These hold the derived-data the read side
--- consumes — graph edges, vector embeddings, denormalized rule targets,
+-- consumes — graph synapses, vector embeddings, denormalized rule targets,
 -- and full-text search rows. Supersedes ADR-023 (tiered architecture)
 -- and ADR-024 (SQLite + FTS5) — Postgres is now both source of truth
 -- and read-side index.
 
--- Graph edges (ADR-025). Materialized from frontmatter ID-shaped fields
+-- Graph synapses (ADR-025). Materialized from frontmatter ID-shaped fields
 -- by the indexer. attribution=='explicit' means declared in source;
 -- 'doco-auto' means LLM-detected. Doco-scoped via doco_id; both
--- endpoints can be any node_type so we can't FK them.
-CREATE TABLE IF NOT EXISTS edges (
+-- endpoints can be any neuron_type so we can't FK them.
+CREATE TABLE IF NOT EXISTS synapses (
   from_id         text NOT NULL,
-  from_node_type  text NOT NULL,
+  from_neuron_type  text NOT NULL,
   to_id           text NOT NULL,
-  to_node_type    text NOT NULL,
-  edge_type       text NOT NULL,
+  to_neuron_type    text NOT NULL,
+  synapse_type       text NOT NULL,
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  edge_props_json jsonb,
+  synapse_props_json jsonb,
   attribution     text NOT NULL DEFAULT 'explicit' CHECK (attribution IN ('explicit', 'doco-auto')),
-  PRIMARY KEY (from_id, to_id, edge_type)
+  PRIMARY KEY (from_id, to_id, synapse_type)
 );
-CREATE INDEX IF NOT EXISTS edges_doco_idx        ON edges (doco_id);
-CREATE INDEX IF NOT EXISTS edges_to_idx          ON edges (to_id, edge_type);
-CREATE INDEX IF NOT EXISTS edges_from_type_idx   ON edges (from_id, edge_type);
-CREATE INDEX IF NOT EXISTS edges_type_idx        ON edges (edge_type);
-CREATE INDEX IF NOT EXISTS edges_attribution_idx ON edges (attribution);
-CREATE INDEX IF NOT EXISTS edges_doco_type_from_idx ON edges (doco_id, edge_type, from_id);
-CREATE INDEX IF NOT EXISTS edges_doco_type_to_idx   ON edges (doco_id, edge_type, to_id);
+CREATE INDEX IF NOT EXISTS synapses_doco_idx        ON synapses (doco_id);
+CREATE INDEX IF NOT EXISTS synapses_to_idx          ON synapses (to_id, synapse_type);
+CREATE INDEX IF NOT EXISTS synapses_from_type_idx   ON synapses (from_id, synapse_type);
+CREATE INDEX IF NOT EXISTS synapses_type_idx        ON synapses (synapse_type);
+CREATE INDEX IF NOT EXISTS synapses_attribution_idx ON synapses (attribution);
+CREATE INDEX IF NOT EXISTS synapses_doco_type_from_idx ON synapses (doco_id, synapse_type, from_id);
+CREATE INDEX IF NOT EXISTS synapses_doco_type_to_idx   ON synapses (doco_id, synapse_type, to_id);
 
 -- Vector embeddings (ADR-052). One row per entity. Storage is bytea
 -- (Float32Array bytes, little-endian). pgvector + ivfflat/hnsw is an
@@ -502,14 +515,45 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE INDEX IF NOT EXISTS embeddings_doco_idx  ON embeddings (doco_id);
 CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
 
--- Full-text search. One row per
--- entity. The indexer populates summary + body; search_tsv is a
--- generated tsvector with English stemming and weighting (A=summary,
--- B=body). The GIN index handles `@@` queries efficiently.
-CREATE TABLE IF NOT EXISTS entity_fts (
+-- Full-text search. Five tables (one per top-level entity category) so the
+-- search filter logic can pick the right shape directly. The indexer
+-- populates summary + body; search_tsv is a generated tsvector with English
+-- stemming and weighting (A=summary, B=body). A GIN index per table handles
+-- `@@` queries efficiently. Cross-category search is a UNION over tables.
+
+CREATE TABLE IF NOT EXISTS entity_fts_neurons (
+  entity_id    text PRIMARY KEY,
+  doco_id      text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  neuron_type  text NOT NULL,
+  summary      text,
+  body         text,
+  search_tsv   tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(body, '')), 'B')
+  ) STORED
+);
+CREATE INDEX IF NOT EXISTS entity_fts_neurons_doco_idx ON entity_fts_neurons (doco_id);
+CREATE INDEX IF NOT EXISTS entity_fts_neurons_tsv_idx  ON entity_fts_neurons USING gin (search_tsv);
+
+CREATE TABLE IF NOT EXISTS entity_fts_primitives (
+  entity_id       text PRIMARY KEY,
+  doco_id         text REFERENCES docos(id) ON DELETE CASCADE,
+  org_id          text REFERENCES organizations(id) ON DELETE CASCADE,
+  primitive_kind  text NOT NULL CHECK (primitive_kind IN ('guidance', 'neuron_authoring')),
+  summary         text,
+  body            text,
+  search_tsv      tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(body, '')), 'B')
+  ) STORED,
+  CHECK ((doco_id IS NOT NULL) OR (org_id IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS entity_fts_primitives_doco_idx ON entity_fts_primitives (doco_id);
+CREATE INDEX IF NOT EXISTS entity_fts_primitives_org_idx  ON entity_fts_primitives (org_id);
+CREATE INDEX IF NOT EXISTS entity_fts_primitives_tsv_idx  ON entity_fts_primitives USING gin (search_tsv);
+
+CREATE TABLE IF NOT EXISTS entity_fts_collaborators (
   entity_id   text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  node_type   text NOT NULL,
   summary     text,
   body        text,
   search_tsv  tsvector GENERATED ALWAYS AS (
@@ -517,8 +561,29 @@ CREATE TABLE IF NOT EXISTS entity_fts (
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
   ) STORED
 );
-CREATE INDEX IF NOT EXISTS entity_fts_doco_idx ON entity_fts (doco_id);
-CREATE INDEX IF NOT EXISTS entity_fts_tsv_idx  ON entity_fts USING gin (search_tsv);
+CREATE INDEX IF NOT EXISTS entity_fts_collaborators_tsv_idx ON entity_fts_collaborators USING gin (search_tsv);
+
+CREATE TABLE IF NOT EXISTS entity_fts_docos (
+  entity_id   text PRIMARY KEY,
+  summary     text,
+  body        text,
+  search_tsv  tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(body, '')), 'B')
+  ) STORED
+);
+CREATE INDEX IF NOT EXISTS entity_fts_docos_tsv_idx ON entity_fts_docos USING gin (search_tsv);
+
+CREATE TABLE IF NOT EXISTS entity_fts_organizations (
+  entity_id   text PRIMARY KEY,
+  summary     text,
+  body        text,
+  search_tsv  tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(body, '')), 'B')
+  ) STORED
+);
+CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organizations USING gin (search_tsv);
 
 -- Drop the legacy `revision` column from entity tables. Was incremented
 -- on every upsert but never read by any TS code (decision_01KRHBZMD0V35NAX94Y7N2MXVA
@@ -526,19 +591,19 @@ CREATE INDEX IF NOT EXISTS entity_fts_tsv_idx  ON entity_fts USING gin (search_t
 ALTER TABLE intents            DROP COLUMN IF EXISTS revision;
 ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
 ALTER TABLE rules              DROP COLUMN IF EXISTS revision;
-ALTER TABLE guidance_articles  DROP COLUMN IF EXISTS revision;
-ALTER TABLE node_authoring_articles DROP COLUMN IF EXISTS revision;
+ALTER TABLE guidance_primitives  DROP COLUMN IF EXISTS revision;
+ALTER TABLE neuron_authoring_primitives DROP COLUMN IF EXISTS revision;
 ALTER TABLE actions            DROP COLUMN IF EXISTS revision;
 ALTER TABLE evals              DROP COLUMN IF EXISTS revision;
 ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
 ALTER TABLE reference_entities DROP COLUMN IF EXISTS revision;
 
 -- Deprecation (2026-05-16): the `reasoning` node type was removed.
--- Drop the legacy table and purge any dangling edges / embeddings /
+-- Drop the legacy table and purge any dangling synapses / embeddings /
 -- audit rows so existing databases converge to the new shape on boot.
 -- Idempotent — no-op on fresh DBs.
 DROP TABLE IF EXISTS reasoning CASCADE;
-DELETE FROM edges         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id LIKE 'reasoning\_%' ESCAPE '\';
+DELETE FROM synapses         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id LIKE 'reasoning\_%' ESCAPE '\';
 DELETE FROM embeddings    WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 
@@ -570,12 +635,12 @@ $org_role_widen$;
 -- membership.
 CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  principal_id  text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (doco_id, principal_id)
+  PRIMARY KEY (doco_id, collaborator_id)
 );
-CREATE INDEX IF NOT EXISTS doco_users_principal_idx ON doco_users (principal_id, role);
+CREATE INDEX IF NOT EXISTS doco_users_collaborator_idx ON doco_users (collaborator_id, role);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Invite store backing blob. The old session-token and CLI authorization
@@ -632,7 +697,7 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
 CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   code                  text PRIMARY KEY,
   client_id             text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
-  principal_id          text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  collaborator_id          text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   redirect_uri          text NOT NULL,
   code_challenge        text NOT NULL,
   code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
@@ -666,7 +731,7 @@ CREATE INDEX IF NOT EXISTS oauth_authorization_codes_expires_idx
 CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
-  principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  collaborator_id      text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -676,8 +741,8 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS oauth_access_tokens_principal_idx
-  ON oauth_access_tokens (principal_id, revoked);
+CREATE INDEX IF NOT EXISTS oauth_access_tokens_collaborator_idx
+  ON oauth_access_tokens (collaborator_id, revoked);
 CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
   ON oauth_access_tokens (expires_at);
 
@@ -691,7 +756,7 @@ CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
 CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
-  principal_id      text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  collaborator_id      text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -702,8 +767,8 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   superseded_by     text REFERENCES oauth_refresh_tokens(token) ON DELETE SET NULL,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_principal_idx
-  ON oauth_refresh_tokens (principal_id, revoked);
+CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_collaborator_idx
+  ON oauth_refresh_tokens (collaborator_id, revoked);
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
 
@@ -714,7 +779,7 @@ CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
 -- to the human, then polls /oauth/token until the human approves
 -- in their browser at GET /device.
 --
--- `status` transitions: pending → approved (principal_id +
+-- `status` transitions: pending → approved (collaborator_id +
 -- granted_doco_ids set) or denied or expired. The polling endpoint
 -- mints + returns access/refresh tokens iff `status = approved`,
 -- then deletes the row.
@@ -725,7 +790,7 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   scope            text,
   status           text NOT NULL DEFAULT 'pending'
                      CHECK (status IN ('pending','approved','denied')),
-  principal_id     text REFERENCES principals(id) ON DELETE CASCADE,
+  collaborator_id     text REFERENCES collaborators(id) ON DELETE CASCADE,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -799,20 +864,20 @@ ALTER TABLE oauth_device_authorizations
 --      Backfilled from the legacy polymorphic `owner_id`.
 --   3. Every Principal has a personal Organization with handle =
 --      username. Minted lazily for existing Principals.
---   4. Docos get optional `allowed_node_types` and
---      `default_node_lifecycle` columns (for the upcoming doco-template
+--   4. Docos get optional `allowed_neuron_types` and
+--      `default_neuron_lifecycle` columns (for the upcoming doco-template
 --      flow). NULL = no restriction.
 --   5. `doco_templates` table for the v15+ create-from-template flow.
 
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS handle text;
 ALTER TABLE docos         ADD COLUMN IF NOT EXISTS org_id text;
-ALTER TABLE docos         ADD COLUMN IF NOT EXISTS allowed_node_types text[];
-ALTER TABLE docos         ADD COLUMN IF NOT EXISTS default_node_lifecycle text;
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS allowed_neuron_types text[];
+ALTER TABLE docos         ADD COLUMN IF NOT EXISTS default_neuron_lifecycle text;
 
 CREATE TABLE IF NOT EXISTS doco_templates (
   id           text PRIMARY KEY,
   handle       text NOT NULL UNIQUE,
-  owner_id     text NOT NULL REFERENCES principals(id) ON DELETE CASCADE,
+  owner_id     text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
   label        text NOT NULL,
   description  text NOT NULL,
   raw_yaml     text NOT NULL,
@@ -894,7 +959,7 @@ BEGIN
     )
     ON CONFLICT (slug) DO NOTHING;
 
-    INSERT INTO org_users (org_id, principal_id, role)
+    INSERT INTO org_users (org_id, collaborator_id, role)
     SELECT id, princ.id, 'owner'
     FROM organizations WHERE handle = princ.username
     ON CONFLICT DO NOTHING;
