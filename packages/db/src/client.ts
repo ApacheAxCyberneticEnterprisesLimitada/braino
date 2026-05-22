@@ -63,12 +63,22 @@ export async function withTransaction<T>(fn: (c: pg.PoolClient) => Promise<T>): 
 async function readSchemaSql(): Promise<string> {
   if (_schemaSql) return _schemaSql;
   const { readFileSync } = await import(/* @vite-ignore */ "node:fs");
-  const { dirname, join } = await import(/* @vite-ignore */ "node:path");
+  const { dirname, join, resolve } = await import(/* @vite-ignore */ "node:path");
   const { fileURLToPath } = await import(/* @vite-ignore */ "node:url");
   const here = dirname(fileURLToPath(import.meta.url));
+  const cwd = process.cwd();
   const candidates = [
     join(here, "schema.sql"),
     join(here, "..", "src", "schema.sql"),
+    // Vercel serverless layout: the bundled module ends up under
+    // `/var/task/packages/web/build/server/.../assets/<bundle>.js` but
+    // the schema.sql is copied to a sibling `assets/schema.sql` of the
+    // SAME chunk dir. `here` should match — these extra candidates are
+    // defensive fallbacks if the runtime resolves `import.meta.url`
+    // differently from the file's on-disk location.
+    resolve(cwd, "packages/web/build/server/nodejs_eyJydW50aW1lIjoibm9kZWpzIn0/assets/schema.sql"),
+    resolve(cwd, "packages/db/dist/schema.sql"),
+    resolve(cwd, "packages/db/src/schema.sql"),
   ];
   for (const c of candidates) {
     try {
@@ -76,7 +86,10 @@ async function readSchemaSql(): Promise<string> {
       return _schemaSql;
     } catch {}
   }
-  throw new Error("Could not locate schema.sql alongside @doco/db build.");
+  throw new Error(
+    `Could not locate schema.sql alongside @doco/db build. ` +
+      `tried=${JSON.stringify(candidates)} here=${here} cwd=${cwd}`,
+  );
 }
 
 async function applySchema(): Promise<void> {
