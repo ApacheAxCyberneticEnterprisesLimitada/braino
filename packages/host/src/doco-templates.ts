@@ -46,7 +46,7 @@ export interface TemplatePrimitive {
   /**
    * v7: when set, the engine only fires this primitive against
    * candidates whose `lifecycle` is in the list. Used by completeness
-   * rules that skip drafted neurons during mid-construction.
+   * rules that skip drafting neurons during mid-construction.
    */
   fires_when_neuron_lifecycle?: Lifecycle[];
   /**
@@ -118,7 +118,7 @@ export interface DocoTemplate {
    * When set, captures into a Doco created from this template default
    * the new node's `lifecycle` to this value unless the author
    * overrides with an explicit flag. The state-machines template uses
-   * `"drafted"` so authors can sketch incomplete machines without
+   * `"drafting"` so authors can sketch incomplete machines without
    * tripping completeness rules.
    */
   defaultNeuronLifecycle?: Lifecycle;
@@ -244,10 +244,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // user-flows v2: each principal listed on the Intent's
         // `actors` must be the actor_id of ≥1 Action serving the
         // Intent. Fires only when the Intent moves to `active` —
-        // drafted Intents can be captured first and have their Actions
+        // drafting Intents can be captured first and have their Actions
         // filled in after.
         summary:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafted Intents are allowed to be incomplete.",
+          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
           list_field: "actors",
@@ -278,13 +278,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // modeling. The template is pure data: atomic primitives
     // primitives plus Doco-level defaults. Framework primitives the
     // rules use: State neuron + triggered_by / gated_by synapses +
-    // drafted lifecycle + defaultNeuronLifecycle.
+    // drafting lifecycle + defaultNeuronLifecycle.
     name: "state-machines",
     label: "state-machines",
     icon: "🔁",
     description:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
-    defaultNeuronLifecycle: "drafted",
+    defaultNeuronLifecycle: "drafting",
     primitives: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
@@ -445,7 +445,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🧪",
     description:
       "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
-    defaultNeuronLifecycle: "drafted",
+    defaultNeuronLifecycle: "drafting",
     primitives: [
       // ── Deterministic structural gates ──
       {
@@ -535,7 +535,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafted"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `active` — it\'s now a regression guard.',
+          'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafting"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `active` — it\'s now a regression guard.',
       },
       {
         kind: "guidance",
@@ -572,7 +572,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Repeatable business processes modeled on BPMN swimlanes and
     // gateways. The framework primitives the
-    // rules use overlap with the state-machines template (State + drafted
+    // rules use overlap with the state-machines template (State + drafting
     // lifecycle + defaultNeuronLifecycle), but the template reaches further:
     // Action/Decision/Intent shape rules push authors toward business
     // outcomes, named gateways, and explicit handoffs. Aggregate checks
@@ -583,7 +583,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🏭",
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
-    defaultNeuronLifecycle: "drafted",
+    defaultNeuronLifecycle: "drafting",
     // Ship the BPMN perspective pre-attached and as the default tab,
     // so a freshly-created business-processes Doco opens directly on
     // the swim-lane view (where the template's authoring rules are
@@ -948,10 +948,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Each principal listed on an Intent's `actors` must be the
         // actor_id of ≥1 Action serving the Intent. Fires only when
-        // the Intent moves to `active` so drafted Intents can be
+        // the Intent moves to `active` so drafting Intents can be
         // sketched first and have their Actions filled in later.
         summary:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafted Intents are allowed to be incomplete.",
+          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
           list_field: "actors",

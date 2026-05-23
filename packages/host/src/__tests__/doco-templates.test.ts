@@ -20,7 +20,7 @@ describe("business-processes template", () => {
   it("has the expected metadata (icon, label, defaultNeuronLifecycle)", () => {
     expect(template.icon).toBe("🏭");
     expect(template.label).toBe("business-processes");
-    expect(template.defaultNeuronLifecycle).toBe("drafted");
+    expect(template.defaultNeuronLifecycle).toBe("drafting");
     expect(template.description).toMatch(/repeatable business processes/i);
     expect(template.description).toMatch(/BPMN/);
   });
@@ -165,7 +165,7 @@ describe("business-processes template", () => {
       expect(rule.predicate.when_neuron_type).toContain("intent");
     });
 
-    it("fires only when the Intent is active (drafted Intents can be incomplete)", () => {
+    it("fires only when the Intent is active (drafting Intents can be incomplete)", () => {
       expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
     });
   });

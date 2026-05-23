@@ -23,7 +23,7 @@
 
 import type { EntityId, EntityType, NeuronType } from "./branded.js";
 
-export type Lifecycle = "drafted" | "proposed" | "active" | "retired";
+export type Lifecycle = "drafting" | "proposed" | "active" | "retired";
 
 export type Outcome = "succeeded" | "failed";
 

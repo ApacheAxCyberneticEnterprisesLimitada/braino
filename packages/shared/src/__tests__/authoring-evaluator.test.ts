@@ -308,9 +308,14 @@ describe("authoring evaluator — graph-completeness", () => {
     expect(v).toHaveLength(1);
   });
 
-  it("does not fire on drafted Intents (lifecycle filter)", () => {
+  it("does not fire on drafting Intents (lifecycle filter)", () => {
     const v = evaluate(
-      { id: "intent_01", neuron_type: "intent", actors: ["principal_alice"], lifecycle: "drafted" },
+      {
+        id: "intent_01",
+        neuron_type: "intent",
+        actors: ["principal_alice"],
+        lifecycle: "drafting",
+      },
       [
         P(
           {
