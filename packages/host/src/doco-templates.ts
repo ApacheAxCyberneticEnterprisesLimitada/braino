@@ -188,10 +188,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          'Action nodes in user-flows pass the prose style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
         predicate: {
           kind: "probabilistic",
-          spec: 'Action nodes in user-flows pass the summary style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
+          spec: 'Action nodes in user-flows pass the prose style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
           when_neuron_type: ["action"],
         },
       },
@@ -309,7 +309,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "State `summary` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.",
+          "State `state` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.",
         kind: "guidance",
       },
       {
@@ -349,11 +349,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P1
         summary:
-          "State `summary` reads as a noun or past-participle, not an imperative verb. Acceptable: `paid`, `cart`, `cancelled`. Not: `Pay`, `Cancel`, `Process the order`.",
+          "State `state` reads as a noun or past-participle, not an imperative verb. Acceptable: `paid`, `cart`, `cancelled`. Not: `Pay`, `Cancel`, `Process the order`.",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["state"],
-          spec: "Check ONLY the State's `summary` field. It must read as a noun or past-participle naming the position the modeled entity occupies (`cart`, `paid`, `cancelled`, `awaiting-review`). It must NOT be an imperative verb naming an action (`Pay`, `Cancel`, `Process the order`). A single-word past-participle adjective is acceptable.",
+          spec: "Check ONLY the State's `state` field. It must read as a noun or past-participle naming the position the modeled entity occupies (`cart`, `paid`, `cancelled`, `awaiting-review`). It must NOT be an imperative verb naming an action (`Pay`, `Cancel`, `Process the order`). A single-word past-participle adjective is acceptable.",
         },
       },
       {
@@ -373,7 +373,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["state"],
-          spec: "Check ONLY the State's `invariants` array. If `invariants` is empty, missing, or absent from the entity, this rule PASSES (vacuously true). When invariants are present, each entry must read as an observable predicate a reader can check programmatically (e.g., `order.payment.captured = false`), not a subjective quality (e.g., `the order is happy`). Do NOT judge the State's `summary` or `body_md` — only the invariants array matters here.",
+          spec: "Check ONLY the State's `invariants` array. If `invariants` is empty, missing, or absent from the entity, this rule PASSES (vacuously true). When invariants are present, each entry must read as an observable predicate a reader can check programmatically (e.g., `order.payment.captured = false`), not a subjective quality (e.g., `the order is happy`). Do NOT judge the State's `state` field — only the invariants array matters here.",
         },
       },
       {
@@ -395,7 +395,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["action"],
-          spec: "STEP 1 — decide whether this Action represents a compensating, cancellation, rollback, refund, undo, abort, abandon, or otherwise-undoing transition between States. Look at the Action's `verb` and `summary` for words like 'cancel', 'refund', 'rollback', 'undo', 'revert', 'abort', 'abandon', 'compensate', 'reverse'. If the Action is a normal happy-path transition (e.g., 'checkout submitted', 'payment captured', 'order shipped'), this rule PASSES — return ok. STEP 2 — only if the Action IS a compensating/cancellation transition, check that `decision_ids` is non-empty. If empty, FAIL with a reason explaining the Action looks like a compensating path but doesn't cite a Decision.",
+          spec: "STEP 1 — decide whether this Action represents a compensating, cancellation, rollback, refund, undo, abort, abandon, or otherwise-undoing transition between States. Look at the Action's `verb` and `action` for words like 'cancel', 'refund', 'rollback', 'undo', 'revert', 'abort', 'abandon', 'compensate', 'reverse'. If the Action is a normal happy-path transition (e.g., 'checkout submitted', 'payment captured', 'order shipped'), this rule PASSES — return ok. STEP 2 — only if the Action IS a compensating/cancellation transition, check that `decision_ids` is non-empty. If empty, FAIL with a reason explaining the Action looks like a compensating path but doesn't cite a Decision.",
         },
       },
       {
@@ -412,11 +412,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P-orphan-transition
         summary:
-          "A transition Action with empty `triggered_by` AND empty `gated_by` is either an explicit immediate transition (the body explains why it fires unconditionally) or an authoring oversight — capture the intent.",
+          "A transition Action with empty `triggered_by` AND empty `gated_by` is either an explicit immediate transition (the `action` field explains why it fires unconditionally) or an authoring oversight — capture the intent.",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["action"],
-          spec: "A transition Action with empty triggered_by AND empty gated_by either explicitly justifies its unconditional firing in the body, or is an authoring oversight to flag.",
+          spec: "A transition Action with empty triggered_by AND empty gated_by either explicitly justifies its unconditional firing in the `action` field, or is an authoring oversight to flag.",
         },
       },
       // ── Descriptive (documentation-only) ──
@@ -461,10 +461,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // D2
         summary:
-          "Every Eval declares what it is and how it's graded — `name` and `criterion` are required from creation.",
+          "Every Eval declares what it is and how it's graded — `eval` and `criterion` are required from creation.",
         predicate: {
           kind: "requires_field",
-          fields: ["name", "criterion"],
+          fields: ["eval", "criterion"],
           when_neuron_type: ["eval"],
         },
       },
@@ -504,21 +504,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P1
         summary:
-          "Eval `name` reads as a checkable property of the system (e.g. `user-email-validation accepts .+@.+ form`), not a serial label (`test 1`, `eval A`, `it works`).",
+          "Eval `eval` reads as a checkable property of the system (e.g. `user-email-validation accepts .+@.+ form`), not a serial label (`test 1`, `eval A`, `it works`).",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["eval"],
-          spec: "Check ONLY the Eval's `name` field. It must read as a checkable property of the system — a phrase describing what should be true (e.g. `user-email-validation accepts .+@.+ form`, `merge button disabled until reviewers approve`). It must NOT be a serial or meaningless label (`test 1`, `eval A`, `it works`, `tbd`).",
+          spec: "Check ONLY the Eval's `eval` field. It must read as a checkable property of the system — a phrase describing what should be true (e.g. `user-email-validation accepts .+@.+ form`, `merge button disabled until reviewers approve`). It must NOT be a serial or meaningless label (`test 1`, `eval A`, `it works`, `tbd`).",
         },
       },
       {
         // P2
         summary:
-          "An Eval tests one property. If `description` or `criterion.spec` joins multiple independent claims with 'and', it's a split candidate.",
+          "An Eval tests one property. If `eval` or `criterion.spec` joins multiple independent claims with 'and', it's a split candidate.",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["eval"],
-          spec: "Check the Eval's `description` and `criterion.spec`. The Eval should test ONE checkable property. If either field describes multiple independent properties joined by 'and' (e.g. 'the form validates emails AND rejects empty submissions AND shows a toast'), it's a split candidate — FAIL with a reason naming the split.",
+          spec: "Check the Eval's `eval` field and `criterion.spec`. The Eval should test ONE checkable property. If either field describes multiple independent properties joined by 'and' (e.g. 'the form validates emails AND rejects empty submissions AND shows a toast'), it's a split candidate — FAIL with a reason naming the split.",
         },
       },
       {
@@ -647,12 +647,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Probabilistic on intent — the trigger, terminal business
         // outcome, and out-of-scope boundary must all be discernible
-        // from the Intent's summary+body.
+        // from the Intent's `intent` field.
         summary:
-          "The purpose Intent of a business process names the trigger that starts the process, the terminal business outcome that ends it, and what is explicitly out of scope. Readers should be able to discern all three from the Intent's summary and body.",
+          "The purpose Intent of a business process names the trigger that starts the process, the terminal business outcome that ends it, and what is explicitly out of scope. Readers should be able to discern all three from the Intent's `intent` field.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Intent's summary and body together. The purpose Intent of a business process must name (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. PASS if all three are discernible; FAIL with which is missing if one or more is absent.",
+          spec: "Check the Intent's `intent` field. The purpose Intent of a business process must name (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. PASS if all three are discernible; FAIL with which is missing if one or more is absent.",
           when_neuron_type: ["intent"],
         },
       },
@@ -713,10 +713,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Atomic activity prose — reject umbrella phases and
         // implementation chores divorced from business meaning.
         summary:
-          "Action `summary` reads as an atomic business activity — a single unit of work an actor performs. Reject vague umbrella phases (`handle request`, `do the thing`) and reject implementation chores divorced from business meaning (`call API`, `update row`).",
+          "Action `action` reads as an atomic business activity — a single unit of work an actor performs. Reject vague umbrella phases (`handle request`, `do the thing`) and reject implementation chores divorced from business meaning (`call API`, `update row`).",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Action's `summary` and `verb`. PASS when the text names an atomic business activity — a single unit of work the named actor performs. FAIL with reason if the text is a vague umbrella phase (e.g. `handle request`, `do the thing`, `process order`) or an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
+          spec: "Check the Action's `action` and `verb`. PASS when the text names an atomic business activity — a single unit of work the named actor performs. FAIL with reason if the text is a vague umbrella phase (e.g. `handle request`, `do the thing`, `process order`) or an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
           when_neuron_type: ["action"],
         },
       },
@@ -740,7 +740,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Side-effecting Actions (Actions with a physical-world or financial consequence — money moved, goods shipped, a contract signed) must declare a compensation path. Either `decision_ids` cites a branch into a compensating Action, or `gated_by` cites a reversal Rule.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action has a physical-world or financial side effect (money moved, goods shipped, a contract signed, an email sent to a counterparty). Look at the `verb`, `summary`, and `outputs` for words like `ship`, `pay`, `charge`, `sign`, `send`, `dispatch`, `disburse`, `commit`. If the Action has no such side effect, this rule PASSES. STEP 2 — only if the Action IS side-effecting, check that EITHER `decision_ids` is non-empty (citing a Decision that branches to a compensating Action) OR `gated_by` is non-empty (citing a reversal Rule). FAIL with reason if both are empty.",
+          spec: "STEP 1 — decide whether this Action has a physical-world or financial side effect (money moved, goods shipped, a contract signed, an email sent to a counterparty). Look at the `verb`, `action`, and `outputs` for words like `ship`, `pay`, `charge`, `sign`, `send`, `dispatch`, `disburse`, `commit`. If the Action has no such side effect, this rule PASSES. STEP 2 — only if the Action IS side-effecting, check that EITHER `decision_ids` is non-empty (citing a Decision that branches to a compensating Action) OR `gated_by` is non-empty (citing a reversal Rule). FAIL with reason if both are empty.",
           when_neuron_type: ["action"],
         },
       },
@@ -751,7 +751,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Exception, cancellation, refund, reject, and escalate Actions must cite their rationale — either `decision_ids` references the Decision that opens the path, or `gated_by` references the Rule that authorizes it.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action is a cancellation, refund, reject, escalate, abort, or otherwise-exceptional path. Look at the `verb` and `summary` for words like `cancel`, `refund`, `reject`, `escalate`, `abort`, `void`, `dispute`, `deny`. If the Action is a normal happy-path activity, this rule PASSES. STEP 2 — only if the Action IS an exception/cancellation path, check that EITHER `decision_ids` OR `gated_by` is non-empty. FAIL with reason if both are empty.",
+          spec: "STEP 1 — decide whether this Action is a cancellation, refund, reject, escalate, abort, or otherwise-exceptional path. Look at the `verb` and `action` for words like `cancel`, `refund`, `reject`, `escalate`, `abort`, `void`, `dispute`, `deny`. If the Action is a normal happy-path activity, this rule PASSES. STEP 2 — only if the Action IS an exception/cancellation path, check that EITHER `decision_ids` OR `gated_by` is non-empty. FAIL with reason if both are empty.",
           when_neuron_type: ["action"],
         },
       },
@@ -759,10 +759,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Sub-process invocation — delegate via Intent reference, not
         // by inlining steps from the sub-process here.
         summary:
-          "An Action that delegates to another process should cite the sub-process by its Intent (via `intent_ids`) or via a Reference in its body — never inline the sub-process's steps here.",
+          "An Action that delegates to another process should cite the sub-process by its Intent (via `intent_ids`) or via a Reference in its `action` field — never inline the sub-process's steps here.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action delegates to another business process (a sub-process invocation). Look for phrases like `run X process`, `kick off X`, `invoke the X workflow`, `escalate to the X process`. If the Action does not delegate, this rule PASSES. STEP 2 — only if it does delegate, check that EITHER `intent_ids` references the sub-process's purpose Intent OR the `body_md` cites a Reference pointing at the sub-process. FAIL with reason if the sub-process's steps appear inlined in the body instead.",
+          spec: "STEP 1 — decide whether this Action delegates to another business process (a sub-process invocation). Look for phrases like `run X process`, `kick off X`, `invoke the X workflow`, `escalate to the X process`. If the Action does not delegate, this rule PASSES. STEP 2 — only if it does delegate, check that EITHER `intent_ids` references the sub-process's purpose Intent OR the `action` field cites a Reference pointing at the sub-process. FAIL with reason if the sub-process's steps appear inlined in the `action` field instead.",
           when_neuron_type: ["action"],
         },
       },
@@ -771,10 +771,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // with an exit branch or via a Rule bounding iteration. Both
         // shapes are legitimate; this is permissive.
         summary:
-          "Actions whose verb or summary implies retry or iteration must show how the loop terminates — either `decision_ids` cites a Decision with an exit branch, or `gated_by` cites a Rule that bounds iteration (max attempts, deadline, idempotency key).",
+          "Actions whose verb or action implies retry or iteration must show how the loop terminates — either `decision_ids` cites a Decision with an exit branch, or `gated_by` cites a Rule that bounds iteration (max attempts, deadline, idempotency key).",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action's `verb` or `summary` implies a retry or loop (words like `retry`, `poll`, `keep checking`, `until`, `each time`, `recur`). If not, this rule PASSES. STEP 2 — only if the Action loops, check that EITHER `decision_ids` includes a Decision with an exit/give-up branch OR `gated_by` includes a Rule that bounds the iteration. Both shapes are legitimate. FAIL with reason if neither shape is present.",
+          spec: "STEP 1 — decide whether this Action's `verb` or `action` implies a retry or loop (words like `retry`, `poll`, `keep checking`, `until`, `each time`, `recur`). If not, this rule PASSES. STEP 2 — only if the Action loops, check that EITHER `decision_ids` includes a Decision with an exit/give-up branch OR `gated_by` includes a Rule that bounds the iteration. Both shapes are legitimate. FAIL with reason if neither shape is present.",
           when_neuron_type: ["action"],
         },
       },
@@ -782,10 +782,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Timer-driven Actions name an anchor and an ISO 8601 offset
         // so a reader can compute when the Action fires.
         summary:
-          "Scheduled or timer-driven Actions must name both an anchor (a State's `entered_at`, an absolute timestamp, or a prior Action's completion) AND an ISO 8601 offset (`PT24H`, `P3D`, `PT15M`) in the summary or body. `nightly` and `every so often` are not anchors.",
+          "Scheduled or timer-driven Actions must name both an anchor (a State's `entered_at`, an absolute timestamp, or a prior Action's completion) AND an ISO 8601 offset (`PT24H`, `P3D`, `PT15M`) in the `action` field. `nightly` and `every so often` are not anchors.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action is scheduled or timer-driven (words like `after`, `every`, `nightly`, `daily`, `wait`, `on the Xth`, `following N days`). If not, this rule PASSES. STEP 2 — only if it is, check that the `summary` or `body_md` names BOTH (a) a concrete anchor — a named State's `entered_at`, an absolute timestamp, or a prior Action's completion — and (b) an ISO 8601 duration offset (e.g. `PT24H`, `P3D`, `PT15M`). FAIL with reason if either is missing.",
+          spec: "STEP 1 — decide whether this Action is scheduled or timer-driven (words like `after`, `every`, `nightly`, `daily`, `wait`, `on the Xth`, `following N days`). If not, this rule PASSES. STEP 2 — only if it is, check that the `action` names BOTH (a) a concrete anchor — a named State's `entered_at`, an absolute timestamp, or a prior Action's completion — and (b) an ISO 8601 duration offset (e.g. `PT24H`, `P3D`, `PT15M`). FAIL with reason if either is missing.",
           when_neuron_type: ["action"],
         },
       },
@@ -794,10 +794,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // are load-bearing; the crossing has to be called out so
         // downstream auth / compliance / SLA discussions can happen.
         summary:
-          "Actions whose counterparty is across an organizational, tenant, or external-system boundary must call out the crossing in the summary or body. Internal-only Actions are exempt.",
+          "Actions whose counterparty is across an organizational, tenant, or external-system boundary must call out the crossing in the `action` field. Internal-only Actions are exempt.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether the Action crosses a trust boundary: the counterparty is in a different organization, a different tenant, an external vendor, a regulator, or any system outside the actor's own administrative domain. If everything stays inside one boundary, this rule PASSES. STEP 2 — only if there is a crossing, check that the `summary` or `body_md` explicitly names the boundary being crossed (e.g. `sent to the customer`, `posted to Stripe`, `submitted to HMRC`). FAIL with reason if the crossing is implicit.",
+          spec: "STEP 1 — decide whether the Action crosses a trust boundary: the counterparty is in a different organization, a different tenant, an external vendor, a regulator, or any system outside the actor's own administrative domain. If everything stays inside one boundary, this rule PASSES. STEP 2 — only if there is a crossing, check that the `action` explicitly names the boundary being crossed (e.g. `sent to the customer`, `posted to Stripe`, `submitted to HMRC`). FAIL with reason if the crossing is implicit.",
           when_neuron_type: ["action"],
         },
       },
@@ -842,10 +842,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Mutually exclusive branches by default; inclusive gateways
         // must opt in explicitly so silent overlap is caught.
         summary:
-          "Decision branches are mutually exclusive by default. Inclusive gateways (where multiple branches can fire together) must be explicit in the question or body — otherwise overlapping conditions count as a wiring mistake.",
+          "Decision branches are mutually exclusive by default. Inclusive gateways (where multiple branches can fire together) must be explicit in the `question` or `decision` — otherwise overlapping conditions count as a wiring mistake.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Decision's `alternatives`. PASS when the branches are visibly mutually exclusive OR the question / body_md explicitly marks the gateway as inclusive (e.g. `select all that apply`, `inclusive gateway`). FAIL with reason if conditions on multiple branches could plausibly be true at once and inclusivity isn't declared.",
+          spec: "Check the Decision's `alternatives`. PASS when the branches are visibly mutually exclusive OR the `question` or `decision` explicitly marks the gateway as inclusive (e.g. `select all that apply`, `inclusive gateway`). FAIL with reason if conditions on multiple branches could plausibly be true at once and inclusivity isn't declared.",
           when_neuron_type: ["decision"],
         },
       },
@@ -868,7 +868,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // directly — matching the same accommodation in state-machines.
       {
         summary:
-          "State `summary` is unique within a business process — duplicate milestone names ambiguate references and hide wiring mistakes.",
+          "State `state` is unique within a business process — duplicate milestone names ambiguate references and hide wiring mistakes.",
         kind: "guidance",
       },
       {
@@ -900,11 +900,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // State summary as milestone/condition (parallels state-machines
         // P1) — noun or past-participle naming the milestone.
         summary:
-          "State `summary` reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`), not an imperative verb naming an Action (`Approve invoice`).",
+          "State `state` reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`), not an imperative verb naming an Action (`Approve invoice`).",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["state"],
-          spec: "Check ONLY the State's `summary`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
+          spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
         },
       },
       {
@@ -913,11 +913,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // (a milestone the process passes through) or steady (a
         // condition the process holds for a span of time).
         summary:
-          "The reader can tell from a State's `summary`, `kind`, and `invariants` together whether it is a transient milestone (the process passes through it) or a steady condition (the process holds it for a span of time).",
+          "The reader can tell from a State's `state`, `kind`, and `invariants` together whether it is a transient milestone (the process passes through it) or a steady condition (the process holds it for a span of time).",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["state"],
-          spec: "Read the State's `summary`, `kind`, and `invariants` together. PASS when a reader can tell whether the State is a transient milestone the process passes through, or a steady condition the process holds for some span of time. FAIL with reason if the three together are ambiguous.",
+          spec: "Read the State's `state`, `kind`, and `invariants` together. PASS when a reader can tell whether the State is a transient milestone the process passes through, or a steady condition the process holds for some span of time. FAIL with reason if the three together are ambiguous.",
         },
       },
       {
@@ -936,11 +936,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // parallel branches, the join predicate must be named so the
         // reader knows whether it's AND-join, OR-join, or another shape.
         summary:
-          "When a State is the convergence of two or more parallel branches, its `summary` or body names the join predicate (AND-join, OR-join, first-completes, threshold) so the reader knows what triggers entry.",
+          "When a State is the convergence of two or more parallel branches, its `state` names the join predicate (AND-join, OR-join, first-completes, threshold) so the reader knows what triggers entry.",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["state"],
-          spec: "STEP 1 — decide whether this State is a convergence of two or more parallel branches (incoming Actions from concurrent branches). If not, this rule PASSES. STEP 2 — only if it IS a convergence, check that the `summary` or `body_md` names the join predicate (AND-join — wait for all; OR-join — first to arrive; threshold — N of M; etc.). FAIL with reason if the join semantics are not stated.",
+          spec: "STEP 1 — decide whether this State is a convergence of two or more parallel branches (incoming Actions from concurrent branches). If not, this rule PASSES. STEP 2 — only if it IS a convergence, check that the `state` names the join predicate (AND-join — wait for all; OR-join — first to arrive; threshold — N of M; etc.). FAIL with reason if the join semantics are not stated.",
         },
       },
 
@@ -981,7 +981,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Evals in business-processes pin a process-critical claim — a completeness check, a handoff invariant, an SLA bound, a branch coverage, or a policy compliance — not a vague `this should work`.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Eval's `summary`, `criterion`, and `expected`. PASS when the Eval pins a process-critical claim: a completeness check (all required Actions exist), a handoff invariant (producer's output matches consumer's input), an SLA bound (process completes within X), a branch coverage (every Decision branch is exercised), or a policy compliance (a Rule's predicate holds). FAIL with reason if the claim is vague (`it should work`, `looks good`).",
+          spec: "Check the Eval's `eval`, `criterion`, and `expected`. PASS when the Eval pins a process-critical claim: a completeness check (all required Actions exist), a handoff invariant (producer's output matches consumer's input), an SLA bound (process completes within X), a branch coverage (every Decision branch is exercised), or a policy compliance (a Rule's predicate holds). FAIL with reason if the claim is vague (`it should work`, `looks good`).",
           when_neuron_type: ["eval"],
         },
       },
@@ -995,7 +995,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "References in business-processes are authoritative — a policy document, a regulatory citation, a vendor specification, or a sibling Doco that records process *instances*. Decorative links (a marketing blog post, an unrelated tweet) belong elsewhere.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Reference's `ref_type`, `locator`, `summary`, and `body_md`. PASS when the Reference points at an authoritative source: a policy document, a regulatory citation, a vendor specification, an API contract, or a sibling Doco that records process *instances* (Logs of runs). FAIL with reason if the Reference is decorative or unrelated (a marketing blog post, an unrelated tweet, a generic explainer).",
+          spec: "Check the Reference's `ref_type`, `locator`, and `reference`. PASS when the Reference points at an authoritative source: a policy document, a regulatory citation, a vendor specification, an API contract, or a sibling Doco that records process *instances* (Logs of runs). FAIL with reason if the Reference is decorative or unrelated (a marketing blog post, an unrelated tweet, a generic explainer).",
           when_neuron_type: ["reference"],
         },
       },
