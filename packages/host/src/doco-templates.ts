@@ -205,10 +205,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Intent in user-flows must declare the principal who wants the journey in the `wanted_by` field.",
+          "Every Intent in user-flows must declare the principals who want the journey in the `actors` field.",
         predicate: {
           kind: "requires_field",
-          fields: ["wanted_by"],
+          fields: ["actors"],
           when_neuron_type: ["intent"],
         },
       },
@@ -223,7 +223,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
+          "Every Decision in user-flows must declare the collaborator who owns the branch or choice in the `decided_by` field.",
         predicate: {
           kind: "requires_field",
           fields: ["decided_by"],
@@ -259,12 +259,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_neuron_lifecycle: ["active"],
       },
       {
-        // user-flows v2: actor_id must point at a real Principal of
-        // type person or agent — rejects "the browser", "app.js",
-        // "the system" as actors. System-internal steps belong in
-        // `apis` or `adrs`, not in a user-flow.
+        // user-flows v2: actor_id must point at a real Principal —
+        // rejects "the browser", "app.js", "the system" as actors.
+        // System-internal steps belong in `apis` or `adrs`, not in a
+        // user-flow. (Post-rename, person/agent distinction moved to
+        // Collaborator; the engine just enforces principal resolution.)
         summary:
-          "An Action's `actor_id` must resolve to an existing Principal whose type is `person` or `agent`. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
+          "An Action's `actor_id` must resolve to an existing Principal. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
@@ -670,9 +671,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Team-roles (`kitchen`, `support`, `finance`) are first-class
         // Principals representing a role rather than an individual.
-        // Both `person` and `agent` Principal types are accepted.
+        // (Post-rename, person/agent distinction moved to Collaborator;
+        // the engine just enforces principal resolution.)
         summary:
-          "An Action's `actor_id` must resolve to an existing Principal whose type is `person` or `agent`. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
+          "An Action's `actor_id` must resolve to an existing Principal. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
