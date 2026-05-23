@@ -4,7 +4,7 @@
  *
  * Post-rename (migration 005): entities are split across five categories.
  *   - Neurons (10):       graph-knowledge entities
- *   - Primitives (2):     constitution metadata
+ *   - Primitives (2):     Doco-level authoring metadata
  *   - Collaborator (1):   OAuth identity layer
  *   - Doco (1):           workspace container
  *   - Organization (1):   org container
@@ -21,11 +21,9 @@ export type Ulid = Brand<string, "Ulid">;
 
 /**
  * URL handle for a Doco — the value at the start of `/<handle>/...`.
- *
- * Post-Phase 3a, this is also the row's `docos.id` column AND the value
- * `docoSlug` used to legacy-alias to. Callers should accept `DocoHandle`
- * over plain `string` at API boundaries (URL builders, lookup helpers)
- * to prevent passing arbitrary strings where a handle is expected.
+ * Callers should accept `DocoHandle` over plain `string` at API
+ * boundaries to prevent passing arbitrary strings where a handle is
+ * expected.
  */
 export type DocoHandle = Brand<string, "DocoHandle">;
 
@@ -48,7 +46,7 @@ export const NEURON_TYPES = [
 
 export type NeuronType = (typeof NEURON_TYPES)[number];
 
-/** The 2 primitive types — constitution metadata, not on the graph. */
+/** The 2 primitive types — Doco-level authoring metadata, not on the graph. */
 export const PRIMITIVE_TYPES = ["guidance_primitive", "neuron_authoring_primitive"] as const;
 
 export type PrimitiveType = (typeof PRIMITIVE_TYPES)[number];
@@ -138,18 +136,3 @@ export function parseEntityId(value: string): { type: EntityType; ulid: Ulid } |
 export function makeEntityId<T extends EntityType>(type: T, ulid: Ulid): EntityId<T> {
   return `${type}_${ulid}` as EntityId<T>;
 }
-
-// ─── Back-compat aliases ──────────────────────────────────────────────────
-//
-// Pre-rename code used `NodeType` everywhere. Keep the alias so non-load-
-// bearing imports continue to compile while we sweep through the bulk
-// phases. New code should import `EntityType` / `NeuronType` directly.
-//
-// TODO: remove these once Phases 3-7 sweep the dependents.
-
-/** @deprecated Use `EntityType` (or `NeuronType` for graph-only callers). */
-export type NodeType = EntityType;
-/** @deprecated Use `ENTITY_TYPES`. */
-export const NODE_TYPES = ENTITY_TYPES;
-/** @deprecated Use `isEntityType` or `isNeuronType`. */
-export const isNodeType = isEntityType;

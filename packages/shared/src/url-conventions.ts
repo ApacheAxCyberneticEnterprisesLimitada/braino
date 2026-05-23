@@ -54,34 +54,16 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
  */
 export type { EntityType };
 
-/**
- * URL builders accept the current `docoHandle`, the legacy
- * `(ownerSlug, docoSlug)` pair, or the old `docoId` alias.
- */
 export interface EntityUrlInput {
-  /** Current public route handle. When set, takes precedence. */
-  docoHandle?: string;
-  /** Compatibility alias for callers that still pass the route handle as `docoId`. */
-  docoId?: string;
-  ownerSlug?: string;
-  docoSlug?: string;
+  docoHandle: string;
   /** Entity type discriminator string. */
   entityType: string;
   /** Entity ULID id (`<type>_<ULID>`). */
   id: string;
 }
 
-function docoPrefix(input: {
-  docoHandle?: string;
-  docoId?: string;
-  ownerSlug?: string;
-  docoSlug?: string;
-}): string {
-  if (input.docoHandle) return `/${input.docoHandle}`;
-  if (input.docoId) return `/${input.docoId}`;
-  if (input.docoSlug) return `/${input.docoSlug}`;
-  if (input.ownerSlug) return `/${input.ownerSlug}`;
-  return "";
+function docoPrefix(input: { docoHandle: string }): string {
+  return `/${input.docoHandle}`;
 }
 
 /** Canonical URL for an entity — short form, no `/e/`. */
@@ -91,10 +73,7 @@ export function entityUrl(input: EntityUrlInput): string {
 }
 
 export interface EntityListUrlInput {
-  docoHandle?: string;
-  docoId?: string;
-  ownerSlug?: string;
-  docoSlug?: string;
+  docoHandle: string;
   entityType: string;
 }
 
@@ -103,10 +82,7 @@ export function entityListUrl(input: EntityListUrlInput): string {
 }
 
 export interface DocoUrlInput {
-  docoHandle?: string;
-  docoId?: string;
-  ownerSlug?: string;
-  docoSlug?: string;
+  docoHandle: string;
 }
 
 export function docoUrl(input: DocoUrlInput): string {
@@ -135,13 +111,6 @@ export function validateRequestedDocoHandle(handle: string): string | null {
 }
 
 /**
- * Compatibility alias for older code that used "id" for the public route handle.
- */
-export function validateRequestedDocoId(handle: string): string | null {
-  return validateRequestedDocoHandle(handle);
-}
-
-/**
  * Normalize an arbitrary string into a candidate Doco handle — lowercase,
  * collapse runs of non-alphanumerics into `-`, strip leading/trailing
  * dashes, truncate to 64 chars. Returns null if nothing survives.
@@ -155,11 +124,4 @@ export function normalizeRequestedDocoHandle(input: string): string | null {
     .slice(0, 64);
   if (!normalized || !/^[a-z0-9]/.test(normalized)) return null;
   return normalized;
-}
-
-/**
- * Compatibility alias for older code that used "id" for the public route handle.
- */
-export function normalizeRequestedDocoId(input: string): string | null {
-  return normalizeRequestedDocoHandle(input);
 }

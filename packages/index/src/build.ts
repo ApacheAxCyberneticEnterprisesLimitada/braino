@@ -2,8 +2,6 @@
 // `entity_fts`, `embeddings`) from the source-of-truth entity rows
 // that already live in Postgres.
 
-import { existsSync, readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   type EmbeddingProviderLike,
   type EmbeddingsReport,
@@ -12,9 +10,8 @@ import {
   upsertEmbeddings,
 } from "@doco/db";
 import type { LoadedDoco } from "@doco/shared";
-import { parse as parseYaml } from "yaml";
-import { deriveSynapses } from "./synapses.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
+import { deriveSynapses } from "./synapses.js";
 
 export interface BuildReport {
   inserted: number;
@@ -31,12 +28,8 @@ export interface IndexOptions {
    */
   embeddingProvider?: EmbeddingProviderLike;
   /**
-   * Explicit doco_id, bypassing the on-disk `doco.yaml` lookup. Callers
-   * that already hold the id (capture/patch handlers) pass it through
-   * so the reindex works on Postgres-backed deploys whose
-   * serverless filesystem has no `<docoRoot>/doco.yaml`. When absent,
-   * `reindex` falls back to reading the yaml — preserves the
-   * filesystem-rooted developer flow.
+   * Internal Doco id. Required for every reindex; Postgres is the source
+   * of truth and no filesystem metadata lookup is performed.
    */
   docoId?: string;
   /**
@@ -93,16 +86,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const pgSynapses: ReturnType<typeof deriveSynapses> = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      // entity_fts.entity_type is NOT NULL. Some legacy host-level
-      // identity rows (principals minted before the entity_type field
-      // existed in data) load with `entity.entity_type === undefined`,
-      // which would crash the batch INSERT and block every Doco rebuild
-      // on the host. Always derive entity_type from the entity id
-      // prefix (`principal_…` → `principal`, `decision_…` → `decision`,
-      // etc.) which is present + unambiguous on every entity. Per-
-      // category interfaces no longer carry a uniform `entity_type`
-      // field — they have `neuron_type` / `primitive_kind` / `kind`
-      // instead.
+      // Per-category interfaces carry `neuron_type`, `primitive_kind`, or
+      // `kind`; the id prefix is the shared discriminator for derived rows.
       const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
@@ -167,29 +152,16 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
 }
 
 /**
- * Rebuild PG derived data for the Doco rooted at `docoRoot`. The on-disk
- * `doco.yaml` carries only the Doco id; entity content lives in PG.
- *
  * Pass `opts.changedEntityIds` for the incremental path (single-entity
  * captures): only those entities' FTS rows + outgoing synapses are touched
  * and the embedding pass is scoped to them. Omit for the safe-but-slow
  * full rebuild — first build, bulk import.
  */
 export async function reindex(docoRoot: string, opts: IndexOptions = {}): Promise<BuildReport> {
-  const docoId = opts.docoId ?? readDocoIdFromYaml(docoRoot);
+  const docoId = opts.docoId;
+  if (!docoId) {
+    throw new Error("reindex requires opts.docoId.");
+  }
   const loaded = await loadDocoFromPostgres(docoRoot, docoId);
   return indexDoco(loaded, opts);
-}
-
-function readDocoIdFromYaml(docoRoot: string): string {
-  const path = join(docoRoot, "doco.yaml");
-  if (!existsSync(path)) {
-    throw new Error(`No doco.yaml at ${docoRoot} to derive doco_id.`);
-  }
-  const fm = parseYaml(readFileSync(path, "utf8")) as Record<string, unknown>;
-  const id = fm.id;
-  if (typeof id !== "string" || !id.startsWith("doco_")) {
-    throw new Error(`doco.yaml at ${docoRoot} has no usable 'id' field.`);
-  }
-  return id;
 }

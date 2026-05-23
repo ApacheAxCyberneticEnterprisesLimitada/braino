@@ -4,13 +4,13 @@ import { getPublicBaseUrl } from "../public-url.js";
 const original = process.env.DOCO_PUBLIC_HOST;
 
 afterEach(() => {
-  if (original === undefined) delete process.env.DOCO_PUBLIC_HOST;
+  if (original === undefined) process.env.DOCO_PUBLIC_HOST = undefined;
   else process.env.DOCO_PUBLIC_HOST = original;
 });
 
 describe("getPublicBaseUrl", () => {
   it("returns scheme://host from the request when DOCO_PUBLIC_HOST is unset", () => {
-    delete process.env.DOCO_PUBLIC_HOST;
+    process.env.DOCO_PUBLIC_HOST = undefined;
     const req = new Request("http://127.0.0.1:5173/some/path?q=1");
     expect(getPublicBaseUrl(req)).toBe("http://127.0.0.1:5173");
   });
@@ -34,7 +34,7 @@ describe("getPublicBaseUrl", () => {
   });
 
   it("works with https requests when DOCO_PUBLIC_HOST is unset", () => {
-    delete process.env.DOCO_PUBLIC_HOST;
+    process.env.DOCO_PUBLIC_HOST = undefined;
     const req = new Request("https://example.com:8443/x");
     expect(getPublicBaseUrl(req)).toBe("https://example.com:8443");
   });

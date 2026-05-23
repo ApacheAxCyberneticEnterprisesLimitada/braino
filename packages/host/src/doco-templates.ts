@@ -2,7 +2,7 @@
  * Default Doco templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships curated templates. `global` is the Constitution
+ * The framework ships curated templates. `global` is the primitives
  * template; the others describe common Doco shapes such as user flows,
  * state machines, tests, and business processes. Per the successor to
  * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
@@ -12,24 +12,24 @@
  * Each template ships:
  * - `description` — the description text rendered in the picker and
  *   bootstrap manifest.
- * - `primitives` — at install time entries seed constitution
+ * - `primitives` — at install time entries seed Doco-level
  *   primitives: prose-only entries become guidance_primitives;
  *   predicate-bearing entries become neuron_authoring_primitives.
  * - `allowedNeuronTypes` (optional) — a Doco-level allowlist. `global`
- *   ships with constitution primitive types so the Doco's constitution
- *   is kept separate from domain Rule neurons.
+ *   ships with primitive types so the Doco's primitive set is kept
+ *   separate from domain Rule neurons.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
  * primitives "authoring" explicitly. Templates now store those
- * meta-constraints as Constitution Primitives instead of overloading
+ * meta-constraints as primitives instead of overloading
  * Rule.
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
 export interface TemplatePrimitive {
   /**
-   * Primitive kind on the seeded Constitution Primitive. Optional —
+   * Primitive kind on the seeded primitive. Optional —
    * defaults to "tagged" when `predicate` is set, "guidance" otherwise.
    * v7 dropped "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
    */
@@ -80,7 +80,7 @@ export interface DocoTemplate {
   icon: string;
   /** Description text rendered in picker and bootstrap surfaces. */
   description: string;
-  /** Atomic constitution primitives seeded at install time. */
+  /** Atomic primitives seeded at install time. */
   primitives: TemplatePrimitive[];
   /**
    * Optional perspectives to attach on Doco creation. The two
@@ -92,7 +92,7 @@ export interface DocoTemplate {
   perspectives?: TemplatePerspectiveAttachment[];
   /**
    * Doco-level allowlist for captured neuron types. `global` keeps the
-   * constitution pure by accepting only constitution primitive types.
+   * Doco primitive set focused by accepting only primitive types.
    */
   allowedNeuronTypes?: (
     | "decision"
@@ -120,15 +120,13 @@ export interface DocoTemplate {
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
-    // template renamed from "constitution" -> "global". The label keeps
-    // "Constitution" as the readable handle next to "global" on the
-    // picker ("your doco's constitution"); template names are
-    // plain handles.
+    // template renamed to "global"; template names
+    // are plain handles.
     name: "global",
-    label: "global (your doco's constitution)",
+    label: "global primitives",
     icon: "🌐",
     description:
-      "Your doco's constitution — guidance primitives and neuron-authoring primitives that govern how contributors work.",
+      "Your doco's global primitives — guidance primitives and neuron-authoring primitives that govern how contributors work.",
     allowedNeuronTypes: ["guidance_primitive", "neuron_authoring_primitive"],
     primitives: [
       {
@@ -138,7 +136,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         kind: "guidance",
-        summary: "If you're an agent, check with your client before changing the constitution.",
+        summary: "If you're an agent, check with your client before changing the primitives.",
       },
       {
         kind: "guidance",
@@ -270,7 +268,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7): formal state-machine
-    // modeling. The template is pure data: atomic constitution
+    // modeling. The template is pure data: atomic primitives
     // primitives plus Doco-level defaults. Framework primitives the
     // rules use: State neuron + triggered_by / gated_by synapses +
     // drafted lifecycle + defaultNeuronLifecycle.
@@ -432,7 +430,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Executable tests inspired by TDD and AI evals. Each Eval pins one
     // checkable claim about a Decision, Primitive, Action, or other
-    // load-bearing neuron; the template seeds the constitution
+    // load-bearing neuron; the template seeds the primitives
     // primitives that govern how those Evals are authored. Opt-in
     // (not auto-installed) — projects that want test add it explicitly.
     name: "test",
@@ -444,10 +442,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     primitives: [
       // ── Deterministic structural gates ──
       {
-        // D1 — content-type gate. Evals belong here; constitution
-        // primitives seeded by this template live alongside them.
+        // D1 — content-type gate. Evals belong here; primitives
+        // seeded by this template live alongside them.
         summary:
-          "Only Eval neurons and constitution primitives (guidance_primitive, neuron_authoring_primitive) belong to test. Domain content lives in its own Doco.",
+          "Only Eval neurons and primitives (guidance_primitive, neuron_authoring_primitive) belong to test. Domain content lives in its own Doco.",
         predicate: {
           kind: "requires_entity_type",
           entity_types: ["eval", "guidance_primitive", "neuron_authoring_primitive"],
@@ -555,7 +553,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a neuron_authoring_primitive or guidance_primitive when it tests a constitution claim, an Action when it tests designed behavior.",
+          "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a neuron_authoring_primitive or guidance_primitive when it tests a primitive claim, an Action when it tests designed behavior.",
       },
       {
         kind: "guidance",

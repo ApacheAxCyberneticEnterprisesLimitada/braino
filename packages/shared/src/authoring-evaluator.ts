@@ -1,15 +1,13 @@
 /**
  * Authoring primitives evaluator — pure module.
  *
- * Replaces the pre-v16 scope-rules engine (deleted in commits 4974339,
- * dbb7fa7). The legacy engine walked Rule entities cited via
- * `Scope.gated_by`; this one walks the doco's `neuron_authoring_primitives`
- * directly. Scopes are gone — primitives apply to the whole doco.
+ * Walks the doco's `neuron_authoring_primitives` directly. Primitives
+ * apply to the whole doco.
  *
  * Inputs in, violations out. No IO, no LLM. The caller (web layer) is
  * responsible for:
  *   - loading the doco's primitives, principals, synapses, and population
- *   - deriving the candidate's outgoing synapses from its frontmatter
+ *   - deriving the candidate's outgoing synapses from its structured fields
  *     (via `deriveSynapses` from `@doco/index`)
  *   - resolving probabilistic violations via an LLM judge (the engine
  *     just emits them as `pending` violations with the spec attached)
@@ -32,7 +30,7 @@ import type { NeuronType } from "./branded.js";
 import type { AuthoringPredicate, Lifecycle } from "./entities.js";
 
 /**
- * Candidate neuron / primitive frontmatter the engine evaluates. Just
+ * Candidate neuron / primitive fields the engine evaluates. Just
  * the fields-as-bag the persister would write — the engine doesn't care
  * about the full Entity union, only that it has an id, a neuron_type
  * (or primitive_kind), and optionally a lifecycle.
@@ -88,12 +86,12 @@ export interface Violation {
 export type PrincipalIndex = Set<string>;
 
 export interface EvaluateOpts {
-  /** The candidate's frontmatter (NOT yet persisted). */
+  /** The candidate's fields (NOT yet persisted). */
   candidate: CandidateFields;
   /** All predicate-bearing primitives loaded from the doco. */
   primitives: LoadedPrimitive[];
   /**
-   * Synapses derived from the candidate's frontmatter (via
+   * Synapses derived from the candidate's fields (via
    * `deriveSynapses`). The candidate hasn't been persisted yet so these
    * aren't in the synapses table — pass them explicitly.
    */
@@ -106,7 +104,7 @@ export interface EvaluateOpts {
   /** Principals known to the host. */
   principals: PrincipalIndex;
   /**
-   * Frontmatter of OTHER nodes in the doco (i.e., everything that isn't
+   * Fields of OTHER neurons in the doco (i.e., everything that isn't
    * the candidate). Used by `graph-completeness` to look up
    * `incoming_field_must_match` values on the producing neurons.
    */

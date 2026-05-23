@@ -20,8 +20,5 @@
     "test": "vitest run",
     "test:watch": "vitest"
   },
-  "dependencies": {
-    "gray-matter": "^4.0.3",
-    "yaml": "^2.6.1"
-  }
+  "dependencies": {}
 }

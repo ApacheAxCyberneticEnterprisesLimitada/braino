@@ -66,11 +66,14 @@ export {
 
 export {
   ALL_ENTITY_TABLES,
+  DOCO_NEURON_TABLE_BY_TYPE,
+  DOCO_NEURON_TABLE_SPECS,
   NEURON_TABLES,
   PRIMITIVE_TABLES,
   COLLABORATOR_TABLES,
   CONTAINER_TABLES,
   type EntityRecord,
+  type EntityTableSpec,
 } from "./types.js";
 
 export {

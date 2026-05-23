@@ -1,7 +1,6 @@
 -- Doco Postgres schema (decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
 --
--- Source-of-truth + read-side index in one database per host. Replaces
--- the filesystem-and-git shape that ADR-023 / ADR-024 described.
+-- Source-of-truth + read-side index in one database per host.
 --
 -- Single-database, multi-tenant: every entity carries its `doco_id`
 -- which scopes it to the owning Doco. Hosts can hold thousands of
@@ -12,22 +11,20 @@
 --     in a consistent order (id, doco_id, summary, lifecycle, ...).
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
---   - `synapses` materializes cross-entity references for graph queries
---     (renamed from `synapses` in migration 005).
+--   - `synapses` materializes relationships between neurons for graph queries.
 --   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
---   - Historical DO/ALTER convergence blocks below are retained for old
---     databases. New schema changes belong in packages/db/migrations/.
+--   - New schema changes belong in packages/db/migrations/.
 --
 -- Vocabulary (post-migration-005):
 --   neurons   — graph entities (10 types: intent/idea/rule/decision/action/
 --               log/eval/reference/state/principal)
---   primitives — constitution metadata (2 kinds: guidance / neuron_authoring)
+--   primitives — Doco-level authoring metadata (2 kinds: guidance / neuron_authoring)
 --   synapses   — relationships between neurons
 --   collaborators — OAuth identities (person/agent), separate from principals
 --                   (which are role-personas referenced by actor_id/actors[]).
 
 -- Schema version. Tracked separately from app version so DB migrations
--- don't gate code releases. v1 = initial Phase 2 cut.
+-- don't gate code releases.
 CREATE TABLE IF NOT EXISTS doco_meta (
   key   text PRIMARY KEY,
   value text NOT NULL
@@ -42,165 +39,7 @@ CREATE TABLE IF NOT EXISTS applied_migrations (
   applied_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- v18 pre-rename (migration 005 partner): when an EXISTING DB has the
--- pre-rename column shape (principal_id, by_principal, edge_type, etc.),
--- rename in place so the CREATE TABLE / CREATE INDEX statements below
--- (which reference the new names) don't fail on the upgrade boot. On a
--- fresh DB the old names don't exist; each guard is a no-op.
---
--- Migration 005 still runs (after schema.sql, see client.ts) and handles
--- the rest of the work: ID-prefix rewrites, structured-data transforms,
--- FTS split, principal/collaborator data migration. This block just
--- gets the column shape ahead of the baseline schema.
-DO $v18_pre_rename$
-BEGIN
-  -- Column renames on existing membership / OAuth / audit tables.
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'org_users' AND column_name = 'principal_id'
-  ) THEN
-    ALTER TABLE org_users RENAME COLUMN principal_id TO collaborator_id;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'doco_users' AND column_name = 'principal_id'
-  ) THEN
-    ALTER TABLE doco_users RENAME COLUMN principal_id TO collaborator_id;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'oauth_authorization_codes' AND column_name = 'principal_id'
-  ) THEN
-    ALTER TABLE oauth_authorization_codes RENAME COLUMN principal_id TO collaborator_id;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'oauth_access_tokens' AND column_name = 'principal_id'
-  ) THEN
-    ALTER TABLE oauth_access_tokens RENAME COLUMN principal_id TO collaborator_id;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'oauth_refresh_tokens' AND column_name = 'principal_id'
-  ) THEN
-    ALTER TABLE oauth_refresh_tokens RENAME COLUMN principal_id TO collaborator_id;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'oauth_device_authorizations' AND column_name = 'principal_id'
-  ) THEN
-    ALTER TABLE oauth_device_authorizations RENAME COLUMN principal_id TO collaborator_id;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'audit_events' AND column_name = 'by_principal'
-  ) THEN
-    ALTER TABLE audit_events RENAME COLUMN by_principal TO by_collaborator;
-  END IF;
-
-  -- Table renames so subsequent CREATE TABLE IF NOT EXISTS doesn't
-  -- create empty new-named tables alongside the populated old ones.
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'edges') THEN
-    ALTER TABLE edges RENAME TO synapses;
-    -- Column renames within the renamed table.
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-       WHERE table_name = 'synapses' AND column_name = 'from_node_type'
-    ) THEN
-      ALTER TABLE synapses RENAME COLUMN from_node_type TO from_neuron_type;
-    END IF;
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-       WHERE table_name = 'synapses' AND column_name = 'to_node_type'
-    ) THEN
-      ALTER TABLE synapses RENAME COLUMN to_node_type TO to_neuron_type;
-    END IF;
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-       WHERE table_name = 'synapses' AND column_name = 'edge_type'
-    ) THEN
-      ALTER TABLE synapses RENAME COLUMN edge_type TO synapse_type;
-    END IF;
-    IF EXISTS (
-      SELECT 1 FROM information_schema.columns
-       WHERE table_name = 'synapses' AND column_name = 'edge_props_json'
-    ) THEN
-      ALTER TABLE synapses RENAME COLUMN edge_props_json TO synapse_props_json;
-    END IF;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_articles') THEN
-    ALTER TABLE guidance_articles RENAME TO guidance_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'node_authoring_articles') THEN
-    ALTER TABLE node_authoring_articles RENAME TO neuron_authoring_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_guidance_articles') THEN
-    ALTER TABLE org_guidance_articles RENAME TO org_guidance_primitives;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_node_authoring_articles') THEN
-    ALTER TABLE org_node_authoring_articles RENAME TO org_neuron_authoring_primitives;
-  END IF;
-
-  -- docos column renames.
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'docos' AND column_name = 'allowed_node_types'
-  ) THEN
-    ALTER TABLE docos RENAME COLUMN allowed_node_types TO allowed_neuron_types;
-  END IF;
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_name = 'docos' AND column_name = 'default_node_lifecycle'
-  ) THEN
-    ALTER TABLE docos RENAME COLUMN default_node_lifecycle TO default_neuron_lifecycle;
-  END IF;
-
-  -- Drop old OAuth-only columns from principals (the slim Principal
-  -- only carries role/persona fields; OAuth identity moves to the new
-  -- `collaborators` table created below). Migration 005 handles the
-  -- data move (read existing rows → INSERT INTO collaborators) before
-  -- this DO block fires on the next boot; this block just brings the
-  -- schema in line if for some reason the column survived.
-  -- Note: this happens AFTER migration 005 runs in normal operation
-  -- because migration 005 reads from these columns. The IF EXISTS
-  -- guards make re-runs safe.
-END
-$v18_pre_rename$;
-
--- v9 rename: per the constitution's "use 'user' as the inclusive term"
--- rule, the membership tables drop the legacy "_members" suffix and read
--- as "_users". Tables, indexes, and CHECK constraints rename in one
--- idempotent DO block — ALTER ... IF EXISTS so fresh DBs no-op cleanly.
--- This block MUST run before any CREATE TABLE that references the new
--- names; on existing DBs it renames first, then those CREATEs are noops.
-DO $v9_user_rename$
-BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'doco_members') THEN
-    ALTER TABLE doco_members RENAME TO doco_users;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'doco_members_principal_idx') THEN
-    ALTER INDEX doco_members_principal_idx RENAME TO doco_users_collaborator_idx;
-  END IF;
-
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'org_members') THEN
-    ALTER TABLE org_members RENAME TO org_users;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'org_members_principal_idx') THEN
-    ALTER INDEX org_members_principal_idx RENAME TO org_users_collaborator_idx;
-  END IF;
-
-  -- Constraints don't auto-rename when tables rename.
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'org_members_role_check') THEN
-    ALTER TABLE org_users RENAME CONSTRAINT org_members_role_check TO org_users_role_check;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'doco_members_role_check') THEN
-    ALTER TABLE doco_users RENAME CONSTRAINT doco_members_role_check TO doco_users_role_check;
-  END IF;
-END
-$v9_user_rename$;
-
--- Host config (singleton row at id='host'). Replaces <root>/host.yaml
--- (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids back-compat).
+-- Host config (singleton row at id='host').
 CREATE TABLE IF NOT EXISTS hosts (
   id          text PRIMARY KEY,
   name        text NOT NULL,
@@ -210,12 +49,6 @@ CREATE TABLE IF NOT EXISTS hosts (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Default host row. Every Doco install needs exactly one. Without it,
--- loadHostConfig() throws "No host config in Postgres" on the first
--- request after a fresh schema, which 500s every page that calls it
--- (including /onboarding/create/human — the page new visitors hit).
--- The ON CONFLICT keeps this idempotent: existing installs keep their
--- custom host config untouched.
 -- Bootstrap host row. The seed below keeps /home from 500'ing on a
 -- fresh install (every layout reads host config). Idempotent — the
 -- ON CONFLICT keeps existing host configs untouched.
@@ -270,80 +103,40 @@ CREATE TABLE IF NOT EXISTS principals (
 
 CREATE TABLE IF NOT EXISTS organizations (
   id          text PRIMARY KEY,
-  slug        text NOT NULL UNIQUE,
+  handle      text NOT NULL UNIQUE,
   name        text NOT NULL,
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Organization users (per-org role grants). Pre-v9 this table was named
--- `org_members`; the v9 rename DO block at the top of this file renames
--- existing installs in place. Fresh installs land here directly.
+-- Organization users (per-org role grants).
 CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
-  role          text NOT NULL CHECK (role IN ('owner', 'admin', 'member')),
+  role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (org_id, collaborator_id)
 );
 CREATE INDEX IF NOT EXISTS org_users_collaborator_idx ON org_users (collaborator_id, role);
 
--- Slug removal — every Doco has a single human-readable identifier:
--- `handle`. It lives in the same flat global namespace as the
--- top-level host routes (HOST_RESERVED_SLUGS in
--- @doco/shared/url-conventions.ts). On create, callers pass a
--- `requested_id` and the host auto-suffixes (-2, -3, …) on
--- collision. The internal ULID `id` stays as the FK target for
--- every entity table; `handle` is what URLs and the public API
--- key off.
---
--- Phase 1–2d of the cut introduced `handle` alongside the legacy
--- `(owner_slug, doco_slug)` pair. Phase 3a (this snapshot) drops
--- the legacy columns + their composite UNIQUE. mapDocoRow in
--- @doco/db synthesizes a back-compat `owner_slug` field via a
--- LEFT JOIN to `principals.username` / `organizations.slug`
--- keyed by `owner_id`; back-compat `doco_slug` is just an alias
--- for `handle`.
+-- Every Doco has a single human-readable `handle`. It lives in the
+-- same flat namespace as top-level host routes. The internal ULID `id`
+-- stays as the FK target for entity tables; `handle` is what URLs and
+-- public API calls use.
 CREATE TABLE IF NOT EXISTS docos (
   id              text PRIMARY KEY,
-  handle          text,
-  owner_id        text NOT NULL,    -- principal_<ulid> OR organization_<ulid>
+  handle          text NOT NULL UNIQUE,
+  owner_id        text NOT NULL,    -- organization_<ulid>
+  org_id          text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   name            text,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
+  allowed_neuron_types text[],
+  default_neuron_lifecycle text,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
-
--- Phase 3a migration: backfill `handle` from the legacy slug pair
--- for any pre-handle rows, drop the composite UNIQUE, drop the
--- columns. Idempotent — no-op on fresh DBs (the columns won't
--- exist) and on already-migrated DBs (the constraint is gone).
-ALTER TABLE docos ADD COLUMN IF NOT EXISTS handle text;
-DO $migrate$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'docos' AND column_name = 'owner_slug'
-  ) THEN
-    UPDATE docos SET handle = COALESCE(handle, owner_slug || '-' || doco_slug)
-     WHERE handle IS NULL;
-  END IF;
-END
-$migrate$;
-ALTER TABLE docos DROP CONSTRAINT IF EXISTS docos_owner_slug_doco_slug_key;
-ALTER TABLE docos DROP COLUMN IF EXISTS owner_slug;
-ALTER TABLE docos DROP COLUMN IF EXISTS doco_slug;
-DO $uniq$
-BEGIN
-  IF NOT EXISTS (
-    SELECT 1 FROM pg_constraint WHERE conname = 'docos_handle_key'
-  ) THEN
-    ALTER TABLE docos ADD CONSTRAINT docos_handle_key UNIQUE (handle);
-  END IF;
-END
-$uniq$;
 
 -- Per-Doco entity tables. `body_md` carries the markdown narrative
 -- on types that have one; the remaining structured fields live in
@@ -429,43 +222,6 @@ CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_doco_idx
 CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_lifecycle_idx
   ON neuron_authoring_primitives (doco_id, lifecycle);
 
--- Legacy org-level primitive tables. They are created here only so older
--- one-shot migrations can run on fresh databases; migration 011 drops them
--- from the live schema because primitives are Doco-scoped only.
-CREATE TABLE IF NOT EXISTS org_guidance_primitives (
-  id          text PRIMARY KEY,
-  org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  summary     text,
-  lifecycle   text,
-  body_md     text,
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS org_guidance_primitives_org_idx
-  ON org_guidance_primitives (org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS org_guidance_primitives_lifecycle_idx
-  ON org_guidance_primitives (org_id, lifecycle);
-
-CREATE TABLE IF NOT EXISTS org_neuron_authoring_primitives (
-  id          text PRIMARY KEY,
-  org_id      text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  summary     text,
-  lifecycle   text,
-  body_md     text,
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS org_neuron_authoring_primitives_org_idx
-  ON org_neuron_authoring_primitives (org_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS org_neuron_authoring_primitives_lifecycle_idx
-  ON org_neuron_authoring_primitives (org_id, lifecycle);
-
 CREATE TABLE IF NOT EXISTS actions (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -511,9 +267,9 @@ CREATE TABLE IF NOT EXISTS evals (
 CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
 
--- Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7) — State is a node in a
+-- State is a neuron in a
 -- formal state machine. Mirrors the actions table shape; the structured
--- frontmatter (`kind`, `invariants`) lives in `data`.
+-- fields (`kind`, `invariants`) live in `data`.
 CREATE TABLE IF NOT EXISTS states (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -563,13 +319,7 @@ CREATE TABLE IF NOT EXISTS reference_entities (
   updated_by  text
 );
 
--- Doco-level Principal/Organization references (multi-tenant Principals
--- live in the host-level `principals` table above, but a Doco can record
--- which Principals are members for permissions). For Phase 2, we just
--- mirror the YAML files; full membership table comes later.
-
--- Audit events: structured replacement for git history
--- (decision_01KRKESCBTYG4005VMPKYNYR53). One row per mutation.
+-- Audit events: one row per mutation.
 
 CREATE TABLE IF NOT EXISTS audit_events (
   event_id      text PRIMARY KEY,
@@ -706,28 +456,6 @@ CREATE TABLE IF NOT EXISTS entity_fts_organizations (
 );
 CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organizations USING gin (search_tsv);
 
--- Drop the legacy `revision` column from entity tables. Was incremented
--- on every upsert but never read by any TS code (decision_01KRHBZMD0V35NAX94Y7N2MXVA
--- flagged it; never fully removed). Idempotent — no-op on fresh DBs.
-ALTER TABLE intents            DROP COLUMN IF EXISTS revision;
-ALTER TABLE decisions          DROP COLUMN IF EXISTS revision;
-ALTER TABLE rules              DROP COLUMN IF EXISTS revision;
-ALTER TABLE guidance_primitives  DROP COLUMN IF EXISTS revision;
-ALTER TABLE neuron_authoring_primitives DROP COLUMN IF EXISTS revision;
-ALTER TABLE actions            DROP COLUMN IF EXISTS revision;
-ALTER TABLE evals              DROP COLUMN IF EXISTS revision;
-ALTER TABLE ideas              DROP COLUMN IF EXISTS revision;
-ALTER TABLE reference_entities DROP COLUMN IF EXISTS revision;
-
--- Deprecation (2026-05-16): the `reasoning` node type was removed.
--- Drop the legacy table and purge any dangling synapses / embeddings /
--- audit rows so existing databases converge to the new shape on boot.
--- Idempotent — no-op on fresh DBs.
-DROP TABLE IF EXISTS reasoning CASCADE;
-DELETE FROM synapses         WHERE from_id LIKE 'reasoning\_%' ESCAPE '\' OR to_id LIKE 'reasoning\_%' ESCAPE '\';
-DELETE FROM embeddings    WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
-DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
-
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
@@ -735,21 +463,6 @@ DELETE FROM audit_events  WHERE entity_id LIKE 'reasoning\_%' ESCAPE '\';
 -- (org / doco). Effective role = max across levels (highest-wins
 -- additive composition). Author-role writes default to lifecycle
 -- `proposed`; only approver+ can transition.
-
--- Widen org_users.role CHECK to the new 4-role enum. Pre-existing rows
--- (owner|admin|member) collapse to 'owner' per the alpha-cutover posture.
--- Idempotent — DROP IF EXISTS covers both the legacy `org_members_role_check`
--- name (pre-v9) and the new `org_users_role_check`.
-DO $org_role_widen$
-BEGIN
-  ALTER TABLE org_users DROP CONSTRAINT IF EXISTS org_members_role_check;
-  ALTER TABLE org_users DROP CONSTRAINT IF EXISTS org_users_role_check;
-  UPDATE org_users SET role = 'owner' WHERE role IN ('admin', 'member');
-  ALTER TABLE org_users
-    ADD CONSTRAINT org_users_role_check
-    CHECK (role IN ('owner', 'approver', 'author', 'reader'));
-END
-$org_role_widen$;
 
 -- Per-doco user grants. Invite redemption and owner/admin surfaces write
 -- these rows directly; OAuth tokens authenticate callers but do not store
@@ -764,9 +477,7 @@ CREATE TABLE IF NOT EXISTS doco_users (
 CREATE INDEX IF NOT EXISTS doco_users_collaborator_idx ON doco_users (collaborator_id, role);
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Invite store backing blob. The old session-token and CLI authorization
--- shapes are ignored by the app; this table remains only because invites
--- are still stored as a compact host-level JSON document.
+-- Invite store backing blob.
 CREATE TABLE IF NOT EXISTS tokens_blob (
   key        text PRIMARY KEY,
   blob       jsonb NOT NULL,
@@ -971,30 +682,6 @@ ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS requested_role text
     CHECK (requested_role IS NULL OR requested_role IN ('reader','author','approver','owner'));
 
--- ──────────────────────────────────────────────────────────────────────────
--- v15 (2026-05-20): additive schema for the organization-ownership cutover.
---
--- v15 was the additive half: handle columns, org_id on docos,
--- doco_templates table, personal-org backfill. The destructive half
--- (NOT NULL relaxation on legacy columns) landed in the v16 series below.
---
--- Goals delivered here:
---   1. Every Organization has a `handle` (the public, kebab-case id).
---      Copies the legacy `slug` over for existing rows.
---   2. Every Doco has an `org_id` pointer to its owning Organization.
---      Backfilled from the legacy polymorphic `owner_id`.
---   3. Every Principal has a personal Organization with handle =
---      username. Minted lazily for existing Principals.
---   4. Docos get optional `allowed_neuron_types` and
---      `default_neuron_lifecycle` columns (for the upcoming doco-template
---      flow). NULL = no restriction.
---   5. `doco_templates` table for the v15+ create-from-template flow.
-
-ALTER TABLE organizations ADD COLUMN IF NOT EXISTS handle text;
-ALTER TABLE docos         ADD COLUMN IF NOT EXISTS org_id text;
-ALTER TABLE docos         ADD COLUMN IF NOT EXISTS allowed_neuron_types text[];
-ALTER TABLE docos         ADD COLUMN IF NOT EXISTS default_neuron_lifecycle text;
-
 CREATE TABLE IF NOT EXISTS doco_templates (
   id           text PRIMARY KEY,
   handle       text NOT NULL UNIQUE,
@@ -1006,107 +693,3 @@ CREATE TABLE IF NOT EXISTS doco_templates (
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
-
--- ──────────────────────────────────────────────────────────────────────────
--- v16 (2026-05-20): relax NOT NULL on the legacy org/doco columns that v15
--- replaced (organizations.slug, organizations.name, docos.owner_id).
--- @doco/host still writes them for back-compat with old SELECTs,
--- but they're nullable so a future column drop is safe.
-DO $v16_relax_columns$
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM doco_meta WHERE key = 'v16_relax_legacy_columns' AND value = 'done'
-  ) THEN
-    RETURN;
-  END IF;
-  BEGIN
-    ALTER TABLE organizations ALTER COLUMN slug DROP NOT NULL;
-  EXCEPTION WHEN others THEN NULL;
-  END;
-  BEGIN
-    ALTER TABLE organizations ALTER COLUMN name DROP NOT NULL;
-  EXCEPTION WHEN others THEN NULL;
-  END;
-  BEGIN
-    ALTER TABLE docos ALTER COLUMN owner_id DROP NOT NULL;
-  EXCEPTION WHEN others THEN NULL;
-  END;
-  INSERT INTO doco_meta (key, value) VALUES ('v16_relax_legacy_columns', 'done')
-    ON CONFLICT (key) DO UPDATE SET value = 'done';
-END
-$v16_relax_columns$;
-
-DO $v15_backfill$
-DECLARE
-  princ record;
-  new_org_id text;
-BEGIN
-  IF EXISTS (
-    SELECT 1 FROM doco_meta WHERE key = 'v15_org_backfill' AND value = 'done'
-  ) THEN
-    RETURN;
-  END IF;
-
-  -- 1) Copy slug → handle for existing orgs.
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'organizations' AND column_name = 'slug'
-  ) THEN
-    UPDATE organizations SET handle = slug WHERE handle IS NULL OR handle = '';
-  END IF;
-
-  -- 2) Personal org for every Principal that doesn't already have one
-  --    (handle = username). The Principal becomes its owner.
-  FOR princ IN
-    SELECT p.id, p.username
-    FROM principals p
-    WHERE p.username IS NOT NULL
-      AND p.username <> ''
-      AND NOT EXISTS (
-        SELECT 1 FROM organizations o WHERE o.handle = p.username
-      )
-  LOOP
-    new_org_id := 'organization_v15_' || replace(gen_random_uuid()::text, '-', '');
-    -- slug + name are still NOT NULL on the legacy schema; populate
-    -- them with the same handle so existing readers stay happy.
-    INSERT INTO organizations (id, slug, name, handle, data)
-    VALUES (
-      new_org_id,
-      princ.username,
-      princ.username,
-      princ.username,
-      jsonb_build_object('id', new_org_id, 'handle', princ.username,
-                         'owner_id', princ.id)
-    )
-    ON CONFLICT (slug) DO NOTHING;
-
-    INSERT INTO org_users (org_id, collaborator_id, role)
-    SELECT id, princ.id, 'owner'
-    FROM organizations WHERE handle = princ.username
-    ON CONFLICT DO NOTHING;
-    RAISE NOTICE 'v15 mint personal org: % owner=%', princ.username, princ.id;
-  END LOOP;
-
-  -- 3) Backfill docos.org_id from the legacy owner_id.
-  UPDATE docos d
-     SET org_id = d.owner_id
-   WHERE d.org_id IS NULL AND d.owner_id LIKE 'organization_%';
-
-  UPDATE docos d
-     SET org_id = o.id
-    FROM principals p
-    JOIN organizations o ON o.handle = p.username
-   WHERE d.org_id IS NULL
-     AND d.owner_id = p.id
-     AND d.owner_id LIKE 'principal_%';
-
-  INSERT INTO doco_meta (key, value) VALUES ('v15_org_backfill', 'done')
-    ON CONFLICT (key) DO UPDATE SET value = 'done';
-END
-$v15_backfill$;
-
--- ──────────────────────────────────────────────────────────────────────────
--- v17 (2026-05-20) lives in
--- packages/db/migrations/002_v17_handle_prefix_backfill.sql. Keep new
--- convergence work out of this baseline and add forward-only migration
--- files instead.

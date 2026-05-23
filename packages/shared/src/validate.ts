@@ -1,12 +1,12 @@
 import type { EntityId } from "./branded.js";
 import type { LoadedDoco } from "./loaded-doco.js";
-import { findOrphanRefs, type OrphanRef } from "./refs.js";
+import { type OrphanRef, findOrphanRefs } from "./refs.js";
 
 export type ValidationSeverity = "error" | "warning";
 
 export interface ValidationIssue {
   severity: ValidationSeverity;
-  source: EntityId | "doco.yaml" | "load";
+  source: EntityId | "doco" | "load";
   filePath?: string;
   kind: "orphan-ref" | "load";
   message: string;
@@ -25,8 +25,7 @@ export interface ValidationReport {
 /**
  * Validate a loaded Doco. Two checks:
  *
- *   1. Every file in the Doco parsed as YAML/markdown without error
- *      (the loader records failures; this re-surfaces them).
+ *   1. Every entity in the Doco loaded without error.
  *   2. Every id-shaped reference resolves to a real entity in the Doco
  *      (orphan-ref detection).
  *

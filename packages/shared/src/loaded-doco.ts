@@ -1,21 +1,15 @@
 // Types for a loaded Doco — used by both the Postgres loader
 // (@doco/index/loadDoco) and the validator (@doco/shared/validate).
-//
-// The filesystem-based `loadDoco(root)` is gone — Postgres is the only
-// source-of-truth (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids
-// back-compat).
 
 import type { EntityId, EntityType } from "./branded.js";
 import type { Doco, Entity } from "./entities.js";
 
-export type LoadedEntitySourceFormat = "postgres" | "yaml" | "md" | "json";
+export type LoadedEntitySourceFormat = "postgres";
 
 export interface LoadedEntityParsed {
   data: Record<string, unknown>;
   body: string;
   format?: LoadedEntitySourceFormat;
-  /** Legacy alias kept for index consumers that still expect frontmatter/body separation. */
-  frontmatter?: Record<string, unknown>;
 }
 
 /** A loaded entity plus the source identifier that produced it. */

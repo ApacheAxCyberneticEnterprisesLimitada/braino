@@ -85,10 +85,10 @@ export async function rebuildDocoDerivedData(
   return withTransaction(async (c) => {
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
       // Incremental wipe.
-      await c.query(
-        "DELETE FROM synapses WHERE doco_id = $1 AND from_id = ANY($2::text[])",
-        [docoId, opts.onlyEntityIds],
-      );
+      await c.query("DELETE FROM synapses WHERE doco_id = $1 AND from_id = ANY($2::text[])", [
+        docoId,
+        opts.onlyEntityIds,
+      ]);
       await c.query(
         "DELETE FROM entity_fts_neurons WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
         [docoId, opts.onlyEntityIds],

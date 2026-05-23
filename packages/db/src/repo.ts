@@ -97,7 +97,7 @@ function fkColumnSources(
       // superseded_by in frontmatter is polymorphic; only persist when
       // it looks like a decision id so the FK constraint holds.
       const sb = stringOrNull(fm.superseded_by);
-      out.push(["superseded_by_decision_id", sb && sb.startsWith("decision_") ? sb : null]);
+      out.push(["superseded_by_decision_id", sb?.startsWith("decision_") ? sb : null]);
       break;
     }
     case "action":
@@ -155,35 +155,45 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
            email=EXCLUDED.email, avatar_url=EXCLUDED.avatar_url,
            owner_id=EXCLUDED.owner_id, data=EXCLUDED.data,
            deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
-        [rec.id, kind, github_id, github_login, email, avatar_url, owner_id, dataJson, deactivated_at],
+        [
+          rec.id,
+          kind,
+          github_id,
+          github_login,
+          email,
+          avatar_url,
+          owner_id,
+          dataJson,
+          deactivated_at,
+        ],
       );
     } else if (rec.entity_type === "organization") {
-      const slug = String(fields.slug ?? rec.id);
-      const name = String(fields.name ?? slug);
+      const handle = String(fields.handle ?? rec.id);
+      const name = String(fields.name ?? fields.display_name ?? handle);
       await c.query(
-        `INSERT INTO organizations (id, slug, name, data) VALUES ($1,$2,$3,$4::jsonb)
-         ON CONFLICT (id) DO UPDATE SET slug=EXCLUDED.slug, name=EXCLUDED.name,
+        `INSERT INTO organizations (id, handle, name, data) VALUES ($1,$2,$3,$4::jsonb)
+         ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle, name=EXCLUDED.name,
            data=EXCLUDED.data, updated_at=now()`,
-        [rec.id, slug, name, dataJson],
+        [rec.id, handle, name, dataJson],
       );
     } else if (rec.entity_type === "doco") {
       const owner_id = String(fields.owner_id ?? "");
+      const org_id = String(fields.org_id ?? owner_id);
       const handle = String(fields.handle ?? "");
       if (!handle) {
         throw new Error(
           `Cannot upsert doco ${rec.id}: data is missing the required \`handle\` field.`,
         );
       }
-      const name =
-        (fields.name as string | null) ?? (fields.display_name as string | null) ?? null;
+      const name = (fields.name as string | null) ?? (fields.display_name as string | null) ?? null;
       const visibility = String(fields.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, handle, owner_id, name, visibility, data)
-         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
+        `INSERT INTO docos (id, handle, owner_id, org_id, name, visibility, data)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
-           owner_id=EXCLUDED.owner_id, name=EXCLUDED.name,
+           owner_id=EXCLUDED.owner_id, org_id=EXCLUDED.org_id, name=EXCLUDED.name,
            visibility=EXCLUDED.visibility, data=EXCLUDED.data, updated_at=now()`,
-        [rec.id, handle, owner_id, name, visibility, dataJson],
+        [rec.id, handle, owner_id, org_id, name, visibility, dataJson],
       );
     }
   };
@@ -245,7 +255,7 @@ function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRe
 /** Find a Doco by its `handle` and return its (ULID) id. */
 export async function resolveDocoIdByHandle(handle: string): Promise<string | null> {
   return withClient(async (c) => {
-    const r = await c.query(`SELECT id FROM docos WHERE handle = $1`, [handle]);
+    const r = await c.query("SELECT id FROM docos WHERE handle = $1", [handle]);
     if (r.rowCount === 0) return null;
     return String(r.rows[0].id);
   });
@@ -262,9 +272,7 @@ export interface HostConfigRow {
 
 export async function getHostConfig(): Promise<HostConfigRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(
-      "SELECT id, name, visibility, data FROM hosts LIMIT 1",
-    );
+    const r = await c.query("SELECT id, name, visibility, data FROM hosts LIMIT 1");
     if (r.rowCount === 0) return null;
     const row = r.rows[0];
     return {
@@ -331,9 +339,7 @@ export async function getCollaboratorById(id: string): Promise<CollaboratorRow |
   });
 }
 
-export async function getCollaboratorByGithubLogin(
-  login: string,
-): Promise<CollaboratorRow | null> {
+export async function getCollaboratorByGithubLogin(login: string): Promise<CollaboratorRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
       "SELECT id, kind, github_id, github_login, email, avatar_url, data FROM collaborators WHERE github_login = $1",
@@ -344,9 +350,9 @@ export async function getCollaboratorByGithubLogin(
   });
 }
 
-export async function listCollaborators(opts: { kind?: "person" | "agent" } = {}): Promise<
-  CollaboratorRow[]
-> {
+export async function listCollaborators(
+  opts: { kind?: "person" | "agent" } = {},
+): Promise<CollaboratorRow[]> {
   return withClient(async (c) => {
     const conds: string[] = [];
     const vals: unknown[] = [];
@@ -427,7 +433,7 @@ export async function listPrincipals(): Promise<PrincipalRow[]> {
 
 export interface OrganizationRow {
   id: string;
-  slug: string;
+  handle: string;
   name: string;
   data: Record<string, unknown>;
   member_count: number;
@@ -436,13 +442,13 @@ export interface OrganizationRow {
 export async function listOrganizations(): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.slug, o.name, o.data,
+      `SELECT o.id, o.handle, o.name, o.data,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
-       FROM organizations o ORDER BY o.slug`,
+       FROM organizations o ORDER BY o.handle`,
     );
     return r.rows.map((row) => ({
       id: String(row.id),
-      slug: String(row.slug),
+      handle: String(row.handle),
       name: String(row.name),
       data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
       member_count: Number(row.member_count),
@@ -456,17 +462,17 @@ export async function listOrganizationsForCollaborator(
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.slug, o.name, o.data,
+      `SELECT o.id, o.handle, o.name, o.data,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o
        JOIN org_users m ON m.org_id = o.id
        WHERE m.collaborator_id = $1 AND m.role = ANY($2)
-       ORDER BY o.slug`,
+       ORDER BY o.handle`,
       [collaboratorId, roles],
     );
     return r.rows.map((row) => ({
       id: String(row.id),
-      slug: String(row.slug),
+      handle: String(row.handle),
       name: String(row.name),
       data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
       member_count: Number(row.member_count),
@@ -476,7 +482,7 @@ export async function listOrganizationsForCollaborator(
 
 export async function isOrgUser(orgId: string, collaboratorId: string): Promise<boolean> {
   return withClient(async (c) => {
-    const r = await c.query(`SELECT 1 FROM org_users WHERE org_id = $1 AND collaborator_id = $2`, [
+    const r = await c.query("SELECT 1 FROM org_users WHERE org_id = $1 AND collaborator_id = $2", [
       orgId,
       collaboratorId,
     ]);
@@ -516,7 +522,7 @@ export async function upsertOrgUser(opts: {
 
 export async function removeOrgUser(orgId: string, collaboratorId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(`DELETE FROM org_users WHERE org_id = $1 AND collaborator_id = $2`, [
+    await c.query("DELETE FROM org_users WHERE org_id = $1 AND collaborator_id = $2", [
       orgId,
       collaboratorId,
     ]);
@@ -561,7 +567,7 @@ export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | n
 export async function getOrgRole(orgId: string, collaboratorId: string): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM org_users WHERE org_id = $1 AND collaborator_id = $2`,
+      "SELECT role FROM org_users WHERE org_id = $1 AND collaborator_id = $2",
       [orgId, collaboratorId],
     );
     if (r.rowCount === 0) return null;
@@ -584,7 +590,7 @@ export async function getDocoUserRole(
 ): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      `SELECT role FROM doco_users WHERE doco_id = $1 AND collaborator_id = $2`,
+      "SELECT role FROM doco_users WHERE doco_id = $1 AND collaborator_id = $2",
       [docoId, collaboratorId],
     );
     if (r.rowCount === 0) return null;
@@ -612,7 +618,7 @@ export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
 export async function listDocoIdsForCollaborator(collaboratorId: string): Promise<string[]> {
   return withClient(async (c) => {
     const r = await c.query<{ doco_id: string }>(
-      `SELECT doco_id FROM doco_users WHERE collaborator_id = $1`,
+      "SELECT doco_id FROM doco_users WHERE collaborator_id = $1",
       [collaboratorId],
     );
     return r.rows.map((row) => String(row.doco_id));
@@ -636,7 +642,7 @@ export async function upsertDocoUser(opts: {
 
 export async function removeDocoUser(docoId: string, collaboratorId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query(`DELETE FROM doco_users WHERE doco_id = $1 AND collaborator_id = $2`, [
+    await c.query("DELETE FROM doco_users WHERE doco_id = $1 AND collaborator_id = $2", [
       docoId,
       collaboratorId,
     ]);
@@ -649,8 +655,8 @@ export interface DocoRow {
   id: string;
   handle: string;
   /**
-   * Owner's identifier-as-a-slug — Collaborator.github_login for human/agent
-   * owners, Organization.slug for org owners. Derived via JOIN in `mapDocoRow`
+   * Owner label — Collaborator.github_login for human/agent owners,
+   * Organization.handle for org owners. Derived via JOIN in `mapDocoRow`
    * from `owner_id`. NOT a doco identifier.
    */
   owner_slug: string;
@@ -674,11 +680,11 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
 
 /**
  * Resolves `owner_slug` from `collaborators.github_login` /
- * `organizations.slug` keyed by `docos.owner_id`.
+ * `organizations.handle` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
   SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.data,
-         COALESCE(c.github_login, o.slug, '') AS owner_slug
+         COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
     LEFT JOIN collaborators c ON c.id = d.owner_id
     LEFT JOIN organizations o ON o.id = d.owner_id`;
@@ -715,25 +721,24 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
 }
 
 /**
- * Resolve a top-level slug to either a Collaborator (by github_login) or an
- * Organization (by slug). Used by the owner-profile route to render
- * `/<owner>` for either kind.
+ * Resolve a public owner handle to either a Collaborator (by github_login)
+ * or an Organization (by handle).
  */
 export async function resolveOwnerSlug(
-  slug: string,
+  handle: string,
 ): Promise<
   | { kind: "collaborator"; collaborator: CollaboratorRow }
   | { kind: "organization"; org: OrganizationRow }
   | null
 > {
-  const collab = await getCollaboratorByGithubLogin(slug);
+  const collab = await getCollaboratorByGithubLogin(handle);
   if (collab) return { kind: "collaborator", collaborator: collab };
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, slug, name, data,
+      `SELECT id, handle, name, data,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = organizations.id), 0) AS member_count
-       FROM organizations WHERE slug = $1`,
-      [slug],
+       FROM organizations WHERE handle = $1`,
+      [handle],
     );
     if (r.rowCount === 0) return null;
     const row = r.rows[0];
@@ -741,7 +746,7 @@ export async function resolveOwnerSlug(
       kind: "organization" as const,
       org: {
         id: String(row.id),
-        slug: String(row.slug),
+        handle: String(row.handle),
         name: String(row.name),
         data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
         member_count: Number(row.member_count),

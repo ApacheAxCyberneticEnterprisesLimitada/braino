@@ -11,7 +11,11 @@
 // Per the DOCO_PUBLIC_HOST escape hatch decision (Phase 10 follow-up).
 
 export function getPublicBaseUrl(request: Request): string {
-  const override = process.env.DOCO_PUBLIC_HOST;
+  const override = process.env.DOCO_PUBLIC_HOST?.trim();
+  if (override === "undefined" || override === "null") {
+    const url = new URL(request.url);
+    return `${url.protocol}//${url.host}`;
+  }
   if (override) return override.replace(/\/$/, "");
   const url = new URL(request.url);
   return `${url.protocol}//${url.host}`;

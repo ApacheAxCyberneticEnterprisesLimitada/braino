@@ -25,7 +25,7 @@ function tableBlock(table: string): string | null {
     "i",
   );
   const m = schemaSql.match(re);
-  return m ? m[1] ?? null : null;
+  return m ? (m[1] ?? null) : null;
 }
 
 function hasBodyMdColumn(table: string): boolean {

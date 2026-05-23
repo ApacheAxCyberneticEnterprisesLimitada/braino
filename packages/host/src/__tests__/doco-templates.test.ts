@@ -25,7 +25,7 @@ describe("business-processes template", () => {
     expect(template.description).toMatch(/BPMN/);
   });
 
-  it("does NOT set the constitutional `allowedNeuronTypes` field — that's reserved for `global`", () => {
+  it("does NOT set the primitive-only `allowedNeuronTypes` field — that's reserved for `global`", () => {
     expect(template.allowedNeuronTypes).toBeUndefined();
   });
 

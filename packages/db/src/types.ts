@@ -21,7 +21,30 @@ export const NEURON_TABLES: Record<string, { table: string; body: boolean }> = {
   principal: { table: "principals", body: true },
 };
 
-/** The 2 primitive types (constitution metadata). Primitives are always Doco-scoped. */
+export interface EntityTableSpec {
+  table: string;
+  entityType: string;
+  body: boolean;
+  labelExpr?: string;
+  nameExpr?: string;
+}
+
+export const DOCO_NEURON_TABLE_SPECS: readonly EntityTableSpec[] = [
+  { table: "decisions", entityType: "decision", body: true },
+  { table: "intents", entityType: "intent", body: true },
+  { table: "actions", entityType: "action", body: true },
+  { table: "logs", entityType: "log", body: true },
+  { table: "rules", entityType: "rule", body: true },
+  { table: "evals", entityType: "eval", body: true },
+  { table: "reference_entities", entityType: "reference", body: false },
+  { table: "ideas", entityType: "idea", body: true },
+  { table: "states", entityType: "state", body: true },
+] as const;
+
+export const DOCO_NEURON_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
+  Object.fromEntries(DOCO_NEURON_TABLE_SPECS.map((spec) => [spec.entityType, spec]));
+
+/** The 2 primitive types. Primitives are always Doco-scoped. */
 export const PRIMITIVE_TABLES: Record<string, { table: string; body: boolean }> = {
   guidance_primitive: {
     table: "guidance_primitives",

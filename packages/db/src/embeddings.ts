@@ -97,10 +97,7 @@ export async function upsertEmbeddings(
 
   let pruned = 0;
   if (opts.pruneStale) {
-    pruned = await pruneStaleEmbeddings(
-      docoIds,
-      new Set(candidates.map((c) => c.entity_id)),
-    );
+    pruned = await pruneStaleEmbeddings(docoIds, new Set(candidates.map((c) => c.entity_id)));
   }
 
   if (candidates.length === 0) {
@@ -164,17 +161,11 @@ export async function upsertEmbeddings(
  * Delete embedding rows in the named docos whose entity_id is NOT in `keep`.
  * Operates per-Doco so a reindex of Doco X never wipes Doco Y's vectors.
  */
-async function pruneStaleEmbeddings(
-  docoIds: string[],
-  keep: Set<string>,
-): Promise<number> {
+async function pruneStaleEmbeddings(docoIds: string[], keep: Set<string>): Promise<number> {
   if (docoIds.length === 0) return 0;
   return withClient(async (c) => {
     if (keep.size === 0) {
-      const r = await c.query(
-        `DELETE FROM embeddings WHERE doco_id = ANY($1::text[])`,
-        [docoIds],
-      );
+      const r = await c.query("DELETE FROM embeddings WHERE doco_id = ANY($1::text[])", [docoIds]);
       return r.rowCount ?? 0;
     }
     const r = await c.query(
@@ -190,13 +181,11 @@ async function pruneStaleEmbeddings(
 /**
  * Bulk-fetch embeddings by entity id. Ids without a row are absent.
  */
-export async function getEmbeddings(
-  entityIds: string[],
-): Promise<Map<string, Float32Array>> {
+export async function getEmbeddings(entityIds: string[]): Promise<Map<string, Float32Array>> {
   if (entityIds.length === 0) return new Map();
   return withClient(async (c) => {
     const r = await c.query<{ entity_id: string; embedding: Buffer }>(
-      `SELECT entity_id, embedding FROM embeddings WHERE entity_id = ANY($1::text[])`,
+      "SELECT entity_id, embedding FROM embeddings WHERE entity_id = ANY($1::text[])",
       [entityIds],
     );
     return new Map(r.rows.map((row) => [row.entity_id, bufferToEmbedding(row.embedding)]));
@@ -213,7 +202,7 @@ export async function getAllEmbeddingsForDoco(
 ): Promise<{ entity_id: string; embedding: Float32Array }[]> {
   return withClient(async (c) => {
     const r = await c.query<{ entity_id: string; embedding: Buffer }>(
-      `SELECT entity_id, embedding FROM embeddings WHERE doco_id = $1`,
+      "SELECT entity_id, embedding FROM embeddings WHERE doco_id = $1",
       [docoId],
     );
     return r.rows.map((row) => ({

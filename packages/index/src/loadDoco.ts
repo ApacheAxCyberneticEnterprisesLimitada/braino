@@ -7,16 +7,16 @@ import type {
   Doco,
   Entity,
   EntityId,
+  EntityType,
   LoadFailure,
   LoadedDoco,
   LoadedEntity,
-  EntityType,
 } from "@doco/shared";
-import { NODE_TYPES, isEntityId } from "@doco/shared";
+import { ENTITY_TYPES, NEURON_TYPES, isEntityId } from "@doco/shared";
 
 // Doco-scoped types (have a `doco_id` column, queryable via listEntitiesByDoco).
-const SCOPED_NODE_TYPES: EntityType[] = NODE_TYPES.filter(
-  (t) => t !== "doco" && t !== "principal" && t !== "organization",
+const DOCO_SCOPED_NEURON_TYPES: EntityType[] = NEURON_TYPES.filter(
+  (t) => t !== "principal",
 ) as EntityType[];
 
 /**
@@ -45,7 +45,7 @@ export async function loadDocoFromPostgres(root: string, docoId: string): Promis
   // 2. Entity tables (per-type rows -> LoadedEntity records).
   const entities = new Map<EntityId, LoadedEntity>();
   const byType = new Map<EntityType, LoadedEntity[]>();
-  for (const t of NODE_TYPES) byType.set(t, []);
+  for (const t of ENTITY_TYPES) byType.set(t, []);
   const failures: LoadFailure[] = [];
 
   // Host-level identity rows are loaded once (no doco_id filter).
@@ -67,14 +67,14 @@ export async function loadDocoFromPostgres(root: string, docoId: string): Promis
       const loaded: LoadedEntity = {
         entity: fm as unknown as Entity,
         filePath: `<postgres>:${t}/${row.id}`,
-        parsed: { data: fm, body: "", format: "json" },
+        parsed: { data: fm, body: "", format: "postgres" },
       };
       entities.set(id as EntityId, loaded);
       byType.get(t as EntityType)?.push(loaded);
     }
   }
 
-  for (const t of SCOPED_NODE_TYPES) {
+  for (const t of DOCO_SCOPED_NEURON_TYPES) {
     let rows: EntityRecord[] = [];
     try {
       rows = await listEntitiesByDoco(t, docoId);
@@ -103,7 +103,7 @@ export async function loadDocoFromPostgres(root: string, docoId: string): Promis
         parsed: {
           data: fm,
           body: row.body_md ?? "",
-          format: "json",
+          format: "postgres",
         },
       };
       entities.set(id as EntityId, loaded);

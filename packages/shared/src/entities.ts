@@ -6,7 +6,7 @@
  * Post-rename vocabulary:
  *   - Neurons (10): graph-knowledge entities (intent, idea, rule,
  *     decision, action, log, eval, reference, state, principal)
- *   - Primitives (2): constitution metadata (guidance, neuron_authoring)
+ *   - Primitives (2): Doco-level authoring metadata (guidance, neuron_authoring)
  *   - Collaborator (1): OAuth identity layer (separate from principal)
  *   - Doco, Organization: workspace + org containers
  *
@@ -23,11 +23,7 @@
 
 import type { EntityId, EntityType, NeuronType } from "./branded.js";
 
-export type Lifecycle =
-  | "drafted"
-  | "proposed"
-  | "active"
-  | "retired";
+export type Lifecycle = "drafted" | "proposed" | "active" | "retired";
 
 export type Outcome = "succeeded" | "failed";
 
@@ -132,7 +128,7 @@ export type OwnerRef = EntityId<"collaborator"> | EntityId<"organization">;
 
 export interface Doco {
   id: EntityId<"doco">;
-  slug: string;
+  handle: string;
   display_name: string;
   visibility: "private" | "public";
   default_branch?: string;
@@ -203,7 +199,7 @@ export type AuthoringPredicate =
   | { kind: "requires_neuron_type"; neuron_types: NeuronType[] }
   /**
    * Like `requires_neuron_type` but accepts any entity type, including
-   * primitives. Used by the constitution template to allow Eval +
+   * primitives. Used by the global primitives template to allow Eval +
    * the two primitive kinds.
    */
   | { kind: "requires_entity_type"; entity_types: EntityType[] }
@@ -246,7 +242,7 @@ export interface Rule extends SummarizedFields {
   on_violation?: "block" | "warn" | "log";
 }
 
-// ─── Primitives (constitution metadata) ───────────────────────────────────
+// ─── Primitives ───────────────────────────────────────────────────────────
 
 export interface GuidancePrimitive extends SummarizedFields {
   primitive_kind: "guidance";
@@ -366,7 +362,7 @@ export interface OrganizationMember {
 }
 
 export interface Organization extends SummarizedFields {
-  slug: string;
+  handle: string;
   display_name: string;
   description?: string;
   visibility?: "private" | "public";

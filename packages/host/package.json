@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Multi-tenant host: many docos owned by Users (Principals) or Organizations. ADR-061.",
+  "description": "Postgres-backed organization, Doco, collaborator, and template services.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,8 +22,7 @@
   },
   "dependencies": {
     "@doco/db": "workspace:*",
-    "@doco/shared": "workspace:*",
-    "yaml": "^2.6.1"
+    "@doco/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/pg": "^8.13.0",
