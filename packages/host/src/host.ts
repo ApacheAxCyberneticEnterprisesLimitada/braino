@@ -238,11 +238,20 @@ export async function createDocoInOrg(opts: {
   visibility?: "private" | "public";
   templateHandle?: string | null;
   autoSuffix?: boolean;
+  /**
+   * Project-owner-authored sentence describing what this Doco is for.
+   * When omitted, defaults to the chosen template's `description`
+   * (templated Docos) or an empty string (no-template Docos). Pass
+   * an explicit string — including the empty string — to override the
+   * template default.
+   */
+  goalDescription?: string;
 }): Promise<{
   docoId: EntityId<"doco">;
   orgId: string;
   orgHandle: string;
   handle: string;
+  goalDescription: string;
 }> {
   const suffix = opts.requestedSuffix.trim().toLowerCase();
   assertDocoSuffixAllowed(suffix);
@@ -286,6 +295,10 @@ export async function createDocoInOrg(opts: {
     const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
     const allowedNeuronTypes = template?.allowedNeuronTypes ?? null;
     const defaultNeuronLifecycle = template?.defaultNeuronLifecycle ?? null;
+    // Goal description: explicit caller value wins (including ""), else
+    // the template's description, else empty for no-template Docos.
+    const goalDescription =
+      opts.goalDescription !== undefined ? opts.goalDescription : (template?.description ?? "");
     const data: Record<string, unknown> = {
       id: docoId,
       handle,
@@ -303,8 +316,9 @@ export async function createDocoInOrg(opts: {
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data,
                           allowed_neuron_types, default_neuron_lifecycle,
+                          goal_description,
                           created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $9)`,
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $10)`,
       [
         docoId,
         handle,
@@ -314,6 +328,7 @@ export async function createDocoInOrg(opts: {
         JSON.stringify(data),
         allowedNeuronTypes,
         defaultNeuronLifecycle,
+        goalDescription,
         created,
       ],
     );
@@ -403,7 +418,7 @@ export async function createDocoInOrg(opts: {
       position += 1;
     }
 
-    return { docoId, orgId: opts.orgId, orgHandle, handle };
+    return { docoId, orgId: opts.orgId, orgHandle, handle, goalDescription };
   });
 }
 
@@ -415,6 +430,11 @@ export interface UpdateDocoOptions {
   handle: string;
   display_name?: string | null;
   visibility?: "private" | "public";
+  /**
+   * New goal description. Empty string clears it. `undefined` leaves
+   * the current value untouched.
+   */
+  goal_description?: string;
 }
 
 export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
@@ -440,15 +460,17 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
     if (opts.visibility !== undefined) data.visibility = opts.visibility;
     await c.query(
       `UPDATE docos
-          SET name       = $2,
-              visibility = COALESCE($3, visibility),
-              data       = $4::jsonb,
-              updated_at = now()
+          SET name             = $2,
+              visibility       = COALESCE($3, visibility),
+              goal_description = COALESCE($4, goal_description),
+              data             = $5::jsonb,
+              updated_at       = now()
         WHERE handle = $1`,
       [
         opts.handle,
         (data.display_name as string | undefined) ?? null,
         opts.visibility ?? null,
+        opts.goal_description ?? null,
         JSON.stringify(data),
       ],
     );

@@ -133,6 +133,11 @@ CREATE TABLE IF NOT EXISTS docos (
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
   allowed_neuron_types text[],
   default_neuron_lifecycle text,
+  -- Free-form sentence the project owner writes (or the creation template
+  -- seeds) to tell agents what this Doco is for. Surfaced at the top of
+  -- each Doco's primitive set in the agent-bootstrap manifest, and under
+  -- the title on the Doco home page.
+  goal_description text NOT NULL DEFAULT '',
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
