@@ -116,18 +116,18 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   const dataJson = JSON.stringify(fields);
   const run = async (c: pg.PoolClient) => {
     if (rec.entity_type === "principal") {
-      const username = String(fields.username ?? rec.id);
+      const name = String(fields.name ?? rec.id);
       await c.query(
-        `INSERT INTO principals (id, username, doco_id, summary, lifecycle, body_md, data,
+        `INSERT INTO principals (id, name, doco_id, summary, lifecycle, body_md, data,
                                   created_at, created_by, updated_at, updated_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)
-         ON CONFLICT (id) DO UPDATE SET username=EXCLUDED.username,
+         ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,
            doco_id=EXCLUDED.doco_id, summary=EXCLUDED.summary, lifecycle=EXCLUDED.lifecycle,
            body_md=EXCLUDED.body_md, data=EXCLUDED.data,
            updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
         [
           rec.id,
-          username,
+          name,
           rec.doco_id || null,
           rec.summary ?? null,
           rec.lifecycle ?? null,
@@ -394,12 +394,12 @@ export async function listCollaborators(
 // ─── Principals (role-personas, neuron) ───────────────────────────────────
 //
 // Principals are Doco-scoped (migration 020). Each Doco owns its own
-// role-personas; the same username in two different Docos is two
+// role-personas; the same name in two different Docos is two
 // different rows.
 
 export interface PrincipalRow {
   id: string;
-  username: string;
+  name: string;
   doco_id: string;
   summary: string | null;
   data: Record<string, unknown>;
@@ -408,7 +408,7 @@ export interface PrincipalRow {
 function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
   return {
     id: String(row.id),
-    username: String(row.username),
+    name: String(row.name),
     doco_id: String(row.doco_id),
     summary: row.summary === null || row.summary === undefined ? null : String(row.summary),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
@@ -418,7 +418,7 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, doco_id, summary, data FROM principals WHERE id = $1",
+      "SELECT id, name, doco_id, summary, data FROM principals WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -426,14 +426,14 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
   });
 }
 
-export async function getPrincipalByUsername(
-  username: string,
+export async function getPrincipalByName(
+  name: string,
   docoId: string,
 ): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, doco_id, summary, data FROM principals WHERE username = $1 AND doco_id = $2",
-      [username, docoId],
+      "SELECT id, name, doco_id, summary, data FROM principals WHERE name = $1 AND doco_id = $2",
+      [name, docoId],
     );
     if (r.rowCount === 0) return null;
     return mapPrincipalRow(r.rows[0]);
@@ -446,10 +446,10 @@ export async function getPrincipalByUsername(
 export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, username, doco_id, summary, data
+      `SELECT id, name, doco_id, summary, data
        FROM principals
        WHERE doco_id = $1
-       ORDER BY username`,
+       ORDER BY name`,
       [docoId],
     );
     return r.rows.map(mapPrincipalRow);

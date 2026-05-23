@@ -32,7 +32,7 @@ export {
   type CollaboratorRow,
   // Principals (role-personas — neuron type)
   getPrincipalById,
-  getPrincipalByUsername,
+  getPrincipalByName,
   listPrincipals,
   type PrincipalRow,
   // Organizations

@@ -85,11 +85,11 @@ CREATE INDEX IF NOT EXISTS collaborators_kind_idx          ON collaborators (kin
 CREATE TABLE IF NOT EXISTS principals (
   id              text PRIMARY KEY,            -- principal_<ulid>
   -- Principals are Doco-scoped (migration 020). The FK + NOT NULL +
-  -- UNIQUE(doco_id, username) are added by 020 after the docos table
+  -- UNIQUE(doco_id, name) are added by 020 after the docos table
   -- exists; declared nullable here only so the schema baseline parses
   -- before docos is created later in this file.
   doco_id         text,
-  username        text NOT NULL,                -- role string (e.g. "system",
+  name            text NOT NULL,                -- role label (e.g. "system",
                                                 -- "customer-service-rep")
   summary         text,
   lifecycle       text,

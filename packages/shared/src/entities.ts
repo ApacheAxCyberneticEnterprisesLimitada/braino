@@ -102,7 +102,8 @@ export interface Collaborator {
  */
 export interface Principal extends SummarizedFields {
   neuron_type: "principal";
-  username: string; // role label: "system", "customer-service-rep", "user"
+  /** Role label / slug. e.g. "system", "customer-service-rep", "cook". */
+  name: string;
   display_name?: string;
   description?: string;
 }
