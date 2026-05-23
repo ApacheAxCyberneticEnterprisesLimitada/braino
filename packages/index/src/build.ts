@@ -16,6 +16,19 @@ import { deriveSynapses } from "./synapses.js";
 export interface BuildReport {
   inserted: number;
   durationMs: number;
+  /**
+   * Wall-clock time spent inside `loadDocoFromPostgres` (PG read +
+   * row hydration). Surfaced so the capture-path telemetry can detect
+   * a regression that pulls the loader back to a full-Doco read.
+   */
+  loadMs: number;
+  /**
+   * Number of LoadedEntity rows the loader produced. Should match the
+   * length of `changedEntityIds` on the incremental path; if it ever
+   * spikes for a single-entity capture, the scope-on-load fix has
+   * regressed.
+   */
+  loadedEntityCount: number;
   embeddings?: EmbeddingsReport;
 }
 
@@ -79,6 +92,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     opts.changedEntityIds && opts.changedEntityIds.length > 0
       ? new Set(opts.changedEntityIds)
       : null;
+  const loadedEntityCount = loaded.entities.size;
 
   let inserted = 0;
   if (!opts.skipStructural) {
@@ -148,7 +162,13 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
   }
 
   const durationMs = Math.round(performance.now() - start);
-  return { inserted, durationMs, ...(embeddings ? { embeddings } : {}) };
+  return {
+    inserted,
+    durationMs,
+    loadMs: 0,
+    loadedEntityCount,
+    ...(embeddings ? { embeddings } : {}),
+  };
 }
 
 /**
@@ -162,6 +182,17 @@ export async function reindex(docoRoot: string, opts: IndexOptions = {}): Promis
   if (!docoId) {
     throw new Error("reindex requires opts.docoId.");
   }
-  const loaded = await loadDocoFromPostgres(docoRoot, docoId);
-  return indexDoco(loaded, opts);
+  const loadStart = performance.now();
+  // Pass changedEntityIds to the loader so the incremental capture path
+  // only reads the rows it actually indexes (and skips host-wide
+  // principal/organization rows entirely). Full rebuilds omit the
+  // option and get the original "load everything" behaviour.
+  const loaded = await loadDocoFromPostgres(docoRoot, docoId, {
+    ...(opts.changedEntityIds && opts.changedEntityIds.length > 0
+      ? { entityIds: opts.changedEntityIds }
+      : {}),
+  });
+  const loadMs = Math.round(performance.now() - loadStart);
+  const report = await indexDoco(loaded, opts);
+  return { ...report, loadMs };
 }

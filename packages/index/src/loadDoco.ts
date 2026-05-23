@@ -1,8 +1,23 @@
 // Read-side loader from Postgres (Phase 2 of decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
 //
 // Returns the `LoadedDoco` shape expected by the index pipeline.
+//
+// Two modes:
+//   - Full load (no `opts.entityIds`): every entity in the Doco plus every
+//     principal + organization on the host. Used for first-build and bulk
+//     rebuilds where the whole derived-data set is being recomputed.
+//   - Scoped load (`opts.entityIds` set): only the named ids are read from
+//     their own tables, and host-wide principal/organization rows are
+//     skipped entirely. The incremental reindex path only consumes the
+//     entities whose ids it passed in; loading the rest was pure waste.
 
-import { type EntityRecord, listEntitiesByDoco, listIdentityRows, withClient } from "@doco/db";
+import {
+  type EntityRecord,
+  listEntitiesByDoco,
+  listEntitiesByDocoAndIds,
+  listIdentityRows,
+  withClient,
+} from "@doco/db";
 import type {
   Doco,
   Entity,
@@ -19,6 +34,20 @@ const DOCO_SCOPED_NEURON_TYPES: EntityType[] = NEURON_TYPES.filter(
   (t) => t !== "principal",
 ) as EntityType[];
 
+export interface LoadDocoOptions {
+  /**
+   * When set, load only these specific entity ids (and skip host-wide
+   * principal/organization rows). Grouped by id prefix so each entity
+   * type only does one targeted SQL. Used by the incremental reindex
+   * path — every other consumer wants the full load.
+   */
+  entityIds?: string[];
+}
+
+function typeFromId(id: string): string {
+  return id.split("_").slice(0, -1).join("_");
+}
+
 /**
  * Build a `LoadedDoco` from Postgres rows for the given doco_id.
  * Mirrors `loadDoco(root)` so the downstream `indexDoco(db, loaded)`
@@ -28,7 +57,11 @@ const DOCO_SCOPED_NEURON_TYPES: EntityType[] = NEURON_TYPES.filter(
  * still where the per-clone SQLite cache lives, but all entity content
  * comes from Postgres.
  */
-export async function loadDocoFromPostgres(root: string, docoId: string): Promise<LoadedDoco> {
+export async function loadDocoFromPostgres(
+  root: string,
+  docoId: string,
+  opts: LoadDocoOptions = {},
+): Promise<LoadedDoco> {
   // 1. Doco metadata.
   const docoRows = await withClient(async (c) => {
     const r = await c.query<{ data: Record<string, unknown> | null }>(
@@ -48,36 +81,62 @@ export async function loadDocoFromPostgres(root: string, docoId: string): Promis
   for (const t of ENTITY_TYPES) byType.set(t, []);
   const failures: LoadFailure[] = [];
 
-  // Host-level identity rows are loaded once (no doco_id filter).
-  for (const t of ["principal", "organization"] as const) {
-    let rows: EntityRecord[] = [];
-    try {
-      rows = await listIdentityRows(t);
-    } catch (err) {
-      failures.push({
-        filePath: `<postgres>:${t}`,
-        reason: `listIdentityRows(${t}) failed: ${(err as Error).message}`,
-      });
-      continue;
+  const scoped = opts.entityIds && opts.entityIds.length > 0;
+
+  // Host-level identity rows are loaded once (no doco_id filter). Only
+  // needed by the full-rebuild path; incremental captures don't consume
+  // them (deriveSynapses works off the entity alone, and the indexer's
+  // FTS/embedding writers don't need principal text).
+  if (!scoped) {
+    for (const t of ["principal", "organization"] as const) {
+      let rows: EntityRecord[] = [];
+      try {
+        rows = await listIdentityRows(t);
+      } catch (err) {
+        failures.push({
+          filePath: `<postgres>:${t}`,
+          reason: `listIdentityRows(${t}) failed: ${(err as Error).message}`,
+        });
+        continue;
+      }
+      for (const row of rows) {
+        const fm = row.data ?? {};
+        const id = fm.id;
+        if (!isEntityId(id)) continue;
+        const loaded: LoadedEntity = {
+          entity: fm as unknown as Entity,
+          filePath: `<postgres>:${t}/${row.id}`,
+          parsed: { data: fm, body: "", format: "postgres" },
+        };
+        entities.set(id as EntityId, loaded);
+        byType.get(t as EntityType)?.push(loaded);
+      }
     }
-    for (const row of rows) {
-      const fm = row.data ?? {};
-      const id = fm.id;
-      if (!isEntityId(id)) continue;
-      const loaded: LoadedEntity = {
-        entity: fm as unknown as Entity,
-        filePath: `<postgres>:${t}/${row.id}`,
-        parsed: { data: fm, body: "", format: "postgres" },
-      };
-      entities.set(id as EntityId, loaded);
-      byType.get(t as EntityType)?.push(loaded);
+  }
+
+  // Group the requested ids by their type prefix so each type gets at
+  // most one query — most captures touch one entity, so this is one SQL
+  // round trip total instead of one-per-type.
+  const idsByType = new Map<string, string[]>();
+  if (scoped) {
+    for (const id of opts.entityIds ?? []) {
+      const t = typeFromId(id);
+      const bucket = idsByType.get(t) ?? [];
+      bucket.push(id);
+      idsByType.set(t, bucket);
     }
   }
 
   for (const t of DOCO_SCOPED_NEURON_TYPES) {
     let rows: EntityRecord[] = [];
     try {
-      rows = await listEntitiesByDoco(t, docoId);
+      if (scoped) {
+        const ids = idsByType.get(t);
+        if (!ids || ids.length === 0) continue;
+        rows = await listEntitiesByDocoAndIds(t, docoId, ids);
+      } else {
+        rows = await listEntitiesByDoco(t, docoId);
+      }
     } catch (err) {
       // Table may not exist yet; skip with a failure note rather than crashing.
       failures.push({

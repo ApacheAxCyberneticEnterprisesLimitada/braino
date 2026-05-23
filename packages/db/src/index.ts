@@ -16,6 +16,7 @@ export {
   upsertEntity,
   getEntity,
   listEntitiesByDoco,
+  listEntitiesByDocoAndIds,
   listIdentityRows,
   resolveDocoIdByHandle,
   appendAuditEventRow,

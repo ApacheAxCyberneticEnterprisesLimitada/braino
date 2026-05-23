@@ -224,6 +224,27 @@ export async function listEntitiesByDoco(
   });
 }
 
+/**
+ * Like `listEntitiesByDoco`, but restricted to the given ids. Used by the
+ * incremental reindex path so a one-entity capture doesn't drag every
+ * row in the Doco off disk just to throw them away.
+ */
+export async function listEntitiesByDocoAndIds(
+  entityType: string,
+  docoId: string,
+  ids: string[],
+): Promise<EntityRecord[]> {
+  if (ids.length === 0) return [];
+  const spec = tableFor(entityType);
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT * FROM ${spec.table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
+      [docoId, ids],
+    );
+    return r.rows.map((row) => rowToRecord(entityType, row));
+  });
+}
+
 export async function listIdentityRows(
   entityType: "principal" | "organization" | "doco" | "collaborator",
 ): Promise<EntityRecord[]> {
