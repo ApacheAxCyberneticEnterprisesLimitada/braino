@@ -392,11 +392,15 @@ export async function listCollaborators(
 }
 
 // ─── Principals (role-personas, neuron) ───────────────────────────────────
+//
+// Principals are Doco-scoped (migration 020). Each Doco owns its own
+// role-personas; the same username in two different Docos is two
+// different rows.
 
 export interface PrincipalRow {
   id: string;
   username: string;
-  doco_id: string | null;
+  doco_id: string;
   summary: string | null;
   data: Record<string, unknown>;
 }
@@ -405,7 +409,7 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
   return {
     id: String(row.id),
     username: String(row.username),
-    doco_id: row.doco_id === null || row.doco_id === undefined ? null : String(row.doco_id),
+    doco_id: String(row.doco_id),
     summary: row.summary === null || row.summary === undefined ? null : String(row.summary),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
@@ -422,11 +426,14 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
   });
 }
 
-export async function getPrincipalByUsername(username: string): Promise<PrincipalRow | null> {
+export async function getPrincipalByUsername(
+  username: string,
+  docoId: string,
+): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, username, doco_id, summary, data FROM principals WHERE username = $1",
-      [username],
+      "SELECT id, username, doco_id, summary, data FROM principals WHERE username = $1 AND doco_id = $2",
+      [username, docoId],
     );
     if (r.rowCount === 0) return null;
     return mapPrincipalRow(r.rows[0]);
@@ -434,17 +441,16 @@ export async function getPrincipalByUsername(username: string): Promise<Principa
 }
 
 /**
- * List Principals (role-personas). `bootstrap_placeholder: true` rows
- * (per ADR-073) are filtered out — they exist only to own host-bootstrap
- * docos and are never user-facing.
+ * List Principals (role-personas) in a Doco.
  */
-export async function listPrincipals(): Promise<PrincipalRow[]> {
+export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id, username, doco_id, summary, data
        FROM principals
-       WHERE (data->>'bootstrap_placeholder' IS NULL OR data->>'bootstrap_placeholder' != 'true')
+       WHERE doco_id = $1
        ORDER BY username`,
+      [docoId],
     );
     return r.rows.map(mapPrincipalRow);
   });

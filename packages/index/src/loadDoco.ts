@@ -3,13 +3,13 @@
 // Returns the `LoadedDoco` shape expected by the index pipeline.
 //
 // Two modes:
-//   - Full load (no `opts.entityIds`): every entity in the Doco plus every
-//     principal + organization on the host. Used for first-build and bulk
-//     rebuilds where the whole derived-data set is being recomputed.
+//   - Full load (no `opts.entityIds`): every entity in the Doco (all 10
+//     neuron types are Doco-scoped post-migration 020), plus the host's
+//     organizations. Used for first-build and bulk rebuilds.
 //   - Scoped load (`opts.entityIds` set): only the named ids are read from
-//     their own tables, and host-wide principal/organization rows are
-//     skipped entirely. The incremental reindex path only consumes the
-//     entities whose ids it passed in; loading the rest was pure waste.
+//     their own tables, and host-wide organization rows are skipped
+//     entirely. The incremental reindex path only consumes the entities
+//     whose ids it passed in; loading the rest was pure waste.
 
 import {
   type EntityRecord,
@@ -29,10 +29,9 @@ import type {
 } from "@doco/shared";
 import { ENTITY_TYPES, NEURON_TYPES, isEntityId } from "@doco/shared";
 
-// Doco-scoped types (have a `doco_id` column, queryable via listEntitiesByDoco).
-const DOCO_SCOPED_NEURON_TYPES: EntityType[] = NEURON_TYPES.filter(
-  (t) => t !== "principal",
-) as EntityType[];
+// All neuron types are Doco-scoped (migration 020 finished the job
+// for Principals).
+const DOCO_SCOPED_NEURON_TYPES: EntityType[] = [...NEURON_TYPES] as EntityType[];
 
 export interface LoadDocoOptions {
   /**
@@ -86,31 +85,30 @@ export async function loadDocoFromPostgres(
   // Host-level identity rows are loaded once (no doco_id filter). Only
   // needed by the full-rebuild path; incremental captures don't consume
   // them (deriveSynapses works off the entity alone, and the indexer's
-  // FTS/embedding writers don't need principal text).
+  // FTS/embedding writers don't need org text). Principals moved to
+  // the doco-scoped loop below in migration 020.
   if (!scoped) {
-    for (const t of ["principal", "organization"] as const) {
-      let rows: EntityRecord[] = [];
-      try {
-        rows = await listIdentityRows(t);
-      } catch (err) {
-        failures.push({
-          filePath: `<postgres>:${t}`,
-          reason: `listIdentityRows(${t}) failed: ${(err as Error).message}`,
-        });
-        continue;
-      }
-      for (const row of rows) {
-        const fm = row.data ?? {};
-        const id = fm.id;
-        if (!isEntityId(id)) continue;
-        const loaded: LoadedEntity = {
-          entity: fm as unknown as Entity,
-          filePath: `<postgres>:${t}/${row.id}`,
-          parsed: { data: fm, body: "", format: "postgres" },
-        };
-        entities.set(id as EntityId, loaded);
-        byType.get(t as EntityType)?.push(loaded);
-      }
+    let rows: EntityRecord[] = [];
+    try {
+      rows = await listIdentityRows("organization");
+    } catch (err) {
+      failures.push({
+        filePath: "<postgres>:organization",
+        reason: `listIdentityRows(organization) failed: ${(err as Error).message}`,
+      });
+      rows = [];
+    }
+    for (const row of rows) {
+      const fm = row.data ?? {};
+      const id = fm.id;
+      if (!isEntityId(id)) continue;
+      const loaded: LoadedEntity = {
+        entity: fm as unknown as Entity,
+        filePath: `<postgres>:organization/${row.id}`,
+        parsed: { data: fm, body: "", format: "postgres" },
+      };
+      entities.set(id as EntityId, loaded);
+      byType.get("organization" as EntityType)?.push(loaded);
     }
   }
 
