@@ -54,6 +54,15 @@ export interface SummarizedFields extends CommonFields {
   summary: string;
 }
 
+/**
+ * Migration-022: each neuron type gains a type-named prose field
+ * (`intent` on intents, `rule` on rules, etc.). During the additive
+ * window the field is optional and parallel to `summary` + `body_md`;
+ * once the rename completes it becomes the single required prose
+ * carrier and `summary` / `body_md` / `title` / `name` / `description`
+ * are dropped.
+ */
+
 // ─── Collaborator (OAuth identity — new category) ─────────────────────────
 
 export interface GitHubIdentity {
@@ -148,6 +157,8 @@ export interface Doco {
 
 export interface Intent extends SummarizedFields {
   neuron_type: "intent";
+  /** Migration-022: full prose; collapses summary + title + body_md. */
+  intent?: string;
   title: string;
   parent_intent_id?: EntityId<"intent"> | null;
   priority?: "p0" | "p1" | "p2" | "p3";
@@ -163,6 +174,8 @@ export interface Intent extends SummarizedFields {
 
 export interface Idea extends SummarizedFields {
   neuron_type: "idea";
+  /** Migration-022: full prose; collapses summary + body_md. */
+  idea?: string;
   /** Who proposed it. Collaborator (the OAuth identity), not a principal. */
   proposer_id?: EntityId<"collaborator">;
   body?: string;
@@ -233,6 +246,8 @@ export type AuthoringPredicate =
 
 export interface Rule extends SummarizedFields {
   neuron_type: "rule";
+  /** Migration-022: full prose; collapses summary + body_md. */
+  rule?: string;
   kind?: RuleKind;
   predicate?: AuthoringPredicate;
   fires_when_neuron_lifecycle?: Lifecycle[];
@@ -266,6 +281,8 @@ export interface DecisionAlternative {
 
 export interface Decision extends SummarizedFields {
   neuron_type: "decision";
+  /** Migration-022: full prose; collapses summary + body_md. */
+  decision?: string;
   intent_ids?: EntityId<"intent">[];
   question: string;
   chosen: string | null; // null when lifecycle is "proposed"
@@ -281,6 +298,8 @@ export interface Decision extends SummarizedFields {
 
 export interface Action extends SummarizedFields {
   neuron_type: "action";
+  /** Migration-022: full prose; collapses summary + body_md. */
+  action?: string;
   verb: string;
   /** Who performs the step — a role-principal. */
   actor_id: EntityId<"principal">;
@@ -297,6 +316,8 @@ export interface Action extends SummarizedFields {
 
 export interface Log extends SummarizedFields {
   neuron_type: "log";
+  /** Migration-022: full prose; collapses summary + body_md. */
+  log?: string;
   verb: string;
   /** The principal (role) who performed it. */
   actor_id: EntityId<"principal">;
@@ -320,6 +341,8 @@ export type EvalKind = "unit" | "integration" | "eval" | "process" | "doc-consis
 
 export interface Eval extends SummarizedFields {
   neuron_type: "eval";
+  /** Migration-022: full prose; collapses summary + name + description + body_md. */
+  eval?: string;
   name: string;
   kind?: EvalKind;
   description?: string;
@@ -339,6 +362,8 @@ export interface Eval extends SummarizedFields {
 
 export interface Reference extends SummarizedFields {
   neuron_type: "reference";
+  /** Migration-022: full prose; collapses summary. */
+  reference?: string;
   ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
   locator: string;
   content_hash?: string | null;
@@ -350,6 +375,8 @@ export type StateKind = "initial" | "intermediate" | "terminal";
 
 export interface State extends SummarizedFields {
   neuron_type: "state";
+  /** Migration-022: full prose; collapses summary + body_md. */
+  state?: string;
   kind: StateKind;
   invariants?: string[];
 }

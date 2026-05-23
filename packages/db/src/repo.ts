@@ -11,7 +11,11 @@ import type pg from "pg";
 import { withClient } from "./client.js";
 import { ALL_ENTITY_TABLES, type EntityRecord } from "./types.js";
 
-function tableFor(entityType: string): { table: string; body: boolean } {
+function tableFor(entityType: string): {
+  table: string;
+  body: boolean;
+  typeNamedColumn?: string;
+} {
   const spec = ALL_ENTITY_TABLES[entityType];
   if (!spec) throw new Error(`Unknown entity type for storage: ${entityType}`);
   return spec;
@@ -39,6 +43,14 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   if (spec.body) {
     cols.push("body_md");
     vals.push(rec.body_md ?? null);
+  }
+  // Migration-022: write the type-named column too (intent/decision/
+  // rule/...). Caller computes it from the candidate's prose fields;
+  // the column has NOT NULL DEFAULT '' so a missing value persists as
+  // the empty string rather than null.
+  if (spec.typeNamedColumn) {
+    cols.push(spec.typeNamedColumn);
+    vals.push(rec.type_named_value ?? "");
   }
   // Promoted FK columns (real foreign keys). Extract from rec.data so
   // captures land typed-column values on the way in — the synapses
@@ -266,6 +278,14 @@ function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRe
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
+  // Migration-022: hydrate the type-named column (intent/decision/…)
+  // off whichever key the row carries. Empty string is treated as
+  // "not set yet" so callers can fall back to summary cleanly during
+  // the additive window.
+  const tnCol = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
+  if (tnCol && tnCol in row && row[tnCol] !== null && row[tnCol] !== "") {
+    rec.type_named_value = String(row[tnCol]);
+  }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
   if (row.updated_at instanceof Date) rec.updated_at = row.updated_at.toISOString();

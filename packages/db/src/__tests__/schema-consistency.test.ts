@@ -34,6 +34,12 @@ function hasBodyMdColumn(table: string): boolean {
   return /\bbody_md\b/.test(block);
 }
 
+function hasTypeNamedColumn(table: string, column: string): boolean {
+  const block = tableBlock(table);
+  if (!block) return false;
+  return new RegExp(`(^|\\s|,)${column}\\s+text\\b`, "m").test(block);
+}
+
 describe("ALL_ENTITY_TABLES ↔ schema.sql consistency", () => {
   for (const [entityType, spec] of Object.entries(ALL_ENTITY_TABLES)) {
     it(`schema.sql declares table ${spec.table} for entity_type "${entityType}"`, () => {
@@ -43,6 +49,12 @@ describe("ALL_ENTITY_TABLES ↔ schema.sql consistency", () => {
     it(`schema.sql ${spec.table}.body_md presence matches body=${spec.body}`, () => {
       expect(hasBodyMdColumn(spec.table)).toBe(spec.body);
     });
+
+    if (spec.typeNamedColumn) {
+      it(`schema.sql ${spec.table} declares migration-022 column "${spec.typeNamedColumn}"`, () => {
+        expect(hasTypeNamedColumn(spec.table, spec.typeNamedColumn as string)).toBe(true);
+      });
+    }
   }
 
   it("revision column has been removed from every entity table (decision_01KRHBZMD0V35NAX94Y7N2MXVA)", () => {

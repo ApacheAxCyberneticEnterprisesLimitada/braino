@@ -154,6 +154,11 @@ CREATE TABLE IF NOT EXISTS intents (
   summary     text,
   lifecycle   text,
   body_md     text,
+  -- Migration-022 type-named prose column. During the additive window
+  -- this carries the same content as `summary` (+ optional `title` and
+  -- `body_md`, merged at capture / backfill time). Step 2 of the rename
+  -- drops `summary` + `body_md`.
+  intent      text NOT NULL DEFAULT '',
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -169,6 +174,7 @@ CREATE TABLE IF NOT EXISTS decisions (
   summary     text,
   lifecycle   text,
   body_md     text,
+  decision    text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -184,6 +190,7 @@ CREATE TABLE IF NOT EXISTS rules (
   summary     text,
   lifecycle   text,
   body_md     text,
+  rule        text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -233,6 +240,7 @@ CREATE TABLE IF NOT EXISTS actions (
   summary     text,
   lifecycle   text,
   body_md     text,
+  action      text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -248,6 +256,7 @@ CREATE TABLE IF NOT EXISTS logs (
   summary     text,
   lifecycle   text,
   body_md     text,
+  log         text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -263,6 +272,7 @@ CREATE TABLE IF NOT EXISTS evals (
   summary     text,
   lifecycle   text,
   body_md     text,
+  eval        text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -281,6 +291,7 @@ CREATE TABLE IF NOT EXISTS states (
   summary     text,
   lifecycle   text,
   body_md     text,
+  state       text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -305,6 +316,7 @@ CREATE TABLE IF NOT EXISTS ideas (
   summary     text,
   lifecycle   text,
   body_md     text,
+  idea        text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -317,6 +329,7 @@ CREATE TABLE IF NOT EXISTS reference_entities (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
   lifecycle   text,
+  reference   text NOT NULL DEFAULT '',  -- migration-022; see intents.intent
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
