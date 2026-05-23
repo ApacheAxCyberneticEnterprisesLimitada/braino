@@ -245,13 +245,13 @@ export async function createDocoInOrg(opts: {
    * an explicit string — including the empty string — to override the
    * template default.
    */
-  goalDescription?: string;
+  goal?: string;
 }): Promise<{
   docoId: EntityId<"doco">;
   orgId: string;
   orgHandle: string;
   handle: string;
-  goalDescription: string;
+  goal: string;
 }> {
   const suffix = opts.requestedSuffix.trim().toLowerCase();
   assertDocoSuffixAllowed(suffix);
@@ -295,10 +295,9 @@ export async function createDocoInOrg(opts: {
     const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
     const allowedNeuronTypes = template?.allowedNeuronTypes ?? null;
     const defaultNeuronLifecycle = template?.defaultNeuronLifecycle ?? null;
-    // Goal description: explicit caller value wins (including ""), else
-    // the template's description, else empty for no-template Docos.
-    const goalDescription =
-      opts.goalDescription !== undefined ? opts.goalDescription : (template?.description ?? "");
+    // Goal: explicit caller value wins (including ""), else the
+    // template's description, else empty for no-template Docos.
+    const goal = opts.goal !== undefined ? opts.goal : (template?.description ?? "");
     const data: Record<string, unknown> = {
       id: docoId,
       handle,
@@ -316,7 +315,7 @@ export async function createDocoInOrg(opts: {
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data,
                           allowed_neuron_types, default_neuron_lifecycle,
-                          goal_description,
+                          goal,
                           created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $10)`,
       [
@@ -328,7 +327,7 @@ export async function createDocoInOrg(opts: {
         JSON.stringify(data),
         allowedNeuronTypes,
         defaultNeuronLifecycle,
-        goalDescription,
+        goal,
         created,
       ],
     );
@@ -418,7 +417,7 @@ export async function createDocoInOrg(opts: {
       position += 1;
     }
 
-    return { docoId, orgId: opts.orgId, orgHandle, handle, goalDescription };
+    return { docoId, orgId: opts.orgId, orgHandle, handle, goal };
   });
 }
 
@@ -431,10 +430,10 @@ export interface UpdateDocoOptions {
   display_name?: string | null;
   visibility?: "private" | "public";
   /**
-   * New goal description. Empty string clears it. `undefined` leaves
-   * the current value untouched.
+   * New goal. Empty string clears it. `undefined` leaves the current
+   * value untouched.
    */
-  goal_description?: string;
+  goal?: string;
 }
 
 export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
@@ -460,17 +459,17 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
     if (opts.visibility !== undefined) data.visibility = opts.visibility;
     await c.query(
       `UPDATE docos
-          SET name             = $2,
-              visibility       = COALESCE($3, visibility),
-              goal_description = COALESCE($4, goal_description),
-              data             = $5::jsonb,
-              updated_at       = now()
+          SET name       = $2,
+              visibility = COALESCE($3, visibility),
+              goal       = COALESCE($4, goal),
+              data       = $5::jsonb,
+              updated_at = now()
         WHERE handle = $1`,
       [
         opts.handle,
         (data.display_name as string | undefined) ?? null,
         opts.visibility ?? null,
-        opts.goal_description ?? null,
+        opts.goal ?? null,
         JSON.stringify(data),
       ],
     );

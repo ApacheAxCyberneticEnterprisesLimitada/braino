@@ -663,7 +663,7 @@ export interface DocoRow {
   owner_id: string;
   name: string | null;
   visibility: "public" | "private";
-  goal_description: string;
+  goal: string;
   data: Record<string, unknown>;
 }
 
@@ -675,10 +675,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     owner_id: String(row.owner_id),
     name: row.name === null || row.name === undefined ? null : String(row.name),
     visibility: row.visibility === "public" ? "public" : "private",
-    goal_description:
-      row.goal_description === null || row.goal_description === undefined
-        ? ""
-        : String(row.goal_description),
+    goal: row.goal === null || row.goal === undefined ? "" : String(row.goal),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
 }
@@ -688,7 +685,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
  * `organizations.handle` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.goal_description, d.data,
+  SELECT d.id, d.handle, d.owner_id, d.name, d.visibility, d.goal, d.data,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
     LEFT JOIN collaborators c ON c.id = d.owner_id

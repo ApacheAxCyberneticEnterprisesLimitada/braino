@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS docos (
   -- seeds) to tell agents what this Doco is for. Surfaced at the top of
   -- each Doco's primitive set in the agent-bootstrap manifest, and under
   -- the title on the Doco home page.
-  goal_description text NOT NULL DEFAULT '',
+  goal            text NOT NULL DEFAULT '',
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
