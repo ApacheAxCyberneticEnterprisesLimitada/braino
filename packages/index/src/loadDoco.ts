@@ -154,6 +154,12 @@ export async function loadDocoFromPostgres(
         continue;
       }
       const entity = fm as unknown as Entity;
+      // Migration-022/023: migrated neurons store their full prose in a
+      // type-named column (intents.intent, decisions.decision, ...);
+      // `rowToRecord` hoists that onto `row.type_named_value`. Carry it
+      // through `parsed` so the indexer can route it to the FTS body /
+      // embedding text without re-reading the row. Principal + other
+      // non-migrated entities leave this null and keep using body_md.
       const loaded: LoadedEntity = {
         entity,
         filePath: `<postgres>:${t}/${row.id}`,
@@ -161,6 +167,7 @@ export async function loadDocoFromPostgres(
           data: fm,
           body: row.body_md ?? "",
           format: "postgres",
+          typeNamedValue: row.type_named_value ?? null,
         },
       };
       entities.set(id as EntityId, loaded);

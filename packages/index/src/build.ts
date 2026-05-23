@@ -3,6 +3,7 @@
 // that already live in Postgres.
 
 import {
+  ALL_ENTITY_TABLES,
   type EmbeddingProviderLike,
   type EmbeddingsReport,
   computeContentHash,
@@ -96,7 +97,12 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
 
   let inserted = 0;
   if (!opts.skipStructural) {
-    const pgFts: { entity_id: string; entity_type: string; summary: string; body: string }[] = [];
+    const pgFts: {
+      entity_id: string;
+      entity_type: string;
+      summary: string | null;
+      body: string;
+    }[] = [];
     const pgSynapses: ReturnType<typeof deriveSynapses> = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
@@ -105,9 +111,23 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
-      const e = le.entity as unknown as Record<string, unknown>;
-      const summary = String(e.summary ?? "");
-      const body = le.parsed.body ?? "";
+      // Migration-022/023: 9 neuron types collapsed `summary` + `body_md`
+      // (+ type-specific extras) into a single type-named prose column
+      // (`intents.intent`, `decisions.decision`, ...). The whole prose
+      // block goes into FTS `body`; there's no separate headline to
+      // surface in `summary` anymore. Non-migrated entities (principal,
+      // primitives) keep the legacy summary/body split.
+      const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
+      let summary: string | null;
+      let body: string;
+      if (typeNamedColumn) {
+        summary = null;
+        body = le.parsed.typeNamedValue ?? "";
+      } else {
+        const e = le.entity as unknown as Record<string, unknown>;
+        summary = String(e.summary ?? "");
+        body = le.parsed.body ?? "";
+      }
       pgFts.push({
         entity_id: le.entity.id,
         entity_type: entityType,
@@ -131,10 +151,26 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      const entityRecord = le.entity as { summary?: string };
-      const summary = String(entityRecord.summary ?? "");
-      const body = le.parsed.body ?? "";
-      const text = `${summary}\n\n${body}`.trim();
+      // Migration-022/023: migrated neurons embed the type-named prose
+      // column verbatim; non-migrated entities (principal, primitives)
+      // still concatenate summary + body_md the same way they did
+      // pre-migration.
+      const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
+      const typeNamedColumn =
+        entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;
+      let summary: string;
+      let body: string;
+      let text: string;
+      if (typeNamedColumn) {
+        summary = "";
+        body = le.parsed.typeNamedValue?.trim() ?? "";
+        text = body;
+      } else {
+        const entityRecord = le.entity as { summary?: string };
+        summary = String(entityRecord.summary ?? "");
+        body = le.parsed.body ?? "";
+        text = `${summary}\n\n${body}`.trim();
+      }
       if (!text) continue;
       texts.push({
         entity_id: (le.entity as { id: string }).id,

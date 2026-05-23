@@ -7,25 +7,28 @@
 /**
  * The 10 neuron types (graph-knowledge entities).
  *
- * `typeNamedColumn`, where present, is the per-table text column added
- * by migration 022 that holds the full prose content for that neuron
- * — the destination of the `summary` + `body_md` (+ `title`/`name`/
- * `description`) collapse. Step 1 keeps the legacy columns; step 2 of
- * the rename will drop them.
+ * `typeNamedColumn`, where present, is the per-table text column that
+ * holds the full prose content for that neuron — the destination of
+ * the old `summary` + `body_md` (+ `title` on intents, + `name`/
+ * `description` on evals) collapse landed by migrations 022 and 023.
+ *
+ * `body` reflects whether the table physically has a `body_md`
+ * column. For the 9 migrated neurons it is false (prose lives in the
+ * type-named column). Principal still carries summary + body_md.
  */
 export const NEURON_TABLES: Record<
   string,
   { table: string; body: boolean; typeNamedColumn?: string }
 > = {
-  intent: { table: "intents", body: true, typeNamedColumn: "intent" },
-  idea: { table: "ideas", body: true, typeNamedColumn: "idea" },
-  rule: { table: "rules", body: true, typeNamedColumn: "rule" },
-  decision: { table: "decisions", body: true, typeNamedColumn: "decision" },
-  action: { table: "actions", body: true, typeNamedColumn: "action" },
-  log: { table: "logs", body: true, typeNamedColumn: "log" },
-  eval: { table: "evals", body: true, typeNamedColumn: "eval" },
+  intent: { table: "intents", body: false, typeNamedColumn: "intent" },
+  idea: { table: "ideas", body: false, typeNamedColumn: "idea" },
+  rule: { table: "rules", body: false, typeNamedColumn: "rule" },
+  decision: { table: "decisions", body: false, typeNamedColumn: "decision" },
+  action: { table: "actions", body: false, typeNamedColumn: "action" },
+  log: { table: "logs", body: false, typeNamedColumn: "log" },
+  eval: { table: "evals", body: false, typeNamedColumn: "eval" },
   reference: { table: "reference_entities", body: false, typeNamedColumn: "reference" },
-  state: { table: "states", body: true, typeNamedColumn: "state" },
+  state: { table: "states", body: false, typeNamedColumn: "state" },
   // Principal = documented role/persona, referenced by actor_id/actors[].
   // NOT the OAuth identity layer — that lives in collaborators.
   // body_md carries prose description of the role. Principal is
@@ -42,15 +45,15 @@ export interface EntityTableSpec {
 }
 
 export const DOCO_NEURON_TABLE_SPECS: readonly EntityTableSpec[] = [
-  { table: "decisions", entityType: "decision", body: true },
-  { table: "intents", entityType: "intent", body: true },
-  { table: "actions", entityType: "action", body: true },
-  { table: "logs", entityType: "log", body: true },
-  { table: "rules", entityType: "rule", body: true },
-  { table: "evals", entityType: "eval", body: true },
+  { table: "decisions", entityType: "decision", body: false },
+  { table: "intents", entityType: "intent", body: false },
+  { table: "actions", entityType: "action", body: false },
+  { table: "logs", entityType: "log", body: false },
+  { table: "rules", entityType: "rule", body: false },
+  { table: "evals", entityType: "eval", body: false },
   { table: "reference_entities", entityType: "reference", body: false },
-  { table: "ideas", entityType: "idea", body: true },
-  { table: "states", entityType: "state", body: true },
+  { table: "ideas", entityType: "idea", body: false },
+  { table: "states", entityType: "state", body: false },
 ] as const;
 
 export const DOCO_NEURON_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =

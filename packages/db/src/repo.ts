@@ -22,6 +22,20 @@ function tableFor(entityType: string): {
 }
 
 /**
+ * Drop the legacy prose keys from a migrated neuron's `data` jsonb
+ * before persisting. The merged content already lives in the
+ * type-named column; keeping a stale copy in `data` would diverge on
+ * subsequent updates and leak into JSON API responses.
+ */
+const LEGACY_PROSE_KEYS = ["summary", "body_md", "title", "name", "description"] as const;
+
+function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...data };
+  for (const key of LEGACY_PROSE_KEYS) delete out[key];
+  return out;
+}
+
+/**
  * Upsert one entity. Identity tables (principals/organizations/docos/
  * collaborators) have richer columns and use their own writers — the
  * generic path here covers Doco entity types.
@@ -36,21 +50,25 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   ) {
     return upsertIdentity(rec, client);
   }
+  // Migrated neurons store prose in a single type-named column
+  // (intents.intent, decisions.decision, …); the legacy `summary`,
+  // `body_md`, `title`, `name`, and `description` keys were dropped by
+  // migration 023 and must not leak back into `data` jsonb either.
+  // Tables without a typeNamedColumn (principal, primitives) still use
+  // the legacy shape.
+  const cleanData = spec.typeNamedColumn ? stripLegacyProseKeys(rec.data) : rec.data;
   const cols = ["id", "doco_id", "lifecycle", "data"];
-  const vals: unknown[] = [rec.id, rec.doco_id, rec.lifecycle ?? null, JSON.stringify(rec.data)];
-  cols.push("summary");
-  vals.push(rec.summary ?? null);
-  if (spec.body) {
-    cols.push("body_md");
-    vals.push(rec.body_md ?? null);
-  }
-  // Migration-022: write the type-named column too (intent/decision/
-  // rule/...). Caller computes it from the candidate's prose fields;
-  // the column has NOT NULL DEFAULT '' so a missing value persists as
-  // the empty string rather than null.
+  const vals: unknown[] = [rec.id, rec.doco_id, rec.lifecycle ?? null, JSON.stringify(cleanData)];
   if (spec.typeNamedColumn) {
     cols.push(spec.typeNamedColumn);
     vals.push(rec.type_named_value ?? "");
+  } else {
+    cols.push("summary");
+    vals.push(rec.summary ?? null);
+    if (spec.body) {
+      cols.push("body_md");
+      vals.push(rec.body_md ?? null);
+    }
   }
   // Promoted FK columns (real foreign keys). Extract from rec.data so
   // captures land typed-column values on the way in — the synapses

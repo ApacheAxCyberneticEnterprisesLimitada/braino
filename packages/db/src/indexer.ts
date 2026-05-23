@@ -39,7 +39,14 @@ function primitiveKindFor(entityType: string): "guidance" | "neuron_authoring" {
 export interface FtsRowInput {
   entity_id: string;
   entity_type: string;
-  summary: string;
+  /**
+   * Headline text for the FTS A-weight column. Null for migrated
+   * neurons (post-PR-80): their prose lives entirely in the type-named
+   * column and there's no separate headline to extract, so the entire
+   * text goes into `body` instead. Non-migrated entities (principal,
+   * primitives) keep the legacy summary/body split.
+   */
+  summary: string | null;
   body: string;
 }
 
