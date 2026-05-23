@@ -102,8 +102,15 @@ function handleObject(
  *   The DB still tracks them as scalar columns; we just don't materialize
  *   them as graph synapses anymore (they were already filtered from the graph
  *   render, and they carried no traversal value).
+ *
+ * IMPORTANT for primitive authors: a `requires_synapse` / `forbids_synapse`
+ * predicate works off the synapses derived here. If your check targets an
+ * id that lives under one of these field names (or nested under one), the
+ * synapse will not exist and the predicate will silently never match.
+ * The constant is exported so callers (e.g. `validateSynapseType` in the
+ * capture layer) can surface this at write time.
  */
-const SKIP_FIELDS = new Set([
+export const SKIP_FIELDS: ReadonlySet<string> = new Set([
   "id",
   "doco_id",
   "inputs",
@@ -117,8 +124,14 @@ const SKIP_FIELDS = new Set([
   "actual",
 ]);
 
-/** Field name → canonical edge type. Anything not listed defaults to the field name. */
-const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
+/**
+ * Field name → canonical edge type. Anything not listed defaults to the
+ * field name. Exported so capture-time predicate validation can warn when a
+ * predicate's `synapse_type` matches a *field name* listed here (e.g.
+ * `intent_ids`) — the engine sees the *mapped* type (`serves`) and the
+ * predicate would never match.
+ */
+export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   intent_ids: "serves",
   rules_consulted: "consults",
   decision_ids: "enacts",

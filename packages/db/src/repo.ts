@@ -36,6 +36,29 @@ function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unk
 }
 
 /**
+ * Derive the `lifecycle` column from `data.lifecycle` (the source of
+ * truth). If the caller also supplied `rec.lifecycle` and it disagrees,
+ * log a warning — the call site is fighting itself.
+ *
+ * Returning a value from `data` keeps the column and the jsonb perfectly
+ * aligned; the runner's loaders filter on the column, so drift would
+ * silently disable enforcement.
+ */
+function deriveLifecycleColumn(rec: EntityRecord, data: Record<string, unknown>): string | null {
+  const dataLifecycle = typeof data.lifecycle === "string" ? data.lifecycle : null;
+  if (
+    typeof rec.lifecycle === "string" &&
+    dataLifecycle !== null &&
+    rec.lifecycle !== dataLifecycle
+  ) {
+    console.warn(
+      `[repo] lifecycle mismatch for ${rec.entity_type}/${rec.id}: rec.lifecycle=${rec.lifecycle} vs data.lifecycle=${dataLifecycle} — using data.lifecycle`,
+    );
+  }
+  return dataLifecycle;
+}
+
+/**
  * Upsert one entity. Identity tables (principals/organizations/docos/
  * collaborators) have richer columns and use their own writers — the
  * generic path here covers Doco entity types.
@@ -57,8 +80,14 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   // Tables without a typeNamedColumn (principal, primitives) still use
   // the legacy shape.
   const cleanData = spec.typeNamedColumn ? stripLegacyProseKeys(rec.data) : rec.data;
+  // Single source of truth for lifecycle: `data.lifecycle`. The column
+  // is a denormalized mirror used for filtering/indexing — derive it
+  // from `data` instead of trusting the caller-supplied `rec.lifecycle`
+  // so the two can never drift. Warn if the caller passed a value that
+  // disagrees, since that signals a bug at the call site.
+  const lifecycleCol = deriveLifecycleColumn(rec, cleanData);
   const cols = ["id", "doco_id", "lifecycle", "data"];
-  const vals: unknown[] = [rec.id, rec.doco_id, rec.lifecycle ?? null, JSON.stringify(cleanData)];
+  const vals: unknown[] = [rec.id, rec.doco_id, lifecycleCol, JSON.stringify(cleanData)];
   if (spec.typeNamedColumn) {
     cols.push(spec.typeNamedColumn);
     vals.push(rec.type_named_value ?? "");
@@ -147,6 +176,9 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   const run = async (c: pg.PoolClient) => {
     if (rec.entity_type === "principal") {
       const name = String(fields.name ?? rec.id);
+      // Same drift-prevention as upsertEntity: principals' lifecycle
+      // column mirrors data.lifecycle.
+      const lifecycleCol = deriveLifecycleColumn(rec, fields);
       await c.query(
         `INSERT INTO principals (id, name, doco_id, summary, lifecycle, body_md, data,
                                   created_at, created_by, updated_at, updated_by)
@@ -160,7 +192,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
           name,
           rec.doco_id || null,
           rec.summary ?? null,
-          rec.lifecycle ?? null,
+          lifecycleCol,
           rec.body_md ?? null,
           dataJson,
           rec.created_at ?? new Date().toISOString(),

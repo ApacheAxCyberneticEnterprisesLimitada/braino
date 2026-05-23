@@ -33,21 +33,48 @@ ALTER TABLE ideas               ADD COLUMN IF NOT EXISTS idea      text NOT NULL
 -- trimmed, omitted when empty. For intents: prepend `title` when it
 -- differs from summary. For evals: prepend `name`, then `description`,
 -- then summary, then body_md.
+--
+-- The backfills are gated on the legacy `summary` column still existing
+-- — migration 023 drops it once the rename is complete, and on a fresh
+-- schema (post-023 baseline) the column never existed at all. The guard
+-- makes 022 idempotent across replay scenarios: existing prod DBs run
+-- the backfill once before 023 strips the column, fresh DBs skip it.
 
-UPDATE intents
-   SET intent = NULLIF(
-                  TRIM(BOTH E'\n' FROM CONCAT_WS(
-                    E'\n\n',
-                    NULLIF(NULLIF(data->>'title', summary), ''),
-                    NULLIF(summary, ''),
-                    NULLIF(body_md, '')
-                  )),
-                  ''
-                )
- WHERE intent = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'intents' AND column_name = 'summary') THEN
+    UPDATE intents
+       SET intent = NULLIF(
+                      TRIM(BOTH E'\n' FROM CONCAT_WS(
+                        E'\n\n',
+                        NULLIF(NULLIF(data->>'title', summary), ''),
+                        NULLIF(summary, ''),
+                        NULLIF(body_md, '')
+                      )),
+                      ''
+                    )
+     WHERE intent = '';
+  END IF;
+END $$;
 
-UPDATE decisions
-   SET decision = NULLIF(
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'decisions' AND column_name = 'summary') THEN
+    UPDATE decisions
+       SET decision = NULLIF(
+                        TRIM(BOTH E'\n' FROM CONCAT_WS(
+                          E'\n\n',
+                          NULLIF(summary, ''),
+                          NULLIF(body_md, '')
+                        )),
+                        ''
+                      )
+     WHERE decision = '';
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'rules' AND column_name = 'summary') THEN
+    UPDATE rules
+       SET rule = NULLIF(
                     TRIM(BOTH E'\n' FROM CONCAT_WS(
                       E'\n\n',
                       NULLIF(summary, ''),
@@ -55,79 +82,94 @@ UPDATE decisions
                     )),
                     ''
                   )
- WHERE decision = '';
+     WHERE rule = '';
+  END IF;
+END $$;
 
-UPDATE rules
-   SET rule = NULLIF(
-                TRIM(BOTH E'\n' FROM CONCAT_WS(
-                  E'\n\n',
-                  NULLIF(summary, ''),
-                  NULLIF(body_md, '')
-                )),
-                ''
-              )
- WHERE rule = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'actions' AND column_name = 'summary') THEN
+    UPDATE actions
+       SET action = NULLIF(
+                      TRIM(BOTH E'\n' FROM CONCAT_WS(
+                        E'\n\n',
+                        NULLIF(summary, ''),
+                        NULLIF(body_md, '')
+                      )),
+                      ''
+                    )
+     WHERE action = '';
+  END IF;
+END $$;
 
-UPDATE actions
-   SET action = NULLIF(
-                  TRIM(BOTH E'\n' FROM CONCAT_WS(
-                    E'\n\n',
-                    NULLIF(summary, ''),
-                    NULLIF(body_md, '')
-                  )),
-                  ''
-                )
- WHERE action = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'logs' AND column_name = 'summary') THEN
+    UPDATE logs
+       SET log = NULLIF(
+                   TRIM(BOTH E'\n' FROM CONCAT_WS(
+                     E'\n\n',
+                     NULLIF(summary, ''),
+                     NULLIF(body_md, '')
+                   )),
+                   ''
+                 )
+     WHERE log = '';
+  END IF;
+END $$;
 
-UPDATE logs
-   SET log = NULLIF(
-               TRIM(BOTH E'\n' FROM CONCAT_WS(
-                 E'\n\n',
-                 NULLIF(summary, ''),
-                 NULLIF(body_md, '')
-               )),
-               ''
-             )
- WHERE log = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'evals' AND column_name = 'summary') THEN
+    UPDATE evals
+       SET eval = NULLIF(
+                    TRIM(BOTH E'\n' FROM CONCAT_WS(
+                      E'\n\n',
+                      NULLIF(data->>'name', ''),
+                      NULLIF(NULLIF(data->>'description', data->>'name'), ''),
+                      NULLIF(NULLIF(summary, data->>'name'), ''),
+                      NULLIF(body_md, '')
+                    )),
+                    ''
+                  )
+     WHERE eval = '';
+  END IF;
+END $$;
 
-UPDATE evals
-   SET eval = NULLIF(
-                TRIM(BOTH E'\n' FROM CONCAT_WS(
-                  E'\n\n',
-                  NULLIF(data->>'name', ''),
-                  NULLIF(NULLIF(data->>'description', data->>'name'), ''),
-                  NULLIF(NULLIF(summary, data->>'name'), ''),
-                  NULLIF(body_md, '')
-                )),
-                ''
-              )
- WHERE eval = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'reference_entities' AND column_name = 'summary') THEN
+    UPDATE reference_entities
+       SET reference = COALESCE(NULLIF(summary, ''), '')
+     WHERE reference = '';
+  END IF;
+END $$;
 
-UPDATE reference_entities
-   SET reference = COALESCE(NULLIF(summary, ''), '')
- WHERE reference = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'states' AND column_name = 'summary') THEN
+    UPDATE states
+       SET state = NULLIF(
+                     TRIM(BOTH E'\n' FROM CONCAT_WS(
+                       E'\n\n',
+                       NULLIF(summary, ''),
+                       NULLIF(body_md, '')
+                     )),
+                     ''
+                   )
+     WHERE state = '';
+  END IF;
+END $$;
 
-UPDATE states
-   SET state = NULLIF(
-                 TRIM(BOTH E'\n' FROM CONCAT_WS(
-                   E'\n\n',
-                   NULLIF(summary, ''),
-                   NULLIF(body_md, '')
-                 )),
-                 ''
-               )
- WHERE state = '';
-
-UPDATE ideas
-   SET idea = NULLIF(
-                TRIM(BOTH E'\n' FROM CONCAT_WS(
-                  E'\n\n',
-                  NULLIF(summary, ''),
-                  NULLIF(body_md, '')
-                )),
-                ''
-              )
- WHERE idea = '';
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'ideas' AND column_name = 'summary') THEN
+    UPDATE ideas
+       SET idea = NULLIF(
+                    TRIM(BOTH E'\n' FROM CONCAT_WS(
+                      E'\n\n',
+                      NULLIF(summary, ''),
+                      NULLIF(body_md, '')
+                    )),
+                    ''
+                  )
+     WHERE idea = '';
+  END IF;
+END $$;
 
 -- The NULL coalescing above lets us treat empty-string defaults as
 -- "needs backfill" without re-running on rows that explicitly chose
