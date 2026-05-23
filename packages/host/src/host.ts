@@ -357,7 +357,7 @@ export async function createDocoInOrg(opts: {
                 evaluation_kind:
                   primitive.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
                 predicate: primitive.predicate,
-                on_violation: "block",
+                on_violation: primitive.on_violation ?? "block",
               }
             : {}),
           ...(firesWhen.length > 0 ? { fires_when_neuron_lifecycle: firesWhen } : {}),

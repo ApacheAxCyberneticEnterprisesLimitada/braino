@@ -50,6 +50,13 @@ export interface TemplatePrimitive {
    */
   fires_when_neuron_lifecycle?: Lifecycle[];
   /**
+   * Override the seeded primitive's `on_violation` behavior. Defaults
+   * to "block" when unset. Use "warn" for soft / probabilistic rules
+   * the author wants surfaced but not enforced (e.g. semantic
+   * membership gates), and "log" for purely descriptive recording.
+   */
+  on_violation?: "block" | "warn" | "log";
+  /**
    * Optional markdown body. Renders alongside the summary on the
    * primitive detail page.
    */
@@ -586,14 +593,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     primitives: [
       // ── Membership ──────────────────────────────────────────────
       {
-        // Probabilistic semantic gate. Rule nodes are exempt because
-        // they govern process authoring rather than being process
-        // content; handled by omitting "rule" from when_neuron_type.
+        // Soft semantic gate — fires as a `warn`, not a block. The author
+        // opted into the template by installing it; the gate is meant to
+        // surface "this looks like a one-off" so they can reconsider,
+        // not to second-guess their template choice. Rule nodes are
+        // exempt (they govern process authoring rather than being
+        // process content) — handled by omitting "rule" from
+        // when_neuron_type. Personal / informal workflows pass too:
+        // the gate cares about "workflow with steps, actors, outcome",
+        // not "this is paid work at a company".
+        on_violation: "warn",
         summary:
-          "A node belongs in business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
+          "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in business-processes only when it describes part of a repeatable business process (its purpose Intent, an activity, a gateway, a milestone, an external reference, or a validation check) or a policy/guard for that process. One-off incidents, UI-specific journeys, and pure state machines without a business outcome belong elsewhere.",
+          spec: "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
           when_neuron_type: ["intent", "action", "decision", "state", "eval", "reference"],
         },
       },
