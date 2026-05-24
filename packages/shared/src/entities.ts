@@ -286,8 +286,13 @@ export interface Decision extends CommonFields {
   chosen: string | null; // null when lifecycle is "proposed"
   alternatives?: DecisionAlternative[];
   rules_consulted?: EntityId<"rule">[];
-  /** Who decided. The collaborator (OAuth identity) who made the call. */
-  decided_by: EntityId<"collaborator">;
+  /**
+   * Who decided. References the Principal (role-persona) who made the
+   * call — matches the capture-API contract (PR #66) and the FK on
+   * decisions.decided_by (migration 025). Pre-rename data used
+   * Collaborator ids here; migration 025 backfilled.
+   */
+  decided_by: EntityId<"principal">;
   decided_at: string;
   superseded_by?: EntityId<"decision"> | null;
 }

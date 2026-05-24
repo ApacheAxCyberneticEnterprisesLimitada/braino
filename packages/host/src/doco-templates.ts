@@ -223,7 +223,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Every Decision in user-flows must declare the collaborator who owns the branch or choice in the `decided_by` field.",
+          "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
         predicate: {
           kind: "requires_field",
           fields: ["decided_by"],
