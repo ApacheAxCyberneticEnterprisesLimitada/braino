@@ -77,7 +77,7 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   // (intents.intent, decisions.decision, …); the legacy `summary`,
   // `body_md`, `title`, `name`, and `description` keys were dropped by
   // migration 023 and must not leak back into `data` jsonb either.
-  // Tables without a typeNamedColumn (principal, primitives) still use
+  // Tables without a typeNamedColumn (principal, policies) still use
   // the legacy shape.
   const cleanData = spec.typeNamedColumn ? stripLegacyProseKeys(rec.data) : rec.data;
   // Single source of truth for lifecycle: `data.lifecycle`. The column
@@ -650,7 +650,7 @@ export async function removeOrgUser(orgId: string, collaboratorId: string): Prom
   });
 }
 
-// ─── Role primitives (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62) ─────────────────
+// ─── Role policies (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62) ───────────────────
 
 export type DocoRole = "owner" | "approver" | "author" | "reader";
 

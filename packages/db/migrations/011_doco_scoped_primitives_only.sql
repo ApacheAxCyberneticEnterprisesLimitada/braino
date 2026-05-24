@@ -16,23 +16,31 @@ BEGIN
        AND entity_type IN ('guidance_primitive', 'neuron_authoring_primitive');
   END IF;
 
+  -- Guard the remainder on the legacy table name existing. On a
+  -- fresh schema (post-024 baseline) the table is now named
+  -- `entity_fts_policies` and this migration is a no-op.
   IF EXISTS (
-    SELECT 1 FROM information_schema.columns
+    SELECT 1 FROM information_schema.tables
      WHERE table_name = 'entity_fts_primitives'
-       AND column_name = 'org_id'
   ) THEN
+    IF EXISTS (
+      SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'entity_fts_primitives'
+         AND column_name = 'org_id'
+    ) THEN
+      DELETE FROM entity_fts_primitives
+       WHERE org_id IS NOT NULL;
+
+      DROP INDEX IF EXISTS entity_fts_primitives_org_idx;
+      ALTER TABLE entity_fts_primitives DROP CONSTRAINT IF EXISTS entity_fts_primitives_check;
+      ALTER TABLE entity_fts_primitives DROP COLUMN org_id;
+    END IF;
+
     DELETE FROM entity_fts_primitives
-     WHERE org_id IS NOT NULL;
+     WHERE doco_id IS NULL;
 
-    DROP INDEX IF EXISTS entity_fts_primitives_org_idx;
-    ALTER TABLE entity_fts_primitives DROP CONSTRAINT IF EXISTS entity_fts_primitives_check;
-    ALTER TABLE entity_fts_primitives DROP COLUMN org_id;
+    ALTER TABLE entity_fts_primitives ALTER COLUMN doco_id SET NOT NULL;
   END IF;
-
-  DELETE FROM entity_fts_primitives
-   WHERE doco_id IS NULL;
-
-  ALTER TABLE entity_fts_primitives ALTER COLUMN doco_id SET NOT NULL;
 END
 $doco_scoped_primitives_only$;
 

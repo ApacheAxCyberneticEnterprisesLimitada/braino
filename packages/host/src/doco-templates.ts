@@ -2,7 +2,7 @@
  * Default Doco templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships curated templates. `global` is the primitives
+ * The framework ships curated templates. `global` is the policies
  * template; the others describe common Doco shapes such as user flows,
  * state machines, tests, and business processes. Per the successor to
  * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
@@ -12,45 +12,45 @@
  * Each template ships:
  * - `description` — the description text rendered in the picker and
  *   bootstrap manifest.
- * - `primitives` — at install time entries seed Doco-level
- *   primitives: prose-only entries become guidance_primitives;
- *   predicate-bearing entries become neuron_authoring_primitives.
+ * - `policies` — at install time entries seed Doco-level
+ *   policies: prose-only entries become guidance_policies;
+ *   predicate-bearing entries become neuron_authoring_policies.
  * - `allowedNeuronTypes` (optional) — a Doco-level allowlist. `global`
- *   ships with primitive types so the Doco's primitive set is kept
+ *   ships with policy types so the Doco's policy set is kept
  *   separate from domain Rule neurons.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
- * primitives "authoring" explicitly. Templates now store those
- * meta-constraints as primitives instead of overloading
+ * policies "authoring" explicitly. Templates now store those
+ * meta-constraints as policies instead of overloading
  * Rule.
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
-export interface TemplatePrimitive {
+export interface TemplatePolicy {
   /**
-   * Primitive kind on the seeded primitive. Optional —
+   * Policy kind on the seeded policy. Optional —
    * defaults to "tagged" when `predicate` is set, "guidance" otherwise.
    * v7 dropped "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
    */
   kind?: "guidance" | "tagged";
-  /** Human-authored prose. For predicate-bearing primitives this is the
+  /** Human-authored prose. For predicate-bearing policies this is the
    * reason text accompanying the structured check. For guidance
-   * primitives this is the primitive body. */
+   * policies this is the policy body. */
   summary: string;
   /**
    * Engine-readable predicate. When set, the seeder creates a
-   * neuron_authoring_primitive so the check can run during capture.
+   * neuron_authoring_policy so the check can run during capture.
    */
   predicate?: AuthoringPredicate;
   /**
-   * v7: when set, the engine only fires this primitive against
+   * v7: when set, the engine only fires this policy against
    * candidates whose `lifecycle` is in the list. Used by completeness
    * rules that skip drafting neurons during mid-construction.
    */
   fires_when_neuron_lifecycle?: Lifecycle[];
   /**
-   * Override the seeded primitive's `on_violation` behavior. Defaults
+   * Override the seeded policy's `on_violation` behavior. Defaults
    * to "block" when unset. Use "warn" for soft / probabilistic rules
    * the author wants surfaced but not enforced (e.g. semantic
    * membership gates), and "log" for purely descriptive recording.
@@ -58,7 +58,7 @@ export interface TemplatePrimitive {
   on_violation?: "block" | "warn" | "log";
   /**
    * Optional markdown body. Renders alongside the summary on the
-   * primitive detail page.
+   * policy detail page.
    */
   body_md?: string;
 }
@@ -87,8 +87,8 @@ export interface DocoTemplate {
   icon: string;
   /** Description text rendered in picker and bootstrap surfaces. */
   description: string;
-  /** Atomic primitives seeded at install time. */
-  primitives: TemplatePrimitive[];
+  /** Atomic policies seeded at install time. */
+  policies: TemplatePolicy[];
   /**
    * Optional perspectives to attach on Doco creation. The two
    * built-in perspectives (graph, list) are always attached even
@@ -99,15 +99,15 @@ export interface DocoTemplate {
   perspectives?: TemplatePerspectiveAttachment[];
   /**
    * Doco-level allowlist for captured neuron types. `global` keeps the
-   * Doco primitive set focused by accepting only primitive types.
+   * Doco policy set focused by accepting only policy types.
    */
   allowedNeuronTypes?: (
     | "decision"
     | "intent"
     | "action"
     | "rule"
-    | "guidance_primitive"
-    | "neuron_authoring_primitive"
+    | "guidance_policy"
+    | "neuron_authoring_policy"
     | "log"
     | "eval"
     | "reference"
@@ -130,12 +130,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // template renamed to "global"; template names
     // are plain handles.
     name: "global",
-    label: "global primitives",
+    label: "global policies",
     icon: "🌐",
     description:
-      "Your doco's global primitives — guidance primitives and neuron-authoring primitives that govern how contributors work.",
-    allowedNeuronTypes: ["guidance_primitive", "neuron_authoring_primitive"],
-    primitives: [
+      "Your doco's global policies — guidance policies and neuron-authoring policies that govern how contributors work.",
+    allowedNeuronTypes: ["guidance_policy", "neuron_authoring_policy"],
+    policies: [
       {
         kind: "guidance",
         summary:
@@ -143,7 +143,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         kind: "guidance",
-        summary: "If you're an agent, check with your client before changing the primitives.",
+        summary: "If you're an agent, check with your client before changing the policies.",
       },
       {
         kind: "guidance",
@@ -160,17 +160,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "⭐",
     description:
       "Important doco-wide decisions that don't naturally fit a more specific subject area.",
-    primitives: [],
+    policies: [],
   },
   {
     // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
     // collapses from six guidance rules to deterministic authoring
-    // primitives + a concise summary for picker/manifest surfaces.
+    // policies + a concise summary for picker/manifest surfaces.
     name: "user-flows",
     label: "user-flows",
     icon: "🌊",
     description: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
-    primitives: [
+    policies: [
       {
         // Membership check: probabilistic semantic gate, with a
         // deterministic node-type allowlist that excludes Rule. Rules
@@ -276,8 +276,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7): formal state-machine
-    // modeling. The template is pure data: atomic primitives
-    // primitives plus Doco-level defaults. Framework primitives the
+    // modeling. The template is pure data: atomic policies
+    // policies plus Doco-level defaults. Framework policies the
     // rules use: State neuron + triggered_by / gated_by synapses +
     // drafting lifecycle + defaultNeuronLifecycle.
     name: "state-machines",
@@ -286,7 +286,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
     defaultNeuronLifecycle: "drafting",
-    primitives: [
+    policies: [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
         // D1 — Idea and Log have their own homes elsewhere.
@@ -437,9 +437,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Executable tests inspired by TDD and AI evals. Each Eval pins one
-    // checkable claim about a Decision, Primitive, Action, or other
-    // load-bearing neuron; the template seeds the primitives
-    // primitives that govern how those Evals are authored. Opt-in
+    // checkable claim about a Decision, Policy, Action, or other
+    // load-bearing neuron; the template seeds the policies
+    // policies that govern how those Evals are authored. Opt-in
     // (not auto-installed) — projects that want test add it explicitly.
     name: "test",
     label: "Tests",
@@ -447,16 +447,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
     defaultNeuronLifecycle: "drafting",
-    primitives: [
+    policies: [
       // ── Deterministic structural gates ──
       {
-        // D1 — content-type gate. Evals belong here; primitives
+        // D1 — content-type gate. Evals belong here; policies
         // seeded by this template live alongside them.
         summary:
-          "Only Eval neurons and primitives (guidance_primitive, neuron_authoring_primitive) belong to test. Domain content lives in its own Doco.",
+          "Only Eval neurons and policies (guidance_policy, neuron_authoring_policy) belong to test. Domain content lives in its own Doco.",
         predicate: {
           kind: "requires_entity_type",
-          entity_types: ["eval", "guidance_primitive", "neuron_authoring_primitive"],
+          entity_types: ["eval", "guidance_policy", "neuron_authoring_policy"],
         },
       },
       {
@@ -561,7 +561,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a neuron_authoring_primitive or guidance_primitive when it tests a primitive claim, an Action when it tests designed behavior.",
+          "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a neuron_authoring_policy or guidance_policy when it tests a policy claim, an Action when it tests designed behavior.",
       },
       {
         kind: "guidance",
@@ -572,7 +572,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Repeatable business processes modeled on BPMN swimlanes and
-    // gateways. The framework primitives the
+    // gateways. The framework policies the
     // rules use overlap with the state-machines template (State + drafting
     // lifecycle + defaultNeuronLifecycle), but the template reaches further:
     // Action/Decision/Intent shape rules push authors toward business
@@ -591,7 +591,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // most naturally visible). Graph + list defaults are still
     // attached behind it.
     perspectives: [{ slug: "bpmn", isDefault: true }],
-    primitives: [
+    policies: [
       // ── Membership ──────────────────────────────────────────────
       {
         // Soft semantic gate — fires as a `warn`, not a block. The author
@@ -728,10 +728,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Both empty is fine; mandatory presence is handled by the
         // requires_field rules above.
         summary:
-          "Inputs and outputs are business artifacts (a purchase order, a signed contract, an approved invoice), not concrete runtime values (HTTP 200, row count = 4, a JWT). If both `inputs` and `outputs` are empty the rule above already speaks; otherwise reject concrete primitives.",
+          "Inputs and outputs are business artifacts (a purchase order, a signed contract, an approved invoice), not concrete runtime values (HTTP 200, row count = 4, a JWT). If both `inputs` and `outputs` are empty the rule above already speaks; otherwise reject concrete policies.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — if both `inputs` and `outputs` are empty or missing, this rule PASSES (the requires_field rules above handle missing values). STEP 2 — otherwise inspect each value present in `inputs` and `outputs`. PASS when entries name business artifacts (a purchase order, a signed contract, an approved invoice, an SLA bound). FAIL with reason if any entry is a concrete runtime primitive (HTTP 200, row count = 4, a JWT, a SQL row, a bytes-on-the-wire format).",
+          spec: "STEP 1 — if both `inputs` and `outputs` are empty or missing, this rule PASSES (the requires_field rules above handle missing values). STEP 2 — otherwise inspect each value present in `inputs` and `outputs`. PASS when entries name business artifacts (a purchase order, a signed contract, an approved invoice, an SLA bound). FAIL with reason if any entry is a concrete runtime policy (HTTP 200, row count = 4, a JWT, a SQL row, a bytes-on-the-wire format).",
           when_neuron_type: ["action"],
         },
       },

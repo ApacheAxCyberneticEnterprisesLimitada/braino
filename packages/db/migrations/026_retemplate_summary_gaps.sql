@@ -28,6 +28,11 @@
 
 -- Sub-process invocation (business-processes): summary "via a
 -- Reference in its body" → "via a Reference in its `action` field".
+
+-- Guard: skip when the legacy `neuron_authoring_primitives` /
+-- `guidance_primitives` tables no longer exist (post-028 rename).
+DO $migration_guard$ BEGIN
+IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name IN ('neuron_authoring_primitives', 'guidance_primitives')) THEN
 UPDATE neuron_authoring_primitives
    SET data = jsonb_set(
                 data,
@@ -54,3 +59,6 @@ UPDATE neuron_authoring_primitives
  WHERE data->>'template_handle' = 'business-processes'
    AND data->'predicate'->>'kind' = 'probabilistic'
    AND summary LIKE '%must be explicit in the question or body%';
+
+END IF;
+END $migration_guard$;

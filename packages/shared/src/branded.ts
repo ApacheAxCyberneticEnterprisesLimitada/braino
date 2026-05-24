@@ -1,16 +1,16 @@
 /**
- * Branded primitive types — nominal-style typing so we can't
+ * Branded ID + discriminator types — nominal-style typing so we can't
  * accidentally pass a raw string where an EntityId is expected.
  *
  * Post-rename (migration 005): entities are split across five categories.
  *   - Neurons (10):       graph-knowledge entities
- *   - Primitives (2):     Doco-level authoring metadata
+ *   - Policies (2):       Doco-level authoring metadata
  *   - Collaborator (1):   OAuth identity layer
  *   - Doco (1):           workspace container
  *   - Organization (1):   org container
  *
  * `EntityType` is the union of all 14 discriminator strings; `NeuronType`
- * and `PrimitiveType` are the narrower types for code that wants to
+ * and `PolicyType` are the narrower types for code that wants to
  * statically prohibit cross-category misuse.
  */
 
@@ -46,10 +46,10 @@ export const NEURON_TYPES = [
 
 export type NeuronType = (typeof NEURON_TYPES)[number];
 
-/** The 2 primitive types — Doco-level authoring metadata, not on the graph. */
-export const PRIMITIVE_TYPES = ["guidance_primitive", "neuron_authoring_primitive"] as const;
+/** The 2 policy types — Doco-level authoring metadata, not on the graph. */
+export const POLICY_TYPES = ["guidance_policy", "neuron_authoring_policy"] as const;
 
-export type PrimitiveType = (typeof PRIMITIVE_TYPES)[number];
+export type PolicyType = (typeof POLICY_TYPES)[number];
 
 /** The collaborator type — OAuth identity. One entity, two `kind` values. */
 export const COLLABORATOR_TYPE = "collaborator" as const;
@@ -66,7 +66,7 @@ export type ContainerType = (typeof CONTAINER_TYPES)[number];
  */
 export const ENTITY_TYPES = [
   ...NEURON_TYPES,
-  ...PRIMITIVE_TYPES,
+  ...POLICY_TYPES,
   COLLABORATOR_TYPE,
   ...CONTAINER_TYPES,
 ] as const;
@@ -121,8 +121,8 @@ export function isNeuronType(value: unknown): value is NeuronType {
   return typeof value === "string" && (NEURON_TYPES as readonly string[]).includes(value);
 }
 
-export function isPrimitiveType(value: unknown): value is PrimitiveType {
-  return typeof value === "string" && (PRIMITIVE_TYPES as readonly string[]).includes(value);
+export function isPolicyType(value: unknown): value is PolicyType {
+  return typeof value === "string" && (POLICY_TYPES as readonly string[]).includes(value);
 }
 
 /** Parse an EntityId into its (type, ulid) parts. Returns null if the string is malformed. */

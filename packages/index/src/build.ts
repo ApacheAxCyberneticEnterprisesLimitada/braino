@@ -106,7 +106,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const pgSynapses: ReturnType<typeof deriveSynapses> = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      // Per-category interfaces carry `neuron_type`, `primitive_kind`, or
+      // Per-category interfaces carry `neuron_type`, `policy_kind`, or
       // `kind`; the id prefix is the shared discriminator for derived rows.
       const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
@@ -116,7 +116,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       // (`intents.intent`, `decisions.decision`, ...). The whole prose
       // block goes into FTS `body`; there's no separate headline to
       // surface in `summary` anymore. Non-migrated entities (principal,
-      // primitives) keep the legacy summary/body split.
+      // policies) keep the legacy summary/body split.
       const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
       let summary: string | null;
       let body: string;
@@ -152,7 +152,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Migration-022/023: migrated neurons embed the type-named prose
-      // column verbatim; non-migrated entities (principal, primitives)
+      // column verbatim; non-migrated entities (principal, policies)
       // still concatenate summary + body_md the same way they did
       // pre-migration.
       const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";

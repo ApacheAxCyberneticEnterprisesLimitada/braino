@@ -338,26 +338,26 @@ export async function createDocoInOrg(opts: {
       [docoId, opts.createdByCollaboratorId, created],
     );
 
-    if (template && template.primitives.length > 0) {
-      for (const primitive of template.primitives) {
-        const isAuthoring = Boolean(primitive.predicate);
-        const firesWhen = Array.isArray(primitive.fires_when_neuron_lifecycle)
-          ? primitive.fires_when_neuron_lifecycle
+    if (template && template.policies.length > 0) {
+      for (const policy of template.policies) {
+        const isAuthoring = Boolean(policy.predicate);
+        const firesWhen = Array.isArray(policy.fires_when_neuron_lifecycle)
+          ? policy.fires_when_neuron_lifecycle
           : [];
-        const entityType = isAuthoring ? "neuron_authoring_primitive" : "guidance_primitive";
-        const table = isAuthoring ? "neuron_authoring_primitives" : "guidance_primitives";
-        const primitiveId = `${entityType}_${generateUlid()}`;
-        const primitiveData: Record<string, unknown> = {
-          id: primitiveId,
+        const entityType = isAuthoring ? "neuron_authoring_policy" : "guidance_policy";
+        const table = isAuthoring ? "neuron_authoring_policies" : "guidance_policies";
+        const policyId = `${entityType}_${generateUlid()}`;
+        const policyData: Record<string, unknown> = {
+          id: policyId,
           doco_id: docoId,
-          primitive_kind: isAuthoring ? "neuron_authoring" : "guidance",
-          summary: primitive.summary,
-          ...(primitive.predicate
+          policy_kind: isAuthoring ? "neuron_authoring" : "guidance",
+          summary: policy.summary,
+          ...(policy.predicate
             ? {
                 evaluation_kind:
-                  primitive.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
-                predicate: primitive.predicate,
-                on_violation: primitive.on_violation ?? "block",
+                  policy.predicate.kind === "probabilistic" ? "probabilistic" : "deterministic",
+                predicate: policy.predicate,
+                on_violation: policy.on_violation ?? "block",
               }
             : {}),
           ...(firesWhen.length > 0 ? { fires_when_neuron_lifecycle: firesWhen } : {}),
@@ -372,11 +372,11 @@ export async function createDocoInOrg(opts: {
                                 created_at, updated_at, created_by, updated_by)
            VALUES ($1, $2, $3, $4::jsonb, $5, 'active', $6, $6, $7, $7)`,
           [
-            primitiveId,
+            policyId,
             docoId,
-            primitive.summary,
-            JSON.stringify(primitiveData),
-            primitive.body_md ?? "",
+            policy.summary,
+            JSON.stringify(policyData),
+            policy.body_md ?? "",
             created,
             opts.createdByCollaboratorId,
           ],

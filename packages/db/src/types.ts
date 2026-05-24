@@ -2,7 +2,7 @@
 //
 // Post-rename (migration 005): entities are split across five categories.
 // Each category maps to one or more tables; the type discriminator string
-// (e.g. "intent", "guidance_primitive", "collaborator") names the row.
+// (e.g. "intent", "guidance_policy", "collaborator") names the row.
 
 /**
  * The 10 neuron types (graph-knowledge entities).
@@ -59,14 +59,14 @@ export const DOCO_NEURON_TABLE_SPECS: readonly EntityTableSpec[] = [
 export const DOCO_NEURON_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
   Object.fromEntries(DOCO_NEURON_TABLE_SPECS.map((spec) => [spec.entityType, spec]));
 
-/** The 2 primitive types. Primitives are always Doco-scoped. */
-export const PRIMITIVE_TABLES: Record<string, { table: string; body: boolean }> = {
-  guidance_primitive: {
-    table: "guidance_primitives",
+/** The 2 policy types. Policies are always Doco-scoped. */
+export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
+  guidance_policy: {
+    table: "guidance_policies",
     body: true,
   },
-  neuron_authoring_primitive: {
-    table: "neuron_authoring_primitives",
+  neuron_authoring_policy: {
+    table: "neuron_authoring_policies",
     body: true,
   },
 };
@@ -100,11 +100,11 @@ export const ALL_ENTITY_TABLES: Record<
   ...COLLABORATOR_TABLES,
   ...CONTAINER_TABLES,
   ...AUX_TABLES,
-  // Primitives are flattened to their per-Doco table here; org-scope
-  // primitives are addressed by their separate org table in callers that
+  // Policies are flattened to their per-Doco table here; org-scope
+  // policies are addressed by their separate org table in callers that
   // care.
-  guidance_primitive: { table: "guidance_primitives", body: true },
-  neuron_authoring_primitive: { table: "neuron_authoring_primitives", body: true },
+  guidance_policy: { table: "guidance_policies", body: true },
+  neuron_authoring_policy: { table: "neuron_authoring_policies", body: true },
 };
 
 /**
@@ -114,7 +114,7 @@ export const ALL_ENTITY_TABLES: Record<
  * from this shape.
  *
  * `entity_type` carries the discriminator string (one of 14 values
- * across all categories: 10 neurons + 2 primitives + 1 collaborator +
+ * across all categories: 10 neurons + 2 policies + 1 collaborator +
  * doco + organization, plus the auxiliary "tag"). The field was named
  * `node_type` pre-migration-005.
  */

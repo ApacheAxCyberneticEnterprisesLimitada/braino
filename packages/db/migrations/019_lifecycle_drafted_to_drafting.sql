@@ -22,8 +22,12 @@ BEGIN
   UPDATE ideas                         SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
   UPDATE states                        SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
   UPDATE principals                    SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
-  UPDATE guidance_primitives           SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
-  UPDATE neuron_authoring_primitives   SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_primitives') THEN
+    UPDATE guidance_primitives           SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neuron_authoring_primitives') THEN
+    UPDATE neuron_authoring_primitives   SET lifecycle = 'drafting' WHERE lifecycle = 'drafted';
+  END IF;
 
   UPDATE intents                       SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
   UPDATE decisions                     SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
@@ -35,7 +39,11 @@ BEGIN
   UPDATE ideas                         SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
   UPDATE states                        SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
   UPDATE principals                    SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
-  UPDATE guidance_primitives           SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
-  UPDATE neuron_authoring_primitives   SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_primitives') THEN
+    UPDATE guidance_primitives           SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neuron_authoring_primitives') THEN
+    UPDATE neuron_authoring_primitives   SET data = jsonb_set(data, '{lifecycle}', '"drafting"') WHERE data->>'lifecycle' = 'drafted';
+  END IF;
 END
 $rename_lifecycle_drafted_to_drafting$;

@@ -2,18 +2,15 @@ import { describe, expect, it } from "vitest";
 import {
   type CandidateFields,
   type EngineSynapse,
-  type LoadedPrimitive,
+  type LoadedPolicy,
   type PrincipalIndex,
-  evaluatePrimitives,
+  evaluatePolicies,
 } from "../authoring-evaluator.js";
 
-function P(
-  predicate: LoadedPrimitive["predicate"],
-  extras: Partial<LoadedPrimitive> = {},
-): LoadedPrimitive {
+function P(predicate: LoadedPolicy["predicate"], extras: Partial<LoadedPolicy> = {}): LoadedPolicy {
   return {
-    primitive_id: extras.primitive_id ?? "neuron_authoring_primitive_test",
-    summary: extras.summary ?? "test primitive",
+    policy_id: extras.policy_id ?? "neuron_authoring_policy_test",
+    summary: extras.summary ?? "test policy",
     predicate,
     ...(extras.on_violation ? { on_violation: extras.on_violation } : {}),
     ...(extras.fires_when_neuron_lifecycle
@@ -24,7 +21,7 @@ function P(
 
 function evaluate(
   candidate: CandidateFields,
-  primitives: LoadedPrimitive[],
+  policies: LoadedPolicy[],
   extras: {
     candidateSynapses?: EngineSynapse[];
     synapses?: EngineSynapse[];
@@ -32,9 +29,9 @@ function evaluate(
     population?: CandidateFields[];
   } = {},
 ) {
-  return evaluatePrimitives({
+  return evaluatePolicies({
     candidate,
-    primitives,
+    policies,
     candidateSynapses: extras.candidateSynapses ?? [],
     synapses: extras.synapses ?? [],
     principals: extras.principals ?? new Set(),

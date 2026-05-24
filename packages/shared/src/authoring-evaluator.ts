@@ -1,12 +1,12 @@
 /**
- * Authoring primitives evaluator — pure module.
+ * Authoring policies evaluator — pure module.
  *
- * Walks the doco's `neuron_authoring_primitives` directly. Primitives
+ * Walks the doco's `neuron_authoring_policies` directly. Policies
  * apply to the whole doco.
  *
  * Inputs in, violations out. No IO, no LLM. The caller (web layer) is
  * responsible for:
- *   - loading the doco's primitives, principals, synapses, and population
+ *   - loading the doco's policies, principals, synapses, and population
  *   - deriving the candidate's outgoing synapses from its structured fields
  *     (via `deriveSynapses` from `@doco/index`)
  *   - resolving probabilistic violations via an LLM judge (the engine
@@ -23,22 +23,22 @@
  *
  * Per-predicate filters:
  *   - `when_neuron_type` (on the predicate)
- *   - `fires_when_neuron_lifecycle` (on the primitive wrapper)
+ *   - `fires_when_neuron_lifecycle` (on the policy wrapper)
  */
 
 import type { NeuronType } from "./branded.js";
 import type { AuthoringPredicate, Lifecycle } from "./entities.js";
 
 /**
- * Candidate neuron / primitive fields the engine evaluates. Just
+ * Candidate neuron / policy fields the engine evaluates. Just
  * the fields-as-bag the persister would write — the engine doesn't care
  * about the full Entity union, only that it has an id, a neuron_type
- * (or primitive_kind), and optionally a lifecycle.
+ * (or policy_kind), and optionally a lifecycle.
  */
 export type CandidateFields = Record<string, unknown> & {
   id: string;
   neuron_type?: NeuronType;
-  primitive_kind?: "guidance" | "neuron_authoring";
+  policy_kind?: "guidance" | "neuron_authoring";
   lifecycle?: Lifecycle;
 };
 
@@ -50,27 +50,27 @@ export interface EngineSynapse {
 }
 
 /**
- * A neuron_authoring_primitive loaded from the doco, with the bits the
+ * A neuron_authoring_policy loaded from the doco, with the bits the
  * engine consults.
  */
-export interface LoadedPrimitive {
-  /** Id of the originating primitive — back-pointer for the UI. */
-  primitive_id: string;
+export interface LoadedPolicy {
+  /** Id of the originating policy — back-pointer for the UI. */
+  policy_id: string;
   /** Human-readable rule text — surfaces in violation messages. */
   summary: string;
   predicate: AuthoringPredicate;
   /** Defaults to "block" when undefined. */
   on_violation?: "block" | "warn" | "log";
   /**
-   * Skip this primitive unless the candidate's `lifecycle` is in this
+   * Skip this policy unless the candidate's `lifecycle` is in this
    * list. Empty / undefined means "fires regardless of lifecycle".
-   * Lets completeness primitives wait for `active`.
+   * Lets completeness policies wait for `active`.
    */
   fires_when_neuron_lifecycle?: Lifecycle[];
 }
 
 export interface Violation {
-  primitive_id: string;
+  policy_id: string;
   predicate_kind: AuthoringPredicate["kind"];
   /** "block" propagates as a hard error; "warn" is reported; "log" is silent. */
   on_violation: "block" | "warn" | "log";
@@ -88,8 +88,8 @@ export type PrincipalIndex = Set<string>;
 export interface EvaluateOpts {
   /** The candidate's fields (NOT yet persisted). */
   candidate: CandidateFields;
-  /** All predicate-bearing primitives loaded from the doco. */
-  primitives: LoadedPrimitive[];
+  /** All predicate-bearing policies loaded from the doco. */
+  policies: LoadedPolicy[];
   /**
    * Synapses derived from the candidate's fields (via
    * `deriveSynapses`). The candidate hasn't been persisted yet so these
@@ -136,14 +136,14 @@ function entityTypeFromId(id: string): string {
 }
 
 /**
- * Evaluate every loaded primitive against the candidate. Returns one
- * `Violation` per failing primitive (zero if all pass). The caller
+ * Evaluate every loaded policy against the candidate. Returns one
+ * `Violation` per failing policy (zero if all pass). The caller
  * decides what to do with each violation based on `on_violation`.
  */
-export function evaluatePrimitives(opts: EvaluateOpts): Violation[] {
-  const { candidate, primitives } = opts;
+export function evaluatePolicies(opts: EvaluateOpts): Violation[] {
+  const { candidate, policies } = opts;
   const violations: Violation[] = [];
-  for (const p of primitives) {
+  for (const p of policies) {
     if (!firesFor(p, candidate)) continue;
     const v = evaluatePredicate(p, opts);
     if (v) violations.push(v);
@@ -151,7 +151,7 @@ export function evaluatePrimitives(opts: EvaluateOpts): Violation[] {
   return violations;
 }
 
-function firesFor(p: LoadedPrimitive, candidate: CandidateFields): boolean {
+function firesFor(p: LoadedPolicy, candidate: CandidateFields): boolean {
   const lifecycles = p.fires_when_neuron_lifecycle;
   if (lifecycles && lifecycles.length > 0) {
     if (!candidate.lifecycle || !lifecycles.includes(candidate.lifecycle)) return false;
@@ -168,13 +168,13 @@ function firesFor(p: LoadedPrimitive, candidate: CandidateFields): boolean {
   return true;
 }
 
-function evaluatePredicate(p: LoadedPrimitive, opts: EvaluateOpts): Violation | null {
+function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | null {
   const { candidate } = opts;
   const onViolation = p.on_violation ?? "block";
   const pred = p.predicate;
 
   const fail = (reason: string, extra?: { pending_spec?: string }): Violation => ({
-    primitive_id: p.primitive_id,
+    policy_id: p.policy_id,
     predicate_kind: pred.kind,
     on_violation: onViolation,
     reason: `${p.summary} — ${reason}`,
@@ -271,7 +271,7 @@ function evaluatePredicate(p: LoadedPrimitive, opts: EvaluateOpts): Violation | 
       // Engine doesn't run the LLM judge — emit a pending violation
       // with the spec so the caller can decide synchronously or async.
       return {
-        primitive_id: p.primitive_id,
+        policy_id: p.policy_id,
         predicate_kind: pred.kind,
         on_violation: onViolation,
         reason: `${p.summary} — pending LLM judge`,

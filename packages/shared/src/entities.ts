@@ -6,13 +6,13 @@
  * Post-rename vocabulary:
  *   - Neurons (10): graph-knowledge entities (intent, idea, rule,
  *     decision, action, log, eval, reference, state, principal)
- *   - Primitives (2): Doco-level authoring metadata (guidance, neuron_authoring)
+ *   - Policies (2): Doco-level authoring metadata (guidance, neuron_authoring)
  *   - Collaborator (1): OAuth identity layer (separate from principal)
  *   - Doco, Organization: workspace + org containers
  *
  * Per-category discriminator fields (matches stored data jsonb):
  *   - Neurons   → `neuron_type: NeuronType`
- *   - Primitives → `primitive_kind: "guidance" | "neuron_authoring"`
+ *   - Policies → `policy_kind: "guidance" | "neuron_authoring"`
  *   - Collaborator → `kind: "person" | "agent"`
  *   - Doco, Organization → no per-row discriminator
  *
@@ -28,9 +28,9 @@ export type Lifecycle = "drafting" | "proposed" | "active" | "retired";
 export type Outcome = "succeeded" | "failed";
 
 /**
- * Common fields present on every neuron + primitive entity (D-006,
+ * Common fields present on every neuron + policy entity (D-006,
  * D-007). The per-category discriminator (`neuron_type` /
- * `primitive_kind` / `kind`) lives on each concrete interface, not
+ * `policy_kind` / `kind`) lives on each concrete interface, not
  * here — different categories use different discriminator names.
  */
 export interface CommonFields {
@@ -191,7 +191,7 @@ export type RuleKind = "guidance" | "tagged";
  *
  * `when_neuron_type` (was `when_node_type`) filters the predicate to
  * candidates of specific neuron types. Note: predicates that target
- * primitives use a different filter; see plan §6.
+ * policies use a different filter; see plan §6.
  */
 export type AuthoringPredicate =
   | {
@@ -211,8 +211,8 @@ export type AuthoringPredicate =
   | { kind: "requires_neuron_type"; neuron_types: NeuronType[] }
   /**
    * Like `requires_neuron_type` but accepts any entity type, including
-   * primitives. Used by the global primitives template to allow Eval +
-   * the two primitive kinds.
+   * policies. Used by the global policies template to allow Eval +
+   * the two policy kinds.
    */
   | { kind: "requires_entity_type"; entity_types: EntityType[] }
   | { kind: "probabilistic"; spec: string; when_neuron_type?: NeuronType[] }
@@ -256,14 +256,14 @@ export interface Rule extends CommonFields {
   on_violation?: "block" | "warn" | "log";
 }
 
-// ─── Primitives ───────────────────────────────────────────────────────────
+// ─── Policies ─────────────────────────────────────────────────────────────
 
-export interface GuidancePrimitive extends SummarizedFields {
-  primitive_kind: "guidance";
+export interface GuidancePolicy extends SummarizedFields {
+  policy_kind: "guidance";
 }
 
-export interface NeuronAuthoringPrimitive extends SummarizedFields {
-  primitive_kind: "neuron_authoring";
+export interface NeuronAuthoringPolicy extends SummarizedFields {
+  policy_kind: "neuron_authoring";
   evaluation_kind: "deterministic" | "probabilistic";
   predicate: AuthoringPredicate;
   fires_when_neuron_lifecycle?: Lifecycle[];
@@ -413,17 +413,14 @@ export type Neuron =
   | Reference
   | State;
 
-/** The 2 primitive types. */
-export type Primitive = GuidancePrimitive | NeuronAuthoringPrimitive;
+/** The 2 policy types. */
+export type Policy = GuidancePolicy | NeuronAuthoringPolicy;
 
 /** Every entity across all categories. */
-export type Entity = Neuron | Primitive | Collaborator | Doco | Organization;
+export type Entity = Neuron | Policy | Collaborator | Doco | Organization;
 
 /** Look up a Neuron interface by its `neuron_type` literal. */
 export type NeuronByType<T extends Neuron["neuron_type"]> = Extract<Neuron, { neuron_type: T }>;
 
-/** Look up a Primitive interface by its `primitive_kind` literal. */
-export type PrimitiveByKind<T extends Primitive["primitive_kind"]> = Extract<
-  Primitive,
-  { primitive_kind: T }
->;
+/** Look up a Policy interface by its `policy_kind` literal. */
+export type PolicyByKind<T extends Policy["policy_kind"]> = Extract<Policy, { policy_kind: T }>;

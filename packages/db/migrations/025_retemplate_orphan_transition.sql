@@ -11,6 +11,11 @@
 -- into prod Docos in line.
 -- ============================================================
 
+
+-- Guard: skip when the legacy `neuron_authoring_primitives` /
+-- `guidance_primitives` tables no longer exist (post-028 rename).
+DO $migration_guard$ BEGIN
+IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name IN ('neuron_authoring_primitives', 'guidance_primitives')) THEN
 UPDATE neuron_authoring_primitives
    SET data = jsonb_set(
                 jsonb_set(data,
@@ -24,3 +29,6 @@ UPDATE neuron_authoring_primitives
        updated_at = now()
  WHERE data->>'template_handle' = 'state-machines'
    AND summary LIKE '%(the body explains why it fires unconditionally)%';
+
+END IF;
+END $migration_guard$;

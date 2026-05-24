@@ -22,26 +22,34 @@
 -- untouched.
 -- ============================================================
 
-UPDATE neuron_authoring_primitives
-   SET data = jsonb_set(
-                jsonb_set(
-                  jsonb_set(
-                    data,
-                    '{on_violation}',
-                    '"warn"'::jsonb
+-- Guard on legacy table name. On a fresh post-024 schema the
+-- replacement table is `neuron_authoring_policies`, and any matching
+-- rows have already been re-summarised at write time, so this is a
+-- no-op there.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neuron_authoring_primitives') THEN
+    UPDATE neuron_authoring_primitives
+       SET data = jsonb_set(
+                    jsonb_set(
+                      jsonb_set(
+                        data,
+                        '{on_violation}',
+                        '"warn"'::jsonb
+                      ),
+                      '{summary}',
+                      to_jsonb(
+                        'A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.'::text
+                      )
+                    ),
+                    '{predicate,spec}',
+                    to_jsonb(
+                      'A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.'::text
+                    )
                   ),
-                  '{summary}',
-                  to_jsonb(
-                    'A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.'::text
-                  )
-                ),
-                '{predicate,spec}',
-                to_jsonb(
-                  'A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.'::text
-                )
-              ),
-       summary = 'A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.',
-       updated_at = now()
- WHERE data->>'template_handle' = 'business-processes'
-   AND data->'predicate'->>'kind' = 'probabilistic'
-   AND summary LIKE '%repeatable business process%';
+           summary = 'A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.',
+           updated_at = now()
+     WHERE data->>'template_handle' = 'business-processes'
+       AND data->'predicate'->>'kind' = 'probabilistic'
+       AND summary LIKE '%repeatable business process%';
+  END IF;
+END $$;

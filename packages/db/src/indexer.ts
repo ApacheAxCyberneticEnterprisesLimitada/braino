@@ -7,9 +7,9 @@
 // that Doco atomically.
 //
 // Post-migration-005 FTS shape: ONE table per top-level category
-// (neurons, primitives, collaborators, docos, organizations). The
+// (neurons, policies, collaborators, docos, organizations). The
 // indexer only ever populates the per-Doco categories: `entity_fts_neurons`
-// and `entity_fts_primitives`. Collaborators/docos/organizations are
+// and `entity_fts_policies`. Collaborators/docos/organizations are
 // host-level entities; their FTS rows are written by their own upsert
 // paths (or by the migration), not by this builder.
 
@@ -28,12 +28,12 @@ const NEURON_TYPES = new Set([
   "principal",
 ]);
 
-const PRIMITIVE_TYPES = new Set(["guidance_primitive", "neuron_authoring_primitive"]);
+const POLICY_TYPES = new Set(["guidance_policy", "neuron_authoring_policy"]);
 
-function primitiveKindFor(entityType: string): "guidance" | "neuron_authoring" {
-  if (entityType === "guidance_primitive") return "guidance";
-  if (entityType === "neuron_authoring_primitive") return "neuron_authoring";
-  throw new Error(`Not a primitive type: ${entityType}`);
+function policyKindFor(entityType: string): "guidance" | "neuron_authoring" {
+  if (entityType === "guidance_policy") return "guidance";
+  if (entityType === "neuron_authoring_policy") return "neuron_authoring";
+  throw new Error(`Not a policy type: ${entityType}`);
 }
 
 export interface FtsRowInput {
@@ -44,7 +44,7 @@ export interface FtsRowInput {
    * neurons (post-PR-80): their prose lives entirely in the type-named
    * column and there's no separate headline to extract, so the entire
    * text goes into `body` instead. Non-migrated entities (principal,
-   * primitives) keep the legacy summary/body split.
+   * policies) keep the legacy summary/body split.
    */
   summary: string | null;
   body: string;
@@ -85,9 +85,9 @@ export async function rebuildDocoDerivedData(
   const dedupedFts = dedupeFts(fts);
   const dedupedEdges = dedupeEdges(synapses);
 
-  // Split FTS rows by category — neurons vs primitives.
+  // Split FTS rows by category — neurons vs policies.
   const neuronFts = dedupedFts.filter((r) => NEURON_TYPES.has(r.entity_type));
-  const primitiveFts = dedupedFts.filter((r) => PRIMITIVE_TYPES.has(r.entity_type));
+  const policyFts = dedupedFts.filter((r) => POLICY_TYPES.has(r.entity_type));
 
   return withTransaction(async (c) => {
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
@@ -101,13 +101,13 @@ export async function rebuildDocoDerivedData(
         [docoId, opts.onlyEntityIds],
       );
       await c.query(
-        "DELETE FROM entity_fts_primitives WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
+        "DELETE FROM entity_fts_policies WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
         [docoId, opts.onlyEntityIds],
       );
     } else {
       await c.query("DELETE FROM synapses WHERE doco_id = $1", [docoId]);
       await c.query("DELETE FROM entity_fts_neurons WHERE doco_id = $1", [docoId]);
-      await c.query("DELETE FROM entity_fts_primitives WHERE doco_id = $1", [docoId]);
+      await c.query("DELETE FROM entity_fts_policies WHERE doco_id = $1", [docoId]);
     }
 
     if (neuronFts.length > 0) {
@@ -131,23 +131,23 @@ export async function rebuildDocoDerivedData(
       );
     }
 
-    if (primitiveFts.length > 0) {
+    if (policyFts.length > 0) {
       await c.query(
-        `INSERT INTO entity_fts_primitives (entity_id, doco_id, primitive_kind, summary, body)
-         SELECT u.entity_id, $1, u.primitive_kind, u.summary, u.body
+        `INSERT INTO entity_fts_policies (entity_id, doco_id, policy_kind, summary, body)
+         SELECT u.entity_id, $1, u.policy_kind, u.summary, u.body
          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-              AS u(entity_id, primitive_kind, summary, body)
+              AS u(entity_id, policy_kind, summary, body)
          ON CONFLICT (entity_id) DO UPDATE SET
-              doco_id        = EXCLUDED.doco_id,
-              primitive_kind = EXCLUDED.primitive_kind,
-              summary        = EXCLUDED.summary,
-              body           = EXCLUDED.body`,
+              doco_id     = EXCLUDED.doco_id,
+              policy_kind = EXCLUDED.policy_kind,
+              summary     = EXCLUDED.summary,
+              body        = EXCLUDED.body`,
         [
           docoId,
-          primitiveFts.map((r) => r.entity_id),
-          primitiveFts.map((r) => primitiveKindFor(r.entity_type)),
-          primitiveFts.map((r) => r.summary),
-          primitiveFts.map((r) => r.body),
+          policyFts.map((r) => r.entity_id),
+          policyFts.map((r) => policyKindFor(r.entity_type)),
+          policyFts.map((r) => r.summary),
+          policyFts.map((r) => r.body),
         ],
       );
     }

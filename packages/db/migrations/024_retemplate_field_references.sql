@@ -22,6 +22,11 @@
 -- ── state-machines ─────────────────────────────────────────────────
 
 -- Guidance: "State `summary` is unique within a state-machine doco"
+
+-- Guard: skip when the legacy `neuron_authoring_primitives` /
+-- `guidance_primitives` tables no longer exist (post-028 rename).
+DO $migration_guard$ BEGIN
+IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name IN ('neuron_authoring_primitives', 'guidance_primitives')) THEN
 UPDATE guidance_primitives
    SET data = jsonb_set(data, '{summary}', to_jsonb('State `state` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.'::text)),
        summary = 'State `state` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.',
@@ -303,3 +308,6 @@ UPDATE neuron_authoring_primitives
        updated_at = now()
  WHERE data->>'template_handle' = 'user-flows'
    AND summary LIKE '%pass the summary style check%';
+
+END IF;
+END $migration_guard$;

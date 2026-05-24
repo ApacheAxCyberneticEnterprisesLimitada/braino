@@ -35,6 +35,11 @@
 -- ============================================================
 
 -- 1) user-flows: wanted_by → actors  (HARD BREAK)
+
+-- Guard: skip when the legacy `neuron_authoring_primitives` /
+-- `guidance_primitives` tables no longer exist (post-028 rename).
+DO $migration_guard$ BEGIN
+IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name IN ('neuron_authoring_primitives', 'guidance_primitives')) THEN
 UPDATE neuron_authoring_primitives
    SET data = jsonb_set(
                 jsonb_set(
@@ -113,3 +118,6 @@ UPDATE neuron_authoring_primitives
        updated_at = now()
  WHERE data->>'template_handle' = 'business-processes'
    AND summary = 'An Action''s `actor_id` must resolve to an existing Principal whose type is `person` or `agent`. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.';
+
+END IF;
+END $migration_guard$;

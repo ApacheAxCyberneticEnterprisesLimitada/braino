@@ -25,12 +25,12 @@ describe("business-processes template", () => {
     expect(template.description).toMatch(/BPMN/);
   });
 
-  it("does NOT set the primitive-only `allowedNeuronTypes` field — that's reserved for `global`", () => {
+  it("does NOT set the policy-only `allowedNeuronTypes` field — that's reserved for `global`", () => {
     expect(template.allowedNeuronTypes).toBeUndefined();
   });
 
   describe("neuron-type allowlist", () => {
-    const allowlist = template.primitives.find(
+    const allowlist = template.policies.find(
       (r) => r.predicate?.kind === "requires_neuron_type",
     )?.predicate;
 
@@ -51,7 +51,7 @@ describe("business-processes template", () => {
 
   describe("requires_field rules", () => {
     function requiresField(field: string, entityType: string) {
-      return template.primitives.find(
+      return template.policies.find(
         (r) =>
           r.predicate?.kind === "requires_field" &&
           r.predicate.fields.includes(field) &&
@@ -81,7 +81,7 @@ describe("business-processes template", () => {
 
   describe("requires_synapse rules", () => {
     function requiresEdge(synapseType: string, target: string, on: string) {
-      return template.primitives.find(
+      return template.policies.find(
         (r) =>
           r.predicate?.kind === "requires_synapse" &&
           r.predicate.synapse_type === synapseType &&
@@ -99,7 +99,7 @@ describe("business-processes template", () => {
   });
 
   describe("actor_id principal resolution", () => {
-    const rule = template.primitives.find(
+    const rule = template.policies.find(
       (r) => r.predicate?.kind === "requires_field_resolves_to_principal",
     );
 
@@ -125,12 +125,12 @@ describe("business-processes template", () => {
     // Aggregate predicates that originally encoded these rules ship as
     // guidance until the evaluator can express them directly. The tests
     // below match the guidance summaries' shape rather than predicate kinds.
-    const guidanceSummaries = template.primitives
+    const guidanceSummaries = template.policies
       .filter((r) => r.kind === "guidance" && !r.predicate)
       .map((r) => r.summary);
 
-    it("State summary uniqueness within the process is documented", () => {
-      expect(guidanceSummaries.some((s) => /state.*summary.*unique/i.test(s))).toBe(true);
+    it("State uniqueness within the process is documented", () => {
+      expect(guidanceSummaries.some((s) => /\bstate\b.*\bunique\b/i.test(s))).toBe(true);
     });
     it("≥1 active initial State is documented", () => {
       expect(guidanceSummaries.some((s) => /\binitial\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
@@ -153,7 +153,7 @@ describe("business-processes template", () => {
   });
 
   describe("graph-completeness coverage rule", () => {
-    const rule = template.primitives.find((r) => r.predicate?.kind === "graph-completeness");
+    const rule = template.policies.find((r) => r.predicate?.kind === "graph-completeness");
 
     it("wires Intent.actors → Action.actor_id via `serves`", () => {
       expect(rule?.predicate?.kind).toBe("graph-completeness");
@@ -171,10 +171,10 @@ describe("business-processes template", () => {
   });
 
   describe("probabilistic specs cover process-critical claims", () => {
-    const specs = template.primitives
+    const specs = template.policies
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.primitives.map((r) => r.summary);
+    const summaries = template.policies.map((r) => r.summary);
     const haystack = [...specs, ...summaries].join("\n");
 
     it("exhaustive gateway / branches", () => {
@@ -196,7 +196,7 @@ describe("business-processes template", () => {
   });
 
   describe("guidance rules", () => {
-    const guidance = template.primitives.filter((r) => r.kind === "guidance" && !r.predicate);
+    const guidance = template.policies.filter((r) => r.kind === "guidance" && !r.predicate);
     const summaries = guidance.map((r) => r.summary);
 
     it("happy-path-first ordering", () => {
@@ -220,7 +220,7 @@ describe("business-processes template", () => {
   });
 
   describe("membership probabilistic gate", () => {
-    const gate = template.primitives.find(
+    const gate = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.spec.includes("business-processes") &&

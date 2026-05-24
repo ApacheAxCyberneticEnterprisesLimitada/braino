@@ -18,7 +18,7 @@
 -- Vocabulary (post-migration-005):
 --   neurons   — graph entities (10 types: intent/idea/rule/decision/action/
 --               log/eval/reference/state/principal)
---   primitives — Doco-level authoring metadata (2 kinds: guidance / neuron_authoring)
+--   policies — Doco-level authoring metadata (2 kinds: guidance / neuron_authoring)
 --   synapses   — relationships between neurons
 --   collaborators — OAuth identities (person/agent), separate from principals
 --                   (which are role-personas referenced by actor_id/actors[]).
@@ -135,7 +135,7 @@ CREATE TABLE IF NOT EXISTS docos (
   default_neuron_lifecycle text,
   -- Free-form sentence the project owner writes (or the creation template
   -- seeds) to tell agents what this Doco is for. Surfaced at the top of
-  -- each Doco's primitive set in the agent-bootstrap manifest, and under
+  -- each Doco's policy set in the agent-bootstrap manifest, and under
   -- the title on the Doco home page.
   goal            text NOT NULL DEFAULT '',
   data            jsonb NOT NULL,
@@ -193,7 +193,7 @@ CREATE TABLE IF NOT EXISTS rules (
 CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS guidance_primitives (
+CREATE TABLE IF NOT EXISTS guidance_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
@@ -205,12 +205,12 @@ CREATE TABLE IF NOT EXISTS guidance_primitives (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS guidance_primitives_doco_idx
-  ON guidance_primitives (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS guidance_primitives_lifecycle_idx
-  ON guidance_primitives (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS guidance_policies_doco_idx
+  ON guidance_policies (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS guidance_policies_lifecycle_idx
+  ON guidance_policies (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS neuron_authoring_primitives (
+CREATE TABLE IF NOT EXISTS neuron_authoring_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   summary     text,
@@ -222,10 +222,10 @@ CREATE TABLE IF NOT EXISTS neuron_authoring_primitives (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_doco_idx
-  ON neuron_authoring_primitives (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS neuron_authoring_primitives_lifecycle_idx
-  ON neuron_authoring_primitives (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS neuron_authoring_policies_doco_idx
+  ON neuron_authoring_policies (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS neuron_authoring_policies_lifecycle_idx
+  ON neuron_authoring_policies (doco_id, lifecycle);
 
 CREATE TABLE IF NOT EXISTS actions (
   id          text PRIMARY KEY,
@@ -409,10 +409,10 @@ CREATE TABLE IF NOT EXISTS entity_fts_neurons (
 CREATE INDEX IF NOT EXISTS entity_fts_neurons_doco_idx ON entity_fts_neurons (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_neurons_tsv_idx  ON entity_fts_neurons USING gin (search_tsv);
 
-CREATE TABLE IF NOT EXISTS entity_fts_primitives (
+CREATE TABLE IF NOT EXISTS entity_fts_policies (
   entity_id       text PRIMARY KEY,
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  primitive_kind  text NOT NULL CHECK (primitive_kind IN ('guidance', 'neuron_authoring')),
+  policy_kind     text NOT NULL CHECK (policy_kind IN ('guidance', 'neuron_authoring')),
   summary         text,
   body            text,
   search_tsv      tsvector GENERATED ALWAYS AS (
@@ -420,8 +420,8 @@ CREATE TABLE IF NOT EXISTS entity_fts_primitives (
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
   ) STORED
 );
-CREATE INDEX IF NOT EXISTS entity_fts_primitives_doco_idx ON entity_fts_primitives (doco_id);
-CREATE INDEX IF NOT EXISTS entity_fts_primitives_tsv_idx  ON entity_fts_primitives USING gin (search_tsv);
+CREATE INDEX IF NOT EXISTS entity_fts_policies_doco_idx ON entity_fts_policies (doco_id);
+CREATE INDEX IF NOT EXISTS entity_fts_policies_tsv_idx  ON entity_fts_policies USING gin (search_tsv);
 
 CREATE TABLE IF NOT EXISTS entity_fts_collaborators (
   entity_id   text PRIMARY KEY,

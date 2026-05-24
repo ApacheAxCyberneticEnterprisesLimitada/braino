@@ -17,7 +17,7 @@ export function deriveSynapses(entity: Entity): Synapse[] {
   const synapses: Synapse[] = [];
   const fromId = entity.id;
   // Entity interfaces use per-category discriminators (neuron_type /
-  // primitive_kind / kind), not a uniform entity_type. Derive from the
+  // policy_kind / kind), not a uniform entity_type. Derive from the
   // ID prefix instead — it's always present + matches the table name.
   const fromType = fromId.split("_").slice(0, -1).join("_");
 
@@ -103,7 +103,7 @@ function handleObject(
  *   them as graph synapses anymore (they were already filtered from the graph
  *   render, and they carried no traversal value).
  *
- * IMPORTANT for primitive authors: a `requires_synapse` / `forbids_synapse`
+ * IMPORTANT for policy authors: a `requires_synapse` / `forbids_synapse`
  * predicate works off the synapses derived here. If your check targets an
  * id that lives under one of these field names (or nested under one), the
  * synapse will not exist and the predicate will silently never match.

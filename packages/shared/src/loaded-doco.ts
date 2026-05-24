@@ -14,7 +14,7 @@ export interface LoadedEntityParsed {
    * Migration-022 type-named column value (e.g. `intents.intent`,
    * `decisions.decision`). Populated for the 9 migrated neuron types
    * whose tables expose a `typeNamedColumn` in `ALL_ENTITY_TABLES`;
-   * null/undefined for principal, primitives, and other non-migrated
+   * null/undefined for principal, policies, and other non-migrated
    * entities. The indexer reads this for FTS body + embedding text.
    */
   typeNamedValue?: string | null;

@@ -180,14 +180,21 @@ BEGIN
     'states',
     'reference_entities',
     'guidance_primitives',
-    'neuron_authoring_primitives'
+    'neuron_authoring_primitives',
+    'guidance_policies',
+    'neuron_authoring_policies'
   ]
   LOOP
-    EXECUTE format(
-      'CREATE INDEX IF NOT EXISTS %I ON %I USING gin (data jsonb_path_ops)',
-      tname || '_data_gin',
-      tname
-    );
+    -- Skip tables that don't exist on this DB (e.g. legacy primitive
+    -- names on a post-024 fresh schema where only the policies tables
+    -- are created).
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = tname) THEN
+      EXECUTE format(
+        'CREATE INDEX IF NOT EXISTS %I ON %I USING gin (data jsonb_path_ops)',
+        tname || '_data_gin',
+        tname
+      );
+    END IF;
   END LOOP;
 END
 $add_data_gin_indexes$;

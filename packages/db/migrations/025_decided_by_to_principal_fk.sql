@@ -30,6 +30,11 @@
 -- "principal" wording is again accurate.
 -- ============================================================
 
+
+-- Guard: skip when the legacy `neuron_authoring_primitives` /
+-- `guidance_primitives` tables no longer exist (post-028 rename).
+DO $migration_guard$ BEGIN
+IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name IN ('neuron_authoring_primitives', 'guidance_primitives')) THEN
 ALTER TABLE decisions DROP CONSTRAINT IF EXISTS decisions_decided_by_fk;
 
 UPDATE neuron_authoring_primitives
@@ -44,3 +49,6 @@ UPDATE neuron_authoring_primitives
        updated_at = now()
  WHERE data->>'template_handle' = 'user-flows'
    AND summary = 'Every Decision in user-flows must declare the collaborator who owns the branch or choice in the `decided_by` field.';
+
+END IF;
+END $migration_guard$;
