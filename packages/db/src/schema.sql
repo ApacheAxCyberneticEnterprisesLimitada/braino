@@ -682,6 +682,25 @@ ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS requested_role text
     CHECK (requested_role IS NULL OR requested_role IN ('reader','author','approver','owner'));
 
+-- Committable read-only "project tokens" for Docos. Distinct from
+-- oauth_access_tokens: tied to the Doco (not a collaborator), fixed
+-- reader scope on one Doco, no expiry — designed to live in the
+-- repo at .doco/project-tokens.json so agents that clone the repo
+-- can read the Doco without OAuth. Suitable only when repo-readers
+-- = acceptable Doco-readers; the owner mints with explicit
+-- confirmation.
+CREATE TABLE IF NOT EXISTS doco_project_tokens (
+  token                       text PRIMARY KEY,
+  doco_id                     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  created_by_collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  label                       text,
+  revoked                     boolean NOT NULL DEFAULT false,
+  created_at                  timestamptz NOT NULL DEFAULT now(),
+  last_used_at                timestamptz
+);
+CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
+  ON doco_project_tokens (doco_id) WHERE NOT revoked;
+
 CREATE TABLE IF NOT EXISTS doco_templates (
   id           text PRIMARY KEY,
   handle       text NOT NULL UNIQUE,
