@@ -144,11 +144,11 @@ describe("business-processes template", () => {
     });
     it("Terminal States have no successor Action is documented", () => {
       expect(
-        guidanceSummaries.some((s) => /terminal/i.test(s) && /successor|no.*follows/i.test(s)),
+        guidanceSummaries.some((s) => /terminal/i.test(s) && /successor|no.*preceded_by/i.test(s)),
       ).toBe(true);
     });
-    it("`follows` locality is documented", () => {
-      expect(guidanceSummaries.some((s) => /follows.*same/i.test(s))).toBe(true);
+    it("`preceded_by` locality is documented", () => {
+      expect(guidanceSummaries.some((s) => /preceded_by.*same/i.test(s))).toBe(true);
     });
   });
 

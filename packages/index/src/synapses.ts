@@ -148,7 +148,10 @@ export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.
   member: "member_of",
-  follows: "follows", // ADR-077: BPMN ordering / dependency
+  // ADR-077: BPMN sequence-flow ordering / dependency. Field name
+  // matches `triggered_by`'s passive voice so the direction is obvious
+  // from the name: `X.preceded_by = [Y]` ⇒ Y precedes X.
+  preceded_by: "preceded_by",
   // EVO points at the entity it tests. The runner uses this edge to walk
   // from any node to its evals (and vice-versa for the eval page).
   target_ref: "tests",

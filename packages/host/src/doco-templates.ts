@@ -305,7 +305,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // guidance below until a v16-shape evaluator lands.
       {
         summary:
-          "`follows` synapses alternate State ↔ Action — a transition Action follows a State, and a State follows the Action that produced it.",
+          "`preceded_by` synapses alternate State ↔ Action — a transition Action is preceded by a State, and a State is preceded by the Action that produced it.",
         kind: "guidance",
       },
       {
@@ -315,12 +315,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Terminal States have no successor Action — no Action's `follows` may point at a terminal State.",
+          "Terminal States have no successor Action — no Action's `preceded_by` may point at a terminal State.",
         kind: "guidance",
       },
       {
         summary:
-          "A `follows` edge must point at a node in the same machine — a State / Action that has slipped out (or a typo'd id) breaks the chain.",
+          "A `preceded_by` edge must point at a node in the same machine — a State / Action that has slipped out (or a typo'd id) breaks the chain.",
         kind: "guidance",
       },
       {
@@ -340,7 +340,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Each active intermediate State is the `follows` target of ≥1 active Action — orphan intermediates (typos, dangling refactors) signal a wiring mistake.",
+          "Each active intermediate State is the `preceded_by` target of ≥1 active Action — orphan intermediates (typos, dangling refactors) signal a wiring mistake.",
         kind: "guidance",
       },
       // ── Probabilistic ──
@@ -873,13 +873,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // comes after. The BPMN renderer falls back to BFS-from-Intent
         // when this is missing, but the layout reads cleaner — and
         // matches BPMN convention — when the data is explicit. For
-        // an initial State, `follows` should point at the Intent
+        // an initial State, `preceded_by` should point at the Intent
         // (the process trigger).
         summary:
-          "Every active State must declare a `follows` synapse — for initial States, the process Intent; for intermediate States, the Action or prior State that produced this milestone.",
+          "Every active State must declare a `preceded_by` synapse — for initial States, the process Intent; for intermediate States, the Action or prior State that produced this milestone.",
         predicate: {
           kind: "requires_synapse",
-          synapse_type: "follows",
+          synapse_type: "preceded_by",
           when_neuron_type: ["state"],
         },
         fires_when_neuron_lifecycle: ["active"],
@@ -891,10 +891,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // gateway falls to depth 0 and the chronological tiebreaker
         // decides placement — which is rarely the BPMN-correct order.
         summary:
-          "Every active Decision (gateway) must declare a `follows` synapse — the Action or State that leads into the gateway.",
+          "Every active Decision (gateway) must declare a `preceded_by` synapse — the Action or State that leads into the gateway.",
         predicate: {
           kind: "requires_synapse",
-          synapse_type: "follows",
+          synapse_type: "preceded_by",
           when_neuron_type: ["decision"],
         },
         fires_when_neuron_lifecycle: ["active"],
@@ -916,7 +916,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "Terminal States have no successor Action — no Action's `follows` may point at a terminal milestone.",
+          "Terminal States have no successor Action — no Action's `preceded_by` may point at a terminal milestone.",
         kind: "guidance",
       },
       {
@@ -926,7 +926,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         summary:
-          "A `follows` edge must point at a node in the same business-processes Doco — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
+          "A `preceded_by` edge must point at a node in the same business-processes Doco — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
         kind: "guidance",
       },
       {
@@ -1047,7 +1047,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Synapse vocabulary: `follows` for order, `triggered_by` for event causality, `gated_by` for policy guards, `decision_ids` for gateway rationale.",
+          "Synapse vocabulary: `preceded_by` for order, `triggered_by` for event causality, `gated_by` for policy guards, `decision_ids` for gateway rationale.",
       },
       {
         kind: "guidance",

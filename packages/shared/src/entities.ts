@@ -45,8 +45,8 @@ export interface CommonFields {
   outcome?: Outcome;
   born_from?: EntityId;
   superseded_by?: EntityId | null;
-  /** Ordering / dependency. This entity comes after the listed ones. */
-  follows?: EntityId[];
+  /** Ordering / dependency. Each listed entity precedes this one. */
+  preceded_by?: EntityId[];
 }
 
 /** Common fields for readable claim entities that carry a one-line summary. */
