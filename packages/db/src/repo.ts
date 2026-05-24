@@ -441,6 +441,30 @@ export async function getCollaboratorByGithubLogin(login: string): Promise<Colla
   });
 }
 
+/**
+ * Patch a collaborator's `data` JSONB column with `patch` — top-level
+ * keys in `patch` replace their counterparts in `data`, anything else
+ * stays. Used for per-user UI preferences (graph auto-reorder, etc.)
+ * that don't merit their own column.
+ */
+export async function patchCollaboratorData(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<CollaboratorRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `UPDATE collaborators
+          SET data = data || $2::jsonb,
+              updated_at = now()
+        WHERE id = $1
+      RETURNING id, kind, github_id, github_login, email, avatar_url, data`,
+      [id, JSON.stringify(patch)],
+    );
+    if (r.rowCount === 0) return null;
+    return mapCollaboratorRow(r.rows[0]);
+  });
+}
+
 export async function listCollaborators(
   opts: { kind?: "person" | "agent" } = {},
 ): Promise<CollaboratorRow[]> {

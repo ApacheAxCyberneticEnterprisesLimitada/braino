@@ -29,6 +29,7 @@ export {
   getCollaboratorById,
   getCollaboratorByGithubLogin,
   listCollaborators,
+  patchCollaboratorData,
   type CollaboratorRow,
   // Principals (role-personas — neuron type)
   getPrincipalById,
