@@ -1081,13 +1081,179 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
     ],
   },
+  {
+    // Organizational chart template. Principals are the org members,
+    // `reports_to` synapses form the hierarchy, Intents represent
+    // teams/units, Decisions record reorgs and appointments. The
+    // distinguishing constraint — and the unique value of this
+    // template — is that every Principal MUST declare whether it is
+    // a person or an AI agent via the `type` field. The principals
+    // route already accepts `type` ("person" | "agent") and stores it
+    // in the entity's data JSONB; the requires_field policy below
+    // turns that optional field into a hard requirement for any Doco
+    // created from this template, so an org chart can never silently
+    // forget which seats are filled by humans and which by AI.
+    name: "org-chart",
+    label: "org-chart",
+    icon: "🏢",
+    description:
+      "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every member must declare whether they're a person or an AI agent.",
+    defaultNeuronLifecycle: "drafting",
+    perspectives: [{ slug: "org-tree", isDefault: true }],
+    policies: [
+      // ── Membership ──────────────────────────────────────────────
+      {
+        // Deterministic node-type allowlist. Org charts are made of
+        // Principals (members), Intents (teams/units), Decisions
+        // (appointments / reorgs), References (external org diagrams,
+        // headcount budgets), and Rules (delegation policies).
+        // Actions, States, Evals, Logs, and Ideas have their own
+        // homes; an org chart describes who reports to whom, not
+        // what they do.
+        summary:
+          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. Actions describe activities (use business-processes or user-flows); States describe stages (use state-machines); Logs describe events; Ideas live in their own home.",
+        predicate: {
+          kind: "requires_neuron_type",
+          neuron_types: ["principal", "intent", "decision", "reference", "rule"],
+        },
+      },
+
+      // ── The unique bit — every member declares person or AI agent ──
+      {
+        // THE DISTINGUISHING CONSTRAINT. The principals route already
+        // accepts `type` ("person" | "agent") and stores it in the
+        // entity's data JSONB; this policy turns it from an optional
+        // hint into a hard requirement for org charts. Without it,
+        // a chart can render `coo` and `code-reviewer-agent` side by
+        // side with no way to tell which is which. Fires on every
+        // Principal regardless of lifecycle — even a drafting member
+        // needs the declaration, because that's the first thing the
+        // org-tree perspective renders.
+        summary:
+          "Every Principal in an org chart must declare its `type` — either `person` or `agent` (AI). The org-tree perspective renders the two with different icons (👤 vs 🤖); without the declaration a chart can't tell humans from AI agents.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["type"],
+          when_neuron_type: ["principal"],
+        },
+      },
+
+      // ── Hierarchy: every Principal except the root reports to someone ──
+      {
+        // `reports_to` is a Principal→Principal synapse that forms the
+        // org tree. Fires only on `active` so drafting members can be
+        // captured before their manager exists. The top-of-chain
+        // exemption is handled by the probabilistic rule below, which
+        // asks the root member to justify the absence in body_md.
+        summary:
+          "Every active Principal in an org chart must declare a `reports_to` synapse — the Principal they report to. Drafting members can be captured before their manager exists; the requirement fires when they activate. Top-of-chain members (no manager) must explain why in body_md — see the next rule.",
+        predicate: {
+          kind: "requires_synapse",
+          synapse_type: "reports_to",
+          target_neuron_type: "principal",
+          when_neuron_type: ["principal"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+
+      // ── Team Intents declare members ───────────────────────────
+      {
+        // Team / org-unit Intents (engineering, kitchen, support, etc.)
+        // declare their member Principals in `actors`. This mirrors
+        // the user-flows / business-processes convention. Stakeholders
+        // (people interested in the unit's outcomes without being on
+        // the team) optionally go in `stakeholders`.
+        summary:
+          "Every Intent in an org chart must declare `actors` — the Principals who are members of this team or unit.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["actors"],
+          when_neuron_type: ["intent"],
+        },
+      },
+
+      // ── Probabilistic style gates ──────────────────────────────
+      {
+        // Reject Principal display_names that read as verbs (`Approve
+        // the budget`) or as serial labels (`Person 1`, `Member A`)
+        // instead of as role titles (`COO`, `Engineering Lead`,
+        // `Code-review agent`, `Kitchen`).
+        summary:
+          "Principal `display_name` reads as a role, title, or team name — `COO`, `Engineering Lead`, `Code-review agent`, `Kitchen` — not a verb (`Approve the budget`) or a serial label (`Person 1`, `Member A`, `TBD`).",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["principal"],
+          spec: "Check ONLY the Principal's `display_name` field. PASS when it reads as a role, title, position, or team name (`COO`, `Engineering Lead`, `Code-review agent`, `Kitchen`, `Customer Success`). FAIL with reason if it reads as a verb naming an action (`Approve the budget`, `Review code`), or as a serial / placeholder label (`Person 1`, `Member A`, `TBD`, `Unassigned`).",
+        },
+      },
+      {
+        // Top of the chain — the one Principal with no `reports_to`
+        // explains why in body_md. Founder, board-reporting CEO,
+        // root agent, etc. Warn (not block) — drafting graphs may
+        // legitimately have many root-shaped Principals during
+        // construction, and the strict reports_to rule above already
+        // catches active Principals that should have a manager.
+        on_violation: "warn",
+        summary:
+          "A Principal with no `reports_to` synapse is the top of a reporting chain. Its `body_md` should explain why — board-reporting, founder, root agent, external authority. Without the note, readers can't tell whether the missing edge is intentional or an authoring oversight.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["principal"],
+          spec: "STEP 1 — decide whether this Principal sits at the top of a reporting chain (no outgoing `reports_to` synapse). The capture context provides outgoing synapse types; if `reports_to` is among them, this rule PASSES. STEP 2 — only if there is no `reports_to`, check that `body_md` explains the absence (founder, board-reporting, root agent, external authority, etc.). FAIL with reason if `body_md` is empty or says nothing about the missing edge.",
+        },
+      },
+
+      // ── Guidance (prose-only) ───────────────────────────────────
+      {
+        kind: "guidance",
+        summary:
+          "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in business-processes or user-flows Docos linked via Reference.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "`reports_to` chains must not be circular. A cycle (A reports to B, B reports to C, C reports to A) usually means a refactor in progress; resolve it before activating the affected Principals. The framework evaluator can't check this yet — it's a manual review.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "AI-agent Principals that act on a human's behalf should declare that human via prose in `body_md` (`Operates under: @alice`), or via a `delegated_by` Decision linking the human Principal to the agent Principal. Autonomous agents (no human owner) state that explicitly so readers know the accountability stops at the agent.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "Capture reorgs, hires, departures, and role changes as Decisions, and link the affected Principals via `decision_ids`. Org charts churn; without Decisions, the history of WHY a reporting line moved is lost.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "Use Intents to model teams, departments, and org units. The Intent's `intent` field names the unit's mandate; `actors` lists the member Principals; `stakeholders` lists the people who care about the unit's outcomes without being on the team.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "Model load-bearing roles and recurring positions — not every contractor, intern, or one-day visitor. If a seat would be empty in three months, it probably belongs in a sibling Doco or a Reference rather than as a Principal here.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal `type: agent` means the role is performed by an AI agent (a code reviewer, a triage bot, a research agent), regardless of whether any Collaborator has signed in as it. A Principal `type: person` means the role is held by a human, even if that human has no Doco account.",
+      },
+      {
+        kind: "guidance",
+        summary:
+          "When an AI-agent role is replaced by a human (or vice-versa), retire the old Principal and create a new one with the new `type`. The `type` field is part of identity — flipping it in place would erase the history of the seat's prior occupant.",
+      },
+    ],
+  },
 ];
 
 /**
  * Lookup a template by name. Returns undefined for unknown names.
  *
- * Templates are stored under plain handles (`global`, `user-flows`,
- * `state-machines`, `test`, `business-processes`).
+ * Templates are stored under plain handles (`global`, `important`,
+ * `user-flows`, `state-machines`, `test`, `business-processes`,
+ * `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);

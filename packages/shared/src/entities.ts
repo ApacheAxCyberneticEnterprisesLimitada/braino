@@ -115,6 +115,15 @@ export interface Principal extends SummarizedFields {
   name: string;
   display_name?: string;
   description?: string;
+  /**
+   * Optional person/agent distinction. Most Docos leave this unset —
+   * Principals are role-personas and the OAuth identity layer
+   * (Collaborator) carries the person/agent kind for accounts that
+   * sign in. The `org-chart` template REQUIRES this field via a
+   * neuron_authoring_policy, because an org chart's value is in
+   * knowing which seats are filled by humans and which by AI agents.
+   */
+  type?: "person" | "agent";
 }
 
 // ─── Doco (root entity) ───────────────────────────────────────────────────
