@@ -331,12 +331,24 @@ export async function createDocoInOrg(opts: {
         created,
       ],
     );
-    await c.query(
-      `INSERT INTO doco_users (doco_id, collaborator_id, role, joined_at)
-       VALUES ($1, $2, 'owner', $3)
-       ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = 'owner'`,
-      [docoId, opts.createdByCollaboratorId, created],
+    // Skip the doco_users insert when the creator is already `owner`
+    // on the owning org — they'd inherit owner role via getDocoLevelRole
+    // and the explicit row would just be redundant. We only carry the
+    // doco_users grant for creators whose org role is below owner; in
+    // that case they need an explicit owner row on what they created.
+    const orgRoleRow = await c.query<{ role: string }>(
+      "SELECT role FROM org_users WHERE org_id = $1 AND collaborator_id = $2",
+      [opts.orgId, opts.createdByCollaboratorId],
     );
+    const orgRole = orgRoleRow.rows[0]?.role;
+    if (orgRole !== "owner") {
+      await c.query(
+        `INSERT INTO doco_users (doco_id, collaborator_id, role, joined_at)
+         VALUES ($1, $2, 'owner', $3)
+         ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = 'owner'`,
+        [docoId, opts.createdByCollaboratorId, created],
+      );
+    }
 
     if (template && template.policies.length > 0) {
       for (const policy of template.policies) {
