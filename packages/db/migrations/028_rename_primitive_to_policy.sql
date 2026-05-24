@@ -13,18 +13,34 @@
 --   * jsonb fields: primitive_kind → policy_kind on every row.
 --   * Primary-key prefixes: guidance_primitive_<ULID> →
 --     guidance_policy_<ULID>; same for neuron_authoring_*.
---   * `entity_fts_policies.primitive_kind` column → `policy_kind`,
---     with its CHECK constraint rebuilt.
+--   * `entity_fts_policies.primitive_kind` column → `policy_kind`.
 --   * audit_events.entity_type values: "guidance_primitive" →
 --     "guidance_policy", same for neuron_authoring.
 --
--- The migration is idempotent: every block checks current state
--- before mutating, so a partial replay (or a fresh-from-schema.sql
--- database that already has the new names) is a safe no-op.
+-- Strategy: schema.sql already creates the post-rename tables
+-- (`guidance_policies`, `neuron_authoring_policies`,
+-- `entity_fts_policies`) with their indexes/constraints. We can't
+-- `ALTER TABLE ... RENAME TO ...` over a table that already exists,
+-- so this migration **moves rows from the legacy tables into the
+-- already-created new tables and drops the legacy tables**. That
+-- works for both startup paths:
+--
+--   1. Fresh DB: only the new tables exist (schema baseline). Every
+--      `IF EXISTS legacy_table` guard short-circuits and this
+--      migration is a no-op.
+--
+--   2. Existing prod DB: both old and new tables exist (new tables
+--      empty, created by today's startup; old tables carry the real
+--      rows). Rows get rewritten + copied across, then old tables
+--      drop.
+--
+-- The migration is idempotent: every block re-checks state before
+-- mutating, so a partial replay is safe.
 -- ============================================================
 
--- 1. Rewrite jsonb field names in place BEFORE renaming the tables,
---    so old data isn't visible under the new names with stale keys.
+-- 1. Rewrite jsonb `primitive_kind` → `policy_kind` IN PLACE on the
+--    legacy tables (so when we copy rows over, the new column name is
+--    correct in `data`).
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_primitives') THEN
@@ -54,10 +70,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 2. Rewrite primary-key prefixes on the rows themselves AND inside
---    the `data` jsonb (which carries `id` denormalized). Synapses /
---    audit / FTS rows that reference these ids are migrated in their
---    own steps below.
+-- 2. Rewrite primary-key prefixes on the legacy rows AND inside the
+--    `data` jsonb (which mirrors `id` denormalized).
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_primitives') THEN
@@ -85,8 +99,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 3. Synapses table: any row whose from_id/to_id points at a renamed
---    primitive needs the prefix rewritten too.
+-- 3. Synapses table: rewrite from_id/to_id + from_neuron_type/
+--    to_neuron_type for anything pointing at the renamed policies.
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'synapses') THEN
@@ -117,8 +131,8 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 4. Audit events: entity_type strings get the new vocabulary so
---    history-page filters keep working after the rename.
+-- 4. Audit events: entity_type strings + entity_id prefixes get the
+--    new vocabulary so history-page filters keep working.
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'audit_events') THEN
@@ -133,8 +147,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 5. Embeddings: entity_id may point at a renamed primitive; same
---    REPLACE treatment.
+-- 5. Embeddings rows that pointed at renamed policies.
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'embeddings') THEN
@@ -147,110 +160,56 @@ DO $$ BEGIN
   END IF;
 END $$;
 
--- 6. FTS table: rename column primitive_kind → policy_kind, rebuild
---    its CHECK constraint, then rename the table itself, then update
---    entity_id values to the new prefixes. The rebuilt search_tsv
---    expression is computed on the existing summary/body and doesn't
---    need data changes — only structural.
-
-DO $$ BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-    WHERE table_name = 'entity_fts_primitives' AND column_name = 'primitive_kind'
-  ) THEN
-    ALTER TABLE entity_fts_primitives RENAME COLUMN primitive_kind TO policy_kind;
-  END IF;
-END $$;
-
-DO $$ DECLARE
-  cname text;
-BEGIN
-  SELECT conname INTO cname
-    FROM pg_constraint
-   WHERE conrelid = 'entity_fts_primitives'::regclass
-     AND contype = 'c'
-     AND pg_get_constraintdef(oid) LIKE '%primitive_kind%';
-  IF cname IS NOT NULL THEN
-    EXECUTE format('ALTER TABLE entity_fts_primitives DROP CONSTRAINT %I', cname);
-  END IF;
-EXCEPTION WHEN undefined_table THEN
-  NULL;
-END $$;
-
-DO $$ BEGIN
-  -- Nested IFs so the inner EXISTS (which casts via `::regclass` and
-  -- raises on a missing table) is only evaluated once the outer guard
-  -- proves the table exists. AND short-circuiting doesn't reliably
-  -- skip the cast in plpgsql, so the nesting is load-bearing.
-  IF EXISTS (
-    SELECT 1 FROM information_schema.tables WHERE table_name = 'entity_fts_primitives'
-  ) THEN
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_constraint
-       WHERE conrelid = 'entity_fts_primitives'::regclass
-         AND contype = 'c'
-         AND pg_get_constraintdef(oid) LIKE '%policy_kind%'
-    ) THEN
-      ALTER TABLE entity_fts_primitives
-        ADD CONSTRAINT entity_fts_primitives_policy_kind_check
-        CHECK (policy_kind IN ('guidance', 'neuron_authoring'));
-    END IF;
-  END IF;
-END $$;
-
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'entity_fts_primitives') THEN
-    UPDATE entity_fts_primitives
-       SET entity_id = REPLACE(entity_id, 'guidance_primitive_', 'guidance_policy_')
-     WHERE entity_id LIKE 'guidance_primitive_%';
-    UPDATE entity_fts_primitives
-       SET entity_id = REPLACE(entity_id, 'neuron_authoring_primitive_', 'neuron_authoring_policy_')
-     WHERE entity_id LIKE 'neuron_authoring_primitive_%';
-  END IF;
-END $$;
-
--- 7. Rename the tables themselves and their indexes / constraints to
---    the new names.
+-- 6. Move rows from the legacy tables into the (already-created)
+--    new tables, then drop the legacy tables. ON CONFLICT (id) DO
+--    NOTHING covers the partial-replay case where a row was already
+--    moved.
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'guidance_primitives') THEN
-    ALTER TABLE guidance_primitives RENAME TO guidance_policies;
+    INSERT INTO guidance_policies
+      (id, doco_id, summary, lifecycle, body_md, data,
+       created_at, created_by, updated_at, updated_by)
+    SELECT id, doco_id, summary, lifecycle, body_md, data,
+           created_at, created_by, updated_at, updated_by
+      FROM guidance_primitives
+    ON CONFLICT (id) DO NOTHING;
+    DROP TABLE guidance_primitives CASCADE;
   END IF;
 END $$;
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'neuron_authoring_primitives') THEN
-    ALTER TABLE neuron_authoring_primitives RENAME TO neuron_authoring_policies;
+    INSERT INTO neuron_authoring_policies
+      (id, doco_id, summary, lifecycle, body_md, data,
+       created_at, created_by, updated_at, updated_by)
+    SELECT id, doco_id, summary, lifecycle, body_md, data,
+           created_at, created_by, updated_at, updated_by
+      FROM neuron_authoring_primitives
+    ON CONFLICT (id) DO NOTHING;
+    DROP TABLE neuron_authoring_primitives CASCADE;
   END IF;
 END $$;
+
+-- 7. Same for the FTS table. The legacy `primitive_kind` column maps
+--    onto the new `policy_kind` column — same CHECK constraint values.
+--    `search_tsv` is GENERATED so it doesn't appear in the column
+--    list either side.
 
 DO $$ BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'entity_fts_primitives') THEN
-    ALTER TABLE entity_fts_primitives RENAME TO entity_fts_policies;
+    INSERT INTO entity_fts_policies (entity_id, doco_id, policy_kind, summary, body)
+    SELECT
+      CASE
+        WHEN entity_id LIKE 'guidance_primitive_%'
+          THEN REPLACE(entity_id, 'guidance_primitive_', 'guidance_policy_')
+        WHEN entity_id LIKE 'neuron_authoring_primitive_%'
+          THEN REPLACE(entity_id, 'neuron_authoring_primitive_', 'neuron_authoring_policy_')
+        ELSE entity_id
+      END,
+      doco_id, primitive_kind, summary, body
+    FROM entity_fts_primitives
+    ON CONFLICT (entity_id) DO NOTHING;
+    DROP TABLE entity_fts_primitives CASCADE;
   END IF;
 END $$;
-
-DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'guidance_primitives_doco_idx') THEN
-    ALTER INDEX guidance_primitives_doco_idx RENAME TO guidance_policies_doco_idx;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'guidance_primitives_lifecycle_idx') THEN
-    ALTER INDEX guidance_primitives_lifecycle_idx RENAME TO guidance_policies_lifecycle_idx;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'neuron_authoring_primitives_doco_idx') THEN
-    ALTER INDEX neuron_authoring_primitives_doco_idx RENAME TO neuron_authoring_policies_doco_idx;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'neuron_authoring_primitives_lifecycle_idx') THEN
-    ALTER INDEX neuron_authoring_primitives_lifecycle_idx RENAME TO neuron_authoring_policies_lifecycle_idx;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'entity_fts_primitives_doco_idx') THEN
-    ALTER INDEX entity_fts_primitives_doco_idx RENAME TO entity_fts_policies_doco_idx;
-  END IF;
-  IF EXISTS (SELECT 1 FROM pg_indexes WHERE indexname = 'entity_fts_primitives_tsv_idx') THEN
-    ALTER INDEX entity_fts_primitives_tsv_idx RENAME TO entity_fts_policies_tsv_idx;
-  END IF;
-END $$;
-
--- 8. Audit-events op-kind values that mention primitive vocabulary —
---    none today, since the CHECK only allows the generic `entity.*`
---    set. Left as a no-op anchor for future migrations.
