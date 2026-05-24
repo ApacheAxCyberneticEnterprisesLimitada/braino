@@ -90,7 +90,7 @@ describe("org-chart template", () => {
         r.predicate.when_neuron_type?.includes("principal"),
     );
 
-    it("every active Principal must have a `reports_to` synapse to another Principal", () => {
+    it("every active Principal should have a `reports_to` synapse to another Principal", () => {
       expect(rule?.predicate?.kind).toBe("requires_synapse");
       if (rule?.predicate?.kind !== "requires_synapse") return;
       expect(rule.predicate.synapse_type).toBe("reports_to");
@@ -99,6 +99,13 @@ describe("org-chart template", () => {
 
     it("fires only on `active` — drafting members can be captured before their manager exists", () => {
       expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
+    });
+
+    it("warns rather than blocks — synapses are wired separately, so a hard block would force two-step capture", () => {
+      // The probabilistic top-of-chain check (next describe block) is
+      // the proper gate for the legitimate "no manager" case; this
+      // rule is a nudge, not a wall.
+      expect(rule?.on_violation).toBe("warn");
     });
   });
 

@@ -1142,11 +1142,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // `reports_to` is a Principal→Principal synapse that forms the
         // org tree. Fires only on `active` so drafting members can be
-        // captured before their manager exists. The top-of-chain
-        // exemption is handled by the probabilistic rule below, which
-        // asks the root member to justify the absence in body_md.
+        // captured before their manager exists. Soft `warn`, not block —
+        // the principals API doesn't accept synapses at capture time
+        // (synapses are wired separately via the synapses endpoint), so
+        // a hard block would make every freshly-captured active member
+        // a two-step write. The probabilistic top-of-chain check below
+        // governs the legitimate "no manager" case via body_md; this
+        // rule just nudges authors toward filling in the edge.
+        on_violation: "warn",
         summary:
-          "Every active Principal in an org chart must declare a `reports_to` synapse — the Principal they report to. Drafting members can be captured before their manager exists; the requirement fires when they activate. Top-of-chain members (no manager) must explain why in body_md — see the next rule.",
+          "Every active Principal in an org chart should declare a `reports_to` synapse — the Principal they report to. Drafting members can be captured before their manager exists; the warning fires when they activate. Top-of-chain members (no manager) must explain why in body_md — see the next rule.",
         predicate: {
           kind: "requires_synapse",
           synapse_type: "reports_to",
