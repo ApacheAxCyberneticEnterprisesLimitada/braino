@@ -869,6 +869,37 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // rules ship as guidance until the evaluator can express them
       // directly — matching the same accommodation in state-machines.
       {
+        // Sequence-flow completeness: every State must say what it
+        // comes after. The BPMN renderer falls back to BFS-from-Intent
+        // when this is missing, but the layout reads cleaner — and
+        // matches BPMN convention — when the data is explicit. For
+        // an initial State, `follows` should point at the Intent
+        // (the process trigger).
+        summary:
+          "Every active State must declare a `follows` synapse — for initial States, the process Intent; for intermediate States, the Action or prior State that produced this milestone.",
+        predicate: {
+          kind: "requires_synapse",
+          synapse_type: "follows",
+          when_neuron_type: ["state"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        // Same idea for Decisions (gateways): every gateway must
+        // declare what precedes it. Without this the BPMN canvas
+        // can't tell which Action leads into the gateway, so the
+        // gateway falls to depth 0 and the chronological tiebreaker
+        // decides placement — which is rarely the BPMN-correct order.
+        summary:
+          "Every active Decision (gateway) must declare a `follows` synapse — the Action or State that leads into the gateway.",
+        predicate: {
+          kind: "requires_synapse",
+          synapse_type: "follows",
+          when_neuron_type: ["decision"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
         summary:
           "State `state` is unique within a business process — duplicate milestone names ambiguate references and hide wiring mistakes.",
         kind: "guidance",
