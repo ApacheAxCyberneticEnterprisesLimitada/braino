@@ -202,8 +202,10 @@ CREATE TABLE IF NOT EXISTS rules (
 );
 CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
-CREATE INDEX IF NOT EXISTS rules_kind_idx     ON rules (doco_id, kind);
-CREATE INDEX IF NOT EXISTS rules_severity_idx ON rules (doco_id, severity);
+-- rules.kind / rules.severity indexes live in migration 035 alongside the
+-- ALTER TABLE that adds the columns — putting them here means schema.sql
+-- (which runs BEFORE migrations) tries to index columns that don't exist
+-- on an existing prod table yet, taking the deploy down.
 
 CREATE TABLE IF NOT EXISTS guidance_policies (
   id          text PRIMARY KEY,
@@ -255,8 +257,8 @@ CREATE TABLE IF NOT EXISTS actions (
 );
 CREATE INDEX IF NOT EXISTS actions_doco_idx ON actions (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS actions_lifecycle_idx ON actions (doco_id, lifecycle);
-CREATE INDEX IF NOT EXISTS actions_verb_idx         ON actions (doco_id, verb);
-CREATE INDEX IF NOT EXISTS actions_performed_at_idx ON actions (doco_id, performed_at DESC);
+-- actions.verb / actions.performed_at indexes live in migration 035 — see
+-- the note above the rules block.
 
 CREATE TABLE IF NOT EXISTS logs (
   id           text PRIMARY KEY,
@@ -274,8 +276,7 @@ CREATE TABLE IF NOT EXISTS logs (
 );
 CREATE INDEX IF NOT EXISTS logs_doco_idx ON logs (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS logs_lifecycle_idx ON logs (doco_id, lifecycle);
-CREATE INDEX IF NOT EXISTS logs_verb_idx        ON logs (doco_id, verb);
-CREATE INDEX IF NOT EXISTS logs_happened_at_idx ON logs (doco_id, happened_at DESC);
+-- logs.verb / logs.happened_at indexes live in migration 035.
 
 CREATE TABLE IF NOT EXISTS evals (
   id          text PRIMARY KEY,
@@ -291,7 +292,7 @@ CREATE TABLE IF NOT EXISTS evals (
 );
 CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
-CREATE INDEX IF NOT EXISTS evals_kind_idx ON evals (doco_id, kind);
+-- evals.kind index lives in migration 035.
 
 -- State is a neuron in a
 -- formal state machine. Mirrors the actions table shape; the structured
@@ -310,7 +311,7 @@ CREATE TABLE IF NOT EXISTS states (
 );
 CREATE INDEX IF NOT EXISTS states_doco_idx ON states (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS states_lifecycle_idx ON states (doco_id, lifecycle);
-CREATE INDEX IF NOT EXISTS states_kind_idx ON states (doco_id, kind);
+-- states.kind index lives in migration 035.
 
 CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,
@@ -349,8 +350,7 @@ CREATE TABLE IF NOT EXISTS reference_entities (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS reference_entities_ref_type_idx
-  ON reference_entities (doco_id, ref_type);
+-- reference_entities.ref_type index lives in migration 035.
 
 -- Audit events: one row per mutation.
 
