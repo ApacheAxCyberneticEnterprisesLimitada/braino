@@ -76,7 +76,11 @@ UPDATE neuron_authoring_policies
        updated_at = now()
  WHERE data->>'template_handle' = 'org-chart'
    AND data->'predicate'->>'kind' = 'probabilistic'
-   AND data->'predicate'->'spec' LIKE '%display_name%';
+   -- `->>` (text extraction) so LIKE operates on text, not jsonb. The
+   -- first version of this migration used `->` (jsonb extraction) here
+   -- and Postgres rejected the `LIKE` operator with type jsonb, taking
+   -- prod down on every cold start until this fix landed.
+   AND data->'predicate'->>'spec' LIKE '%display_name%';
 
 -- ── 3. guidance: "flipping type in place" → body_md prose ──────
 UPDATE guidance_policies
