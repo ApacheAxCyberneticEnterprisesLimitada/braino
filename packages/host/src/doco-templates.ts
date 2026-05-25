@@ -1102,20 +1102,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Organizational chart template. Principals are the org members,
     // `reports_to` synapses form the hierarchy, Intents represent
-    // teams/units, Decisions record reorgs and appointments. The
-    // distinguishing constraint — and the unique value of this
-    // template — is that every Principal MUST declare whether it is
-    // a person or an AI agent via the `type` field. The principals
-    // route already accepts `type` ("person" | "agent") and stores it
-    // in the entity's data JSONB; the requires_field policy below
-    // turns that optional field into a hard requirement for any Doco
-    // created from this template, so an org chart can never silently
-    // forget which seats are filled by humans and which by AI.
+    // teams/units, Decisions record reorgs and appointments. After
+    // the Principal slim-down (decision_01KSDR_PRINCIPAL_SLIM_DOWN)
+    // a Principal carries only `name` + `body_md`; the person-vs-agent
+    // distinction lives in the body_md prose, enforced by a
+    // probabilistic policy rather than a `requires_field` check.
     name: "org-chart",
     label: "org-chart",
     icon: "🏢",
     description:
-      "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every member must declare whether they're a person or an AI agent.",
+      "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every member declares whether they're a person or an AI agent in their `body_md` prose.",
     defaultNeuronLifecycle: "drafting",
     perspectives: [{ slug: "org-tree", isDefault: true }],
     policies: [
@@ -1138,21 +1134,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── The unique bit — every member declares person or AI agent ──
       {
-        // THE DISTINGUISHING CONSTRAINT. The principals route already
-        // accepts `type` ("person" | "agent") and stores it in the
-        // entity's data JSONB; this policy turns it from an optional
-        // hint into a hard requirement for org charts. Without it,
-        // a chart can render `coo` and `code-reviewer-agent` side by
-        // side with no way to tell which is which. Fires on every
-        // Principal regardless of lifecycle — even a drafting member
-        // needs the declaration, because that's the first thing the
-        // org-tree perspective renders.
+        // THE DISTINGUISHING CONSTRAINT. The Principal slim-down moved
+        // person-vs-agent out of a structured field and into the
+        // body_md prose. Org charts still need the declaration, so
+        // this probabilistic policy reads body_md and blocks captures
+        // that leave the distinction ambiguous.
         summary:
-          "Every Principal in an org chart must declare its `type` — either `person` or `agent` (AI). The org-tree perspective renders the two with different icons (👤 vs 🤖); without the declaration a chart can't tell humans from AI agents.",
+          "Every Principal in an org chart must declare whether it's a person or an AI agent in its `body_md` prose. The org-tree perspective infers the distinction from the prose; without an explicit declaration a chart can't tell humans from AI agents.",
         predicate: {
-          kind: "requires_field",
-          fields: ["type"],
+          kind: "probabilistic",
           when_neuron_type: ["principal"],
+          spec: "Read the Principal's `body_md`. PASS if the prose clearly states the role is filled by a human person (e.g. 'Human director of …', 'Person responsible for …') OR by an AI agent (e.g. 'AI agent operated by @alice', 'Autonomous research bot'). FAIL with a reason if `body_md` is empty or doesn't take a stance on person-vs-agent.",
         },
       },
 
@@ -1196,16 +1188,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Probabilistic style gates ──────────────────────────────
       {
-        // Reject Principal display_names that read as verbs (`Approve
-        // the budget`) or as serial labels (`Person 1`, `Member A`)
-        // instead of as role titles (`COO`, `Engineering Lead`,
-        // `Code-review agent`, `Kitchen`).
+        // Reject Principal names that read as verbs (`approve-budget`)
+        // or as serial labels (`person-1`, `member-a`) instead of as
+        // role slugs (`coo`, `engineering-lead`, `code-review-agent`,
+        // `kitchen`).
         summary:
-          "Principal `display_name` reads as a role, title, or team name — `COO`, `Engineering Lead`, `Code-review agent`, `Kitchen` — not a verb (`Approve the budget`) or a serial label (`Person 1`, `Member A`, `TBD`).",
+          "Principal `name` reads as a role, title, or team name slug — `coo`, `engineering-lead`, `code-review-agent`, `kitchen` — not a verb (`approve-budget`) or a serial label (`person-1`, `member-a`, `tbd`).",
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["principal"],
-          spec: "Check ONLY the Principal's `display_name` field. PASS when it reads as a role, title, position, or team name (`COO`, `Engineering Lead`, `Code-review agent`, `Kitchen`, `Customer Success`). FAIL with reason if it reads as a verb naming an action (`Approve the budget`, `Review code`), or as a serial / placeholder label (`Person 1`, `Member A`, `TBD`, `Unassigned`).",
+          spec: "Check ONLY the Principal's `name` slug. PASS when it reads as a role, title, position, or team name (`coo`, `engineering-lead`, `code-review-agent`, `kitchen`, `customer-success`). FAIL with reason if it reads as a verb naming an action (`approve-budget`, `review-code`), or as a serial / placeholder label (`person-1`, `member-a`, `tbd`, `unassigned`).",
         },
       },
       {
@@ -1259,12 +1251,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         summary:
-          "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal `type: agent` means the role is performed by an AI agent (a code reviewer, a triage bot, a research agent), regardless of whether any Collaborator has signed in as it. A Principal `type: person` means the role is held by a human, even if that human has no Doco account.",
+          "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal whose `body_md` describes an AI agent (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any Collaborator has signed in as it. A Principal whose `body_md` describes a human is a person, even if that human has no Doco account.",
       },
       {
         kind: "guidance",
         summary:
-          "When an AI-agent role is replaced by a human (or vice-versa), retire the old Principal and create a new one with the new `type`. The `type` field is part of identity — flipping it in place would erase the history of the seat's prior occupant.",
+          "When an AI-agent role is replaced by a human (or vice-versa), retire the old Principal and create a new one with `body_md` describing the new occupant. Person-vs-agent is part of the role's identity in this Doco — flipping it via a body_md edit on the same Principal erases the history of the seat's prior occupant.",
       },
     ],
   },

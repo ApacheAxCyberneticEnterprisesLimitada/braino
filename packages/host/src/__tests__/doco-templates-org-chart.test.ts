@@ -55,16 +55,21 @@ describe("org-chart template", () => {
   });
 
   describe("the unique constraint — person-vs-agent declaration", () => {
+    // Post-slim-down: there is no `type` field on Principal anymore;
+    // person-vs-agent lives in body_md prose, enforced by a
+    // probabilistic policy that reads the prose.
     const rule = template.policies.find(
       (r) =>
-        r.predicate?.kind === "requires_field" &&
-        r.predicate.fields.includes("type") &&
-        r.predicate.when_neuron_type?.includes("principal"),
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_neuron_type?.includes("principal") &&
+        /person/i.test(r.predicate.spec) &&
+        /agent/i.test(r.predicate.spec) &&
+        /body_md/i.test(r.predicate.spec),
     );
 
-    it("exists — every Principal MUST declare `type`", () => {
+    it("exists — every Principal MUST declare person vs agent in body_md", () => {
       expect(rule).toBeDefined();
-      expect(rule?.predicate?.kind).toBe("requires_field");
+      expect(rule?.predicate?.kind).toBe("probabilistic");
     });
 
     it("fires on every Principal regardless of lifecycle (no fires_when_neuron_lifecycle gate)", () => {
@@ -73,11 +78,11 @@ describe("org-chart template", () => {
       expect(rule?.fires_when_neuron_lifecycle).toBeUndefined();
     });
 
-    it("blocks by default — `type` is identity-grade", () => {
+    it("blocks by default — person-vs-agent is identity-grade for an org chart", () => {
       // No on_violation override means the framework default applies
       // (block). The guidance rules below explicitly say flipping
-      // `type` requires retiring + re-creating the Principal, so a
-      // missing type at write time should hard-fail.
+      // person-vs-agent requires retiring + re-creating the Principal,
+      // so a missing declaration at write time should hard-fail.
       expect(rule?.on_violation).toBeUndefined();
     });
   });
@@ -130,12 +135,14 @@ describe("org-chart template", () => {
     const summaries = template.policies.map((r) => r.summary);
     const haystack = [...specs, ...summaries].join("\n");
 
-    it("Principal display_name reads as a role or title", () => {
+    it("Principal `name` slug reads as a role or title", () => {
+      // Post-slim-down the style gate runs against the immutable
+      // `name` slug, not a separate `display_name` field.
       const styleGate = template.policies.find(
         (r) =>
           r.predicate?.kind === "probabilistic" &&
           r.predicate.when_neuron_type?.includes("principal") &&
-          r.predicate.spec.includes("display_name"),
+          r.predicate.spec.includes("`name`"),
       );
       expect(styleGate).toBeDefined();
     });
@@ -183,10 +190,16 @@ describe("org-chart template", () => {
       expect(summaries.some((s) => /team/i.test(s) && /Intent/i.test(s))).toBe(true);
     });
 
-    it("`type` is identity — flipping it in place is forbidden, retire and recreate instead", () => {
+    it("person-vs-agent is identity — flipping it in place is forbidden, retire and recreate instead", () => {
+      // After the slim-down the kind declaration lives in body_md
+      // prose; the guidance still asks contributors to retire the old
+      // Principal and create a new one when the kind changes.
       expect(
         summaries.some(
-          (s) => /retire/i.test(s) && /(type|kind)/i.test(s) && /(new|create|recreate)/i.test(s),
+          (s) =>
+            /retire/i.test(s) &&
+            /(person|agent|kind|occupant)/i.test(s) &&
+            /(new|create|recreate)/i.test(s),
         ),
       ).toBe(true);
     });
