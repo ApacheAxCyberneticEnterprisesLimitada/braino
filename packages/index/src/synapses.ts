@@ -155,4 +155,11 @@ export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   // EVO points at the entity it tests. The runner uses this edge to walk
   // from any node to its evals (and vice-versa for the eval page).
   target_ref: "tests",
+  // Principal→Principal reporting line — `X.reports_to = Y` ⇒ X reports
+  // to Y. The org-chart template's `requires_synapse` predicate (see
+  // `org-chart` template policies) walks edges of this type to find each
+  // active Principal's manager. Field name and synapse type match by
+  // design; the explicit entry documents the mapping alongside the
+  // identity entries above.
+  reports_to: "reports_to",
 };

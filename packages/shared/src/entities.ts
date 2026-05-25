@@ -124,6 +124,14 @@ export interface Principal extends SummarizedFields {
    * knowing which seats are filled by humans and which by AI agents.
    */
   type?: "person" | "agent";
+  /**
+   * Optional manager Principal. `X.reports_to = Y` ⇒ X reports to Y —
+   * the synapse forms the reporting hierarchy in `org-chart` Docos.
+   * Omitted means top-of-chain; the org-chart template asks
+   * top-of-chain Principals to explain why in body_md (no manager
+   * above, founder, root agent, external authority).
+   */
+  reports_to?: EntityId<"principal">;
 }
 
 // ─── Doco (root entity) ───────────────────────────────────────────────────
