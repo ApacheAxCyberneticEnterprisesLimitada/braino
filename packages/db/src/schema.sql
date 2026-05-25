@@ -94,6 +94,9 @@ CREATE TABLE IF NOT EXISTS principals (
   summary         text,
   lifecycle       text,
   body_md         text,
+  -- Reserved role-principal flag (set for user/human/doco-host/github).
+  -- Promoted out of `data` jsonb by migration 035.
+  role_principal  boolean NOT NULL DEFAULT false,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      text,                        -- collaborator_<ulid>
@@ -180,18 +183,27 @@ CREATE INDEX IF NOT EXISTS decisions_doco_idx ON decisions (doco_id, created_at 
 CREATE INDEX IF NOT EXISTS decisions_lifecycle_idx ON decisions (doco_id, lifecycle);
 
 CREATE TABLE IF NOT EXISTS rules (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  rule        text NOT NULL DEFAULT '',  -- see intents.intent
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
+  id            text PRIMARY KEY,
+  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  lifecycle     text,
+  rule          text NOT NULL DEFAULT '',  -- see intents.intent
+  -- Enum-shaped scalars promoted out of data jsonb by migration 035.
+  -- `predicate`, `expected`, `applies_to` stay in `data` (compound).
+  kind          text,
+  modality      text,
+  severity      text,
+  phase         text,
+  on_violation  text,
+  data          jsonb NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  created_by    text,
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    text
 );
 CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS rules_kind_idx     ON rules (doco_id, kind);
+CREATE INDEX IF NOT EXISTS rules_severity_idx ON rules (doco_id, severity);
 
 CREATE TABLE IF NOT EXISTS guidance_policies (
   id          text PRIMARY KEY,
@@ -228,38 +240,49 @@ CREATE INDEX IF NOT EXISTS neuron_authoring_policies_lifecycle_idx
   ON neuron_authoring_policies (doco_id, lifecycle);
 
 CREATE TABLE IF NOT EXISTS actions (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  action      text NOT NULL DEFAULT '',  -- see intents.intent
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
+  id            text PRIMARY KEY,
+  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  lifecycle     text,
+  action        text NOT NULL DEFAULT '',  -- see intents.intent
+  -- Scalars promoted out of data jsonb by migration 035.
+  verb          text,
+  performed_at  timestamptz,
+  data          jsonb NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  created_by    text,
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  updated_by    text
 );
 CREATE INDEX IF NOT EXISTS actions_doco_idx ON actions (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS actions_lifecycle_idx ON actions (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS actions_verb_idx         ON actions (doco_id, verb);
+CREATE INDEX IF NOT EXISTS actions_performed_at_idx ON actions (doco_id, performed_at DESC);
 
 CREATE TABLE IF NOT EXISTS logs (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  log         text NOT NULL DEFAULT '',  -- see intents.intent
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
+  id           text PRIMARY KEY,
+  doco_id      text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  lifecycle    text,
+  log          text NOT NULL DEFAULT '',  -- see intents.intent
+  -- Scalars promoted out of data jsonb by migration 035.
+  verb         text,
+  happened_at  timestamptz,
+  data         jsonb NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  created_by   text,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  updated_by   text
 );
 CREATE INDEX IF NOT EXISTS logs_doco_idx ON logs (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS logs_lifecycle_idx ON logs (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS logs_verb_idx        ON logs (doco_id, verb);
+CREATE INDEX IF NOT EXISTS logs_happened_at_idx ON logs (doco_id, happened_at DESC);
 
 CREATE TABLE IF NOT EXISTS evals (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   lifecycle   text,
   eval        text NOT NULL DEFAULT '',  -- see intents.intent (also folded in: name, description)
+  kind        text,                       -- scalar promoted by migration 035
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -268,6 +291,7 @@ CREATE TABLE IF NOT EXISTS evals (
 );
 CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS evals_kind_idx ON evals (doco_id, kind);
 
 -- State is a neuron in a
 -- formal state machine. Mirrors the actions table shape; the structured
@@ -277,6 +301,7 @@ CREATE TABLE IF NOT EXISTS states (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   lifecycle   text,
   state       text NOT NULL DEFAULT '',  -- see intents.intent
+  kind        text,                       -- scalar promoted by migration 035
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -285,6 +310,7 @@ CREATE TABLE IF NOT EXISTS states (
 );
 CREATE INDEX IF NOT EXISTS states_doco_idx ON states (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS states_lifecycle_idx ON states (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS states_kind_idx ON states (doco_id, kind);
 
 CREATE TABLE IF NOT EXISTS tags (
   id          text PRIMARY KEY,
@@ -312,12 +338,19 @@ CREATE TABLE IF NOT EXISTS reference_entities (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   lifecycle   text,
   reference   text NOT NULL DEFAULT '',  -- see intents.intent
+  -- Scalars promoted out of data jsonb by migration 035.
+  ref_type    text,
+  locator     text,
+  citation    text,
+  title       text,
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
+CREATE INDEX IF NOT EXISTS reference_entities_ref_type_idx
+  ON reference_entities (doco_id, ref_type);
 
 -- Audit events: one row per mutation.
 

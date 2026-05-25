@@ -79,7 +79,11 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   // migration 023 and must not leak back into `data` jsonb either.
   // Tables without a typeNamedColumn (principal, policies) still use
   // the legacy shape.
-  const cleanData = spec.typeNamedColumn ? stripLegacyProseKeys(rec.data) : rec.data;
+  // Strip prose-collapsed keys (migration 023) and promoted-scalar keys
+  // (migration 035) from the jsonb bag so the typed columns are the
+  // single source of truth and the two surfaces can never drift.
+  const baseData = spec.typeNamedColumn ? stripLegacyProseKeys(rec.data) : rec.data;
+  const cleanData = stripPromotedKeys(rec.entity_type, baseData);
   // Single source of truth for lifecycle: `data.lifecycle`. The column
   // is a denormalized mirror used for filtering/indexing — derive it
   // from `data` instead of trusting the caller-supplied `rec.lifecycle`
@@ -132,17 +136,18 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
 }
 
 /**
- * Map an entity's frontmatter to the typed FK column values added in
- * migration 013. Returns [columnName, value] pairs to splice into the
- * INSERT/UPSERT. Polymorphic refs (target, target_ref, born_from) and
- * arrays (intent_ids, decision_ids) are excluded — those stay in the
- * data jsonb bag, materialized into synapses by the indexer.
+ * Map an entity's frontmatter to the typed column values added by
+ * migrations 013 (FKs) and 035 (scalars). Returns [columnName, value]
+ * pairs to splice into the INSERT/UPSERT. Polymorphic refs (target,
+ * target_ref, born_from) and arrays (intent_ids, decision_ids) are
+ * excluded — those stay in the data jsonb bag, materialized into
+ * synapses by the indexer.
  */
 function fkColumnSources(
   entityType: string,
   fm: Record<string, unknown>,
-): Array<[string, string | null]> {
-  const out: Array<[string, string | null]> = [];
+): Array<[string, unknown]> {
+  const out: Array<[string, unknown]> = [];
   const stringOrNull = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
   switch (entityType) {
     case "intent":
@@ -161,31 +166,94 @@ function fkColumnSources(
     }
     case "action":
       out.push(["actor_id", stringOrNull(fm.actor_id)]);
+      // Scalars promoted by migration 035.
+      out.push(["verb", stringOrNull(fm.verb)]);
+      out.push(["performed_at", stringOrNull(fm.performed_at)]);
       break;
     case "log":
       out.push(["actor_id", stringOrNull(fm.actor_id)]);
       out.push(["template_id", stringOrNull(fm.template_id)]);
+      // Scalars promoted by migration 035.
+      out.push(["verb", stringOrNull(fm.verb)]);
+      out.push(["happened_at", stringOrNull(fm.happened_at)]);
       break;
+    case "eval":
+      // Scalar promoted by migration 035.
+      out.push(["kind", stringOrNull(fm.kind)]);
+      break;
+    case "rule":
+      // Scalars promoted by migration 035 — predicate/expected/applies_to
+      // stay in data jsonb because they're compound.
+      out.push(["kind", stringOrNull(fm.kind)]);
+      out.push(["modality", stringOrNull(fm.modality)]);
+      out.push(["severity", stringOrNull(fm.severity)]);
+      out.push(["phase", stringOrNull(fm.phase)]);
+      out.push(["on_violation", stringOrNull(fm.on_violation)]);
+      break;
+    case "state":
+      // Scalar promoted by migration 035.
+      out.push(["kind", stringOrNull(fm.kind)]);
+      break;
+    case "reference":
+      // Scalars promoted by migration 035.
+      out.push(["ref_type", stringOrNull(fm.ref_type)]);
+      out.push(["locator", stringOrNull(fm.locator)]);
+      out.push(["citation", stringOrNull(fm.citation)]);
+      out.push(["title", stringOrNull(fm.title)]);
+      break;
+  }
+  return out;
+}
+
+/**
+ * Keys that have been promoted to typed columns and must not also
+ * live in the `data` jsonb. Keeps the jsonb tight and prevents the
+ * two surfaces from drifting on update.
+ */
+const PROMOTED_DATA_KEYS_BY_TYPE: Record<string, ReadonlySet<string>> = {
+  action: new Set(["verb", "performed_at"]),
+  log: new Set(["verb", "happened_at"]),
+  eval: new Set(["kind"]),
+  rule: new Set(["kind", "modality", "severity", "phase", "on_violation"]),
+  state: new Set(["kind"]),
+  reference: new Set(["ref_type", "locator", "citation", "title"]),
+  principal: new Set(["role_principal"]),
+};
+
+function stripPromotedKeys(
+  entityType: string,
+  fm: Record<string, unknown>,
+): Record<string, unknown> {
+  const promoted = PROMOTED_DATA_KEYS_BY_TYPE[entityType];
+  if (!promoted) return fm;
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(fm)) {
+    if (!promoted.has(k)) out[k] = v;
   }
   return out;
 }
 
 async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const fields = rec.data;
-  const dataJson = JSON.stringify(fields);
   const run = async (c: pg.PoolClient) => {
     if (rec.entity_type === "principal") {
       const name = String(fields.name ?? rec.id);
       // Same drift-prevention as upsertEntity: principals' lifecycle
       // column mirrors data.lifecycle.
       const lifecycleCol = deriveLifecycleColumn(rec, fields);
+      // Promoted scalar (migration 035): role_principal lives on its
+      // own column and the key is stripped from the data jsonb so the
+      // column is the single source of truth.
+      const rolePrincipal = Boolean(fields.role_principal);
+      const cleanedFields = stripPromotedKeys(rec.entity_type, fields);
+      const dataJson = JSON.stringify(cleanedFields);
       await c.query(
-        `INSERT INTO principals (id, name, doco_id, summary, lifecycle, body_md, data,
+        `INSERT INTO principals (id, name, doco_id, summary, lifecycle, body_md, role_principal, data,
                                   created_at, created_by, updated_at, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12)
          ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,
            doco_id=EXCLUDED.doco_id, summary=EXCLUDED.summary, lifecycle=EXCLUDED.lifecycle,
-           body_md=EXCLUDED.body_md, data=EXCLUDED.data,
+           body_md=EXCLUDED.body_md, role_principal=EXCLUDED.role_principal, data=EXCLUDED.data,
            updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
         [
           rec.id,
@@ -194,6 +262,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
           rec.summary ?? null,
           lifecycleCol,
           rec.body_md ?? null,
+          rolePrincipal,
           dataJson,
           rec.created_at ?? new Date().toISOString(),
           rec.created_by ?? null,
@@ -202,6 +271,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         ],
       );
     } else if (rec.entity_type === "collaborator") {
+      const dataJson = JSON.stringify(fields);
       const kind = String(fields.kind ?? "person");
       const github_id = (fields.github_id as string | null) ?? null;
       const github_login = (fields.github_login as string | null) ?? null;
@@ -230,6 +300,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         ],
       );
     } else if (rec.entity_type === "organization") {
+      const dataJson = JSON.stringify(fields);
       const handle = String(fields.handle ?? rec.id);
       const name = String(fields.name ?? fields.display_name ?? handle);
       await c.query(
@@ -239,6 +310,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         [rec.id, handle, name, dataJson],
       );
     } else if (rec.entity_type === "doco") {
+      const dataJson = JSON.stringify(fields);
       const owner_id = String(fields.owner_id ?? "");
       const org_id = String(fields.org_id ?? owner_id);
       const handle = String(fields.handle ?? "");
@@ -317,12 +389,46 @@ export async function listIdentityRows(
   });
 }
 
+/**
+ * Columns promoted out of the `data` jsonb by migration 035 that we
+ * merge back INTO `data` on read so downstream code that reads
+ * `rec.data.verb`, `rec.data.kind`, etc. continues to work without a
+ * per-call-site rewrite.
+ */
+const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
+  action: ["verb", "performed_at"],
+  log: ["verb", "happened_at"],
+  eval: ["kind"],
+  rule: ["kind", "modality", "severity", "phase", "on_violation"],
+  state: ["kind"],
+  reference: ["ref_type", "locator", "citation", "title"],
+  principal: ["role_principal"],
+};
+
 function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
+  // Merge promoted typed columns back into the data jsonb so callers
+  // that read structured fields off `rec.data` still find them after
+  // migration 035 stripped the keys from the jsonb bag.
+  const baseData = (row.data && typeof row.data === "object" ? row.data : {}) as Record<
+    string,
+    unknown
+  >;
+  const promoted = PROMOTED_COLUMNS_BY_TYPE[entityType] ?? [];
+  const data: Record<string, unknown> = { ...baseData };
+  for (const col of promoted) {
+    if (col in row && row[col] !== null && row[col] !== undefined) {
+      const v = row[col];
+      // Timestamps come back as Date objects; serialize so the data
+      // bag stays JSON-shaped.
+      data[col] = v instanceof Date ? v.toISOString() : v;
+    }
+  }
+
   const rec: EntityRecord = {
     id: String(row.id),
     doco_id: row.doco_id ? String(row.doco_id) : "",
     entity_type: entityType,
-    data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
+    data,
   };
   if ("body_md" in row && row.body_md !== null) rec.body_md = String(row.body_md);
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
