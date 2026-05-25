@@ -602,7 +602,6 @@ export interface PrincipalRow {
   id: string;
   name: string;
   doco_id: string;
-  summary: string | null;
   data: Record<string, unknown>;
 }
 
@@ -611,17 +610,13 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
     id: String(row.id),
     name: String(row.name),
     doco_id: String(row.doco_id),
-    summary: row.summary === null || row.summary === undefined ? null : String(row.summary),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
 }
 
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(
-      "SELECT id, name, doco_id, summary, data FROM principals WHERE id = $1",
-      [id],
-    );
+    const r = await c.query("SELECT id, name, doco_id, data FROM principals WHERE id = $1", [id]);
     if (r.rowCount === 0) return null;
     return mapPrincipalRow(r.rows[0]);
   });
@@ -633,7 +628,7 @@ export async function getPrincipalByName(
 ): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, name, doco_id, summary, data FROM principals WHERE name = $1 AND doco_id = $2",
+      "SELECT id, name, doco_id, data FROM principals WHERE name = $1 AND doco_id = $2",
       [name, docoId],
     );
     if (r.rowCount === 0) return null;
@@ -647,7 +642,7 @@ export async function getPrincipalByName(
 export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, name, doco_id, summary, data
+      `SELECT id, name, doco_id, data
        FROM principals
        WHERE doco_id = $1
        ORDER BY name`,
