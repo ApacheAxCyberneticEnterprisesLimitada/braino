@@ -200,7 +200,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_neuron_type",
-          neuron_types: ["intent", "action", "decision", "reference", "rule"],
+          neuron_types: ["intent", "action", "decision", "reference", "rule", "principal"],
         },
       },
       {
@@ -294,7 +294,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a state-machines doco. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
         predicate: {
           kind: "requires_neuron_type",
-          neuron_types: ["state", "action", "decision", "eval", "reference", "intent", "rule"],
+          neuron_types: [
+            "state",
+            "action",
+            "decision",
+            "eval",
+            "reference",
+            "intent",
+            "rule",
+            "principal",
+          ],
         },
       },
       // Aggregate process checks are tracked as guidance until the
@@ -617,10 +626,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // live in a sibling Doco and are surfaced here via Reference;
         // Ideas live in their own home until promoted.
         summary:
-          "Only Intent, Action, Decision, State, Eval, Reference, and Rule belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
+          "Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
           kind: "requires_neuron_type",
-          neuron_types: ["intent", "action", "decision", "state", "eval", "reference", "rule"],
+          neuron_types: [
+            "intent",
+            "action",
+            "decision",
+            "state",
+            "eval",
+            "reference",
+            "rule",
+            "principal",
+          ],
         },
       },
 

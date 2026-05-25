@@ -34,11 +34,11 @@ describe("business-processes template", () => {
       (r) => r.predicate?.kind === "requires_neuron_type",
     )?.predicate;
 
-    it("includes exactly the seven allowed types (Intent, Action, Decision, State, Eval, Reference, Rule)", () => {
+    it("includes the eight allowed types (Intent, Action, Decision, State, Eval, Reference, Rule, Principal)", () => {
       expect(allowlist?.kind).toBe("requires_neuron_type");
       if (allowlist?.kind !== "requires_neuron_type") return;
       expect([...allowlist.neuron_types].sort()).toEqual(
-        ["action", "decision", "eval", "intent", "reference", "rule", "state"].sort(),
+        ["action", "decision", "eval", "intent", "principal", "reference", "rule", "state"].sort(),
       );
     });
 
