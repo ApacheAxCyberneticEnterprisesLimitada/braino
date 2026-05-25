@@ -115,8 +115,12 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       // (+ type-specific extras) into a single type-named prose column
       // (`intents.intent`, `decisions.decision`, ...). The whole prose
       // block goes into FTS `body`; there's no separate headline to
-      // surface in `summary` anymore. Non-migrated entities (principal,
-      // policies) keep the legacy summary/body split.
+      // surface in `summary` anymore.
+      //
+      // Non-migrated entities still split a one-line headline into the
+      // FTS A-weight column. Post-rename the source field is type-
+      // specific: principals use `name` (slug) and policies use
+      // `policy` (rule statement, renamed from `summary` in 038).
       const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
       let summary: string | null;
       let body: string;
@@ -125,7 +129,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         body = le.parsed.typeNamedValue ?? "";
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
-        summary = String(e.summary ?? "");
+        const headline = entityType === "principal" ? e.name : e.policy;
+        summary = typeof headline === "string" ? headline : "";
         body = le.parsed.body ?? "";
       }
       pgFts.push({
@@ -152,9 +157,10 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Migration-022/023: migrated neurons embed the type-named prose
-      // column verbatim; non-migrated entities (principal, policies)
-      // still concatenate summary + body_md the same way they did
-      // pre-migration.
+      // column verbatim. Principals embed `name` + `body_md` (the
+      // post-037 shape — summary was dropped); policies embed
+      // `policy` (one-line rule, renamed from `summary` in 038) +
+      // `body_md`.
       const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
       const typeNamedColumn =
         entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;
@@ -166,8 +172,9 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         body = le.parsed.typeNamedValue?.trim() ?? "";
         text = body;
       } else {
-        const entityRecord = le.entity as { summary?: string };
-        summary = String(entityRecord.summary ?? "");
+        const e = le.entity as unknown as Record<string, unknown>;
+        const headline = entityType === "principal" ? e.name : e.policy;
+        summary = typeof headline === "string" ? headline : "";
         body = le.parsed.body ?? "";
         text = `${summary}\n\n${body}`.trim();
       }
