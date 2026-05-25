@@ -77,8 +77,10 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   // (intents.intent, decisions.decision, …); the legacy `summary`,
   // `body_md`, `title`, `name`, and `description` keys were dropped by
   // migration 023 and must not leak back into `data` jsonb either.
-  // Tables without a typeNamedColumn (principal, policies) still use
-  // the legacy shape.
+  // Policies (the only non-migrated entity type reaching this branch
+  // — principals go through upsertIdentity) carry their one-line rule
+  // in the `policy` column (renamed from `summary` by migration 038)
+  // plus an optional `body_md`.
   // Strip prose-collapsed keys (migration 023) and promoted-scalar keys
   // (migration 035) from the jsonb bag so the typed columns are the
   // single source of truth and the two surfaces can never drift.
@@ -96,8 +98,9 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
     cols.push(spec.typeNamedColumn);
     vals.push(rec.type_named_value ?? "");
   } else {
-    cols.push("summary");
-    vals.push(rec.summary ?? null);
+    // Policies — `policy` column holds the one-line rule.
+    cols.push("policy");
+    vals.push(typeof rec.data.policy === "string" ? rec.data.policy : "");
     if (spec.body) {
       cols.push("body_md");
       vals.push(rec.body_md ?? null);
