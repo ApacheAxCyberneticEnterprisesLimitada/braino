@@ -9,111 +9,152 @@
 -- flexibility — promoting them would force a wider schema change
 -- without buying query-side gains.
 --
--- Scope:
---   actions       — `verb` (text), `performed_at` (timestamptz)
---   logs          — `verb` (text), `happened_at` (timestamptz)
---   evals         — `kind` (text)
---   rules         — `kind`, `modality`, `severity`, `phase`,
---                   `on_violation` (all text)
---   states        — `kind` (text)
---   references_*  — `ref_type`, `locator`, `citation`, `title`
---                   (all text); table is `reference_entities`
---   principals    — `role_principal` (boolean)
+-- ── HOTFIX history ─────────────────────────────────────────────
+-- The first version of this migration did the column ADDs AND the
+-- data population in a single transaction, with strict
+-- `::timestamptz` and `::boolean` casts on values pulled out of
+-- `data` jsonb. A single malformed value anywhere in any of the
+-- referenced tables rolled the whole txn back, leaving the new
+-- columns un-added. Code on origin/main (repo.ts) then referenced
+-- those non-existent columns on every DB hit, taking production
+-- down with `ERROR: column "kind" does not exist`.
 --
--- After this migration:
---   - The columns are populated from the data jsonb for every
---     existing row.
---   - The promoted keys are removed from data so reads have one
---     source of truth.
---   - Indexes are added where the field is a routine filter key.
+-- This rewrite splits the work into two phases:
+--   1. Add the columns + indexes. Pure DDL, can't fail on data.
+--   2. Populate the columns from the data jsonb, with stricter
+--      regex guards that match only well-formed ISO timestamps
+--      and the literal strings "true"/"false" — values that
+--      definitely cast cleanly.
 --
--- Idempotent: every ALTER uses IF NOT EXISTS, every UPDATE filters
--- to rows where the new column is still NULL (so re-running is a
--- no-op).
+-- Each phase runs in its own transaction so a population failure
+-- on one table doesn't unwind the column adds. The migration is
+-- still idempotent — every gate guards on the new column still
+-- being NULL.
 
+-- ── Phase 1: column adds + indexes (DDL only, can't fail) ──────
 BEGIN;
 
--- ── actions ────────────────────────────────────────────────────
 ALTER TABLE actions
   ADD COLUMN IF NOT EXISTS verb         text,
   ADD COLUMN IF NOT EXISTS performed_at timestamptz;
-
-UPDATE actions
-   SET verb = data->>'verb'
- WHERE verb IS NULL AND data ? 'verb';
-
-UPDATE actions
-   SET performed_at = (data->>'performed_at')::timestamptz
- WHERE performed_at IS NULL
-   AND data ? 'performed_at'
-   AND data->>'performed_at' ~ '^\d{4}-\d{2}-\d{2}';
-
-UPDATE actions
-   SET data = data - 'verb' - 'performed_at'
- WHERE data ? 'verb' OR data ? 'performed_at';
-
 CREATE INDEX IF NOT EXISTS actions_verb_idx         ON actions (doco_id, verb);
 CREATE INDEX IF NOT EXISTS actions_performed_at_idx ON actions (doco_id, performed_at DESC);
 
--- ── logs ───────────────────────────────────────────────────────
 ALTER TABLE logs
   ADD COLUMN IF NOT EXISTS verb        text,
   ADD COLUMN IF NOT EXISTS happened_at timestamptz;
-
-UPDATE logs
-   SET verb = data->>'verb'
- WHERE verb IS NULL AND data ? 'verb';
-
-UPDATE logs
-   SET happened_at = (data->>'happened_at')::timestamptz
- WHERE happened_at IS NULL
-   AND data ? 'happened_at'
-   AND data->>'happened_at' ~ '^\d{4}-\d{2}-\d{2}';
-
-UPDATE logs
-   SET data = data - 'verb' - 'happened_at'
- WHERE data ? 'verb' OR data ? 'happened_at';
-
 CREATE INDEX IF NOT EXISTS logs_verb_idx        ON logs (doco_id, verb);
 CREATE INDEX IF NOT EXISTS logs_happened_at_idx ON logs (doco_id, happened_at DESC);
 
--- ── evals ──────────────────────────────────────────────────────
 ALTER TABLE evals
   ADD COLUMN IF NOT EXISTS kind text;
-
-UPDATE evals
-   SET kind = data->>'kind'
- WHERE kind IS NULL AND data ? 'kind';
-
-UPDATE evals
-   SET data = data - 'kind'
- WHERE data ? 'kind';
-
 CREATE INDEX IF NOT EXISTS evals_kind_idx ON evals (doco_id, kind);
 
--- ── rules ──────────────────────────────────────────────────────
--- `kind`, `modality`, `severity`, `phase`, `on_violation` are all
--- enum-shaped scalars used in policy evaluation. `predicate`,
--- `expected`, and `applies_to` are structured (objects / arrays)
--- and stay in `data`.
 ALTER TABLE rules
   ADD COLUMN IF NOT EXISTS kind         text,
   ADD COLUMN IF NOT EXISTS modality     text,
   ADD COLUMN IF NOT EXISTS severity     text,
   ADD COLUMN IF NOT EXISTS phase        text,
   ADD COLUMN IF NOT EXISTS on_violation text;
+CREATE INDEX IF NOT EXISTS rules_kind_idx     ON rules (doco_id, kind);
+CREATE INDEX IF NOT EXISTS rules_severity_idx ON rules (doco_id, severity);
+
+ALTER TABLE states
+  ADD COLUMN IF NOT EXISTS kind text;
+CREATE INDEX IF NOT EXISTS states_kind_idx ON states (doco_id, kind);
+
+ALTER TABLE reference_entities
+  ADD COLUMN IF NOT EXISTS ref_type text,
+  ADD COLUMN IF NOT EXISTS locator  text,
+  ADD COLUMN IF NOT EXISTS citation text,
+  ADD COLUMN IF NOT EXISTS title    text;
+CREATE INDEX IF NOT EXISTS reference_entities_ref_type_idx
+  ON reference_entities (doco_id, ref_type);
+
+ALTER TABLE principals
+  ADD COLUMN IF NOT EXISTS role_principal boolean NOT NULL DEFAULT false;
+CREATE INDEX IF NOT EXISTS principals_role_idx
+  ON principals (doco_id) WHERE NOT role_principal;
+
+COMMIT;
+
+-- ── Phase 2: populate columns from data jsonb ──────────────────
+-- Strict regexes prevent any cast from failing. Anything that
+-- doesn't match stays as `NULL` on the typed column AND in the
+-- jsonb until an operator fixes it manually. That's better than
+-- rolling back the whole migration on one bad row.
+
+-- Action.verb / Action.performed_at
+BEGIN;
+
+UPDATE actions
+   SET verb = data->>'verb'
+ WHERE verb IS NULL
+   AND data ? 'verb'
+   AND jsonb_typeof(data->'verb') = 'string';
+
+UPDATE actions
+   SET performed_at = (data->>'performed_at')::timestamptz
+ WHERE performed_at IS NULL
+   AND data ? 'performed_at'
+   AND jsonb_typeof(data->'performed_at') = 'string'
+   -- Match a full ISO 8601 instant: YYYY-MM-DDTHH:MM:SS optionally
+   -- with fractional seconds and a timezone designator (Z or ±HH:MM).
+   AND data->>'performed_at' ~ '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$';
+
+UPDATE actions
+   SET data = data - 'verb' - 'performed_at'
+ WHERE data ? 'verb' OR data ? 'performed_at';
+
+COMMIT;
+
+-- Log.verb / Log.happened_at
+BEGIN;
+
+UPDATE logs
+   SET verb = data->>'verb'
+ WHERE verb IS NULL
+   AND data ? 'verb'
+   AND jsonb_typeof(data->'verb') = 'string';
+
+UPDATE logs
+   SET happened_at = (data->>'happened_at')::timestamptz
+ WHERE happened_at IS NULL
+   AND data ? 'happened_at'
+   AND jsonb_typeof(data->'happened_at') = 'string'
+   AND data->>'happened_at' ~ '^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$';
+
+UPDATE logs
+   SET data = data - 'verb' - 'happened_at'
+ WHERE data ? 'verb' OR data ? 'happened_at';
+
+COMMIT;
+
+-- Eval.kind
+BEGIN;
+
+UPDATE evals
+   SET kind = data->>'kind'
+ WHERE kind IS NULL
+   AND data ? 'kind'
+   AND jsonb_typeof(data->'kind') = 'string';
+
+UPDATE evals
+   SET data = data - 'kind'
+ WHERE data ? 'kind';
+
+COMMIT;
+
+-- Rule.{kind,modality,severity,phase,on_violation}
+BEGIN;
 
 UPDATE rules
-   SET kind         = data->>'kind',
-       modality     = data->>'modality',
-       severity     = data->>'severity',
-       phase        = data->>'phase',
-       on_violation = data->>'on_violation'
- WHERE (kind IS NULL AND data ? 'kind')
-    OR (modality IS NULL AND data ? 'modality')
-    OR (severity IS NULL AND data ? 'severity')
-    OR (phase IS NULL AND data ? 'phase')
-    OR (on_violation IS NULL AND data ? 'on_violation');
+   SET kind         = CASE WHEN jsonb_typeof(data->'kind')         = 'string' THEN data->>'kind'         ELSE kind END,
+       modality     = CASE WHEN jsonb_typeof(data->'modality')     = 'string' THEN data->>'modality'     ELSE modality END,
+       severity     = CASE WHEN jsonb_typeof(data->'severity')     = 'string' THEN data->>'severity'     ELSE severity END,
+       phase        = CASE WHEN jsonb_typeof(data->'phase')        = 'string' THEN data->>'phase'        ELSE phase END,
+       on_violation = CASE WHEN jsonb_typeof(data->'on_violation') = 'string' THEN data->>'on_violation' ELSE on_violation END
+ WHERE data ? 'kind' OR data ? 'modality' OR data ? 'severity' OR data ? 'phase' OR data ? 'on_violation';
 
 UPDATE rules
    SET data = data - 'kind' - 'modality' - 'severity' - 'phase' - 'on_violation'
@@ -123,39 +164,32 @@ UPDATE rules
     OR data ? 'phase'
     OR data ? 'on_violation';
 
-CREATE INDEX IF NOT EXISTS rules_kind_idx     ON rules (doco_id, kind);
-CREATE INDEX IF NOT EXISTS rules_severity_idx ON rules (doco_id, severity);
+COMMIT;
 
--- ── states ─────────────────────────────────────────────────────
-ALTER TABLE states
-  ADD COLUMN IF NOT EXISTS kind text;
+-- State.kind
+BEGIN;
 
 UPDATE states
    SET kind = data->>'kind'
- WHERE kind IS NULL AND data ? 'kind';
+ WHERE kind IS NULL
+   AND data ? 'kind'
+   AND jsonb_typeof(data->'kind') = 'string';
 
 UPDATE states
    SET data = data - 'kind'
  WHERE data ? 'kind';
 
-CREATE INDEX IF NOT EXISTS states_kind_idx ON states (doco_id, kind);
+COMMIT;
 
--- ── reference_entities ─────────────────────────────────────────
-ALTER TABLE reference_entities
-  ADD COLUMN IF NOT EXISTS ref_type text,
-  ADD COLUMN IF NOT EXISTS locator  text,
-  ADD COLUMN IF NOT EXISTS citation text,
-  ADD COLUMN IF NOT EXISTS title    text;
+-- Reference.{ref_type,locator,citation,title}
+BEGIN;
 
 UPDATE reference_entities
-   SET ref_type = data->>'ref_type',
-       locator  = data->>'locator',
-       citation = data->>'citation',
-       title    = data->>'title'
- WHERE (ref_type IS NULL AND data ? 'ref_type')
-    OR (locator  IS NULL AND data ? 'locator')
-    OR (citation IS NULL AND data ? 'citation')
-    OR (title    IS NULL AND data ? 'title');
+   SET ref_type = CASE WHEN jsonb_typeof(data->'ref_type') = 'string' THEN data->>'ref_type' ELSE ref_type END,
+       locator  = CASE WHEN jsonb_typeof(data->'locator')  = 'string' THEN data->>'locator'  ELSE locator  END,
+       citation = CASE WHEN jsonb_typeof(data->'citation') = 'string' THEN data->>'citation' ELSE citation END,
+       title    = CASE WHEN jsonb_typeof(data->'title')    = 'string' THEN data->>'title'    ELSE title    END
+ WHERE data ? 'ref_type' OR data ? 'locator' OR data ? 'citation' OR data ? 'title';
 
 UPDATE reference_entities
    SET data = data - 'ref_type' - 'locator' - 'citation' - 'title'
@@ -164,26 +198,28 @@ UPDATE reference_entities
     OR data ? 'citation'
     OR data ? 'title';
 
-CREATE INDEX IF NOT EXISTS reference_entities_ref_type_idx
-  ON reference_entities (doco_id, ref_type);
+COMMIT;
 
--- ── principals ─────────────────────────────────────────────────
--- `role_principal` is a boolean flag that the principals POST
--- route sets for reserved role names (user/human/doco-host/github).
--- It's read by the org-tree perspective to omit role principals
--- from the rendered chart. Promote it to a typed column.
-ALTER TABLE principals
-  ADD COLUMN IF NOT EXISTS role_principal boolean NOT NULL DEFAULT false;
+-- Principal.role_principal
+BEGIN;
 
 UPDATE principals
-   SET role_principal = COALESCE((data->>'role_principal')::boolean, false)
- WHERE role_principal = false AND data ? 'role_principal';
+   SET role_principal = (data->>'role_principal')::boolean
+ WHERE role_principal = false
+   AND data ? 'role_principal'
+   AND jsonb_typeof(data->'role_principal') = 'boolean';
+
+-- Tolerate string "true"/"false" too — older captures may have
+-- stored it as a JSON string rather than a real boolean.
+UPDATE principals
+   SET role_principal = (data->>'role_principal')::boolean
+ WHERE role_principal = false
+   AND data ? 'role_principal'
+   AND jsonb_typeof(data->'role_principal') = 'string'
+   AND data->>'role_principal' IN ('true', 'false');
 
 UPDATE principals
    SET data = data - 'role_principal'
  WHERE data ? 'role_principal';
-
-CREATE INDEX IF NOT EXISTS principals_role_idx
-  ON principals (doco_id) WHERE NOT role_principal;
 
 COMMIT;
