@@ -111,19 +111,18 @@ export interface Collaborator {
  */
 export interface Principal extends SummarizedFields {
   neuron_type: "principal";
-  /** Role label / slug. e.g. "system", "customer-service-rep", "cook". */
+  /** Role label / slug. e.g. "system", "customer-service-rep", "cook". The
+   *  immutable identity field for a Principal; other neurons and prose
+   *  reference Principals by this slug. */
   name: string;
-  display_name?: string;
-  description?: string;
   /**
-   * Optional person/agent distinction. Most Docos leave this unset —
-   * Principals are role-personas and the OAuth identity layer
-   * (Collaborator) carries the person/agent kind for accounts that
-   * sign in. The `org-chart` template REQUIRES this field via a
-   * neuron_authoring_policy, because an org chart's value is in
-   * knowing which seats are filled by humans and which by AI agents.
+   * True for the four reserved role-principal names (`user`, `human`,
+   * `doco-host`, `github`). Set by the principals POST route and
+   * promoted to its own column by migration 035; the org-tree
+   * perspective uses it to omit role principals from the rendered
+   * chart.
    */
-  type?: "person" | "agent";
+  role_principal?: boolean;
   /**
    * Optional manager Principal. `X.reports_to = Y` ⇒ X reports to Y —
    * the synapse forms the reporting hierarchy in `org-chart` Docos.
@@ -384,6 +383,18 @@ export interface Reference extends CommonFields {
   reference: string;
   ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
   locator: string;
+  /**
+   * Short citation string — promoted out of `data` jsonb to its own
+   * column by migration 035. Optional; used as the in-prose-mention
+   * shortcut (e.g. "see [ADR-085]").
+   */
+  citation?: string | null;
+  /**
+   * Display title — promoted out of `data` jsonb to its own column by
+   * migration 035. Distinct from `reference` (the prose label) when a
+   * caller wants the source's own title preserved separately.
+   */
+  title?: string | null;
   content_hash?: string | null;
 }
 
