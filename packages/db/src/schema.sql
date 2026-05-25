@@ -91,8 +91,10 @@ CREATE TABLE IF NOT EXISTS principals (
   doco_id         text,
   name            text NOT NULL,                -- role label (e.g. "system",
                                                 -- "customer-service-rep")
-  summary         text,
   lifecycle       text,
+  -- Prose body. Carries the entire Principal narrative after the
+  -- slim-down — the `summary` one-liner column was dropped by
+  -- migration 037 (per "Principal should not use summary").
   body_md         text,
   -- Reserved role-principal flag (set for user/human/doco-host/github).
   -- Promoted out of `data` jsonb by migration 035.
@@ -210,7 +212,10 @@ CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
 CREATE TABLE IF NOT EXISTS guidance_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  summary     text,
+  -- One-line rule statement. Renamed from `summary` to `policy` in
+  -- migration 038 to match the migration-023 type-named-prose pattern
+  -- the 9 neuron types use.
+  policy      text,
   lifecycle   text,
   body_md     text,
   data        jsonb NOT NULL,
@@ -227,7 +232,8 @@ CREATE INDEX IF NOT EXISTS guidance_policies_lifecycle_idx
 CREATE TABLE IF NOT EXISTS neuron_authoring_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  summary     text,
+  -- See guidance_policies.policy — same rename.
+  policy      text,
   lifecycle   text,
   body_md     text,
   data        jsonb NOT NULL,
@@ -446,10 +452,12 @@ CREATE TABLE IF NOT EXISTS entity_fts_policies (
   entity_id       text PRIMARY KEY,
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   policy_kind     text NOT NULL CHECK (policy_kind IN ('guidance', 'neuron_authoring')),
-  summary         text,
+  -- Renamed from `summary` to `policy` by migration 038 to match the
+  -- canonical policies tables. The FTS column tracks the source.
+  policy          text,
   body            text,
   search_tsv      tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(policy, '')), 'A') ||
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
   ) STORED
 );

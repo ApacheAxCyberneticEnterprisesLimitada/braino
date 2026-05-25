@@ -363,7 +363,7 @@ export async function createDocoInOrg(opts: {
           id: policyId,
           doco_id: docoId,
           policy_kind: isAuthoring ? "neuron_authoring" : "guidance",
-          summary: policy.summary,
+          policy: policy.policy,
           ...(policy.predicate
             ? {
                 evaluation_kind:
@@ -380,13 +380,15 @@ export async function createDocoInOrg(opts: {
           lifecycle: "active",
         };
         await c.query(
-          `INSERT INTO ${table} (id, doco_id, summary, data, body_md, lifecycle,
+          // policies table column renamed from `summary` to `policy`
+          // in migration 038; the seed insert tracks the new name.
+          `INSERT INTO ${table} (id, doco_id, policy, data, body_md, lifecycle,
                                 created_at, updated_at, created_by, updated_by)
            VALUES ($1, $2, $3, $4::jsonb, $5, 'active', $6, $6, $7, $7)`,
           [
             policyId,
             docoId,
-            policy.summary,
+            policy.policy,
             JSON.stringify(policyData),
             policy.body_md ?? "",
             created,

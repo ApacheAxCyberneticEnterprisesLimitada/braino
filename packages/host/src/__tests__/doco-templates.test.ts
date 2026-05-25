@@ -127,7 +127,7 @@ describe("business-processes template", () => {
     // below match the guidance summaries' shape rather than predicate kinds.
     const guidanceSummaries = template.policies
       .filter((r) => r.kind === "guidance" && !r.predicate)
-      .map((r) => r.summary);
+      .map((r) => r.policy);
 
     it("State uniqueness within the process is documented", () => {
       expect(guidanceSummaries.some((s) => /\bstate\b.*\bunique\b/i.test(s))).toBe(true);
@@ -174,7 +174,7 @@ describe("business-processes template", () => {
     const specs = template.policies
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.policies.map((r) => r.summary);
+    const summaries = template.policies.map((r) => r.policy);
     const haystack = [...specs, ...summaries].join("\n");
 
     it("exhaustive gateway / branches", () => {
@@ -197,7 +197,7 @@ describe("business-processes template", () => {
 
   describe("guidance rules", () => {
     const guidance = template.policies.filter((r) => r.kind === "guidance" && !r.predicate);
-    const summaries = guidance.map((r) => r.summary);
+    const summaries = guidance.map((r) => r.policy);
 
     it("happy-path-first ordering", () => {
       expect(summaries.some((s) => /happy path first/i.test(s))).toBe(true);

@@ -56,8 +56,9 @@ export interface EngineSynapse {
 export interface LoadedPolicy {
   /** Id of the originating policy — back-pointer for the UI. */
   policy_id: string;
-  /** Human-readable rule text — surfaces in violation messages. */
-  summary: string;
+  /** The one-line rule statement — surfaces in violation messages.
+   *  Renamed from `summary` to `policy` in migration 038. */
+  policy: string;
   predicate: AuthoringPredicate;
   /** Defaults to "block" when undefined. */
   on_violation?: "block" | "warn" | "log";
@@ -177,7 +178,7 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
     policy_id: p.policy_id,
     predicate_kind: pred.kind,
     on_violation: onViolation,
-    reason: `${p.summary} — ${reason}`,
+    reason: `${p.policy} — ${reason}`,
     ...(extra?.pending_spec ? { pending_spec: extra.pending_spec } : {}),
   });
 
@@ -274,7 +275,7 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
         policy_id: p.policy_id,
         predicate_kind: pred.kind,
         on_violation: onViolation,
-        reason: `${p.summary} — pending LLM judge`,
+        reason: `${p.policy} — pending LLM judge`,
         pending_spec: pred.spec,
       };
     }

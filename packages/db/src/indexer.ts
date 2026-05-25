@@ -133,14 +133,19 @@ export async function rebuildDocoDerivedData(
 
     if (policyFts.length > 0) {
       await c.query(
-        `INSERT INTO entity_fts_policies (entity_id, doco_id, policy_kind, summary, body)
-         SELECT u.entity_id, $1, u.policy_kind, u.summary, u.body
+        // The `policy` column on entity_fts_policies was renamed from
+        // `summary` in migration 038 to match the source policy
+        // tables. The indexer's column-as-text source is still the
+        // FtsRow.summary field — kept as-is to avoid rippling the
+        // rename through every callsite that builds these rows.
+        `INSERT INTO entity_fts_policies (entity_id, doco_id, policy_kind, policy, body)
+         SELECT u.entity_id, $1, u.policy_kind, u.policy_text, u.body
          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-              AS u(entity_id, policy_kind, summary, body)
+              AS u(entity_id, policy_kind, policy_text, body)
          ON CONFLICT (entity_id) DO UPDATE SET
               doco_id     = EXCLUDED.doco_id,
               policy_kind = EXCLUDED.policy_kind,
-              summary     = EXCLUDED.summary,
+              policy      = EXCLUDED.policy,
               body        = EXCLUDED.body`,
         [
           docoId,

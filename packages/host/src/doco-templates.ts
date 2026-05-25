@@ -34,10 +34,12 @@ export interface TemplatePolicy {
    * v7 dropped "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
    */
   kind?: "guidance" | "tagged";
-  /** Human-authored prose. For predicate-bearing policies this is the
-   * reason text accompanying the structured check. For guidance
-   * policies this is the policy body. */
-  summary: string;
+  /** The one-line rule statement. Renamed from `summary` to `policy`
+   *  in migration 038 to match the migration-023 type-named-prose
+   *  pattern. For predicate-bearing policies this is the reason text
+   *  that accompanies the structured check; for guidance policies
+   *  this is the policy itself. */
+  policy: string;
   /**
    * Engine-readable predicate. When set, the seeder creates a
    * neuron_authoring_policy so the check can run during capture.
@@ -138,16 +140,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     policies: [
       {
         kind: "guidance",
-        summary:
+        policy:
           "Capture each meaningful decision, correction, and load-bearing implementation outcome in Doco.",
       },
       {
         kind: "guidance",
-        summary: "If you're an agent, check with your client before changing the policies.",
+        policy: "If you're an agent, check with your client before changing the policies.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "AI agents: document every explicit rule and decision from the project owner, and especially every correction. Corrections are the highest-signal moments — they encode preferences that aren't visible in the code or docs. Capture them in Doco the same turn they happen, so the next agent (or the next session of you) doesn't repeat the mistake.",
       },
     ],
@@ -178,7 +180,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // they aren't themselves journey content, so subjecting them
         // to the journey-prose check would lock out the rules that
         // define the template's contract.
-        summary:
+        policy:
           "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the template rather than journey content.)",
         predicate: {
           kind: "probabilistic",
@@ -187,7 +189,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           'Action nodes in user-flows pass the prose style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
         predicate: {
           kind: "probabilistic",
@@ -196,7 +198,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
         predicate: {
           kind: "requires_neuron_type",
@@ -204,7 +206,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Every Intent in user-flows must declare the principals who want the journey in the `actors` field.",
         predicate: {
           kind: "requires_field",
@@ -213,7 +215,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Every Action in user-flows must declare the principal who performs the designed step in the `actor_id` field.",
         predicate: {
           kind: "requires_field",
@@ -222,7 +224,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
         predicate: {
           kind: "requires_field",
@@ -231,7 +233,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Every Action in user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
         predicate: {
           kind: "requires_synapse",
@@ -246,7 +248,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Intent. Fires only when the Intent moves to `active` —
         // drafting Intents can be captured first and have their Actions
         // filled in after.
-        summary:
+        policy:
           "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
@@ -264,7 +266,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // System-internal steps belong in `apis` or `adrs`, not in a
         // user-flow. (Post-rename, person/agent distinction moved to
         // Collaborator; the engine just enforces principal resolution.)
-        summary:
+        policy:
           "An Action's `actor_id` must resolve to an existing Principal. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
         predicate: {
           kind: "requires_field_resolves_to_principal",
@@ -290,7 +292,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Always-on deterministic (fire on any node lifecycle) ──
       {
         // D1 — Idea and Log have their own homes elsewhere.
-        summary:
+        policy:
           "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a state-machines doco. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
         predicate: {
           kind: "requires_neuron_type",
@@ -313,42 +315,42 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // names, ≥1 initial/terminal — are tracked as descriptive
       // guidance below until a v16-shape evaluator lands.
       {
-        summary:
+        policy:
           "`preceded_by` synapses alternate State ↔ Action — a transition Action is preceded by a State, and a State is preceded by the Action that produced it.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "State `state` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "Terminal States have no successor Action — no Action's `preceded_by` may point at a terminal State.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "A `preceded_by` edge must point at a node in the same machine — a State / Action that has slipped out (or a typo'd id) breaks the chain.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "An active state-machine doco must have ≥1 active State of kind `initial` — every machine starts somewhere.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "An active state-machine doco must have ≥1 active State of kind `terminal`. Perpetual machines (worker loops, services) are the exception.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "Each active initial State has ≥1 successor Action — otherwise the machine starts but never moves.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "Each active intermediate State is the `preceded_by` target of ≥1 active Action — orphan intermediates (typos, dangling refactors) signal a wiring mistake.",
         kind: "guidance",
       },
@@ -358,7 +360,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // against a spec about compensating Actions.
       {
         // P1
-        summary:
+        policy:
           "State `state` reads as a noun or past-participle, not an imperative verb. Acceptable: `paid`, `cart`, `cancelled`. Not: `Pay`, `Cancel`, `Process the order`.",
         predicate: {
           kind: "probabilistic",
@@ -368,7 +370,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P2
-        summary:
+        policy:
           "An Action that transitions between States names the event or command, not the destination state. Acceptable: `checkout submitted`, `payment captured`. Not: `becomes paid`.",
         predicate: {
           kind: "probabilistic",
@@ -378,7 +380,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P3
-        summary:
+        policy:
           "State `invariants` are observable predicates a reader can check — `order.payment.captured = false`, not `the order is happy`.",
         predicate: {
           kind: "probabilistic",
@@ -388,7 +390,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P4
-        summary:
+        policy:
           "The state-machines doco's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
         fires_when_neuron_lifecycle: ["active"],
         predicate: {
@@ -400,7 +402,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // P5 — fires only on Actions that look like compensating /
         // cancellation paths. Happy-path transitions pass.
-        summary:
+        policy:
           "Compensating or cancellation transitions reference a Decision explaining why the path exists — they're the exceptional flow and need their reasoning recorded. Happy-path transitions are exempt.",
         predicate: {
           kind: "probabilistic",
@@ -410,7 +412,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P-regions
-        summary:
+        policy:
           "If a machine has multiple active States of kind `initial`, the Doco's purpose Intent explains why — parallel regions, optional entry points, etc. — so readers don't assume it's a wiring mistake.",
         fires_when_neuron_lifecycle: ["active"],
         predicate: {
@@ -421,7 +423,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P-orphan-transition
-        summary:
+        policy:
           "A transition Action with empty `triggered_by` AND empty `gated_by` is either an explicit immediate transition (the `action` field explains why it fires unconditionally) or an authoring oversight — capture the intent.",
         predicate: {
           kind: "probabilistic",
@@ -432,13 +434,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Descriptive (documentation-only) ──
       {
         // D11 (descriptive, not enforced)
-        summary:
+        policy:
           "Reachability isn't enforced at the framework level. The completeness rules above catch missing wiring on activate (orphan intermediates) — strict reachability (every State reachable from an initial) is a manual review.",
         kind: "guidance",
       },
       {
         // D12 (descriptive)
-        summary:
+        policy:
           "Hierarchical / composite / parallel States are deliberately not modeled in v1. A machine that needs them models the sub-machine as a separate Doco or a clearly linked Intent.",
         kind: "guidance",
       },
@@ -461,7 +463,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // D1 — content-type gate. Evals belong here; policies
         // seeded by this template live alongside them.
-        summary:
+        policy:
           "Only Eval neurons and policies (guidance_policy, neuron_authoring_policy) belong to test. Domain content lives in its own Doco.",
         predicate: {
           kind: "requires_entity_type",
@@ -470,7 +472,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // D2
-        summary:
+        policy:
           "Every Eval declares what it is and how it's graded — `eval` and `criterion` are required from creation.",
         predicate: {
           kind: "requires_field",
@@ -480,7 +482,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // D3
-        summary:
+        policy:
           "Every Eval declares its `kind` (unit, integration, eval, process, doc-consistency). Choosing one frames how reviewers read the criterion and how the runner produces `actual`.",
         predicate: {
           kind: "requires_field",
@@ -490,7 +492,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // D4 — only fires on activate so drafts can be sketched without a target.
-        summary:
+        policy:
           "An active Eval points at the claim it tests via `target_ref`. Drafted Evals can be captured without a target while the test is being shaped.",
         predicate: {
           kind: "requires_field",
@@ -501,7 +503,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // D5 — only fires on activate; drafts can be incomplete.
-        summary:
+        policy:
           "An active Eval ships its reproduction steps in `how_to_run` — the exact command, prompt, URL, or manual procedure. Without it the test can't be re-run.",
         predicate: {
           kind: "requires_field",
@@ -513,7 +515,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Probabilistic style gates ──
       {
         // P1
-        summary:
+        policy:
           "Eval `eval` reads as a checkable property of the system (e.g. `user-email-validation accepts .+@.+ form`), not a serial label (`test 1`, `eval A`, `it works`).",
         predicate: {
           kind: "probabilistic",
@@ -523,7 +525,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P2
-        summary:
+        policy:
           "An Eval tests one property. If `eval` or `criterion.spec` joins multiple independent claims with 'and', it's a split candidate.",
         predicate: {
           kind: "probabilistic",
@@ -533,7 +535,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // P3
-        summary:
+        policy:
           "`exact` and `shape` criteria need a concrete `expected` value, not prose. `llm-judge` criteria put the prose property into `criterion.spec` (or `expected` when more natural) and read crisply enough that two reviewers would reach the same verdict.",
         predicate: {
           kind: "probabilistic",
@@ -544,37 +546,37 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance ──
       {
         kind: "guidance",
-        summary:
+        policy:
           'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafting"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `active` — it\'s now a regression guard.',
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "A regression eval (one written to lock in a bug fix) stays in the doco forever. Removing it requires a Decision linking back to the eval that explains why the guard is no longer needed.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           'To track per-run history (e.g. for flakiness), capture a Log per run with `Log.target` pointing at the Eval, `verb` set to `"passed"` or `"failed"`, and `happened_at` set to the run time. The Eval\'s `last_*` fields are a snapshot of the most recent Log.',
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           'A `last_status: "pass"` from long ago is effectively unknown — re-run before citing it. Project owners pick the freshness threshold; the framework doesn\'t impose one.',
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           'Process and doc-consistency evals are graded by `criterion.kind: "llm-judge"` whose spec describes the procedure or claim to check (e.g. `the agent reads connections.md before posting captures`). The runner produces `actual` from the trace or a human transcript and submits it for judging.',
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a neuron_authoring_policy or guidance_policy when it tests a policy claim, an Action when it tests designed behavior.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "An Eval tests entities in its own doco via `target_ref`. Tests that span multiple docos wait for the imports machinery — the framework doesn't yet resolve cross-doco refs (refs.ts:14-15).",
       },
     ],
@@ -613,7 +615,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // the gate cares about "workflow with steps, actors, outcome",
         // not "this is paid work at a company".
         on_violation: "warn",
-        summary:
+        policy:
           "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.",
         predicate: {
           kind: "probabilistic",
@@ -625,7 +627,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Deterministic node-type allowlist. Logs (recorded executions)
         // live in a sibling Doco and are surfaced here via Reference;
         // Ideas live in their own home until promoted.
-        summary:
+        policy:
           "Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
           kind: "requires_neuron_type",
@@ -644,7 +646,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Intent shape ────────────────────────────────────────────
       {
-        summary:
+        policy:
           "Every Intent in business-processes must declare `actors` — the principals expected to act in this process.",
         predicate: {
           kind: "requires_field",
@@ -655,7 +657,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Stakeholders without an Action of their own surface via a
         // Reference, an Eval, or a Rule that cites them via `gated_by`.
-        summary:
+        policy:
           "Every Intent in business-processes must declare `stakeholders` — the principals with a say in the outcome even if they don't act directly. Stakeholders without an Action surface via Reference, Eval, or a `gated_by` Rule.",
         predicate: {
           kind: "requires_field",
@@ -667,7 +669,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Probabilistic on intent — the trigger, terminal business
         // outcome, and out-of-scope boundary must all be discernible
         // from the Intent's `intent` field.
-        summary:
+        policy:
           "The purpose Intent of a business process names the trigger that starts the process, the terminal business outcome that ends it, and what is explicitly out of scope. Readers should be able to discern all three from the Intent's `intent` field.",
         predicate: {
           kind: "probabilistic",
@@ -678,7 +680,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Action shape & handoffs ─────────────────────────────────
       {
-        summary:
+        policy:
           "Every Action in business-processes must declare the principal who performs the activity in the `actor_id` field.",
         predicate: {
           kind: "requires_field",
@@ -691,7 +693,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Principals representing a role rather than an individual.
         // (Post-rename, person/agent distinction moved to Collaborator;
         // the engine just enforces principal resolution.)
-        summary:
+        policy:
           "An Action's `actor_id` must resolve to an existing Principal. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
         predicate: {
           kind: "requires_field_resolves_to_principal",
@@ -700,7 +702,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Every Action in business-processes must `serves` an Intent. Without it the process renderer can't tie the step to the business outcome it advances.",
         predicate: {
           kind: "requires_synapse",
@@ -710,7 +712,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        summary:
+        policy:
           "Every Action in business-processes must declare its `inputs` — the artifacts it consumes from upstream.",
         predicate: {
           kind: "requires_field",
@@ -721,7 +723,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Producer outputs line up with consumer inputs — the explicit
         // handoff guidance below depends on these being filled in.
-        summary:
+        policy:
           "Every Action in business-processes must declare its `outputs` — the artifacts it hands to downstream Actions. A producer's outputs should line up with the next consumer's inputs.",
         predicate: {
           kind: "requires_field",
@@ -732,7 +734,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Atomic activity prose — reject umbrella phases and
         // implementation chores divorced from business meaning.
-        summary:
+        policy:
           "Action `action` reads as an atomic business activity — a single unit of work an actor performs. Reject vague umbrella phases (`handle request`, `do the thing`) and reject implementation chores divorced from business meaning (`call API`, `update row`).",
         predicate: {
           kind: "probabilistic",
@@ -745,7 +747,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // approvals, signed contracts) — not concrete runtime values.
         // Both empty is fine; mandatory presence is handled by the
         // requires_field rules above.
-        summary:
+        policy:
           "Inputs and outputs are business artifacts (a purchase order, a signed contract, an approved invoice), not concrete runtime values (HTTP 200, row count = 4, a JWT). If both `inputs` and `outputs` are empty the rule above already speaks; otherwise reject concrete policies.",
         predicate: {
           kind: "probabilistic",
@@ -756,7 +758,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Compensation: physical-world / financial side-effect Actions
         // need a documented reversal path.
-        summary:
+        policy:
           "Side-effecting Actions (Actions with a physical-world or financial consequence — money moved, goods shipped, a contract signed) must declare a compensation path. Either `decision_ids` cites a branch into a compensating Action, or `gated_by` cites a reversal Rule.",
         predicate: {
           kind: "probabilistic",
@@ -767,7 +769,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Exception/cancellation Actions — the path itself is exceptional
         // and the rationale needs to be recorded.
-        summary:
+        policy:
           "Exception, cancellation, refund, reject, and escalate Actions must cite their rationale — either `decision_ids` references the Decision that opens the path, or `gated_by` references the Rule that authorizes it.",
         predicate: {
           kind: "probabilistic",
@@ -778,7 +780,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Sub-process invocation — delegate via Intent reference, not
         // by inlining steps from the sub-process here.
-        summary:
+        policy:
           "An Action that delegates to another process should cite the sub-process by its Intent (via `intent_ids`) or via a Reference in its `action` field — never inline the sub-process's steps here.",
         predicate: {
           kind: "probabilistic",
@@ -790,7 +792,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Bounded loops — explicit termination either via a Decision
         // with an exit branch or via a Rule bounding iteration. Both
         // shapes are legitimate; this is permissive.
-        summary:
+        policy:
           "Actions whose verb or action implies retry or iteration must show how the loop terminates — either `decision_ids` cites a Decision with an exit branch, or `gated_by` cites a Rule that bounds iteration (max attempts, deadline, idempotency key).",
         predicate: {
           kind: "probabilistic",
@@ -801,7 +803,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Timer-driven Actions name an anchor and an ISO 8601 offset
         // so a reader can compute when the Action fires.
-        summary:
+        policy:
           "Scheduled or timer-driven Actions must name both an anchor (a State's `entered_at`, an absolute timestamp, or a prior Action's completion) AND an ISO 8601 offset (`PT24H`, `P3D`, `PT15M`) in the `action` field. `nightly` and `every so often` are not anchors.",
         predicate: {
           kind: "probabilistic",
@@ -813,7 +815,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Trust boundaries — org / tenant / external-system crossings
         // are load-bearing; the crossing has to be called out so
         // downstream auth / compliance / SLA discussions can happen.
-        summary:
+        policy:
           "Actions whose counterparty is across an organizational, tenant, or external-system boundary must call out the crossing in the `action` field. Internal-only Actions are exempt.",
         predicate: {
           kind: "probabilistic",
@@ -826,7 +828,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // operator-level granularity ("Onboard customer") with
         // implementation granularity ("Verify VAT checksum") inside one
         // process model.
-        summary:
+        policy:
           "Actions in one business process sit at a consistent level of abstraction. Reject models that mix operator-level Actions (`Onboard customer`) with implementation Actions (`Verify VAT checksum`) — split the lower-level steps into a sub-process.",
         predicate: {
           kind: "probabilistic",
@@ -837,7 +839,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Decision shape ──────────────────────────────────────────
       {
-        summary:
+        policy:
           "Every Decision in business-processes must `serves` an Intent — gateways exist to advance a business outcome and need that link to be explicit.",
         predicate: {
           kind: "requires_synapse",
@@ -850,7 +852,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Exhaustive branches: question reads as yes/no or enumerated,
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
-        summary:
+        policy:
           "Gateway Decisions in business-processes have exhaustive branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` list either includes a default/else branch or names every enum value.",
         predicate: {
           kind: "probabilistic",
@@ -861,7 +863,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Mutually exclusive branches by default; inclusive gateways
         // must opt in explicitly so silent overlap is caught.
-        summary:
+        policy:
           "Decision branches are mutually exclusive by default. Inclusive gateways (where multiple branches can fire together) must be explicit in the `question` or `decision` — otherwise overlapping conditions count as a wiring mistake.",
         predicate: {
           kind: "probabilistic",
@@ -872,7 +874,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // >4 branches is a smell — usually the wrong shape; nesting or
         // a classifier Action upstream usually reads better.
-        summary:
+        policy:
           "A Decision with more than four branches is a smell. Consider nesting Decisions or moving the classification into an upstream Action that emits an explicit category.",
         predicate: {
           kind: "probabilistic",
@@ -893,7 +895,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // matches BPMN convention — when the data is explicit. For
         // an initial State, `preceded_by` should point at the Intent
         // (the process trigger).
-        summary:
+        policy:
           "Every active State must declare a `preceded_by` synapse — for initial States, the process Intent; for intermediate States, the Action or prior State that produced this milestone.",
         predicate: {
           kind: "requires_synapse",
@@ -908,7 +910,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // can't tell which Action leads into the gateway, so the
         // gateway falls to depth 0 and the chronological tiebreaker
         // decides placement — which is rarely the BPMN-correct order.
-        summary:
+        policy:
           "Every active Decision (gateway) must declare a `preceded_by` synapse — the Action or State that leads into the gateway.",
         predicate: {
           kind: "requires_synapse",
@@ -918,39 +920,39 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_neuron_lifecycle: ["active"],
       },
       {
-        summary:
+        policy:
           "State `state` is unique within a business process — duplicate milestone names ambiguate references and hide wiring mistakes.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "An active business process has ≥1 active State of kind `initial` — every process starts somewhere.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "An active business process has ≥1 active State of kind `terminal` — every process has a business outcome (or an explicitly cancelled outcome).",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "Terminal States have no successor Action — no Action's `preceded_by` may point at a terminal milestone.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "Each active initial State has ≥1 successor Action — otherwise the process starts but never moves.",
         kind: "guidance",
       },
       {
-        summary:
+        policy:
           "A `preceded_by` edge must point at a node in the same business-processes Doco — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
         kind: "guidance",
       },
       {
         // State summary as milestone/condition (parallels state-machines
         // P1) — noun or past-participle naming the milestone.
-        summary:
+        policy:
           "State `state` reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`), not an imperative verb naming an Action (`Approve invoice`).",
         predicate: {
           kind: "probabilistic",
@@ -963,7 +965,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // from summary/kind/invariants whether the State is transient
         // (a milestone the process passes through) or steady (a
         // condition the process holds for a span of time).
-        summary:
+        policy:
           "The reader can tell from a State's `state`, `kind`, and `invariants` together whether it is a transient milestone (the process passes through it) or a steady condition (the process holds it for a span of time).",
         predicate: {
           kind: "probabilistic",
@@ -974,7 +976,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Observable invariants — parallels state-machines P3. Vacuously
         // true if invariants is empty.
-        summary:
+        policy:
           "State `invariants` read as observable predicates a reader can check (`invoice.status = approved`, `actor has signed`), not subjective qualities (`the request feels right`). Empty invariants are vacuously fine.",
         predicate: {
           kind: "probabilistic",
@@ -986,7 +988,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Parallel convergence — when a State is the join point of ≥2
         // parallel branches, the join predicate must be named so the
         // reader knows whether it's AND-join, OR-join, or another shape.
-        summary:
+        policy:
           "When a State is the convergence of two or more parallel branches, its `state` names the join predicate (AND-join, OR-join, first-completes, threshold) so the reader knows what triggers entry.",
         predicate: {
           kind: "probabilistic",
@@ -1001,7 +1003,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // actor_id of ≥1 Action serving the Intent. Fires only when
         // the Intent moves to `active` so drafting Intents can be
         // sketched first and have their Actions filled in later.
-        summary:
+        policy:
           "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
@@ -1016,7 +1018,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Eval ────────────────────────────────────────────────────
       {
-        summary:
+        policy:
           "Every Eval in business-processes must declare its `target_ref` — the node whose claim the Eval pins.",
         predicate: {
           kind: "requires_field",
@@ -1028,7 +1030,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Evals must pin a process-critical claim — completeness,
         // handoff, SLA, branch coverage, policy compliance — not a
         // vague "this should work".
-        summary:
+        policy:
           "Evals in business-processes pin a process-critical claim — a completeness check, a handoff invariant, an SLA bound, a branch coverage, or a policy compliance — not a vague `this should work`.",
         predicate: {
           kind: "probabilistic",
@@ -1042,7 +1044,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // References in business-processes must be authoritative
         // (policy doc, regulatory citation, vendor spec, or sibling
         // Doco with recorded runs). Decorative links are rejected.
-        summary:
+        policy:
           "References in business-processes are authoritative — a policy document, a regulatory citation, a vendor specification, or a sibling Doco that records process *instances*. Decorative links (a marketing blog post, an unrelated tweet) belong elsewhere.",
         predicate: {
           kind: "probabilistic",
@@ -1054,47 +1056,47 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance (prose-only) ───────────────────────────────────
       {
         kind: "guidance",
-        summary:
+        policy:
           "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys belong in user-flows; pure state machines in state-machines.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Use one linked Intent per concrete process when the Doco is large. Split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Synapse vocabulary: `preceded_by` for order, `triggered_by` for event causality, `gated_by` for policy guards, `decision_ids` for gateway rationale.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Author the happy path first, then exceptions / compensation / rollback / cancellation / escalation paths — they read most clearly when the normal flow is already in place.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Sub-processes are themselves process Intents — reference them by their Intent, not by inlining their steps into the parent process.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Process *instances* (recorded runs) live in a separate Doco as Logs; surface them here only via References. This template describes the design of the process, not the history of its executions.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Rules in a business-processes Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Make handoffs explicit: a producer Action's `outputs` should line up with the next consumer Action's `inputs`. Implicit shared state hides where work is actually exchanged.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Don't model every click, method call, or DB mutation — only the steps that mean something to a business operator. Implementation detail belongs in `apis` or code Docos, not here.",
       },
     ],
@@ -1124,7 +1126,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Actions, States, Evals, Logs, and Ideas have their own
         // homes; an org chart describes who reports to whom, not
         // what they do.
-        summary:
+        policy:
           "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. Actions describe activities (use business-processes or user-flows); States describe stages (use state-machines); Logs describe events; Ideas live in their own home.",
         predicate: {
           kind: "requires_neuron_type",
@@ -1139,7 +1141,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // body_md prose. Org charts still need the declaration, so
         // this probabilistic policy reads body_md and blocks captures
         // that leave the distinction ambiguous.
-        summary:
+        policy:
           "Every Principal in an org chart must declare whether it's a person or an AI agent in its `body_md` prose. The org-tree perspective infers the distinction from the prose; without an explicit declaration a chart can't tell humans from AI agents.",
         predicate: {
           kind: "probabilistic",
@@ -1159,7 +1161,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // API now accepts `reports_to` on POST and PATCH, so wiring
         // the manager is a single-call operation.)
         on_violation: "warn",
-        summary:
+        policy:
           "Every active Principal in an org chart should declare a `reports_to` synapse — the Principal they report to. Drafting members can be captured before their manager exists; the warning fires when they activate. Top-of-chain members (no manager) must explain why in body_md — see the next rule.",
         predicate: {
           kind: "requires_synapse",
@@ -1177,7 +1179,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // the user-flows / business-processes convention. Stakeholders
         // (people interested in the unit's outcomes without being on
         // the team) optionally go in `stakeholders`.
-        summary:
+        policy:
           "Every Intent in an org chart must declare `actors` — the Principals who are members of this team or unit.",
         predicate: {
           kind: "requires_field",
@@ -1192,7 +1194,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // or as serial labels (`person-1`, `member-a`) instead of as
         // role slugs (`coo`, `engineering-lead`, `code-review-agent`,
         // `kitchen`).
-        summary:
+        policy:
           "Principal `name` reads as a role, title, or team name slug — `coo`, `engineering-lead`, `code-review-agent`, `kitchen` — not a verb (`approve-budget`) or a serial label (`person-1`, `member-a`, `tbd`).",
         predicate: {
           kind: "probabilistic",
@@ -1208,7 +1210,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // construction, and the strict reports_to rule above already
         // catches active Principals that should have a manager.
         on_violation: "warn",
-        summary:
+        policy:
           "A Principal with no `reports_to` synapse is the top of a reporting chain. Its `body_md` should explain why — board-reporting, founder, root agent, external authority. Without the note, readers can't tell whether the missing edge is intentional or an authoring oversight.",
         predicate: {
           kind: "probabilistic",
@@ -1220,42 +1222,42 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance (prose-only) ───────────────────────────────────
       {
         kind: "guidance",
-        summary:
+        policy:
           "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in business-processes or user-flows Docos linked via Reference.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "`reports_to` chains must not be circular. A cycle (A reports to B, B reports to C, C reports to A) usually means a refactor in progress; resolve it before activating the affected Principals. The framework evaluator can't check this yet — it's a manual review.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "AI-agent Principals that act on a human's behalf should declare that human via prose in `body_md` (`Operates under: @alice`), or via a `delegated_by` Decision linking the human Principal to the agent Principal. Autonomous agents (no human owner) state that explicitly so readers know the accountability stops at the agent.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Capture reorgs, hires, departures, and role changes as Decisions, and link the affected Principals via `decision_ids`. Org charts churn; without Decisions, the history of WHY a reporting line moved is lost.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Use Intents to model teams, departments, and org units. The Intent's `intent` field names the unit's mandate; `actors` lists the member Principals; `stakeholders` lists the people who care about the unit's outcomes without being on the team.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Model load-bearing roles and recurring positions — not every contractor, intern, or one-day visitor. If a seat would be empty in three months, it probably belongs in a sibling Doco or a Reference rather than as a Principal here.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal whose `body_md` describes an AI agent (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any Collaborator has signed in as it. A Principal whose `body_md` describes a human is a person, even if that human has no Doco account.",
       },
       {
         kind: "guidance",
-        summary:
+        policy:
           "When an AI-agent role is replaced by a human (or vice-versa), retire the old Principal and create a new one with `body_md` describing the new occupant. Person-vs-agent is part of the role's identity in this Doco — flipping it via a body_md edit on the same Principal erases the history of the seat's prior occupant.",
       },
     ],

@@ -132,7 +132,7 @@ describe("org-chart template", () => {
     const specs = template.policies
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.policies.map((r) => r.summary);
+    const summaries = template.policies.map((r) => r.policy);
     const haystack = [...specs, ...summaries].join("\n");
 
     it("Principal `name` slug reads as a role or title", () => {
@@ -168,7 +168,7 @@ describe("org-chart template", () => {
 
   describe("guidance rules", () => {
     const guidance = template.policies.filter((r) => r.kind === "guidance" && !r.predicate);
-    const summaries = guidance.map((r) => r.summary);
+    const summaries = guidance.map((r) => r.policy);
 
     it("`reports_to` chains must not be circular (engine can't check yet)", () => {
       expect(summaries.some((s) => /reports_to/i.test(s) && /circular|cycle/i.test(s))).toBe(true);

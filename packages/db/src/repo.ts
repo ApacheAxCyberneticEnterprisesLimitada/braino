@@ -248,18 +248,19 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       const cleanedFields = stripPromotedKeys(rec.entity_type, fields);
       const dataJson = JSON.stringify(cleanedFields);
       await c.query(
-        `INSERT INTO principals (id, name, doco_id, summary, lifecycle, body_md, role_principal, data,
+        // `summary` column dropped by migration 037. Principal carries
+        // `name` (immutable slug) + `body_md` (everything else).
+        `INSERT INTO principals (id, name, doco_id, lifecycle, body_md, role_principal, data,
                                   created_at, created_by, updated_at, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11,$12)
+         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,
-           doco_id=EXCLUDED.doco_id, summary=EXCLUDED.summary, lifecycle=EXCLUDED.lifecycle,
+           doco_id=EXCLUDED.doco_id, lifecycle=EXCLUDED.lifecycle,
            body_md=EXCLUDED.body_md, role_principal=EXCLUDED.role_principal, data=EXCLUDED.data,
            updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
         [
           rec.id,
           name,
           rec.doco_id || null,
-          rec.summary ?? null,
           lifecycleCol,
           rec.body_md ?? null,
           rolePrincipal,

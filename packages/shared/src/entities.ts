@@ -109,8 +109,15 @@ export interface Collaborator {
  * `Intent.stakeholders[]`. Slimmed from the pre-rename Principal which
  * also held OAuth identity; that concern is now `Collaborator`.
  */
-export interface Principal extends SummarizedFields {
+// Principal carries `name` (immutable slug) + `body_md` (everything
+// else); the `summary` one-liner was dropped by migration 037 because
+// it duplicated body_md prose without adding signal. Extends
+// CommonFields rather than SummarizedFields for that reason — same
+// pattern the 9 migrated neuron types (Intent, Decision, …) use.
+export interface Principal extends CommonFields {
   neuron_type: "principal";
+  /** Markdown body — the canonical narrative for the Principal. */
+  body_md?: string;
   /** Role label / slug. e.g. "system", "customer-service-rep", "cook". The
    *  immutable identity field for a Principal; other neurons and prose
    *  reference Principals by this slug. */
@@ -273,13 +280,27 @@ export interface Rule extends CommonFields {
 }
 
 // ─── Policies ─────────────────────────────────────────────────────────────
+//
+// Policies carry a type-named prose column (`policy`) — the one-line
+// rule statement — instead of the legacy `summary`. Renamed by
+// migration 038 so the surface matches the 9 migrated neuron types
+// (intent / decision / rule / action / log / eval / state / idea /
+// reference) which each carry their own type-named column.
 
-export interface GuidancePolicy extends SummarizedFields {
+export interface GuidancePolicy extends CommonFields {
   policy_kind: "guidance";
+  /** The one-line guidance statement. */
+  policy: string;
+  /** Optional long-form rationale. */
+  body_md?: string;
 }
 
-export interface NeuronAuthoringPolicy extends SummarizedFields {
+export interface NeuronAuthoringPolicy extends CommonFields {
   policy_kind: "neuron_authoring";
+  /** The one-line rule statement that describes the check. */
+  policy: string;
+  /** Optional long-form rationale. */
+  body_md?: string;
   evaluation_kind: "deterministic" | "probabilistic";
   predicate: AuthoringPredicate;
   fires_when_neuron_lifecycle?: Lifecycle[];
