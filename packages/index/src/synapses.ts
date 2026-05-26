@@ -67,6 +67,13 @@ function handleObject(
   obj: Record<string, unknown>,
   emit: (field: string, target: unknown, props?: Record<string, unknown>) => void,
 ): void {
+  // BPMN sequence flow: { target, label?, condition?, kind? }.
+  // Stored direction is exactly rendered direction: this node -> target.
+  if (parentField === "sequence_to" && typeof obj.target === "string") {
+    const { target, ...props } = obj;
+    emit("sequence_to", target, props);
+    return;
+  }
   // Reasoning.premises[]: { entity_type, ref, as }
   if (typeof obj.ref === "string" && parentField === "premises") {
     emit("premise", obj.ref, { as: obj.as });
@@ -152,6 +159,9 @@ export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   // matches `triggered_by`'s passive voice so the direction is obvious
   // from the name: `X.preceded_by = [Y]` ⇒ Y precedes X.
   preceded_by: "preceded_by",
+  // BPMN-native forward sequence flow. `X.sequence_to = [Y]` means X
+  // flows to Y and renders as X -> Y, with no visual direction flip.
+  sequence_to: "sequence_flow",
   // EVO points at the entity it tests. The runner uses this edge to walk
   // from any node to its evals (and vice-versa for the eval page).
   target_ref: "tests",

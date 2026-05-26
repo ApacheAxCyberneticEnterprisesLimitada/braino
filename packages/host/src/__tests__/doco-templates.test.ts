@@ -100,6 +100,9 @@ describe("business-processes template", () => {
     it("Decision serves Intent", () => {
       expect(requiresEdge("serves", "intent", "decision")).toBeDefined();
     });
+    it("State serves Intent", () => {
+      expect(requiresEdge("serves", "intent", "state")).toBeDefined();
+    });
   });
 
   describe("actor_id principal resolution", () => {
@@ -163,13 +166,16 @@ describe("business-processes template", () => {
         true,
       );
     });
-    it("Terminal States have no successor Action is documented", () => {
+    it("Terminal States have no outgoing sequence flow is documented", () => {
       expect(
-        guidanceSummaries.some((s) => /terminal/i.test(s) && /successor|no.*preceded_by/i.test(s)),
+        guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*sequence_to/i.test(s)),
       ).toBe(true);
     });
-    it("`preceded_by` locality is documented", () => {
-      expect(guidanceSummaries.some((s) => /preceded_by.*same/i.test(s))).toBe(true);
+    it("`sequence_to` locality is documented", () => {
+      expect(guidanceSummaries.some((s) => /sequence_to.*same process Intent/i.test(s))).toBe(true);
+    });
+    it("forward sequence reachability is documented", () => {
+      expect(guidanceSummaries.some((s) => /forward `sequence_to`/i.test(s))).toBe(true);
     });
   });
 
@@ -237,6 +243,11 @@ describe("business-processes template", () => {
       expect(
         summaries.some((s) => /handoff/i.test(s) && /outputs/i.test(s) && /inputs/i.test(s)),
       ).toBe(true);
+    });
+    it("BPMN sequence flow is forward-only and rendered without reversal", () => {
+      expect(summaries.some((s) => /sequence_to/i.test(s) && /source -> target/i.test(s))).toBe(
+        true,
+      );
     });
   });
 

@@ -634,13 +634,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Repeatable business processes modeled on BPMN swimlanes and
-    // gateways. The framework policies the
-    // rules use overlap with the state-machines template (State + drafting
-    // lifecycle + defaultNeuronLifecycle), but the template reaches further:
-    // Action/Decision/Intent shape rules push authors toward business
-    // outcomes, named gateways, and explicit handoffs. Aggregate checks
-    // that the evaluator cannot express yet ship as guidance, mirroring
-    // the same fallback in state-machines.
+    // gateways. Sequence flow is explicit and forward-only via
+    // `sequence_to`, which materializes as `sequence_flow`; generic Doco
+    // dependency / rationale synapses remain associations and are not
+    // treated as BPMN arrows.
     name: "business-processes",
     label: "business-processes",
     icon: "🏭",
@@ -823,13 +820,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        // Compensation: physical-world / financial side-effect Actions
-        // need a documented reversal path.
         policy:
-          "Side-effecting Actions (Actions with a physical-world or financial consequence — money moved, goods shipped, a contract signed) must declare a compensation path. Either `decision_ids` cites a branch into a compensating Action, or `gated_by` cites a reversal Rule.",
+          "Side-effecting Actions (Actions with a physical-world or financial consequence — money moved, goods shipped, a contract signed) should have an explicit compensation or exception path in `sequence_to`, usually guarded by a Decision or a `gated_by` Rule.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action has a physical-world or financial side effect (money moved, goods shipped, a contract signed, an email sent to a counterparty). Look at the `verb`, `action`, and `outputs` for words like `ship`, `pay`, `charge`, `sign`, `send`, `dispatch`, `disburse`, `commit`. If the Action has no such side effect, this rule PASSES. STEP 2 — only if the Action IS side-effecting, check that EITHER `decision_ids` is non-empty (citing a Decision that branches to a compensating Action) OR `gated_by` is non-empty (citing a reversal Rule). FAIL with reason if both are empty.",
+          spec: "STEP 1 — decide whether this Action has a physical-world or financial side effect (money moved, goods shipped, a contract signed, an email sent to a counterparty). Look at the `verb`, `action`, and `outputs` for words like `ship`, `pay`, `charge`, `sign`, `send`, `dispatch`, `disburse`, `commit`. If the Action has no such side effect, this rule PASSES. STEP 2 — only if the Action IS side-effecting, check that the modeled process names a compensation or exception path: preferably a `sequence_to` branch to a compensating Action / Decision, or a `gated_by` Rule that authorizes reversal. FAIL with reason if neither shape is visible.",
           when_neuron_type: ["action"],
         },
       },
@@ -837,10 +832,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Exception/cancellation Actions — the path itself is exceptional
         // and the rationale needs to be recorded.
         policy:
-          "Exception, cancellation, refund, reject, and escalate Actions must cite their rationale — either `decision_ids` references the Decision that opens the path, or `gated_by` references the Rule that authorizes it.",
+          "Exception, cancellation, refund, reject, and escalate Actions should be reached by explicit `sequence_to` flow from the gateway or activity that opens that path, and should cite any authorizing Rule through `gated_by`.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action is a cancellation, refund, reject, escalate, abort, or otherwise-exceptional path. Look at the `verb` and `action` for words like `cancel`, `refund`, `reject`, `escalate`, `abort`, `void`, `dispute`, `deny`. If the Action is a normal happy-path activity, this rule PASSES. STEP 2 — only if the Action IS an exception/cancellation path, check that EITHER `decision_ids` OR `gated_by` is non-empty. FAIL with reason if both are empty.",
+          spec: "STEP 1 — decide whether this Action is a cancellation, refund, reject, escalate, abort, or otherwise-exceptional path. Look at the `verb` and `action` for words like `cancel`, `refund`, `reject`, `escalate`, `abort`, `void`, `dispute`, `deny`. If the Action is a normal happy-path activity, this rule PASSES. STEP 2 — only if the Action IS an exception/cancellation path, check that the flow can be reached through explicit `sequence_to` from an upstream gateway/activity, or that `gated_by` cites a Rule authorizing it. FAIL with reason if the path appears orphaned.",
           when_neuron_type: ["action"],
         },
       },
@@ -856,14 +851,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        // Bounded loops — explicit termination either via a Decision
-        // with an exit branch or via a Rule bounding iteration. Both
-        // shapes are legitimate; this is permissive.
         policy:
-          "Actions whose verb or action implies retry or iteration must show how the loop terminates — either `decision_ids` cites a Decision with an exit branch, or `gated_by` cites a Rule that bounds iteration (max attempts, deadline, idempotency key).",
+          "Actions whose verb or action implies retry or iteration must show how the loop terminates — usually through a forward `sequence_to` edge to a Decision with an exit branch, plus any `gated_by` Rule that bounds iteration.",
         predicate: {
           kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action's `verb` or `action` implies a retry or loop (words like `retry`, `poll`, `keep checking`, `until`, `each time`, `recur`). If not, this rule PASSES. STEP 2 — only if the Action loops, check that EITHER `decision_ids` includes a Decision with an exit/give-up branch OR `gated_by` includes a Rule that bounds the iteration. Both shapes are legitimate. FAIL with reason if neither shape is present.",
+          spec: "STEP 1 — decide whether this Action's `verb` or `action` implies a retry or loop (words like `retry`, `poll`, `keep checking`, `until`, `each time`, `recur`). If not, this rule PASSES. STEP 2 — only if the Action loops, check that the outgoing `sequence_to` flow reaches a Decision or State that names the exit/give-up condition, or that `gated_by` includes a Rule that bounds the iteration. FAIL with reason if neither shape is present.",
           when_neuron_type: ["action"],
         },
       },
@@ -907,7 +899,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Decision shape ──────────────────────────────────────────
       {
         policy:
-          "Every Decision in business-processes must `serves` an Intent — gateways exist to advance a business outcome and need that link to be explicit.",
+          "Every Decision in business-processes must `serves` an Intent — gateways belong to a concrete process/pool and need that link to be explicit.",
         predicate: {
           kind: "requires_synapse",
           synapse_type: "serves",
@@ -916,14 +908,24 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
+        policy:
+          "Every State in business-processes must `serves` an Intent — milestones and events belong to a concrete process/pool and need that link to be explicit.",
+        predicate: {
+          kind: "requires_synapse",
+          synapse_type: "serves",
+          target_neuron_type: "intent",
+          when_neuron_type: ["state"],
+        },
+      },
+      {
         // Exhaustive branches: question reads as yes/no or enumerated,
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
         policy:
-          "Gateway Decisions in business-processes have exhaustive branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` list either includes a default/else branch or names every enum value.",
+          "Gateway Decisions in business-processes have exhaustive outgoing branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` plus `sequence_to` branch labels either include a default/else branch or name every enum value.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Decision's `question` and `alternatives`. PASS when the question reads as yes/no or an enumeration, AND the alternatives either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
+          spec: "Check the Decision's `question`, `alternatives`, and any `sequence_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_neuron_type: ["decision"],
         },
       },
@@ -931,10 +933,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Mutually exclusive branches by default; inclusive gateways
         // must opt in explicitly so silent overlap is caught.
         policy:
-          "Decision branches are mutually exclusive by default. Inclusive gateways (where multiple branches can fire together) must be explicit in the `question` or `decision` — otherwise overlapping conditions count as a wiring mistake.",
+          "Decision branches are mutually exclusive by default. Inclusive or parallel gateways must be explicit in the `question`, `decision`, or outgoing `sequence_to` metadata — otherwise overlapping conditions count as a wiring mistake.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Decision's `alternatives`. PASS when the branches are visibly mutually exclusive OR the `question` or `decision` explicitly marks the gateway as inclusive (e.g. `select all that apply`, `inclusive gateway`). FAIL with reason if conditions on multiple branches could plausibly be true at once and inclusivity isn't declared.",
+          spec: "Check the Decision's `alternatives` and outgoing `sequence_to` branch labels/conditions. PASS when the branches are visibly mutually exclusive OR the `question`, `decision`, or sequence metadata explicitly marks the gateway as inclusive/parallel (e.g. `select all that apply`, `inclusive gateway`, `parallel gateway`). FAIL with reason if conditions on multiple branches could plausibly be true at once and inclusivity isn't declared.",
           when_neuron_type: ["decision"],
         },
       },
@@ -950,42 +952,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
 
-      // ── State shape & wiring ───────────────────────────────────
-      // v16 (decision_01KS3DW9C2KN2X7Z80R18H1RAX) removed the
-      // Aggregate checks that originally expressed the next six wiring
-      // rules ship as guidance until the evaluator can express them
-      // directly — matching the same accommodation in state-machines.
-      {
-        // Sequence-flow completeness: every State must say what it
-        // comes after. The BPMN renderer falls back to BFS-from-Intent
-        // when this is missing, but the layout reads cleaner — and
-        // matches BPMN convention — when the data is explicit. For
-        // an initial State, `preceded_by` should point at the Intent
-        // (the process trigger).
-        policy:
-          "Every active State must declare a `preceded_by` synapse — for initial States, the process Intent; for intermediate States, the Action or prior State that produced this milestone.",
-        predicate: {
-          kind: "requires_synapse",
-          synapse_type: "preceded_by",
-          when_neuron_type: ["state"],
-        },
-        fires_when_neuron_lifecycle: ["active"],
-      },
-      {
-        // Same idea for Decisions (gateways): every gateway must
-        // declare what precedes it. Without this the BPMN canvas
-        // can't tell which Action leads into the gateway, so the
-        // gateway falls to depth 0 and the chronological tiebreaker
-        // decides placement — which is rarely the BPMN-correct order.
-        policy:
-          "Every active Decision (gateway) must declare a `preceded_by` synapse — the Action or State that leads into the gateway.",
-        predicate: {
-          kind: "requires_synapse",
-          synapse_type: "preceded_by",
-          when_neuron_type: ["decision"],
-        },
-        fires_when_neuron_lifecycle: ["active"],
-      },
+      // ── State shape & sequence wiring ───────────────────────────
       {
         policy:
           "State `state` is unique within a business process — duplicate milestone names ambiguate references and hide wiring mistakes.",
@@ -1002,18 +969,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
       },
       {
-        policy:
-          "Terminal States have no successor Action — no Action's `preceded_by` may point at a terminal milestone.",
+        policy: "Terminal States have no outgoing `sequence_to` flow — they end the process path.",
         kind: "guidance",
       },
       {
         policy:
-          "Each active initial State has ≥1 successor Action — otherwise the process starts but never moves.",
+          "Each active initial State has at least one outgoing `sequence_to` target — otherwise the process starts but never moves.",
         kind: "guidance",
       },
       {
         policy:
-          "A `preceded_by` edge must point at a node in the same business-processes Doco — a State or Action that has slipped out (or a typo'd id) breaks the chain.",
+          "Every `sequence_to` target should be a flow node in the same process Intent. Use branch labels or conditions on `sequence_to` objects for gateway edges.",
+        kind: "guidance",
+      },
+      {
+        policy:
+          "Every non-initial flow node should be reachable from an earlier flow node through forward `sequence_to`; every non-terminal flow node should have at least one outgoing `sequence_to` target.",
         kind: "guidance",
       },
       {
@@ -1134,7 +1105,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Synapse vocabulary: `preceded_by` for order, `triggered_by` for event causality, `gated_by` for policy guards, `decision_ids` for gateway rationale.",
+          "BPMN vocabulary: use `sequence_to` for forward process flow; it materializes as `sequence_flow` and renders source -> target with no reversal. Use `intent_ids`/`serves` for pool membership, `gated_by` for policy guards, and `decision_ids` only for rationale/provenance associations.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "`sequence_to` may be a list of target ids or objects like `{ target, label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
       },
       {
         kind: "guidance",

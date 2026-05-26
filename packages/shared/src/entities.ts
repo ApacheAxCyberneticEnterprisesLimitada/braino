@@ -27,6 +27,13 @@ export type Lifecycle = "drafting" | "proposed" | "active" | "retired";
 
 export type Outcome = "succeeded" | "failed";
 
+export interface SequenceFlowTarget {
+  target: EntityId;
+  label?: string;
+  condition?: string;
+  kind?: "default" | "conditional" | "exception" | "timer";
+}
+
 /**
  * Common fields present on every neuron + policy entity (D-006,
  * D-007). The per-category discriminator (`neuron_type` /
@@ -45,8 +52,16 @@ export interface CommonFields {
   outcome?: Outcome;
   born_from?: EntityId;
   superseded_by?: EntityId | null;
-  /** Ordering / dependency. Each listed entity precedes this one. */
+  /**
+   * Legacy ordering / dependency. Each listed entity precedes this one.
+   * BPMN processes should use `sequence_to` for forward sequence flow.
+   */
   preceded_by?: EntityId[];
+  /**
+   * BPMN-native forward sequence flow. Each listed target happens after
+   * this entity; object entries can carry branch labels / conditions.
+   */
+  sequence_to?: (EntityId | SequenceFlowTarget)[];
 }
 
 /** Common fields for readable claim entities that carry a one-line summary. */
@@ -423,6 +438,7 @@ export interface State extends CommonFields {
   /** Full prose: state description, invariants explained. */
   state: string;
   kind: StateKind;
+  intent_ids?: EntityId<"intent">[];
   invariants?: string[];
 }
 
