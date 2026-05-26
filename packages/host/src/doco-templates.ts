@@ -449,14 +449,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Executable tests inspired by TDD and AI evals. Each Eval pins one
     // checkable claim about a Decision, Policy, Action, or other
-    // load-bearing neuron; the template seeds the policies
-    // policies that govern how those Evals are authored. Opt-in
-    // (not auto-installed) — projects that want test add it explicitly.
+    // load-bearing neuron; the template seeds the policies that govern
+    // how those Evals are authored. Opt-in (not auto-installed) —
+    // projects that want test add it explicitly.
     name: "test",
     label: "Tests",
     icon: "🧪",
     description:
-      "Executable tests pinning load-bearing claims in the doco. Each Eval names a checkable property, declares a criterion, and points at the entity it tests. Inspired by TDD and AI evals.",
+      "Executable tests and AI evals pin load-bearing claims in the doco. Each Eval names one checkable property, declares a criterion, and points at the entity it tests.",
     defaultNeuronLifecycle: "drafting",
     policies: [
       // ── Deterministic structural gates ──
@@ -543,6 +543,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Inspect the Eval's `criterion.kind` and `expected`. If criterion.kind is `exact` or `shape`, `expected` MUST be a concrete value or shape (number, string, object, array) — prose like 'the user is signed in' FAILS. If criterion.kind is `llm-judge`, the prose property lives in `criterion.spec` (or `expected` when more natural) and reads crisply enough that two reviewers would reach the same verdict. Vague or subjective specs (`the output is good`) FAIL.",
         },
       },
+      {
+        // P4 — only fires once the Eval is meant to be runnable.
+        policy:
+          "An active Eval's `how_to_run` is reproducible without hidden context: it names the command, prompt, URL, or manual procedure plus any required fixture or environment.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["eval"],
+          spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, prompt, URL, or manual procedure, plus any required fixture, input, account, environment, or setup needed to produce `actual`. FAIL when it is vague (`run the tests`, `ask the agent`, `manual QA`) or depends on unstated context.",
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
       // ── Guidance ──
       {
         kind: "guidance",
@@ -568,6 +579,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
         policy:
           'Process and doc-consistency evals are graded by `criterion.kind: "llm-judge"` whose spec describes the procedure or claim to check (e.g. `the agent reads connections.md before posting captures`). The runner produces `actual` from the trace or a human transcript and submits it for judging.',
+      },
+      {
+        kind: "guidance",
+        policy:
+          "When a repo-native automated test exists or can reasonably exist, the Eval's `how_to_run` points at that command or file. The Doco Eval is the durable claim and audit trail, not a replacement for executable test code.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Large fixtures, golden files, screenshots, and transcripts live as References or repo artifacts. Keep Eval `input`, `expected`, and `actual` small enough to review inline.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "`exact` and `shape` are preferred for deterministic checks; reserve `llm-judge` for semantic behavior, process traces, and documentation consistency where a structural comparison would hide the real question.",
       },
       {
         kind: "guidance",
