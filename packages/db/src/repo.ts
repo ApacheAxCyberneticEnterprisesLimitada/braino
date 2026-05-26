@@ -252,7 +252,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       const dataJson = JSON.stringify(cleanedFields);
       await c.query(
         // `summary` column dropped by migration 037. Principal carries
-        // `name` (immutable slug) + `body_md` (everything else).
+        // `name` (display label) + `body_md` (everything else).
         `INSERT INTO principals (id, name, doco_id, lifecycle, body_md, role_principal, data,
                                   created_at, created_by, updated_at, updated_by)
          VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)
@@ -631,7 +631,11 @@ export async function getPrincipalByName(
 ): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, name, doco_id, data FROM principals WHERE name = $1 AND doco_id = $2",
+      `SELECT id, name, doco_id, data
+       FROM principals
+       WHERE name = $1 AND doco_id = $2
+       ORDER BY created_at, id
+       LIMIT 1`,
       [name, docoId],
     );
     if (r.rowCount === 0) return null;
@@ -648,7 +652,7 @@ export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
       `SELECT id, name, doco_id, data
        FROM principals
        WHERE doco_id = $1
-       ORDER BY name`,
+       ORDER BY name, created_at, id`,
       [docoId],
     );
     return r.rows.map(mapPrincipalRow);

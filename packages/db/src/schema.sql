@@ -84,20 +84,21 @@ CREATE INDEX IF NOT EXISTS collaborators_kind_idx          ON collaborators (kin
 
 CREATE TABLE IF NOT EXISTS principals (
   id              text PRIMARY KEY,            -- principal_<ulid>
-  -- Principals are Doco-scoped (migration 020). The FK + NOT NULL +
-  -- UNIQUE(doco_id, name) are added by 020 after the docos table
-  -- exists; declared nullable here only so the schema baseline parses
-  -- before docos is created later in this file.
+  -- Principals are Doco-scoped (migration 020). The FK + NOT NULL are
+  -- added by 020 after the docos table exists; declared nullable here
+  -- only so the schema baseline parses before docos is created later in
+  -- this file. Names are descriptive labels, not unique keys.
   doco_id         text,
-  name            text NOT NULL,                -- role label (e.g. "system",
-                                                -- "customer-service-rep")
+  name            text NOT NULL,                -- display label (e.g. "System",
+                                                -- "Customer service rep")
   lifecycle       text,
   -- Prose body. Carries the entire Principal narrative after the
   -- slim-down — the `summary` one-liner column was dropped by
   -- migration 037 (per "Principal should not use summary").
   body_md         text,
-  -- Reserved role-principal flag (set for user/human/doco-host/github).
-  -- Promoted out of `data` jsonb by migration 035.
+  -- Legacy role-principal flag. Promoted out of `data` jsonb by
+  -- migration 035; new Principal creation no longer sets this from
+  -- reserved names.
   role_principal  boolean NOT NULL DEFAULT false,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),

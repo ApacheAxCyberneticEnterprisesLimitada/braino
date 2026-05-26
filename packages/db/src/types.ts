@@ -14,7 +14,7 @@
  *
  * `body` reflects whether the table physically has a `body_md`
  * column. For the 9 migrated neurons it is false (prose lives in the
- * type-named column). Principal still carries summary + body_md.
+ * type-named column). Principal still carries name + body_md.
  */
 export const NEURON_TABLES: Record<
   string,

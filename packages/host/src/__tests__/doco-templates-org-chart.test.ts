@@ -135,16 +135,16 @@ describe("org-chart template", () => {
     const summaries = template.policies.map((r) => r.policy);
     const haystack = [...specs, ...summaries].join("\n");
 
-    it("Principal `name` slug reads as a role or title", () => {
-      // Post-slim-down the style gate runs against the immutable
-      // `name` slug, not a separate `display_name` field.
-      const styleGate = template.policies.find(
+    it("does not impose a slug-like style gate on Principal names", () => {
+      const nameStyleGate = template.policies.find(
         (r) =>
           r.predicate?.kind === "probabilistic" &&
           r.predicate.when_neuron_type?.includes("principal") &&
-          r.predicate.spec.includes("`name`"),
+          r.predicate.spec.includes("`name`") &&
+          /slug|role, title|serial|placeholder/i.test(r.predicate.spec),
       );
-      expect(styleGate).toBeDefined();
+      expect(nameStyleGate).toBeUndefined();
+      expect(haystack).not.toMatch(/Principal(?:'s)? `name`[^\n]*slug/i);
     });
 
     it("top-of-chain Principal explains the missing reports_to in body_md", () => {

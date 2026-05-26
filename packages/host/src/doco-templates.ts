@@ -1190,19 +1190,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Probabilistic style gates ──────────────────────────────
       {
-        // Reject Principal names that read as verbs (`approve-budget`)
-        // or as serial labels (`person-1`, `member-a`) instead of as
-        // role slugs (`coo`, `engineering-lead`, `code-review-agent`,
-        // `kitchen`).
-        policy:
-          "Principal `name` reads as a role, title, or team name slug — `coo`, `engineering-lead`, `code-review-agent`, `kitchen` — not a verb (`approve-budget`) or a serial label (`person-1`, `member-a`, `tbd`).",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["principal"],
-          spec: "Check ONLY the Principal's `name` slug. PASS when it reads as a role, title, position, or team name (`coo`, `engineering-lead`, `code-review-agent`, `kitchen`, `customer-success`). FAIL with reason if it reads as a verb naming an action (`approve-budget`, `review-code`), or as a serial / placeholder label (`person-1`, `member-a`, `tbd`, `unassigned`).",
-        },
-      },
-      {
         // Top of the chain — the one Principal with no `reports_to`
         // explains why in body_md. Founder, board-reporting CEO,
         // root agent, etc. Warn (not block) — drafting graphs may

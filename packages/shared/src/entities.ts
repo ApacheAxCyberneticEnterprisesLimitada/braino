@@ -109,7 +109,7 @@ export interface Collaborator {
  * `Intent.stakeholders[]`. Slimmed from the pre-rename Principal which
  * also held OAuth identity; that concern is now `Collaborator`.
  */
-// Principal carries `name` (immutable slug) + `body_md` (everything
+// Principal carries `name` (display label) + `body_md` (everything
 // else); the `summary` one-liner was dropped by migration 037 because
 // it duplicated body_md prose without adding signal. Extends
 // CommonFields rather than SummarizedFields for that reason — same
@@ -118,16 +118,12 @@ export interface Principal extends CommonFields {
   neuron_type: "principal";
   /** Markdown body — the canonical narrative for the Principal. */
   body_md?: string;
-  /** Role label / slug. e.g. "system", "customer-service-rep", "cook". The
-   *  immutable identity field for a Principal; other neurons and prose
-   *  reference Principals by this slug. */
+  /** Display label for the Principal. Other neurons reference Principals
+   *  by id; duplicate names are allowed. */
   name: string;
   /**
-   * True for the four reserved role-principal names (`user`, `human`,
-   * `doco-host`, `github`). Set by the principals POST route and
-   * promoted to its own column by migration 035; the org-tree
-   * perspective uses it to omit role principals from the rendered
-   * chart.
+   * Legacy flag promoted to its own column by migration 035. New
+   * Principal creation no longer derives it from reserved names.
    */
   role_principal?: boolean;
   /**

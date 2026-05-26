@@ -119,7 +119,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       //
       // Non-migrated entities still split a one-line headline into the
       // FTS A-weight column. Post-rename the source field is type-
-      // specific: principals use `name` (slug) and policies use
+      // specific: principals use `name` (display label) and policies use
       // `policy` (rule statement, renamed from `summary` in 038).
       const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
       let summary: string | null;
