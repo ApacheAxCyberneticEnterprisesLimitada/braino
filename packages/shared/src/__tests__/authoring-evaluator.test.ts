@@ -10,7 +10,7 @@ import {
 function P(predicate: LoadedPolicy["predicate"], extras: Partial<LoadedPolicy> = {}): LoadedPolicy {
   return {
     policy_id: extras.policy_id ?? "neuron_authoring_policy_test",
-    summary: extras.summary ?? "test policy",
+    policy: extras.policy ?? "test policy",
     predicate,
     ...(extras.on_violation ? { on_violation: extras.on_violation } : {}),
     ...(extras.fires_when_neuron_lifecycle
@@ -90,6 +90,91 @@ describe("authoring evaluator — forbids_field", () => {
       P({ kind: "forbids_field", fields: ["actor_id"], when_neuron_type: ["intent"] }),
     ]);
     expect(v).toHaveLength(1);
+  });
+});
+
+describe("authoring evaluator — unique_field", () => {
+  it("passes when no active neuron has the same field value", () => {
+    const v = evaluate(
+      { id: "decision_02", neuron_type: "decision", chosen: "Activation key" },
+      [
+        P({
+          kind: "unique_field",
+          field: "chosen",
+          case_fold: true,
+          when_neuron_type: ["decision"],
+        }),
+      ],
+      {
+        population: [
+          { id: "decision_01", neuron_type: "decision", chosen: "Invite code" },
+          { id: "action_01", neuron_type: "action", chosen: "Activation key" },
+        ],
+      },
+    );
+    expect(v).toEqual([]);
+  });
+
+  it("fails when an active same-type neuron has the same field value after case folding", () => {
+    const v = evaluate(
+      { id: "decision_02", neuron_type: "decision", chosen: "Activation Key" },
+      [
+        P({
+          kind: "unique_field",
+          field: "chosen",
+          case_fold: true,
+          when_neuron_type: ["decision"],
+        }),
+      ],
+      {
+        population: [{ id: "decision_01", neuron_type: "decision", chosen: " activation key " }],
+      },
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]?.predicate_kind).toBe("unique_field");
+    expect(v[0]?.reason).toMatch(/chosen/);
+    expect(v[0]?.reason).toMatch(/decision_01/);
+  });
+
+  it("does not case-fold unless requested", () => {
+    const v = evaluate(
+      { id: "decision_02", neuron_type: "decision", chosen: "Activation Key" },
+      [
+        P({
+          kind: "unique_field",
+          field: "chosen",
+          when_neuron_type: ["decision"],
+        }),
+      ],
+      {
+        population: [{ id: "decision_01", neuron_type: "decision", chosen: "activation key" }],
+      },
+    );
+    expect(v).toEqual([]);
+  });
+
+  it("ignores retired duplicates and empty candidate values", () => {
+    const policy = P({
+      kind: "unique_field",
+      field: "chosen",
+      case_fold: true,
+      when_neuron_type: ["decision"],
+    });
+    expect(
+      evaluate({ id: "decision_02", neuron_type: "decision", chosen: "Activation key" }, [policy], {
+        population: [
+          {
+            id: "decision_01",
+            neuron_type: "decision",
+            chosen: "activation key",
+            lifecycle: "retired",
+          },
+        ],
+      }),
+    ).toEqual([]);
+    expect(evaluate({ id: "decision_03", neuron_type: "decision", chosen: " " }, [policy])).toEqual(
+      [],
+    );
   });
 });
 

@@ -241,6 +241,7 @@ export type AuthoringPredicate =
     }
   | { kind: "requires_field"; fields: string[]; when_neuron_type?: NeuronType[] }
   | { kind: "forbids_field"; fields: string[]; when_neuron_type?: NeuronType[] }
+  | { kind: "unique_field"; field: string; case_fold?: boolean; when_neuron_type?: NeuronType[] }
   | { kind: "requires_neuron_type"; neuron_types: NeuronType[] }
   /**
    * Like `requires_neuron_type` but accepts any entity type, including

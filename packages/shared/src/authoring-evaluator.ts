@@ -14,7 +14,7 @@
  *
  * Predicate kinds handled:
  *   - requires_synapse, forbids_synapse
- *   - requires_field, forbids_field
+ *   - requires_field, forbids_field, unique_field
  *   - requires_neuron_type, requires_entity_type
  *   - requires_field_resolves_to_principal
  *   - graph-completeness
@@ -117,6 +117,7 @@ const NEURON_TYPE_PREDICATE_KINDS: ReadonlySet<AuthoringPredicate["kind"]> = new
   "forbids_synapse",
   "requires_field",
   "forbids_field",
+  "unique_field",
   "probabilistic",
   "graph-completeness",
   "requires_field_resolves_to_principal",
@@ -134,6 +135,14 @@ function isNonEmpty(value: unknown): boolean {
 function entityTypeFromId(id: string): string {
   const i = id.lastIndexOf("_");
   return i <= 0 ? "" : id.slice(0, i);
+}
+
+function comparableFieldValue(value: unknown, caseFold: boolean): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const normalized = trimmed.normalize("NFKC");
+  return caseFold ? normalized.toLowerCase() : normalized;
 }
 
 /**
@@ -216,6 +225,23 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       const present = pred.fields.filter((f) => isNonEmpty(candidate[f]));
       if (present.length === 0) return null;
       return fail(`carries forbidden field(s): ${present.map((m) => `\`${m}\``).join(", ")}`);
+    }
+    case "unique_field": {
+      const candidateValue = comparableFieldValue(candidate[pred.field], Boolean(pred.case_fold));
+      if (candidateValue === null) return null;
+      const duplicate = opts.population.find((n) => {
+        if (n.id === candidate.id || n.lifecycle === "retired") return false;
+        const when = pred.when_neuron_type;
+        if (when && when.length > 0) {
+          if (!n.neuron_type || !when.includes(n.neuron_type)) return false;
+        }
+        return comparableFieldValue(n[pred.field], Boolean(pred.case_fold)) === candidateValue;
+      });
+      if (!duplicate) return null;
+      const rawValue = candidate[pred.field];
+      const original = typeof rawValue === "string" ? rawValue.trim() : "";
+      const value = original ? ` value \`${original}\`` : "";
+      return fail(`\`${pred.field}\`${value} duplicates active ${duplicate.id}`);
     }
     case "requires_neuron_type": {
       const ct = candidate.neuron_type;
