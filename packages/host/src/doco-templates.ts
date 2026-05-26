@@ -635,6 +635,143 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     ],
   },
   {
+    // Glossaries define product and domain language. Each active term
+    // entry is a Decision: `question` names the concept, `chosen` is the
+    // canonical term, and `decision` holds the definition, scope, and
+    // examples. List is the natural authoring surface for terminology.
+    name: "glossaries",
+    label: "Glossaries",
+    icon: "📚",
+    description:
+      "Document product and domain terminology — canonical terms, definitions, aliases, deprecated wording, sources, and consistency checks.",
+    defaultNeuronLifecycle: "drafting",
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership ──────────────────────────────────────────────
+      {
+        on_violation: "warn",
+        policy:
+          "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. Feature work, process flows, org charts, and runtime events belong elsewhere.",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. PASS for term entries, glossary scope, terminology usage rules, references to source glossaries/specs/docs, and evals that scan terminology consistency. FAIL for feature implementation work, process flows, org charts, runtime incidents, or state-machine stages.",
+          when_neuron_type: ["intent", "decision", "rule", "reference", "eval"],
+        },
+      },
+      {
+        policy:
+          "Only Intent, Decision, Rule, Reference, Eval, and policies belong in glossaries. Actions, Logs, States, Ideas, and Principals have their own homes.",
+        predicate: {
+          kind: "requires_entity_type",
+          entity_types: [
+            "intent",
+            "decision",
+            "rule",
+            "reference",
+            "eval",
+            "guidance_policy",
+            "neuron_authoring_policy",
+          ],
+        },
+      },
+
+      // ── Term entry Decisions ───────────────────────────────────
+      {
+        policy:
+          "Every active glossary Decision declares `question`, `chosen`, and `decided_by`: the concept question, canonical term, and principal who owns the terminology choice.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["question", "chosen", "decided_by"],
+          when_neuron_type: ["decision"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "Active glossary Decisions must have a unique canonical term in `chosen`, compared case-insensitively.",
+        predicate: {
+          kind: "unique_field",
+          field: "chosen",
+          case_fold: true,
+          when_neuron_type: ["decision"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "A glossary Decision defines one concept. Split entries that define multiple independent terms or concepts.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["decision"],
+          spec: "Read the Decision's `question`, `chosen`, and `decision` prose. PASS when the entry defines one concept or one canonical term. FAIL with a reason when it defines multiple independent terms, bundles a term with an unrelated policy, or uses one entry as a catch-all for several concepts.",
+        },
+      },
+      {
+        policy:
+          "An active glossary Decision's `decision` prose includes a concise definition, product/domain scope, and at least one example or non-example.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["decision"],
+          spec: "Read the Decision's `decision` prose. PASS when it includes (1) a concise definition, (2) the product or domain scope where the term applies, and (3) at least one concrete example or non-example. FAIL with which element is missing when the prose is too vague for a reader to use the term consistently.",
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "Acronyms and abbreviations in glossary entries spell out the expanded form and state when the short form is acceptable.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["decision"],
+          spec: "Inspect the Decision's `chosen` term and `decision` prose. PASS when acronyms or abbreviations are expanded at least once and the prose states whether the short form is acceptable in product/docs/UI copy. If there are no acronyms or abbreviations, PASS. FAIL when a short form appears without expansion or usage guidance.",
+        },
+      },
+
+      // ── Eval shape ─────────────────────────────────────────────
+      {
+        policy:
+          "Every active glossary Eval declares `target_ref` and `how_to_run` so terminology consistency checks can be rerun.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["target_ref", "how_to_run"],
+          when_neuron_type: ["eval"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "An active glossary Eval's `how_to_run` names a concrete command, query, URL, or review procedure plus any scope needed to reproduce the terminology check.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["eval"],
+          spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, search query, URL, script, or manual review procedure, plus the doc/code/product scope to inspect. FAIL when it is vague (`review docs`, `check terminology`) or depends on unstated context.",
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+
+      // ── Guidance ───────────────────────────────────────────────
+      {
+        kind: "guidance",
+        policy:
+          "When rejected, deprecated, misleading, synonymous, or historical terms exist, record them in `alternatives`; otherwise omit `alternatives` rather than inventing filler.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Borrowed, standards-based, or industry terms cite a Reference when possible. Product-internal terms state that they are product-specific so readers don't mistake them for external standards.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Retired glossary Decisions point at the replacement term via `superseded_by` when one exists, and keep the deprecated term visible so readers understand old docs, tickets, or UI copy.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Use Rules for terminology usage policies, such as banned words, capitalization conventions, UI copy constraints, or when two related terms must not be used interchangeably.",
+      },
+    ],
+  },
+  {
     // Repeatable business processes modeled on BPMN swimlanes and
     // gateways. Sequence flow is explicit and forward-only via
     // `sequence_to`, which materializes as `sequence_flow`; generic Doco
@@ -1279,8 +1416,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  * Lookup a template by name. Returns undefined for unknown names.
  *
  * Templates are stored under plain handles (`global`, `important`,
- * `user-flows`, `state-machines`, `test`, `business-processes`,
- * `org-chart`).
+ * `user-flows`, `state-machines`, `test`, `glossaries`,
+ * `business-processes`, `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);
