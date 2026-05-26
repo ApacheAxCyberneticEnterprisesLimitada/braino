@@ -23,22 +23,18 @@ describe("buildTemplatePerspectiveSeeds", () => {
   it("keeps extra perspective defaults after graph and list", () => {
     expect(
       buildTemplatePerspectiveSeeds({
-        perspectives: [{ slug: "bpmn", isDefault: true }],
+        perspectives: [{ slug: "sla", isDefault: true }],
       }),
     ).toEqual([
       { slug: "graph", perspectiveId: "perspective_graph", position: 0, isDefault: false },
       { slug: "list", perspectiveId: "perspective_list", position: 1, isDefault: false },
-      { slug: "bpmn", position: 2, isDefault: true },
+      { slug: "sla", position: 2, isDefault: true },
     ]);
   });
 
   it("does not duplicate built-in perspectives when they are declared by slug", () => {
     const seeds = buildTemplatePerspectiveSeeds({
-      perspectives: [
-        { slug: "list", isDefault: true },
-        { slug: "graph" },
-        { slug: "bpmn" },
-      ],
+      perspectives: [{ slug: "list", isDefault: true }, { slug: "graph" }, { slug: "bpmn" }],
     });
 
     expect(seeds.map((s) => s.slug)).toEqual(["graph", "list", "bpmn"]);

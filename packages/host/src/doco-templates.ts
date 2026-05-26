@@ -772,6 +772,227 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     ],
   },
   {
+    // Service-level agreements are agreement/control-plane Docos, not
+    // event ledgers. The template models commitments as Rules; Evals
+    // describe reproducible verification snapshots; References point to
+    // contracts, dashboards, reports, and vendor SLAs; Actions model the
+    // breach / claim playbook. The custom SLA perspective renders that
+    // register directly.
+    name: "slas",
+    label: "SLAs",
+    icon: "📜",
+    description:
+      "Document service-level agreements — commitments, owners, measurement rules, evidence links, exclusions, remedies, and review history.",
+    defaultNeuronLifecycle: "drafting",
+    perspectives: [{ slug: "sla", isDefault: true }],
+    policies: [
+      // ── Membership ──────────────────────────────────────────────
+      {
+        on_violation: "warn",
+        policy:
+          "A node belongs in SLAs when it defines a service commitment, names a party or owner, cites a contract/dashboard/report/provider SLA, verifies a commitment, records an approval/change, or describes the breach/claim response. Raw service-delivery events and telemetry streams belong in source systems or a sibling evidence Doco.",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in SLAs when it defines a service commitment, owner/party, evidence source, verification method, approval/change history, or breach/claim response for a service-level agreement. PASS for SLA clauses, source documents, dashboards/reports, owner roles, verification Evals, change Decisions, and response Actions. FAIL for raw uptime samples, ticket cycles, incident timelines, implementation tasks unrelated to the agreement, or generic observability data.",
+          when_neuron_type: [
+            "intent",
+            "rule",
+            "eval",
+            "reference",
+            "decision",
+            "action",
+            "principal",
+          ],
+        },
+      },
+      {
+        policy:
+          "Only Intent, Rule, Eval, Reference, Decision, Action, Principal, and policies belong in SLAs. Logs, Ideas, and States live elsewhere: the SLA Doco records the agreement and evidence pointers, not raw delivery history.",
+        predicate: {
+          kind: "requires_entity_type",
+          entity_types: [
+            "intent",
+            "rule",
+            "eval",
+            "reference",
+            "decision",
+            "action",
+            "principal",
+            "guidance_policy",
+            "neuron_authoring_policy",
+          ],
+        },
+      },
+
+      // ── Agreement scope ────────────────────────────────────────
+      {
+        policy:
+          "Every active SLA Intent declares `actors` and `stakeholders`: provider roles, customer or business parties, and the owners who care about the outcome.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["actors", "stakeholders"],
+          when_neuron_type: ["intent"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "The purpose Intent for an SLA names the covered service, covered customer or user group, effective period, and review cadence.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["intent"],
+          spec: "Read the Intent's `intent` prose. PASS when it names (1) the covered service, (2) the covered customer/user/business group, (3) the effective period or start date, and (4) the review cadence. FAIL with which element is missing.",
+        },
+      },
+
+      // ── Commitment Rules ───────────────────────────────────────
+      {
+        policy:
+          "Every active SLA Rule declares `owner_id`, `metric`, `target`, `measurement_window`, and `source_ref`. These are the agreement register fields the SLA perspective needs to make a commitment auditable.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["owner_id", "metric", "target", "measurement_window", "source_ref"],
+          when_neuron_type: ["rule"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "An SLA Rule's `owner_id` must resolve to an existing Principal accountable for the commitment.",
+        predicate: {
+          kind: "requires_field_resolves_to_principal",
+          field: "owner_id",
+          when_neuron_type: ["rule"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "An active SLA Rule's `source_ref` points at the authoritative Reference for the clause, dashboard, report, or provider SLA.",
+        predicate: {
+          kind: "requires_synapse",
+          synapse_type: "source_ref",
+          target_neuron_type: "reference",
+          when_neuron_type: ["rule"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "SLA targets are fully defined: numerator, denominator, eligible population, timezone/calendar, rounding, and planned-maintenance treatment are clear enough for two reviewers to calculate the same result.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["rule"],
+          spec: "Read the Rule's `rule` prose plus `metric`, `target`, `measurement_window`, and any supporting fields. PASS when numerator, denominator, eligible population/scope, timezone or calendar, rounding/threshold treatment, and planned-maintenance handling are clear enough for two reviewers to calculate the same result. FAIL with the missing pieces.",
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "Customer-facing SLA Rules state exclusions, prerequisites/customer obligations, and remedies or claim procedure. Internal SLO/OLA Rules may explicitly say no customer remedy applies.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["rule"],
+          spec: "Read the Rule. PASS when customer-facing commitments state exclusions, prerequisites/customer obligations, and remedy/claim procedure (service credits, caps, deadline, evidence required) OR when an internal SLO/OLA explicitly says no customer remedy applies. FAIL when the target is documented but exclusions or remedies are missing or ambiguous.",
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "No SLA target is 100% unless a Decision records why the project accepts no error budget and what operational or commercial consequence follows.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["rule"],
+          spec: "If the Rule's `target` or prose says 100%, five nines with no error budget, or otherwise zero allowed failure, PASS only when the Rule cites a Decision via `born_from` or prose explaining why no error budget is acceptable and what consequence follows. If the target is below 100%, PASS.",
+        },
+      },
+
+      // ── Verification and evidence ──────────────────────────────
+      {
+        policy:
+          "Every active SLA Eval declares `target_ref` and `how_to_run` so the commitment can be verified without hidden context.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["target_ref", "how_to_run"],
+          when_neuron_type: ["eval"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "Every active SLA Eval tests a Rule via `target_ref`; Evals verify agreement clauses, they are not free-floating monitoring notes.",
+        predicate: {
+          kind: "requires_synapse",
+          synapse_type: "tests",
+          target_neuron_type: "rule",
+          when_neuron_type: ["eval"],
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "SLA Eval `how_to_run` points at the authoritative measurement source and states the exact query, dashboard, report, or manual procedure plus numerator, denominator, window, and rounding.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["eval"],
+          spec: "Read the Eval's `how_to_run`, `criterion`, and `expected`. PASS when it names the measurement source and a concrete rerun path: exact query, dashboard/report URL, command, or manual procedure, plus numerator, denominator, measurement window, and rounding/threshold treatment. FAIL when it says only `check dashboard`, `look at reports`, or otherwise depends on hidden context.",
+        },
+        fires_when_neuron_lifecycle: ["active"],
+      },
+      {
+        policy:
+          "SLA References are authoritative sources: contracts, order forms, policy documents, dashboards, compliance reports, vendor SLAs, or sibling evidence Docos.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["reference"],
+          spec: "Read the Reference's `reference`, `ref_type`, and `locator`. PASS when it points to an authoritative SLA source: contract/order form, policy document, dashboard, compliance report, vendor SLA, ticket/reporting system, or sibling Doco for evidence history. FAIL for decorative links, generic explainers, or unrelated docs.",
+        },
+      },
+
+      // ── Change and response ────────────────────────────────────
+      {
+        policy:
+          "Decisions that change active SLA commitments cite the affected Rules via `rules_consulted` and record approver, rationale, effective date, alternatives, and notice or migration plan.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["decision"],
+          spec: "Read the Decision. PASS when a change to active SLA commitments cites affected Rules via `rules_consulted` or prose, names the approver, rationale, effective date, alternatives considered, and any customer notice/migration plan. PASS for Decisions unrelated to SLA changes. FAIL when an SLA change is approved without those elements.",
+        },
+      },
+      {
+        policy:
+          "Breach, escalation, or claim-response Actions declare `actor_id`, cite the relevant SLA Rule through `gated_by`, and describe the customer/internal communication path.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["action"],
+          spec: "STEP 1 - decide whether the Action is a breach, escalation, claim, credit, notice, remediation, or review response. If not, PASS. STEP 2 - for response Actions, PASS when `actor_id` is set, `gated_by` cites the relevant SLA Rule, and the `action` prose describes who is notified or what communication path is used. FAIL with what is missing.",
+        },
+      },
+
+      // ── Guidance ───────────────────────────────────────────────
+      {
+        kind: "guidance",
+        policy:
+          "Do not store raw service-delivery events, uptime samples, or ticket-cycle history in the SLA Doco. Keep the source of truth in monitoring/support/billing/contract systems and link to those systems with References or Evals.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Model public/contractual SLAs and internal SLOs/OLAs in the same register, but mark the distinction in the Rule prose or fields so readers know whether customer remedies apply.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "When an SLA depends on a third-party provider, cite the provider's SLA as a Reference and record the assumption explicitly; do not multiply provider percentages into a fake composite commitment without a Decision.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Review active SLA Rules on a fixed cadence. Retiring or weakening a commitment requires a Decision that explains the replacement, customer notice, and why the old promise no longer applies.",
+      },
+    ],
+  },
+  {
     // Repeatable business processes modeled on BPMN swimlanes and
     // gateways. Sequence flow is explicit and forward-only via
     // `sequence_to`, which materializes as `sequence_flow`; generic Doco
@@ -1416,7 +1637,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  * Lookup a template by name. Returns undefined for unknown names.
  *
  * Templates are stored under plain handles (`global`, `important`,
- * `user-flows`, `state-machines`, `test`, `glossaries`,
+ * `user-flows`, `state-machines`, `test`, `glossaries`, `slas`,
  * `business-processes`, `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
