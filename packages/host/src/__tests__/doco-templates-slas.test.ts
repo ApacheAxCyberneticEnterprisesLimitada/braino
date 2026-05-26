@@ -79,6 +79,14 @@ describe("slas template", () => {
     expect(sourceRef?.predicate?.kind).toBe("requires_synapse");
   });
 
+  it("treats the 100% target rationale policy as an active-only warning", () => {
+    const noErrorBudget = template.policies.find((r) => /No SLA target is 100%/.test(r.policy));
+
+    expect(noErrorBudget?.predicate?.kind).toBe("probabilistic");
+    expect(noErrorBudget?.fires_when_neuron_lifecycle).toEqual(["active"]);
+    expect(noErrorBudget?.on_violation).toBe("warn");
+  });
+
   it("requires active SLA Evals to point at Rules and be reproducible", () => {
     const evalFields = template.policies.find(
       (r) =>

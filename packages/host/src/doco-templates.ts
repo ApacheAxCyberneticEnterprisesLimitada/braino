@@ -898,6 +898,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_neuron_lifecycle: ["active"],
       },
       {
+        on_violation: "warn",
         policy:
           "No SLA target is 100% unless a Decision records why the project accepts no error budget and what operational or commercial consequence follows.",
         predicate: {
@@ -905,6 +906,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["rule"],
           spec: "If the Rule's `target` or prose says 100%, five nines with no error budget, or otherwise zero allowed failure, PASS only when the Rule cites a Decision via `born_from` or prose explaining why no error budget is acceptable and what consequence follows. If the target is below 100%, PASS.",
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
 
       // ── Verification and evidence ──────────────────────────────
