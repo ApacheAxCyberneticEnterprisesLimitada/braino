@@ -1166,24 +1166,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
 
-      // ── Hierarchy: every Principal except the root reports to someone ──
+      // ── Hierarchy: every Principal either reports up or explains root ──
       {
         // `reports_to` is a Principal→Principal synapse that forms the
-        // org tree. Fires only on `active` so drafting members can be
-        // captured before their manager exists. Soft `warn`, not block —
-        // the probabilistic top-of-chain check below governs the
-        // legitimate "no manager" case via body_md, so this rule just
-        // nudges authors toward filling in the edge. (The principals
-        // API now accepts `reports_to` on POST and PATCH, so wiring
-        // the manager is a single-call operation.)
+        // org tree. This uses a single probabilistic warning rather
+        // than a deterministic `requires_synapse` predicate because a
+        // valid root Principal (CEO/founder/root agent/external
+        // authority) should not receive an unavoidable "missing
+        // reports_to" warning once its body_md explains the absence.
         on_violation: "warn",
         policy:
-          "Every active Principal in an org chart should declare a `reports_to` synapse — the Principal they report to. Drafting members can be captured before their manager exists; the warning fires when they activate. Top-of-chain members (no manager) must explain why in body_md — see the next rule.",
+          "Every active Principal in an org chart either declares `reports_to` (the Principal they report to) or explains in `body_md` why it is top-of-chain (founder, board-reporting, root agent, external authority).",
         predicate: {
-          kind: "requires_synapse",
-          synapse_type: "reports_to",
-          target_neuron_type: "principal",
+          kind: "probabilistic",
           when_neuron_type: ["principal"],
+          spec: "Read the Principal candidate. PASS if `reports_to` is a non-empty Principal id. Otherwise, PASS only if `body_md` explains why this Principal has no manager above it (founder, board-reporting, root agent, external authority, etc.). FAIL with reason when an active Principal has no `reports_to` and `body_md` does not explain the missing reporting edge.",
         },
         fires_when_neuron_lifecycle: ["active"],
       },
@@ -1201,24 +1198,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           kind: "requires_field",
           fields: ["actors"],
           when_neuron_type: ["intent"],
-        },
-      },
-
-      // ── Probabilistic style gates ──────────────────────────────
-      {
-        // Top of the chain — the one Principal with no `reports_to`
-        // explains why in body_md. Founder, board-reporting CEO,
-        // root agent, etc. Warn (not block) — drafting graphs may
-        // legitimately have many root-shaped Principals during
-        // construction, and the strict reports_to rule above already
-        // catches active Principals that should have a manager.
-        on_violation: "warn",
-        policy:
-          "A Principal with no `reports_to` synapse is the top of a reporting chain. Its `body_md` should explain why — board-reporting, founder, root agent, external authority. Without the note, readers can't tell whether the missing edge is intentional or an authoring oversight.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["principal"],
-          spec: "STEP 1 — decide whether this Principal sits at the top of a reporting chain (no outgoing `reports_to` synapse). The capture context provides outgoing synapse types; if `reports_to` is among them, this rule PASSES. STEP 2 — only if there is no `reports_to`, check that `body_md` explains the absence (founder, board-reporting, root agent, external authority, etc.). FAIL with reason if `body_md` is empty or says nothing about the missing edge.",
         },
       },
 

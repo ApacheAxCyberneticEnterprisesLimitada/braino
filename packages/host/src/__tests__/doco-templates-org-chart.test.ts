@@ -88,28 +88,36 @@ describe("org-chart template", () => {
   });
 
   describe("hierarchy — reports_to", () => {
-    const rule = template.policies.find(
+    const deterministicRule = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_synapse" &&
         r.predicate.synapse_type === "reports_to" &&
         r.predicate.when_neuron_type?.includes("principal"),
     );
+    const rule = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_neuron_type?.includes("principal") &&
+        /reports_to/i.test(r.predicate.spec) &&
+        /top-of-chain/i.test(r.policy),
+    );
 
-    it("every active Principal should have a `reports_to` synapse to another Principal", () => {
-      expect(rule?.predicate?.kind).toBe("requires_synapse");
-      if (rule?.predicate?.kind !== "requires_synapse") return;
-      expect(rule.predicate.synapse_type).toBe("reports_to");
-      expect(rule.predicate.target_neuron_type).toBe("principal");
+    it("does not use a deterministic `requires_synapse` rule that would warn legitimate roots", () => {
+      expect(deterministicRule).toBeUndefined();
+    });
+
+    it("every active Principal either has `reports_to` or explains why it is top-of-chain", () => {
+      expect(rule).toBeDefined();
+      expect(rule?.predicate?.kind).toBe("probabilistic");
+      expect(rule?.policy).toMatch(/either declares `reports_to`/);
+      expect(rule?.policy).toMatch(/top-of-chain/);
     });
 
     it("fires only on `active` — drafting members can be captured before their manager exists", () => {
       expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
     });
 
-    it("warns rather than blocks — synapses are wired separately, so a hard block would force two-step capture", () => {
-      // The probabilistic top-of-chain check (next describe block) is
-      // the proper gate for the legitimate "no manager" case; this
-      // rule is a nudge, not a wall.
+    it("warns rather than blocks while the author is shaping the org", () => {
       expect(rule?.on_violation).toBe("warn");
     });
   });
@@ -152,12 +160,10 @@ describe("org-chart template", () => {
         (r) =>
           r.predicate?.kind === "probabilistic" &&
           r.predicate.when_neuron_type?.includes("principal") &&
-          /top of (a |the )?reporting chain/i.test(r.predicate.spec),
+          /top-of-chain/i.test(r.policy) &&
+          /no manager above/i.test(r.predicate.spec),
       );
       expect(topGate).toBeDefined();
-      // Soft warn rather than hard block — the active-Principal
-      // reports_to requirement above catches missing edges that
-      // should exist; this one prompts the root to justify itself.
       expect(topGate?.on_violation).toBe("warn");
     });
 
