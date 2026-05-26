@@ -13,6 +13,51 @@ const HANDLE_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
 export const RESERVED_HANDLES = HOST_RESERVED_SLUGS;
 
+const BUILTIN_PERSPECTIVE_ATTACHMENTS = [
+  { slug: "graph", perspectiveId: "perspective_graph", position: 0 },
+  { slug: "list", perspectiveId: "perspective_list", position: 1 },
+] as const;
+
+export interface TemplatePerspectiveSeed {
+  slug: string;
+  perspectiveId?: string;
+  position: number;
+  isDefault: boolean;
+}
+
+export function buildTemplatePerspectiveSeeds(
+  template: Pick<DocoTemplate, "perspectives"> | null | undefined,
+): TemplatePerspectiveSeed[] {
+  const declared = template?.perspectives ?? [];
+  const defaultSlug = declared.find((p) => p.isDefault)?.slug ?? "graph";
+  const seen = new Set<string>();
+  const seeds: TemplatePerspectiveSeed[] = [];
+
+  for (const builtin of BUILTIN_PERSPECTIVE_ATTACHMENTS) {
+    seen.add(builtin.slug);
+    seeds.push({
+      slug: builtin.slug,
+      perspectiveId: builtin.perspectiveId,
+      position: builtin.position,
+      isDefault: defaultSlug === builtin.slug,
+    });
+  }
+
+  let position = BUILTIN_PERSPECTIVE_ATTACHMENTS.length;
+  for (const entry of declared) {
+    if (seen.has(entry.slug)) continue;
+    seen.add(entry.slug);
+    seeds.push({
+      slug: entry.slug,
+      position,
+      isDefault: defaultSlug === entry.slug,
+    });
+    position += 1;
+  }
+
+  return seeds;
+}
+
 function assertPublicHandleAllowed(handle: string, kind: "collaborator" | "organization"): void {
   if (!HANDLE_PATTERN.test(handle)) {
     throw new Error(`Invalid ${kind} handle "${handle}" — expected lowercase [a-z0-9][a-z0-9_-]*.`);
@@ -384,37 +429,38 @@ export async function createDocoInOrg(opts: {
       }
     }
 
-    const extraPerspectives = template?.perspectives ?? [];
-    const templateDefault = extraPerspectives.find((p) => p.isDefault) ?? null;
-    const graphIsDefault = !templateDefault;
-    await c.query(
-      `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
-            VALUES ($1, 'perspective_graph', 0, $2, $3, $4)
-       ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
-      [docoId, graphIsDefault, created, opts.createdByCollaboratorId],
-    );
-    await c.query(
-      `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
-            VALUES ($1, 'perspective_list', 1, false, $2, $3)
-       ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
-      [docoId, created, opts.createdByCollaboratorId],
-    );
-    let position = 2;
-    for (const entry of extraPerspectives) {
-      const { rows: pRows } = await c.query<{ id: string }>(
-        "SELECT id FROM perspectives WHERE slug = $1",
-        [entry.slug],
-      );
-      const perspectiveId = pRows[0]?.id;
+    let insertedDefaultPerspective = false;
+    for (const entry of buildTemplatePerspectiveSeeds(template)) {
+      const perspectiveId =
+        entry.perspectiveId ??
+        (
+          await c.query<{ id: string }>("SELECT id FROM perspectives WHERE slug = $1", [
+            entry.slug,
+          ])
+        ).rows[0]?.id;
       if (!perspectiveId) continue;
-      const isDefault = templateDefault?.slug === entry.slug;
+      if (entry.isDefault) insertedDefaultPerspective = true;
       await c.query(
         `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
               VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
-        [docoId, perspectiveId, position, isDefault, created, opts.createdByCollaboratorId],
+        [
+          docoId,
+          perspectiveId,
+          entry.position,
+          entry.isDefault,
+          created,
+          opts.createdByCollaboratorId,
+        ],
       );
-      position += 1;
+    }
+    if (!insertedDefaultPerspective) {
+      await c.query(
+        `UPDATE doco_perspectives
+            SET is_default = true
+          WHERE doco_id = $1 AND perspective_id = 'perspective_graph'`,
+        [docoId],
+      );
     }
 
     return { docoId, orgId: opts.orgId, orgHandle, handle, goal };

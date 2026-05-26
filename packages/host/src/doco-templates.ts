@@ -70,7 +70,9 @@ export interface TemplatePerspectiveAttachment {
    * Slug of a perspective in the `perspectives` table. The host
    * resolves the slug at template-application time, so a template
    * referencing a slug that no longer exists silently skips it
-   * rather than failing the whole Doco creation.
+   * rather than failing the whole Doco creation. Built-in `graph`
+   * and `list` may be referenced to make either built-in the default
+   * without duplicating its tab.
    */
   slug: string;
   /**
