@@ -554,6 +554,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
         fires_when_neuron_lifecycle: ["active"],
       },
+      {
+        // P5
+        policy:
+          "An Eval has a recognizable test oracle: the `criterion` / `expected` pair says what evidence is observed, what it is compared against, and what counts as pass/fail.",
+        predicate: {
+          kind: "probabilistic",
+          when_neuron_type: ["eval"],
+          spec: "Inspect the Eval's `criterion` and `expected`. PASS when the oracle is recognizable: it names the actual evidence to observe, the expected value or property to compare against, and the pass/fail boundary. For `exact` and `shape`, a concrete `expected` value can carry the oracle if it is clear what `actual` is compared to. For `llm-judge`, `criterion.spec` must name the evidence and the decision boundary. FAIL vague or circular criteria like `works`, `matches requirements`, `is good`, or restatements of the Eval label without observable evidence.",
+        },
+      },
       // ── Guidance ──
       {
         kind: "guidance",
@@ -568,7 +578,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
+          "Treat this as a test-pyramid rule: prefer the smallest effective check. Use a unit or integration Eval when deterministic behavior answers the question; reserve process, doc-consistency, and `llm-judge` Evals for behavior that cannot be recognized by a smaller structural or executable test.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Given/When/Then or Arrange/Act/Assert phrasing is welcome when it clarifies setup, action, and expectation, but keep one behavior per Eval.",
+      },
+      {
+        kind: "guidance",
+        policy:
           'To track per-run history (e.g. for flakiness), capture a Log per run with `Log.target` pointing at the Eval, `verb` set to `"passed"` or `"failed"`, and `happened_at` set to the run time. The Eval\'s `last_*` fields are a snapshot of the most recent Log.',
+      },
+      {
+        kind: "guidance",
+        policy:
+          "A flaky Eval is not green. Record every outcome as a Log, stabilize the runner/data/environment before relying on it, or retire the Eval with a Decision that explains why the signal is no longer useful.",
       },
       {
         kind: "guidance",

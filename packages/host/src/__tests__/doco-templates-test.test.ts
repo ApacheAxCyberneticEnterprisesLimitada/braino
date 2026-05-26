@@ -116,6 +116,22 @@ describe("test template", () => {
       expect(rule.predicate.spec).toMatch(/concrete rerun path/i);
       expect(rule.predicate.spec).toMatch(/vague/i);
     });
+
+    it("requires a recognizable test oracle", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          r.predicate.when_neuron_type?.includes("eval") &&
+          /test oracle/i.test(r.policy),
+      );
+      expect(rule).toBeDefined();
+      expect(rule?.predicate?.kind).toBe("probabilistic");
+      if (rule?.predicate?.kind !== "probabilistic") return;
+      expect(rule.predicate.spec).toMatch(/evidence/i);
+      expect(rule.predicate.spec).toMatch(/actual/i);
+      expect(rule.predicate.spec).toMatch(/pass\/fail boundary/i);
+      expect(rule.predicate.spec).toMatch(/works|matches requirements/i);
+    });
   });
 
   describe("guidance rules", () => {
@@ -133,9 +149,28 @@ describe("test template", () => {
       expect(haystack).toMatch(/Removing it requires a Decision/i);
     });
 
+    it("prefers the smallest effective check in the test pyramid", () => {
+      expect(haystack).toMatch(/test-pyramid/i);
+      expect(haystack).toMatch(/smallest effective check/i);
+      expect(haystack).toMatch(/unit or integration Eval/i);
+      expect(haystack).toMatch(/llm-judge/i);
+    });
+
+    it("allows BDD or AAA phrasing without bundling multiple behaviors", () => {
+      expect(haystack).toMatch(/Given\/When\/Then/i);
+      expect(haystack).toMatch(/Arrange\/Act\/Assert/i);
+      expect(haystack).toMatch(/one behavior per Eval/i);
+    });
+
     it("models run history as Logs and treats stale passes as unknown", () => {
       expect(haystack).toMatch(/Log per run/i);
       expect(haystack).toMatch(/stale|long ago|re-run/i);
+    });
+
+    it("does not normalize flaky evals as green", () => {
+      expect(haystack).toMatch(/flaky Eval is not green/i);
+      expect(haystack).toMatch(/Record every outcome as a Log/i);
+      expect(haystack).toMatch(/retire the Eval with a Decision/i);
     });
 
     it("prefers repo-native automated tests when they can exist", () => {
