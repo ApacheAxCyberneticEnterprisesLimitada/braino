@@ -154,14 +154,14 @@ export function evaluatePolicies(opts: EvaluateOpts): Violation[] {
   const { candidate, policies } = opts;
   const violations: Violation[] = [];
   for (const p of policies) {
-    if (!firesFor(p, candidate)) continue;
+    if (!policyFiresFor(p, candidate)) continue;
     const v = evaluatePredicate(p, opts);
     if (v) violations.push(v);
   }
   return violations;
 }
 
-function firesFor(p: LoadedPolicy, candidate: CandidateFields): boolean {
+export function policyFiresFor(p: LoadedPolicy, candidate: CandidateFields): boolean {
   const lifecycles = p.fires_when_neuron_lifecycle;
   if (lifecycles && lifecycles.length > 0) {
     if (!candidate.lifecycle || !lifecycles.includes(candidate.lifecycle)) return false;
