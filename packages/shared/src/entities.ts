@@ -158,7 +158,6 @@ export type OwnerRef = EntityId<"collaborator"> | EntityId<"organization">;
 export interface Doco {
   id: EntityId<"doco">;
   handle: string;
-  display_name: string;
   visibility: "private" | "public";
   default_branch?: string;
   owner_id: OwnerRef;

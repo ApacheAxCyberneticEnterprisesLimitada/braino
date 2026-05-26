@@ -126,16 +126,15 @@ CREATE TABLE IF NOT EXISTS org_users (
 );
 CREATE INDEX IF NOT EXISTS org_users_collaborator_idx ON org_users (collaborator_id, role);
 
--- Every Doco has a single human-readable `handle`. It lives in the
--- same flat namespace as top-level host routes. The internal ULID `id`
--- stays as the FK target for entity tables; `handle` is what URLs and
--- public API calls use.
+-- Every Doco has a single public `handle`. It lives in the same flat
+-- namespace as top-level host routes. The internal ULID `id` stays as
+-- the FK target for entity tables; `handle` is what URLs and public API
+-- calls use.
 CREATE TABLE IF NOT EXISTS docos (
   id              text PRIMARY KEY,
   handle          text NOT NULL UNIQUE,
   owner_id        text NOT NULL,    -- organization_<ulid>
   org_id          text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  name            text,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
   allowed_neuron_types text[],
   default_neuron_lifecycle text,

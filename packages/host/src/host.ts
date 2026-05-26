@@ -22,15 +22,6 @@ function assertPublicHandleAllowed(handle: string, kind: "collaborator" | "organ
   }
 }
 
-function assertDocoSuffixAllowed(suffix: string): void {
-  if (!HANDLE_PATTERN.test(suffix)) {
-    throw new Error(`Invalid doco suffix "${suffix}". Must be lowercase [a-z0-9][a-z0-9_-]*.`);
-  }
-  if (HOST_RESERVED_SLUGS.has(suffix)) {
-    throw new Error(`Doco suffix "${suffix}" is reserved by URL routing.`);
-  }
-}
-
 export interface AddCollaboratorOptions {
   username: string;
   email?: string;
@@ -171,13 +162,10 @@ export async function findAvailableOrgHandle(requested: string): Promise<string>
   });
 }
 
-export async function findAvailableDocoHandle(
-  orgHandle: string,
-  requestedSuffix: string,
-): Promise<string> {
-  const suffix = requestedSuffix.trim().toLowerCase();
-  assertDocoSuffixAllowed(suffix);
-  const base = `${orgHandle}-${suffix}`;
+export async function findAvailableDocoHandle(requestedHandle: string): Promise<string> {
+  const base = requestedHandle.trim().toLowerCase();
+  const handleError = validateRequestedDocoHandle(base);
+  if (handleError) throw new Error(handleError);
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
     let candidate = base;
@@ -233,7 +221,7 @@ export async function addOrganizationByHandle(opts: {
 
 export async function createDocoInOrg(opts: {
   orgId: string;
-  requestedSuffix: string;
+  requestedHandle: string;
   createdByCollaboratorId: string;
   visibility?: "private" | "public";
   templateHandle?: string | null;
@@ -253,8 +241,9 @@ export async function createDocoInOrg(opts: {
   handle: string;
   goal: string;
 }> {
-  const suffix = opts.requestedSuffix.trim().toLowerCase();
-  assertDocoSuffixAllowed(suffix);
+  const baseHandle = opts.requestedHandle.trim().toLowerCase();
+  const handleError = validateRequestedDocoHandle(baseHandle);
+  if (handleError) throw new Error(handleError);
 
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
@@ -270,9 +259,6 @@ export async function createDocoInOrg(opts: {
       throw new Error(`Organization "${opts.orgId}" has no handle.`);
     }
 
-    const baseHandle = `${orgHandle}-${suffix}`;
-    const handleError = validateRequestedDocoHandle(baseHandle);
-    if (handleError) throw new Error(handleError);
     let handle = baseHandle;
     const taken = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [handle]);
     if ((taken.rowCount ?? 0) > 0) {
@@ -441,7 +427,6 @@ export function findDocoTemplate(handle: string): DocoTemplate | null {
 
 export interface UpdateDocoOptions {
   handle: string;
-  display_name?: string | null;
   visibility?: "private" | "public";
   /**
    * New goal. Empty string clears it. `undefined` leaves the current
@@ -460,32 +445,19 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
   }
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const cur = await c.query<{ data: Record<string, unknown> | null }>(
-      "SELECT data FROM docos WHERE handle = $1 LIMIT 1",
-      [opts.handle],
-    );
-    if (!cur.rows[0]) throw new Error(`Doco "${opts.handle}" not found.`);
-    const data: Record<string, unknown> = { ...(cur.rows[0].data ?? {}) };
-    if (opts.display_name !== undefined) {
-      if (opts.display_name === null || opts.display_name === "") data.display_name = undefined;
-      else data.display_name = opts.display_name;
-    }
-    if (opts.visibility !== undefined) data.visibility = opts.visibility;
+    const cur = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [opts.handle]);
+    if ((cur.rowCount ?? 0) === 0) throw new Error(`Doco "${opts.handle}" not found.`);
     await c.query(
       `UPDATE docos
-          SET name       = $2,
-              visibility = COALESCE($3, visibility),
-              goal       = COALESCE($4, goal),
-              data       = $5::jsonb,
+          SET visibility = COALESCE($2, visibility),
+              goal       = COALESCE($3, goal),
+              data       = CASE
+                             WHEN $2::text IS NULL THEN data - 'display_name' - 'name'
+                             ELSE jsonb_set(data - 'display_name' - 'name', '{visibility}', to_jsonb($2::text), true)
+                           END,
               updated_at = now()
         WHERE handle = $1`,
-      [
-        opts.handle,
-        (data.display_name as string | undefined) ?? null,
-        opts.visibility ?? null,
-        opts.goal ?? null,
-        JSON.stringify(data),
-      ],
+      [opts.handle, opts.visibility ?? null, opts.goal ?? null],
     );
   });
 }
@@ -508,7 +480,11 @@ export async function renameDocoHandle(opts: {
     if (!cur.rows[0]) throw new Error(`Doco "${oldHandle}" not found.`);
     const dup = await c.query("SELECT 1 FROM docos WHERE handle = $1 LIMIT 1", [newHandle]);
     if (dup.rows[0]) throw new Error(`Doco "${newHandle}" already exists.`);
-    const data: Record<string, unknown> = { ...(cur.rows[0].data ?? {}) };
+    const data: Record<string, unknown> = Object.fromEntries(
+      Object.entries(cur.rows[0].data ?? {}).filter(
+        ([key]) => key !== "display_name" && key !== "name",
+      ),
+    );
     data.handle = newHandle;
     await c.query(
       `UPDATE docos

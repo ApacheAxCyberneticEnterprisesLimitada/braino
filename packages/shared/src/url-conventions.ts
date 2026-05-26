@@ -96,7 +96,7 @@ export function docoUrl(input: DocoUrlInput): string {
  */
 export function validateRequestedDocoHandle(handle: string): string | null {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(handle)) {
-    return `Invalid Doco handle "${handle}" — expected kebab-case ([a-z0-9][a-z0-9_-]*).`;
+    return `Invalid Doco handle "${handle}" — expected a URL-safe handle ([a-z0-9][a-z0-9_-]*).`;
   }
   if (handle.length > 64) {
     return `Doco handle "${handle}" is too long (max 64 chars).`;

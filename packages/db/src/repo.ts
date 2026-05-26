@@ -314,7 +314,10 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         [rec.id, handle, name, dataJson],
       );
     } else if (rec.entity_type === "doco") {
-      const dataJson = JSON.stringify(fields);
+      const dataFields = Object.fromEntries(
+        Object.entries(fields).filter(([key]) => key !== "name" && key !== "display_name"),
+      );
+      const dataJson = JSON.stringify(dataFields);
       const owner_id = String(fields.owner_id ?? "");
       const org_id = String(fields.org_id ?? owner_id);
       const handle = String(fields.handle ?? "");
@@ -323,15 +326,14 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
           `Cannot upsert doco ${rec.id}: data is missing the required \`handle\` field.`,
         );
       }
-      const name = (fields.name as string | null) ?? (fields.display_name as string | null) ?? null;
       const visibility = String(fields.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, handle, owner_id, org_id, name, visibility, data)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb)
+        `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
-           owner_id=EXCLUDED.owner_id, org_id=EXCLUDED.org_id, name=EXCLUDED.name,
+           owner_id=EXCLUDED.owner_id, org_id=EXCLUDED.org_id,
            visibility=EXCLUDED.visibility, data=EXCLUDED.data, updated_at=now()`,
-        [rec.id, handle, owner_id, org_id, name, visibility, dataJson],
+        [rec.id, handle, owner_id, org_id, visibility, dataJson],
       );
     }
   };
@@ -892,7 +894,6 @@ export interface DocoRow {
   owner_slug: string;
   owner_id: string;
   org_id: string;
-  name: string | null;
   visibility: "public" | "private";
   goal: string;
   data: Record<string, unknown>;
@@ -905,7 +906,6 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     owner_slug: String(row.owner_slug ?? ""),
     owner_id: String(row.owner_id),
     org_id: String(row.org_id ?? row.owner_id),
-    name: row.name === null || row.name === undefined ? null : String(row.name),
     visibility: row.visibility === "public" ? "public" : "private",
     goal: row.goal === null || row.goal === undefined ? "" : String(row.goal),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
@@ -917,7 +917,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
  * `organizations.handle` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle, d.owner_id, d.org_id, d.name, d.visibility, d.goal, d.data,
+  SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.data,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
     LEFT JOIN collaborators c ON c.id = d.owner_id
