@@ -644,6 +644,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
 
+      // ── Principal shape ──────────────────────────────────────────
+      {
+        // Principals are the lane owners in the BPMN perspective.
+        // Keep this as a warning: the principal endpoint permits a
+        // quick name-only create, and the template should nudge
+        // authors toward richer swim lanes without blocking a sketch.
+        on_violation: "warn",
+        policy:
+          "Principals in business-processes are swim-lane actors: a role, team, external party, or system that owns work in the process. The Principal's `name` and `body_md` should make its process responsibility and boundary clear.",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the Principal's `name` and `body_md`. PASS when the Principal clearly names a process actor — a role, team, external party, or system — and the body explains what responsibility or boundary it owns in this process. FAIL if it reads like an uncontextualized org-chart person, a vague label (`user`, `team`, `system`) with no process responsibility, or an empty shell with no body prose.",
+          when_neuron_type: ["principal"],
+        },
+      },
+
       // ── Intent shape ────────────────────────────────────────────
       {
         policy:

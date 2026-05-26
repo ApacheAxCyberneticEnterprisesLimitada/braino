@@ -29,6 +29,10 @@ describe("business-processes template", () => {
     expect(template.allowedNeuronTypes).toBeUndefined();
   });
 
+  it("ships with the BPMN perspective attached as the default", () => {
+    expect(template.perspectives).toEqual([{ slug: "bpmn", isDefault: true }]);
+  });
+
   describe("neuron-type allowlist", () => {
     const allowlist = template.policies.find(
       (r) => r.predicate?.kind === "requires_neuron_type",
@@ -118,6 +122,23 @@ describe("business-processes template", () => {
     it("predicate carries only field + when_neuron_type after the rename", () => {
       if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
       expect(Object.keys(rule.predicate).sort()).toEqual(["field", "kind", "when_neuron_type"]);
+    });
+  });
+
+  describe("Principal lane shape", () => {
+    const principalRule = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_neuron_type?.includes("principal") &&
+        /swim-lane actors/i.test(r.policy),
+    );
+
+    it("warns when a Principal does not read as a process swim-lane actor", () => {
+      expect(principalRule?.on_violation).toBe("warn");
+      expect(principalRule?.predicate?.kind).toBe("probabilistic");
+      if (principalRule?.predicate?.kind !== "probabilistic") return;
+      expect(principalRule.predicate.spec).toMatch(/role, team, external party, or system/i);
+      expect(principalRule.predicate.spec).toMatch(/responsibility|boundary/i);
     });
   });
 
