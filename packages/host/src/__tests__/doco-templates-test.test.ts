@@ -97,7 +97,8 @@ describe("test template", () => {
     });
 
     it("distinguishes concrete exact/shape expectations from llm-judge prose", () => {
-      expect(haystack).toMatch(/exact.*shape.*concrete/i);
+      expect(haystack).toMatch(/exact.*shape.*concrete top-level Eval `expected`/i);
+      expect(haystack).toMatch(/Do not require `expected` inside the `criterion` object/i);
       expect(haystack).toMatch(/llm-judge/i);
       expect(haystack).toMatch(/Vague or subjective/i);
     });
@@ -129,6 +130,7 @@ describe("test template", () => {
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.spec).toMatch(/evidence/i);
       expect(rule.predicate.spec).toMatch(/actual/i);
+      expect(rule.predicate.spec).toMatch(/top-level `expected`/i);
       expect(rule.predicate.spec).toMatch(/pass\/fail boundary/i);
       expect(rule.predicate.spec).toMatch(/works|matches requirements/i);
     });
