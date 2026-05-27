@@ -1,5 +1,5 @@
 -- ============================================================
--- Add the built-in "Propose" perspective.
+-- Add the built-in "Proposed" perspective.
 --
 -- This surface is a queue of proposed neurons, with direct approve /
 -- reject actions and a zoom link back to the Doco's default
@@ -16,7 +16,7 @@ VALUES
   ('perspective_approval',
    'for-approval',
    'approval',
-   'Propose',
+   'Proposed',
    'Queue of proposed neurons waiting for review.',
    NULL,
    NULL,
