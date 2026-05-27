@@ -1072,26 +1072,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Intent shape ────────────────────────────────────────────
       {
-        policy:
-          "Every Intent in business-processes must declare `actors` — the principals expected to act in this process.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["actors"],
-          when_neuron_type: ["intent"],
-        },
-      },
-      {
-        // Stakeholders without an Action of their own surface via a
-        // Reference, an Eval, or a Rule that cites them via `gated_by`.
-        policy:
-          "Every Intent in business-processes must declare `stakeholders` — the principals with a say in the outcome even if they don't act directly. Stakeholders without an Action surface via Reference, Eval, or a `gated_by` Rule.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["stakeholders"],
-          when_neuron_type: ["intent"],
-        },
-      },
-      {
         // Probabilistic on intent — the trigger, terminal business
         // outcome, and out-of-scope boundary must all be discernible
         // from the Intent's `intent` field.
@@ -1102,9 +1082,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Intent's `intent` field. The purpose Intent of a business process must name (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. PASS if all three are discernible; FAIL with which is missing if one or more is absent.",
           when_neuron_type: ["intent"],
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
 
-      // ── Action shape & handoffs ─────────────────────────────────
+      // ── Action shape ────────────────────────────────────────────
       {
         policy:
           "Every Action in business-processes must declare the principal who performs the activity in the `actor_id` field.",
@@ -1113,6 +1094,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["actor_id"],
           when_neuron_type: ["action"],
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
       {
         // Team-roles (`kitchen`, `support`, `finance`) are first-class
@@ -1126,6 +1108,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           field: "actor_id",
           when_neuron_type: ["action"],
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
       {
         policy:
@@ -1136,26 +1119,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "intent",
           when_neuron_type: ["action"],
         },
-      },
-      {
-        policy:
-          "Every Action in business-processes must declare its `inputs` — the artifacts it consumes from upstream.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["inputs"],
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // Producer outputs line up with consumer inputs — the explicit
-        // handoff guidance below depends on these being filled in.
-        policy:
-          "Every Action in business-processes must declare its `outputs` — the artifacts it hands to downstream Actions. A producer's outputs should line up with the next consumer's inputs.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["outputs"],
-          when_neuron_type: ["action"],
-        },
+        fires_when_neuron_lifecycle: ["active"],
       },
       {
         // Atomic activity prose — reject umbrella phases and
@@ -1167,97 +1131,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Action's `action` and `verb`. PASS when the text names an atomic business activity — a single unit of work the named actor performs. FAIL with reason if the text is a vague umbrella phase (e.g. `handle request`, `do the thing`, `process order`) or an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
           when_neuron_type: ["action"],
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
-      {
-        // Inputs/outputs are designed business artifacts (records,
-        // approvals, signed contracts) — not concrete runtime values.
-        // Both empty is fine; mandatory presence is handled by the
-        // requires_field rules above.
-        policy:
-          "Inputs and outputs are business artifacts (a purchase order, a signed contract, an approved invoice), not concrete runtime values (HTTP 200, row count = 4, a JWT). If both `inputs` and `outputs` are empty the rule above already speaks; otherwise reject concrete policies.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — if both `inputs` and `outputs` are empty or missing, this rule PASSES (the requires_field rules above handle missing values). STEP 2 — otherwise inspect each value present in `inputs` and `outputs`. PASS when entries name business artifacts (a purchase order, a signed contract, an approved invoice, an SLA bound). FAIL with reason if any entry is a concrete runtime policy (HTTP 200, row count = 4, a JWT, a SQL row, a bytes-on-the-wire format).",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        policy:
-          "Side-effecting Actions (Actions with a physical-world or financial consequence — money moved, goods shipped, a contract signed) should have an explicit compensation or exception path in `sequence_to`, usually guarded by a Decision or a `gated_by` Rule.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action has a physical-world or financial side effect (money moved, goods shipped, a contract signed, an email sent to a counterparty). Look at the `verb`, `action`, and `outputs` for words like `ship`, `pay`, `charge`, `sign`, `send`, `dispatch`, `disburse`, `commit`. If the Action has no such side effect, this rule PASSES. STEP 2 — only if the Action IS side-effecting, check that the modeled process names a compensation or exception path: preferably a `sequence_to` branch to a compensating Action / Decision, or a `gated_by` Rule that authorizes reversal. FAIL with reason if neither shape is visible.",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // Exception/cancellation Actions — the path itself is exceptional
-        // and the rationale needs to be recorded.
-        policy:
-          "Exception, cancellation, refund, reject, and escalate Actions should be reached by explicit `sequence_to` flow from the gateway or activity that opens that path, and should cite any authorizing Rule through `gated_by`.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action is a cancellation, refund, reject, escalate, abort, or otherwise-exceptional path. Look at the `verb` and `action` for words like `cancel`, `refund`, `reject`, `escalate`, `abort`, `void`, `dispute`, `deny`. If the Action is a normal happy-path activity, this rule PASSES. STEP 2 — only if the Action IS an exception/cancellation path, check that the flow can be reached through explicit `sequence_to` from an upstream gateway/activity, or that `gated_by` cites a Rule authorizing it. FAIL with reason if the path appears orphaned.",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // Sub-process invocation — delegate via Intent reference, not
-        // by inlining steps from the sub-process here.
-        policy:
-          "An Action that delegates to another process should cite the sub-process by its Intent (via `intent_ids`) or via a Reference in its `action` field — never inline the sub-process's steps here.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action delegates to another business process (a sub-process invocation). Look for phrases like `run X process`, `kick off X`, `invoke the X workflow`, `escalate to the X process`. If the Action does not delegate, this rule PASSES. STEP 2 — only if it does delegate, check that EITHER `intent_ids` references the sub-process's purpose Intent OR the `action` field cites a Reference pointing at the sub-process. FAIL with reason if the sub-process's steps appear inlined in the `action` field instead.",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        policy:
-          "Actions whose verb or action implies retry or iteration must show how the loop terminates — usually through a forward `sequence_to` edge to a Decision with an exit branch, plus any `gated_by` Rule that bounds iteration.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action's `verb` or `action` implies a retry or loop (words like `retry`, `poll`, `keep checking`, `until`, `each time`, `recur`). If not, this rule PASSES. STEP 2 — only if the Action loops, check that the outgoing `sequence_to` flow reaches a Decision or State that names the exit/give-up condition, or that `gated_by` includes a Rule that bounds the iteration. FAIL with reason if neither shape is present.",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // Timer-driven Actions name an anchor and an ISO 8601 offset
-        // so a reader can compute when the Action fires.
-        policy:
-          "Scheduled or timer-driven Actions must name both an anchor (a State's `entered_at`, an absolute timestamp, or a prior Action's completion) AND an ISO 8601 offset (`PT24H`, `P3D`, `PT15M`) in the `action` field. `nightly` and `every so often` are not anchors.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — decide whether this Action is scheduled or timer-driven (words like `after`, `every`, `nightly`, `daily`, `wait`, `on the Xth`, `following N days`). If not, this rule PASSES. STEP 2 — only if it is, check that the `action` names BOTH (a) a concrete anchor — a named State's `entered_at`, an absolute timestamp, or a prior Action's completion — and (b) an ISO 8601 duration offset (e.g. `PT24H`, `P3D`, `PT15M`). FAIL with reason if either is missing.",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // Trust boundaries — org / tenant / external-system crossings
-        // are load-bearing; the crossing has to be called out so
-        // downstream auth / compliance / SLA discussions can happen.
-        policy:
-          "Actions whose counterparty is across an organizational, tenant, or external-system boundary must call out the crossing in the `action` field. Internal-only Actions are exempt.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "STEP 1 — decide whether the Action crosses a trust boundary: the counterparty is in a different organization, a different tenant, an external vendor, a regulator, or any system outside the actor's own administrative domain. If everything stays inside one boundary, this rule PASSES. STEP 2 — only if there is a crossing, check that the `action` explicitly names the boundary being crossed (e.g. `sent to the customer`, `posted to Stripe`, `submitted to HMRC`). FAIL with reason if the crossing is implicit.",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // Consistent level of abstraction — reject Actions that mix
-        // operator-level granularity ("Onboard customer") with
-        // implementation granularity ("Verify VAT checksum") inside one
-        // process model.
-        policy:
-          "Actions in one business process sit at a consistent level of abstraction. Reject models that mix operator-level Actions (`Onboard customer`) with implementation Actions (`Verify VAT checksum`) — split the lower-level steps into a sub-process.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "Compare this Action's grain to the other Actions in the same business-processes Doco. PASS when the Action sits at a similar level of abstraction to its siblings. FAIL with reason if the Action is markedly more granular (a small implementation step amid operator-level steps) or markedly broader (a phase among atomic steps). The fix is usually to split the lower-level steps into a sub-process.",
-          when_neuron_type: ["action"],
-        },
-      },
-
       // ── Decision shape ──────────────────────────────────────────
       {
         policy:
@@ -1268,6 +1143,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "intent",
           when_neuron_type: ["decision"],
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
       {
         policy:
@@ -1278,6 +1154,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "intent",
           when_neuron_type: ["state"],
         },
+        fires_when_neuron_lifecycle: ["active"],
       },
       {
         // Exhaustive branches: question reads as yes/no or enumerated,
@@ -1290,28 +1167,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Decision's `question`, `alternatives`, and any `sequence_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_neuron_type: ["decision"],
         },
-      },
-      {
-        // Mutually exclusive branches by default; inclusive gateways
-        // must opt in explicitly so silent overlap is caught.
-        policy:
-          "Decision branches are mutually exclusive by default. Inclusive or parallel gateways must be explicit in the `question`, `decision`, or outgoing `sequence_to` metadata — otherwise overlapping conditions count as a wiring mistake.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "Check the Decision's `alternatives` and outgoing `sequence_to` branch labels/conditions. PASS when the branches are visibly mutually exclusive OR the `question`, `decision`, or sequence metadata explicitly marks the gateway as inclusive/parallel (e.g. `select all that apply`, `inclusive gateway`, `parallel gateway`). FAIL with reason if conditions on multiple branches could plausibly be true at once and inclusivity isn't declared.",
-          when_neuron_type: ["decision"],
-        },
-      },
-      {
-        // >4 branches is a smell — usually the wrong shape; nesting or
-        // a classifier Action upstream usually reads better.
-        policy:
-          "A Decision with more than four branches is a smell. Consider nesting Decisions or moving the classification into an upstream Action that emits an explicit category.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "Count the entries in `alternatives`. PASS if four or fewer. WARN (still fail) with reason if there are five or more — usually the right fix is to nest Decisions or to move the classification into an upstream classifier Action that emits a category into the gateway.",
-          when_neuron_type: ["decision"],
-        },
+        fires_when_neuron_lifecycle: ["active"],
       },
 
       // ── State shape & sequence wiring ───────────────────────────
@@ -1359,42 +1215,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["state"],
           spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
         },
-      },
-      {
-        // Milestone vs steady-state — the reader should be able to tell
-        // from summary/kind/invariants whether the State is transient
-        // (a milestone the process passes through) or steady (a
-        // condition the process holds for a span of time).
-        policy:
-          "The reader can tell from a State's `state`, `kind`, and `invariants` together whether it is a transient milestone (the process passes through it) or a steady condition (the process holds it for a span of time).",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["state"],
-          spec: "Read the State's `state`, `kind`, and `invariants` together. PASS when a reader can tell whether the State is a transient milestone the process passes through, or a steady condition the process holds for some span of time. FAIL with reason if the three together are ambiguous.",
-        },
-      },
-      {
-        // Observable invariants — parallels state-machines P3. Vacuously
-        // true if invariants is empty.
-        policy:
-          "State `invariants` read as observable predicates a reader can check (`invoice.status = approved`, `actor has signed`), not subjective qualities (`the request feels right`). Empty invariants are vacuously fine.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["state"],
-          spec: "Check ONLY the State's `invariants` array. If `invariants` is empty, missing, or absent, this rule PASSES (vacuously true). When invariants are present, each entry must read as an observable predicate a reader can check (`invoice.status = approved`, `signature_count >= 2`). FAIL with reason if any entry is a subjective quality (`the request feels right`, `the customer is happy`).",
-        },
-      },
-      {
-        // Parallel convergence — when a State is the join point of ≥2
-        // parallel branches, the join predicate must be named so the
-        // reader knows whether it's AND-join, OR-join, or another shape.
-        policy:
-          "When a State is the convergence of two or more parallel branches, its `state` names the join predicate (AND-join, OR-join, first-completes, threshold) so the reader knows what triggers entry.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["state"],
-          spec: "STEP 1 — decide whether this State is a convergence of two or more parallel branches (incoming Actions from concurrent branches). If not, this rule PASSES. STEP 2 — only if it IS a convergence, check that the `state` names the join predicate (AND-join — wait for all; OR-join — first to arrive; threshold — N of M; etc.). FAIL with reason if the join semantics are not stated.",
-        },
+        fires_when_neuron_lifecycle: ["active"],
       },
 
       // ── Coverage ────────────────────────────────────────────────
@@ -1425,32 +1246,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["target_ref"],
           when_neuron_type: ["eval"],
         },
-      },
-      {
-        // Evals must pin a process-critical claim — completeness,
-        // handoff, SLA, branch coverage, policy compliance — not a
-        // vague "this should work".
-        policy:
-          "Evals in business-processes pin a process-critical claim — a completeness check, a handoff invariant, an SLA bound, a branch coverage, or a policy compliance — not a vague `this should work`.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "Check the Eval's `eval`, `criterion`, and `expected`. PASS when the Eval pins a process-critical claim: a completeness check (all required Actions exist), a handoff invariant (producer's output matches consumer's input), an SLA bound (process completes within X), a branch coverage (every Decision branch is exercised), or a policy compliance (a Rule's predicate holds). FAIL with reason if the claim is vague (`it should work`, `looks good`).",
-          when_neuron_type: ["eval"],
-        },
-      },
-
-      // ── Reference ───────────────────────────────────────────────
-      {
-        // References in business-processes must be authoritative
-        // (policy doc, regulatory citation, vendor spec, or sibling
-        // Doco with recorded runs). Decorative links are rejected.
-        policy:
-          "References in business-processes are authoritative — a policy document, a regulatory citation, a vendor specification, or a sibling Doco that records process *instances*. Decorative links (a marketing blog post, an unrelated tweet) belong elsewhere.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "Check the Reference's `ref_type`, `locator`, and `reference`. PASS when the Reference points at an authoritative source: a policy document, a regulatory citation, a vendor specification, an API contract, or a sibling Doco that records process *instances* (Logs of runs). FAIL with reason if the Reference is decorative or unrelated (a marketing blog post, an unrelated tweet, a generic explainer).",
-          when_neuron_type: ["reference"],
-        },
+        fires_when_neuron_lifecycle: ["active"],
       },
 
       // ── Guidance (prose-only) ───────────────────────────────────
@@ -1467,6 +1263,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
+          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Use `relate_many` for sibling edges that must be valid together, especially exhaustive gateway branches. Adding one branch at a time can create a temporarily invalid BPMN graph.",
+      },
+      {
+        kind: "guidance",
+        policy:
           "BPMN vocabulary: use `sequence_to` for forward process flow; it materializes as `sequence_flow` and renders source -> target with no reversal. Use `intent_ids`/`serves` for pool membership, `gated_by` for policy guards, and `decision_ids` only for rationale/provenance associations.",
       },
       {
@@ -1477,12 +1283,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Author the happy path first, then exceptions / compensation / rollback / cancellation / escalation paths — they read most clearly when the normal flow is already in place.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Sub-processes are themselves process Intents — reference them by their Intent, not by inlining their steps into the parent process.",
+          "Drafting neurons may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `active` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
       },
       {
         kind: "guidance",
@@ -1493,11 +1294,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
         policy:
           "Rules in a business-processes Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Make handoffs explicit: a producer Action's `outputs` should line up with the next consumer Action's `inputs`. Implicit shared state hides where work is actually exchanged.",
       },
       {
         kind: "guidance",

@@ -63,23 +63,27 @@ describe("business-processes template", () => {
       );
     }
 
-    it("`actors` on Intent", () => {
-      expect(requiresField("actors", "intent")).toBeDefined();
-    });
-    it("`stakeholders` on Intent", () => {
-      expect(requiresField("stakeholders", "intent")).toBeDefined();
-    });
     it("`actor_id` on Action", () => {
       expect(requiresField("actor_id", "action")).toBeDefined();
     });
-    it("`inputs` on Action", () => {
-      expect(requiresField("inputs", "action")).toBeDefined();
-    });
-    it("`outputs` on Action", () => {
-      expect(requiresField("outputs", "action")).toBeDefined();
-    });
     it("`target_ref` on Eval", () => {
       expect(requiresField("target_ref", "eval")).toBeDefined();
+    });
+
+    it("does not require duplicated process metadata or handoff fields", () => {
+      expect(requiresField("actors", "intent")).toBeUndefined();
+      expect(requiresField("stakeholders", "intent")).toBeUndefined();
+      expect(requiresField("inputs", "action")).toBeUndefined();
+      expect(requiresField("outputs", "action")).toBeUndefined();
+    });
+
+    it("fires required fields only when the authored neuron is active", () => {
+      for (const [field, entityType] of [
+        ["actor_id", "action"],
+        ["target_ref", "eval"],
+      ]) {
+        expect(requiresField(field, entityType)?.fires_when_neuron_lifecycle).toEqual(["active"]);
+      }
     });
   });
 
@@ -103,6 +107,18 @@ describe("business-processes template", () => {
     it("State serves Intent", () => {
       expect(requiresEdge("serves", "intent", "state")).toBeDefined();
     });
+
+    it("fires flow membership checks only when the node is active", () => {
+      expect(requiresEdge("serves", "intent", "action")?.fires_when_neuron_lifecycle).toEqual([
+        "active",
+      ]);
+      expect(requiresEdge("serves", "intent", "decision")?.fires_when_neuron_lifecycle).toEqual([
+        "active",
+      ]);
+      expect(requiresEdge("serves", "intent", "state")?.fires_when_neuron_lifecycle).toEqual([
+        "active",
+      ]);
+    });
   });
 
   describe("actor_id principal resolution", () => {
@@ -115,6 +131,7 @@ describe("business-processes template", () => {
       if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
       expect(rule.predicate.field).toBe("actor_id");
       expect(rule.predicate.when_neuron_type).toContain("action");
+      expect(rule.fires_when_neuron_lifecycle).toEqual(["active"]);
     });
 
     // Post-rename: `allowed_principal_types` removed from the predicate.
@@ -207,18 +224,18 @@ describe("business-processes template", () => {
     it("exhaustive gateway / branches", () => {
       expect(/exhaustive|default\/else|enum/i.test(haystack)).toBe(true);
     });
-    it("compensation for side-effecting Actions", () => {
-      expect(/compensat/i.test(haystack)).toBe(true);
+    it("keeps gateway completeness as an activation-time check", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" && /exhaustive outgoing branches/i.test(r.policy),
+      );
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
     });
-    it("bounded loops", () => {
-      expect(/loop|retry|iteration/i.test(haystack)).toBe(true);
-    });
-    it("timer-driven Actions name anchor + ISO 8601 offset", () => {
-      expect(/ISO 8601/i.test(haystack)).toBe(true);
-      expect(/anchor/i.test(haystack)).toBe(true);
-    });
-    it("trust-boundary crossings", () => {
-      expect(/trust boundary|trust-boundary|boundary/i.test(haystack)).toBe(true);
+    it("keeps Action grain as an activation-time check", () => {
+      const rule = template.policies.find(
+        (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
+      );
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
     });
   });
 
@@ -226,22 +243,22 @@ describe("business-processes template", () => {
     const guidance = template.policies.filter((r) => r.kind === "guidance" && !r.predicate);
     const summaries = guidance.map((r) => r.policy);
 
-    it("happy-path-first ordering", () => {
-      expect(summaries.some((s) => /happy path first/i.test(s))).toBe(true);
+    it("tells agents to use the authoring contract and changesets", () => {
+      expect(
+        summaries.some((s) => /authoring-contract\.json/i.test(s) && /changesets\.json/i.test(s)),
+      ).toBe(true);
     });
-    it("sub-process modeling (reference by Intent, don't inline)", () => {
-      expect(summaries.some((s) => /sub-process/i.test(s) && /intent/i.test(s))).toBe(true);
+    it("tells agents to use relate_many for gateway siblings", () => {
+      expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
+    });
+    it("documents draft-first activation", () => {
+      expect(summaries.some((s) => /Drafting neurons/i.test(s) && /active/i.test(s))).toBe(true);
     });
     it("Log separation (instances live in a sibling Doco)", () => {
       expect(
         summaries.some(
           (s) => /instance/i.test(s) && /(separate|sibling) doco/i.test(s) && /reference/i.test(s),
         ),
-      ).toBe(true);
-    });
-    it("explicit handoffs (outputs line up with next consumer's inputs)", () => {
-      expect(
-        summaries.some((s) => /handoff/i.test(s) && /outputs/i.test(s) && /inputs/i.test(s)),
       ).toBe(true);
     });
     it("BPMN sequence flow is forward-only and rendered without reversal", () => {
