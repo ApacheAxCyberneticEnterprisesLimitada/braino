@@ -16,6 +16,7 @@ export const RESERVED_HANDLES = HOST_RESERVED_SLUGS;
 const BUILTIN_PERSPECTIVE_ATTACHMENTS = [
   { slug: "graph", perspectiveId: "perspective_graph", position: 0 },
   { slug: "list", perspectiveId: "perspective_list", position: 1 },
+  { slug: "for-approval", perspectiveId: "perspective_approval", position: 2 },
 ] as const;
 
 export interface TemplatePerspectiveSeed {
@@ -433,11 +434,8 @@ export async function createDocoInOrg(opts: {
     for (const entry of buildTemplatePerspectiveSeeds(template)) {
       const perspectiveId =
         entry.perspectiveId ??
-        (
-          await c.query<{ id: string }>("SELECT id FROM perspectives WHERE slug = $1", [
-            entry.slug,
-          ])
-        ).rows[0]?.id;
+        (await c.query<{ id: string }>("SELECT id FROM perspectives WHERE slug = $1", [entry.slug]))
+          .rows[0]?.id;
       if (!perspectiveId) continue;
       if (entry.isDefault) insertedDefaultPerspective = true;
       await c.query(

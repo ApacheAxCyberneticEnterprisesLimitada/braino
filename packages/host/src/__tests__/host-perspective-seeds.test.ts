@@ -6,6 +6,12 @@ describe("buildTemplatePerspectiveSeeds", () => {
     expect(buildTemplatePerspectiveSeeds(null)).toEqual([
       { slug: "graph", perspectiveId: "perspective_graph", position: 0, isDefault: true },
       { slug: "list", perspectiveId: "perspective_list", position: 1, isDefault: false },
+      {
+        slug: "for-approval",
+        perspectiveId: "perspective_approval",
+        position: 2,
+        isDefault: false,
+      },
     ]);
   });
 
@@ -17,10 +23,16 @@ describe("buildTemplatePerspectiveSeeds", () => {
     ).toEqual([
       { slug: "graph", perspectiveId: "perspective_graph", position: 0, isDefault: false },
       { slug: "list", perspectiveId: "perspective_list", position: 1, isDefault: true },
+      {
+        slug: "for-approval",
+        perspectiveId: "perspective_approval",
+        position: 2,
+        isDefault: false,
+      },
     ]);
   });
 
-  it("keeps extra perspective defaults after graph and list", () => {
+  it("keeps extra perspective defaults after built-ins", () => {
     expect(
       buildTemplatePerspectiveSeeds({
         perspectives: [{ slug: "sla", isDefault: true }],
@@ -28,7 +40,13 @@ describe("buildTemplatePerspectiveSeeds", () => {
     ).toEqual([
       { slug: "graph", perspectiveId: "perspective_graph", position: 0, isDefault: false },
       { slug: "list", perspectiveId: "perspective_list", position: 1, isDefault: false },
-      { slug: "sla", position: 2, isDefault: true },
+      {
+        slug: "for-approval",
+        perspectiveId: "perspective_approval",
+        position: 2,
+        isDefault: false,
+      },
+      { slug: "sla", position: 3, isDefault: true },
     ]);
   });
 
@@ -37,8 +55,8 @@ describe("buildTemplatePerspectiveSeeds", () => {
       perspectives: [{ slug: "list", isDefault: true }, { slug: "graph" }, { slug: "bpmn" }],
     });
 
-    expect(seeds.map((s) => s.slug)).toEqual(["graph", "list", "bpmn"]);
+    expect(seeds.map((s) => s.slug)).toEqual(["graph", "list", "for-approval", "bpmn"]);
     expect(seeds.find((s) => s.slug === "list")?.isDefault).toBe(true);
-    expect(seeds.find((s) => s.slug === "bpmn")?.position).toBe(2);
+    expect(seeds.find((s) => s.slug === "bpmn")?.position).toBe(3);
   });
 });

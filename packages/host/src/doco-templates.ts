@@ -94,8 +94,8 @@ export interface DocoTemplate {
   /** Atomic policies seeded at install time. */
   policies: TemplatePolicy[];
   /**
-   * Optional perspectives to attach on Doco creation. The two
-   * built-in perspectives (graph, list) are always attached even
+   * Optional perspectives to attach on Doco creation. The built-in
+   * perspectives (graph, list, for-approval) are always attached even
    * if this list is empty; entries here append after them. The
    * business-processes template ships `[{slug:"bpmn"}]` so a Doco
    * created from that template arrives with the BPMN tab ready.
