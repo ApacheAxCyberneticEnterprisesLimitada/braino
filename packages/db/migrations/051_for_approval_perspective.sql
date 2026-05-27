@@ -1,5 +1,5 @@
 -- ============================================================
--- Add the built-in "For approval" perspective.
+-- Add the built-in "Propose" perspective.
 --
 -- This surface is a queue of proposed neurons, with direct approve /
 -- reject actions and a zoom link back to the Doco's default
@@ -16,9 +16,9 @@ VALUES
   ('perspective_approval',
    'for-approval',
    'approval',
-   'For approval',
-   'Queue of proposed neurons waiting for approver review.',
-   '✅',
+   'Propose',
+   'Queue of proposed neurons waiting for review.',
+   NULL,
    NULL,
    true,
    '{"lifecycle":"proposed","approve_lifecycle":"active","reject_lifecycle":"drafting"}'::jsonb)
