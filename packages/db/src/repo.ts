@@ -513,6 +513,7 @@ export interface CollaboratorRow {
   github_login: string | null;
   email: string | null;
   avatar_url: string | null;
+  owner_id: string | null;
   data: Record<string, unknown>;
 }
 
@@ -527,6 +528,7 @@ function mapCollaboratorRow(row: Record<string, unknown>): CollaboratorRow {
     email: row.email === null || row.email === undefined ? null : String(row.email),
     avatar_url:
       row.avatar_url === null || row.avatar_url === undefined ? null : String(row.avatar_url),
+    owner_id: row.owner_id === null || row.owner_id === undefined ? null : String(row.owner_id),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
 }
@@ -534,7 +536,7 @@ function mapCollaboratorRow(row: Record<string, unknown>): CollaboratorRow {
 export async function getCollaboratorById(id: string): Promise<CollaboratorRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, kind, github_id, github_login, email, avatar_url, data FROM collaborators WHERE id = $1",
+      "SELECT id, kind, github_id, github_login, email, avatar_url, owner_id, data FROM collaborators WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -545,7 +547,7 @@ export async function getCollaboratorById(id: string): Promise<CollaboratorRow |
 export async function getCollaboratorByGithubLogin(login: string): Promise<CollaboratorRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, kind, github_id, github_login, email, avatar_url, data FROM collaborators WHERE github_login = $1",
+      "SELECT id, kind, github_id, github_login, email, avatar_url, owner_id, data FROM collaborators WHERE github_login = $1",
       [login],
     );
     if (r.rowCount === 0) return null;
@@ -569,7 +571,7 @@ export async function patchCollaboratorData(
           SET data = data || $2::jsonb,
               updated_at = now()
         WHERE id = $1
-      RETURNING id, kind, github_id, github_login, email, avatar_url, data`,
+      RETURNING id, kind, github_id, github_login, email, avatar_url, owner_id, data`,
       [id, JSON.stringify(patch)],
     );
     if (r.rowCount === 0) return null;
@@ -589,7 +591,7 @@ export async function listCollaborators(
     }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
     const r = await c.query(
-      `SELECT id, kind, github_id, github_login, email, avatar_url, data
+      `SELECT id, kind, github_id, github_login, email, avatar_url, owner_id, data
        FROM collaborators ${where} ORDER BY github_login NULLS LAST, id`,
       vals,
     );

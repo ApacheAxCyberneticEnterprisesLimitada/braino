@@ -81,6 +81,7 @@ CREATE TABLE IF NOT EXISTS collaborators (
 );
 CREATE INDEX IF NOT EXISTS collaborators_github_login_idx ON collaborators (github_login);
 CREATE INDEX IF NOT EXISTS collaborators_kind_idx          ON collaborators (kind);
+CREATE INDEX IF NOT EXISTS collaborators_owner_idx         ON collaborators (owner_id);
 
 CREATE TABLE IF NOT EXISTS principals (
   id              text PRIMARY KEY,            -- principal_<ulid>
