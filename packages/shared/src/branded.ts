@@ -121,6 +121,30 @@ export function isNeuronType(value: unknown): value is NeuronType {
   return typeof value === "string" && (NEURON_TYPES as readonly string[]).includes(value);
 }
 
+const NEURON_TYPE_URL_ALIASES: Readonly<Record<string, NeuronType>> = {
+  intents: "intent",
+  ideas: "idea",
+  rules: "rule",
+  decisions: "decision",
+  actions: "action",
+  logs: "log",
+  evals: "eval",
+  references: "reference",
+  states: "state",
+  principals: "principal",
+};
+
+/**
+ * Canonicalize a neuron type URL segment. Entity URLs are singular
+ * (`/<doco>/intent/<id>`), but humans and agents naturally paste plural
+ * API/list segments (`/<doco>/intents/<id>`). Accept both at the boundary.
+ */
+export function normalizeNeuronType(value: unknown): NeuronType | null {
+  if (isNeuronType(value)) return value;
+  if (typeof value !== "string") return null;
+  return NEURON_TYPE_URL_ALIASES[value] ?? null;
+}
+
 export function isPolicyType(value: unknown): value is PolicyType {
   return typeof value === "string" && (POLICY_TYPES as readonly string[]).includes(value);
 }

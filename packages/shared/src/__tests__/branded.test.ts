@@ -5,6 +5,7 @@ import {
   isEntityType,
   isUlid,
   makeEntityId,
+  normalizeNeuronType,
   parseEntityId,
 } from "../branded.js";
 import type { Ulid } from "../branded.js";
@@ -81,6 +82,25 @@ describe("isEntityType", () => {
     expect(isEntityType("widget")).toBe(false);
     expect(isEntityType("tag")).toBe(false);
     expect(isEntityType("scope")).toBe(false);
+  });
+});
+
+describe("normalizeNeuronType", () => {
+  it("keeps canonical singular neuron types", () => {
+    expect(normalizeNeuronType("intent")).toBe("intent");
+    expect(normalizeNeuronType("reference")).toBe("reference");
+  });
+
+  it("accepts plural URL segments used by humans and agents", () => {
+    expect(normalizeNeuronType("intents")).toBe("intent");
+    expect(normalizeNeuronType("references")).toBe("reference");
+    expect(normalizeNeuronType("principals")).toBe("principal");
+  });
+
+  it("rejects unknown or non-neuron values", () => {
+    expect(normalizeNeuronType("policies")).toBeNull();
+    expect(normalizeNeuronType("widget")).toBeNull();
+    expect(normalizeNeuronType(null)).toBeNull();
   });
 });
 
