@@ -55,7 +55,7 @@ beforeEach(async () => {
     await client.query(
       `TRUNCATE
         hosts,
-        collaborators,
+        users,
         principals,
         organizations,
         org_users,
@@ -77,7 +77,7 @@ beforeEach(async () => {
         embeddings,
         entity_fts_neurons,
         entity_fts_policies,
-        entity_fts_collaborators,
+        entity_fts_users,
         entity_fts_docos,
         entity_fts_organizations,
         doco_users,

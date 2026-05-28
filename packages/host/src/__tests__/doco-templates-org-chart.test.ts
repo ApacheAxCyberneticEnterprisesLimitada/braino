@@ -180,7 +180,7 @@ describe("org-chart template", () => {
       expect(summaries.some((s) => /reports_to/i.test(s) && /circular|cycle/i.test(s))).toBe(true);
     });
 
-    it("AI-agent Principals declare their human owner (mirrors Collaborator.owner_id)", () => {
+    it("AI-agent Principals declare their human owner (mirrors User.owner_id)", () => {
       expect(
         summaries.some(
           (s) => /AI(-|\s)?agent/i.test(s) && /(owner|delegated_by|operates under|human)/i.test(s),
@@ -211,9 +211,7 @@ describe("org-chart template", () => {
     });
 
     it("person vs agent is about who fills the seat, not about who signed in", () => {
-      expect(summaries.some((s) => /seat/i.test(s) && /Collaborator|sign(ed)? in/i.test(s))).toBe(
-        true,
-      );
+      expect(summaries.some((s) => /seat/i.test(s) && /User|sign(ed)? in/i.test(s))).toBe(true);
     });
   });
 });

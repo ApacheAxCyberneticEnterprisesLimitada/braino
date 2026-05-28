@@ -14,7 +14,7 @@ describe("deriveSynapses", () => {
       decided_by: "principal_01KSJ000000000000000000001",
       decided_at: "2026-05-26T00:00:00.000Z",
       created_at: "2026-05-26T00:00:00.000Z",
-      created_by: "collaborator_01KSJ000000000000000000002",
+      created_by: "user_01KSJ000000000000000000002",
       sequence_to: [
         "action_01KSJ000000000000000000003",
         {

@@ -267,7 +267,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // rejects "the browser", "app.js", "the system" as actors.
         // System-internal steps belong in `apis` or `adrs`, not in a
         // user-flow. (Post-rename, person/agent distinction moved to
-        // Collaborator; the engine just enforces principal resolution.)
+        // User; the engine just enforces principal resolution.)
         policy:
           "An Action's `actor_id` must resolve to an existing Principal. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
         predicate: {
@@ -1099,7 +1099,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Team-roles (`kitchen`, `support`, `finance`) are first-class
         // Principals representing a role rather than an individual.
-        // (Post-rename, person/agent distinction moved to Collaborator;
+        // (Post-rename, person/agent distinction moved to User;
         // the engine just enforces principal resolution.)
         policy:
           "An Action's `actor_id` must resolve to an existing Principal. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
@@ -1420,7 +1420,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal whose `body_md` describes an AI agent (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any Collaborator has signed in as it. A Principal whose `body_md` describes a human is a person, even if that human has no Doco account.",
+          "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal whose `body_md` describes an AI agent (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal whose `body_md` describes a human is a person, even if that human has no Doco account.",
       },
       {
         kind: "guidance",

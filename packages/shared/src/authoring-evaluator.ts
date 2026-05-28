@@ -82,7 +82,7 @@ export interface Violation {
 
 /**
  * Minimal principal index — id → present. The engine only needs to
- * confirm existence; the person/agent split lives on Collaborator now.
+ * confirm existence; the person/agent split lives on User now.
  */
 export type PrincipalIndex = Set<string>;
 

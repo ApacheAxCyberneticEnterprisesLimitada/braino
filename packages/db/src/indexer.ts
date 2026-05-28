@@ -7,9 +7,9 @@
 // that Doco atomically.
 //
 // Post-migration-005 FTS shape: ONE table per top-level category
-// (neurons, policies, collaborators, docos, organizations). The
+// (neurons, policies, users, docos, organizations). The
 // indexer only ever populates the per-Doco categories: `entity_fts_neurons`
-// and `entity_fts_policies`. Collaborators/docos/organizations are
+// and `entity_fts_policies`. Users/docos/organizations are
 // host-level entities; their FTS rows are written by their own upsert
 // paths (or by the migration), not by this builder.
 

@@ -20,8 +20,8 @@
 --               log/eval/reference/state/principal)
 --   policies — Doco-level authoring metadata (2 kinds: guidance / neuron_authoring)
 --   synapses   — relationships between neurons
---   collaborators — OAuth identities (person/agent), separate from principals
---                   (which are role-personas referenced by actor_id/actors[]).
+--   users      — OAuth identities (person/agent), separate from principals
+--                (which are role-personas referenced by actor_id/actors[]).
 
 -- Schema version. Tracked separately from app version so DB migrations
 -- don't gate code releases.
@@ -58,30 +58,31 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Identity layer.
 --
--- Two distinct concerns, split into two tables (migration 005):
---   `collaborators` — OAuth identity (person or agent runtime that holds
---                     auth tokens). Authored neurons via `created_by` /
---                     `updated_by`. Members of orgs/docos.
---   `principals`    — role-personas (the "actor" in a documented business
---                     process). Referenced by Action.actor_id, Log.actor_id,
---                     Intent.actors[], etc. Modeled as a neuron type.
+-- Two distinct concerns, split into two tables:
+--   `users`      — OAuth identity (person or agent runtime that holds
+--                  auth tokens). Authored neurons via `created_by` /
+--                  `updated_by`. Members of orgs/docos. Agent users are
+--                  owned by an organization; person users are unowned.
+--   `principals` — role-personas (the "actor" in a documented business
+--                  process). Referenced by Action.actor_id, Log.actor_id,
+--                  Intent.actors[], etc. Modeled as a neuron type.
 
-CREATE TABLE IF NOT EXISTS collaborators (
-  id              text PRIMARY KEY,            -- collaborator_<ulid>
+CREATE TABLE IF NOT EXISTS users (
+  id              text PRIMARY KEY,            -- user_<ulid>
   kind            text NOT NULL CHECK (kind IN ('person', 'agent')),
   github_id       text,                        -- GitHub numeric id (immutable)
   github_login    text,                        -- current GitHub login (mutable)
   email           text,
   avatar_url      text,
-  owner_id        text REFERENCES collaborators(id) ON DELETE SET NULL,
+  owner_id        text REFERENCES users(id) ON DELETE SET NULL,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deactivated_at  timestamptz
 );
-CREATE INDEX IF NOT EXISTS collaborators_github_login_idx ON collaborators (github_login);
-CREATE INDEX IF NOT EXISTS collaborators_kind_idx          ON collaborators (kind);
-CREATE INDEX IF NOT EXISTS collaborators_owner_idx         ON collaborators (owner_id);
+CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
+CREATE INDEX IF NOT EXISTS users_kind_idx          ON users (kind);
+CREATE INDEX IF NOT EXISTS users_owner_idx         ON users (owner_id);
 
 CREATE TABLE IF NOT EXISTS principals (
   id              text PRIMARY KEY,            -- principal_<ulid>
@@ -103,7 +104,7 @@ CREATE TABLE IF NOT EXISTS principals (
   role_principal  boolean NOT NULL DEFAULT false,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
-  created_by      text,                        -- collaborator_<ulid>
+  created_by      text,                        -- user_<ulid>
   updated_at      timestamptz NOT NULL DEFAULT now(),
   updated_by      text
 );
@@ -120,12 +121,14 @@ CREATE TABLE IF NOT EXISTS organizations (
 -- Organization users (per-org role grants).
 CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (org_id, collaborator_id)
+  PRIMARY KEY (org_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS org_users_collaborator_idx ON org_users (collaborator_id, role);
+-- org_users_user_idx lives in migration 055: the baseline must not
+-- reference user_id on an existing prod org_users (still collaborator_id)
+-- until 055 renames the column.
 
 -- Every Doco has a single public `handle`. It lives in the same flat
 -- namespace as top-level host routes. The internal ULID `id` stays as
@@ -364,7 +367,7 @@ CREATE TABLE IF NOT EXISTS reference_entities (
 CREATE TABLE IF NOT EXISTS audit_events (
   event_id      text PRIMARY KEY,
   at            timestamptz NOT NULL,
-  by_collaborator  text,
+  by_user       text,
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
@@ -376,7 +379,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
-CREATE INDEX IF NOT EXISTS audit_events_collaborator_idx ON audit_events (by_collaborator, at DESC);
+-- audit_events_user_idx lives in migration 055 (renamed-column index;
+-- baseline must not reference by_user before 055 renames by_collaborator).
 
 -- Org-scope audit events. For those rows, `org_id` is set and `doco_id`
 -- is NULL.
@@ -465,7 +469,7 @@ CREATE TABLE IF NOT EXISTS entity_fts_policies (
 CREATE INDEX IF NOT EXISTS entity_fts_policies_doco_idx ON entity_fts_policies (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_policies_tsv_idx  ON entity_fts_policies USING gin (search_tsv);
 
-CREATE TABLE IF NOT EXISTS entity_fts_collaborators (
+CREATE TABLE IF NOT EXISTS entity_fts_users (
   entity_id   text PRIMARY KEY,
   summary     text,
   body        text,
@@ -474,7 +478,7 @@ CREATE TABLE IF NOT EXISTS entity_fts_collaborators (
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
   ) STORED
 );
-CREATE INDEX IF NOT EXISTS entity_fts_collaborators_tsv_idx ON entity_fts_collaborators USING gin (search_tsv);
+CREATE INDEX IF NOT EXISTS entity_fts_users_tsv_idx ON entity_fts_users USING gin (search_tsv);
 
 CREATE TABLE IF NOT EXISTS entity_fts_docos (
   entity_id   text PRIMARY KEY,
@@ -511,12 +515,12 @@ CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organi
 -- membership.
 CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (doco_id, collaborator_id)
+  PRIMARY KEY (doco_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS doco_users_collaborator_idx ON doco_users (collaborator_id, role);
+-- doco_users_user_idx lives in migration 055 (renamed-column index).
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Invite store backing blob.
@@ -571,7 +575,7 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
 CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   code                  text PRIMARY KEY,
   client_id             text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
-  collaborator_id          text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  user_id               text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   redirect_uri          text NOT NULL,
   code_challenge        text NOT NULL,
   code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
@@ -605,7 +609,7 @@ CREATE INDEX IF NOT EXISTS oauth_authorization_codes_expires_idx
 CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
-  collaborator_id      text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -615,8 +619,7 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS oauth_access_tokens_collaborator_idx
-  ON oauth_access_tokens (collaborator_id, revoked);
+-- oauth_access_tokens_user_idx lives in migration 055 (renamed-column index).
 CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
   ON oauth_access_tokens (expires_at);
 
@@ -630,7 +633,7 @@ CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
 CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
-  collaborator_id      text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -641,8 +644,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   superseded_by     text REFERENCES oauth_refresh_tokens(token) ON DELETE SET NULL,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_collaborator_idx
-  ON oauth_refresh_tokens (collaborator_id, revoked);
+-- oauth_refresh_tokens_user_idx lives in migration 055 (renamed-column index).
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
 
@@ -653,7 +655,7 @@ CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
 -- to the human, then polls /oauth/token until the human approves
 -- in their browser at GET /device.
 --
--- `status` transitions: pending → approved (collaborator_id +
+-- `status` transitions: pending → approved (user_id +
 -- granted_doco_ids set) or denied or expired. The polling endpoint
 -- mints + returns access/refresh tokens iff `status = approved`,
 -- then deletes the row.
@@ -664,7 +666,7 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   scope            text,
   status           text NOT NULL DEFAULT 'pending'
                      CHECK (status IN ('pending','approved','denied')),
-  collaborator_id     text REFERENCES collaborators(id) ON DELETE CASCADE,
+  user_id             text REFERENCES users(id) ON DELETE CASCADE,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
@@ -725,20 +727,20 @@ ALTER TABLE oauth_device_authorizations
     CHECK (requested_role IS NULL OR requested_role IN ('reader','author','approver','owner'));
 
 -- Committable read-only "project tokens" for Docos. Distinct from
--- oauth_access_tokens: tied to the Doco (not a collaborator), fixed
+-- oauth_access_tokens: tied to the Doco (not a user), fixed
 -- reader scope on one Doco, no expiry — designed to live in the
 -- repo at .doco/project-tokens.json so agents that clone the repo
 -- can read the Doco without OAuth. Suitable only when repo-readers
 -- = acceptable Doco-readers; the owner mints with explicit
 -- confirmation.
 CREATE TABLE IF NOT EXISTS doco_project_tokens (
-  token                       text PRIMARY KEY,
-  doco_id                     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  created_by_collaborator_id  text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
-  label                       text,
-  revoked                     boolean NOT NULL DEFAULT false,
-  created_at                  timestamptz NOT NULL DEFAULT now(),
-  last_used_at                timestamptz
+  token                 text PRIMARY KEY,
+  doco_id               text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  created_by_user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label                 text,
+  revoked               boolean NOT NULL DEFAULT false,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  last_used_at          timestamptz
 );
 CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
   ON doco_project_tokens (doco_id) WHERE NOT revoked;
@@ -746,7 +748,7 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
 CREATE TABLE IF NOT EXISTS doco_templates (
   id           text PRIMARY KEY,
   handle       text NOT NULL UNIQUE,
-  owner_id     text NOT NULL REFERENCES collaborators(id) ON DELETE CASCADE,
+  owner_id     text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   label        text NOT NULL,
   description  text NOT NULL,
   data         jsonb NOT NULL,

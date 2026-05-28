@@ -2,7 +2,7 @@
 //
 // Post-rename (migration 005): entities are split across five categories.
 // Each category maps to one or more tables; the type discriminator string
-// (e.g. "intent", "guidance_policy", "collaborator") names the row.
+// (e.g. "intent", "guidance_policy", "user") names the row.
 
 /**
  * The 10 neuron types (graph-knowledge entities).
@@ -30,7 +30,7 @@ export const NEURON_TABLES: Record<
   reference: { table: "reference_entities", body: false, typeNamedColumn: "reference" },
   state: { table: "states", body: false, typeNamedColumn: "state" },
   // Principal = documented role/persona, referenced by actor_id/actors[].
-  // NOT the OAuth identity layer — that lives in collaborators.
+  // NOT the OAuth identity layer — that lives in users.
   // body_md carries prose description of the role. Principal is
   // intentionally excluded from the type-named-column rename for now.
   principal: { table: "principals", body: true },
@@ -71,9 +71,9 @@ export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
   },
 };
 
-/** The collaborator category — OAuth identity layer. One table, two kinds. */
-export const COLLABORATOR_TABLES: Record<string, { table: string; body: boolean }> = {
-  collaborator: { table: "collaborators", body: false },
+/** The user category — OAuth identity layer. One table, two kinds. */
+export const USER_TABLES: Record<string, { table: string; body: boolean }> = {
+  user: { table: "users", body: false },
 };
 
 /** Containers — docos and organizations are their own top-level categories. */
@@ -97,7 +97,7 @@ export const ALL_ENTITY_TABLES: Record<
   { table: string; body: boolean; typeNamedColumn?: string }
 > = {
   ...NEURON_TABLES,
-  ...COLLABORATOR_TABLES,
+  ...USER_TABLES,
   ...CONTAINER_TABLES,
   ...AUX_TABLES,
   // Policies are flattened to their per-Doco table here; org-scope
@@ -114,7 +114,7 @@ export const ALL_ENTITY_TABLES: Record<
  * from this shape.
  *
  * `entity_type` carries the discriminator string (one of 14 values
- * across all categories: 10 neurons + 2 policies + 1 collaborator +
+ * across all categories: 10 neurons + 2 policies + 1 user +
  * doco + organization, plus the auxiliary "tag"). The field was named
  * `node_type` pre-migration-005.
  */

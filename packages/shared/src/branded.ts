@@ -5,7 +5,7 @@
  * Post-rename (migration 005): entities are split across five categories.
  *   - Neurons (10):       graph-knowledge entities
  *   - Policies (2):       Doco-level authoring metadata
- *   - Collaborator (1):   OAuth identity layer
+ *   - User (1):   OAuth identity layer
  *   - Doco (1):           workspace container
  *   - Organization (1):   org container
  *
@@ -51,9 +51,9 @@ export const POLICY_TYPES = ["guidance_policy", "neuron_authoring_policy"] as co
 
 export type PolicyType = (typeof POLICY_TYPES)[number];
 
-/** The collaborator type — OAuth identity. One entity, two `kind` values. */
-export const COLLABORATOR_TYPE = "collaborator" as const;
-export type CollaboratorType = typeof COLLABORATOR_TYPE;
+/** The user type — OAuth identity. One entity, two `kind` values. */
+export const USER_TYPE = "user" as const;
+export type UserType = typeof USER_TYPE;
 
 /** The container types — docos and organizations. */
 export const CONTAINER_TYPES = ["doco", "organization"] as const;
@@ -67,7 +67,7 @@ export type ContainerType = (typeof CONTAINER_TYPES)[number];
 export const ENTITY_TYPES = [
   ...NEURON_TYPES,
   ...POLICY_TYPES,
-  COLLABORATOR_TYPE,
+  USER_TYPE,
   ...CONTAINER_TYPES,
 ] as const;
 

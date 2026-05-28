@@ -136,7 +136,7 @@ describe("business-processes template", () => {
 
     // Post-rename: `allowed_principal_types` removed from the predicate.
     // Principals no longer carry a `type` field (person/agent moved to
-    // Collaborator). The predicate simply enforces that the field
+    // User). The predicate simply enforces that the field
     // resolves to an existing Principal — the test below now asserts the
     // shape stays minimal.
     it("predicate carries only field + when_neuron_type after the rename", () => {

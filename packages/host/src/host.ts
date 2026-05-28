@@ -59,7 +59,7 @@ export function buildTemplatePerspectiveSeeds(
   return seeds;
 }
 
-function assertPublicHandleAllowed(handle: string, kind: "collaborator" | "organization"): void {
+function assertPublicHandleAllowed(handle: string, kind: "user" | "organization"): void {
   if (!HANDLE_PATTERN.test(handle)) {
     throw new Error(`Invalid ${kind} handle "${handle}" — expected lowercase [a-z0-9][a-z0-9_-]*.`);
   }
@@ -68,7 +68,7 @@ function assertPublicHandleAllowed(handle: string, kind: "collaborator" | "organ
   }
 }
 
-export interface AddCollaboratorOptions {
+export interface AddUserOptions {
   username: string;
   email?: string;
   github_identity?: {
@@ -78,35 +78,33 @@ export interface AddCollaboratorOptions {
   };
 }
 
-export async function findCollaboratorByGitHubLogin(
+export async function findUserByGitHubLogin(
   githubLogin: string,
-): Promise<{ id: EntityId<"collaborator">; username: string } | null> {
+): Promise<{ id: EntityId<"user">; username: string } | null> {
   const { withClient } = await import("@doco/db");
   const r = await withClient((c) =>
     c.query<{ id: string; github_login: string | null }>(
-      "SELECT id, github_login FROM collaborators WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
+      "SELECT id, github_login FROM users WHERE LOWER(github_login) = LOWER($1) LIMIT 1",
       [githubLogin],
     ),
   );
   const row = r.rows[0];
   if (!row) return null;
   return {
-    id: row.id as EntityId<"collaborator">,
+    id: row.id as EntityId<"user">,
     username: row.github_login ?? row.id,
   };
 }
 
-export async function addCollaborator(
-  opts: AddCollaboratorOptions,
-): Promise<EntityId<"collaborator">> {
-  assertPublicHandleAllowed(opts.username, "collaborator");
-  const id = makeEntityId("collaborator", generateUlid()) as EntityId<"collaborator">;
+export async function addUser(opts: AddUserOptions): Promise<EntityId<"user">> {
+  assertPublicHandleAllowed(opts.username, "user");
+  const id = makeEntityId("user", generateUlid()) as EntityId<"user">;
   const created = nowIso();
   const gh: { github_id?: string; github_login: string; email?: string } = opts.github_identity ?? {
     github_login: opts.username,
     ...(opts.email ? { email: opts.email } : {}),
   };
-  const collaborator = {
+  const user = {
     id,
     kind: "person",
     ...(gh.github_id ? { github_id: gh.github_id } : {}),
@@ -119,7 +117,7 @@ export async function addCollaborator(
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const dup = await c.query(
-      `SELECT 1 FROM collaborators WHERE LOWER(github_login) = LOWER($1)
+      `SELECT 1 FROM users WHERE LOWER(github_login) = LOWER($1)
        UNION
        SELECT 1 FROM organizations WHERE handle = $1
        LIMIT 1`,
@@ -129,7 +127,7 @@ export async function addCollaborator(
       throw new Error(`Handle "${opts.username}" is already taken.`);
     }
     await c.query(
-      `INSERT INTO collaborators
+      `INSERT INTO users
         (id, kind, github_id, github_login, email, data, created_at, updated_at)
        VALUES ($1, 'person', $2, $3, $4, $5::jsonb, $6, $6)`,
       [
@@ -137,7 +135,7 @@ export async function addCollaborator(
         gh.github_id ?? null,
         gh.github_login ?? opts.username,
         opts.email ?? gh.email ?? null,
-        JSON.stringify(collaborator),
+        JSON.stringify(user),
         created,
       ],
     );
@@ -147,7 +145,7 @@ export async function addCollaborator(
 }
 
 export async function ensurePersonalOrganization(
-  collaboratorId: string,
+  userId: string,
   username: string,
 ): Promise<EntityId<"organization">> {
   const { withClient } = await import("@doco/db");
@@ -158,10 +156,10 @@ export async function ensurePersonalOrganization(
     );
     if (existing.rows[0]) {
       await c.query(
-        `INSERT INTO org_users (org_id, collaborator_id, role)
+        `INSERT INTO org_users (org_id, user_id, role)
          VALUES ($1, $2, 'owner')
-         ON CONFLICT (org_id, collaborator_id) DO NOTHING`,
-        [existing.rows[0].id, collaboratorId],
+         ON CONFLICT (org_id, user_id) DO NOTHING`,
+        [existing.rows[0].id, userId],
       );
       return existing.rows[0].id as EntityId<"organization">;
     }
@@ -171,7 +169,7 @@ export async function ensurePersonalOrganization(
     const data = {
       id,
       handle: username,
-      owner_id: collaboratorId,
+      owner_id: userId,
       created_at: created,
     };
     await c.query(
@@ -180,9 +178,9 @@ export async function ensurePersonalOrganization(
       [id, username, username, JSON.stringify(data), created],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, collaborator_id, role, joined_at)
+      `INSERT INTO org_users (org_id, user_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
-      [id, collaboratorId, created],
+      [id, userId, created],
     );
     return id;
   });
@@ -228,7 +226,7 @@ export async function findAvailableDocoHandle(requestedHandle: string): Promise<
 
 export async function addOrganizationByHandle(opts: {
   handle: string;
-  ownerCollaboratorId: string;
+  ownerUserId: string;
   autoSuffix?: boolean;
 }): Promise<{ id: EntityId<"organization">; handle: string }> {
   assertPublicHandleAllowed(opts.handle, "organization");
@@ -248,7 +246,7 @@ export async function addOrganizationByHandle(opts: {
     const data = {
       id,
       handle: finalHandle,
-      owner_id: opts.ownerCollaboratorId,
+      owner_id: opts.ownerUserId,
       created_at: created,
     };
     await c.query(
@@ -257,9 +255,9 @@ export async function addOrganizationByHandle(opts: {
       [id, finalHandle, finalHandle, JSON.stringify(data), created],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, collaborator_id, role, joined_at)
+      `INSERT INTO org_users (org_id, user_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
-      [id, opts.ownerCollaboratorId, created],
+      [id, opts.ownerUserId, created],
     );
     return { id, handle: finalHandle };
   });
@@ -268,7 +266,7 @@ export async function addOrganizationByHandle(opts: {
 export async function createDocoInOrg(opts: {
   orgId: string;
   requestedHandle: string;
-  createdByCollaboratorId: string;
+  createdByUserId: string;
   visibility?: "private" | "public";
   templateHandle?: string | null;
   autoSuffix?: boolean;
@@ -338,7 +336,7 @@ export async function createDocoInOrg(opts: {
       org_id: opts.orgId,
       template_handle: opts.templateHandle ?? null,
       created_at: created,
-      created_by: opts.createdByCollaboratorId,
+      created_by: opts.createdByUserId,
       lifecycle: "active",
       ...(allowedNeuronTypes ? { allowed_neuron_types: allowedNeuronTypes } : {}),
       ...(defaultNeuronLifecycle ? { default_neuron_lifecycle: defaultNeuronLifecycle } : {}),
@@ -369,16 +367,16 @@ export async function createDocoInOrg(opts: {
     // doco_users grant for creators whose org role is below owner; in
     // that case they need an explicit owner row on what they created.
     const orgRoleRow = await c.query<{ role: string }>(
-      "SELECT role FROM org_users WHERE org_id = $1 AND collaborator_id = $2",
-      [opts.orgId, opts.createdByCollaboratorId],
+      "SELECT role FROM org_users WHERE org_id = $1 AND user_id = $2",
+      [opts.orgId, opts.createdByUserId],
     );
     const orgRole = orgRoleRow.rows[0]?.role;
     if (orgRole !== "owner") {
       await c.query(
-        `INSERT INTO doco_users (doco_id, collaborator_id, role, joined_at)
+        `INSERT INTO doco_users (doco_id, user_id, role, joined_at)
          VALUES ($1, $2, 'owner', $3)
-         ON CONFLICT (doco_id, collaborator_id) DO UPDATE SET role = 'owner'`,
-        [docoId, opts.createdByCollaboratorId, created],
+         ON CONFLICT (doco_id, user_id) DO UPDATE SET role = 'owner'`,
+        [docoId, opts.createdByUserId, created],
       );
     }
 
@@ -408,7 +406,7 @@ export async function createDocoInOrg(opts: {
           template_seeded: true,
           template_handle: opts.templateHandle ?? null,
           created_at: created,
-          created_by: opts.createdByCollaboratorId,
+          created_by: opts.createdByUserId,
           lifecycle: "active",
         };
         await c.query(
@@ -424,7 +422,7 @@ export async function createDocoInOrg(opts: {
             JSON.stringify(policyData),
             policy.body_md ?? "",
             created,
-            opts.createdByCollaboratorId,
+            opts.createdByUserId,
           ],
         );
       }
@@ -439,17 +437,10 @@ export async function createDocoInOrg(opts: {
       if (!perspectiveId) continue;
       if (entry.isDefault) insertedDefaultPerspective = true;
       await c.query(
-        `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_collaborator)
+        `INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default, attached_at, attached_by_user)
               VALUES ($1, $2, $3, $4, $5, $6)
          ON CONFLICT (doco_id, perspective_id) DO NOTHING`,
-        [
-          docoId,
-          perspectiveId,
-          entry.position,
-          entry.isDefault,
-          created,
-          opts.createdByCollaboratorId,
-        ],
+        [docoId, perspectiveId, entry.position, entry.isDefault, created, opts.createdByUserId],
       );
     }
     if (!insertedDefaultPerspective) {

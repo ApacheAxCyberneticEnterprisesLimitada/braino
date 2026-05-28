@@ -25,12 +25,12 @@ export {
   // Host + identity helpers
   getHostConfig,
   upsertHostConfig,
-  // Collaborators (OAuth identity layer — new in migration 005)
-  getCollaboratorById,
-  getCollaboratorByGithubLogin,
-  listCollaborators,
-  patchCollaboratorData,
-  type CollaboratorRow,
+  // Users (OAuth identity layer — new in migration 005)
+  getUserById,
+  getUserByGithubLogin,
+  listUsers,
+  patchUserData,
+  type UserRow,
   // Principals (role-personas — neuron type)
   getPrincipalById,
   getPrincipalByName,
@@ -38,7 +38,7 @@ export {
   type PrincipalRow,
   // Organizations
   listOrganizations,
-  listOrganizationsForCollaborator,
+  listOrganizationsForUser,
   upsertOrgUser,
   removeOrgUser,
   isOrgUser,
@@ -53,7 +53,7 @@ export {
   maxRole,
   getDocoUserRole,
   listDocoUsers,
-  listDocoIdsForCollaborator,
+  listDocoIdsForUser,
   upsertDocoUser,
   removeDocoUser,
   // Docos
@@ -72,7 +72,7 @@ export {
   DOCO_NEURON_TABLE_SPECS,
   NEURON_TABLES,
   POLICY_TABLES,
-  COLLABORATOR_TABLES,
+  USER_TABLES,
   CONTAINER_TABLES,
   type EntityRecord,
   type EntityTableSpec,

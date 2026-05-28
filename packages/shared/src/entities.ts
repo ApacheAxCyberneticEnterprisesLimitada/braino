@@ -7,16 +7,16 @@
  *   - Neurons (10): graph-knowledge entities (intent, idea, rule,
  *     decision, action, log, eval, reference, state, principal)
  *   - Policies (2): Doco-level authoring metadata (guidance, neuron_authoring)
- *   - Collaborator (1): OAuth identity layer (separate from principal)
+ *   - User (1): OAuth identity layer (separate from principal)
  *   - Doco, Organization: workspace + org containers
  *
  * Per-category discriminator fields (matches stored data jsonb):
  *   - Neurons   → `neuron_type: NeuronType`
  *   - Policies → `policy_kind: "guidance" | "neuron_authoring"`
- *   - Collaborator → `kind: "person" | "agent"`
+ *   - User → `kind: "person" | "agent"`
  *   - Doco, Organization → no per-row discriminator
  *
- * `created_by` / `updated_by` reference collaborators (the OAuth
+ * `created_by` / `updated_by` reference users (the OAuth
  * identity). `actor_id` / `actors[]` / `decided_by` continue to
  * reference principals (the role-personas).
  */
@@ -44,9 +44,9 @@ export interface CommonFields {
   id: EntityId;
   doco_id: EntityId<"doco">;
   created_at: string; // ISO 8601 UTC
-  created_by: EntityId<"collaborator">;
+  created_by: EntityId<"user">;
   updated_at?: string;
-  updated_by?: EntityId<"collaborator">;
+  updated_by?: EntityId<"user">;
   lifecycle?: Lifecycle;
   deprecated?: boolean;
   outcome?: Outcome;
@@ -78,7 +78,7 @@ export interface SummarizedFields extends CommonFields {
  * are dropped.
  */
 
-// ─── Collaborator (OAuth identity — new category) ─────────────────────────
+// ─── User (OAuth identity — new category) ─────────────────────────
 
 export interface GitHubIdentity {
   github_id?: string;
@@ -94,23 +94,23 @@ export interface AgentMetadata {
 }
 
 /**
- * Collaborator — host-scoped OAuth identity. Person or agent runtime.
+ * User — host-scoped OAuth identity. Person or agent runtime.
  * Authored neurons via `created_by` / `updated_by`. Member of orgs/docos
  * via `member_of` synapses.
  *
- * NOT on the graph as a neuron — collaborators are an identity layer.
+ * NOT on the graph as a neuron — users are an identity layer.
  * Use `Principal` (the neuron) when documenting a role/persona that
  * participates in a flow.
  */
-export interface Collaborator {
-  id: EntityId<"collaborator">;
+export interface User {
+  id: EntityId<"user">;
   kind: "person" | "agent";
   github_id?: string;
   github_login: string;
   email?: string;
   avatar_url?: string;
   /** For agents: the person who spawned this agent. */
-  owner_id?: EntityId<"collaborator">;
+  owner_id?: EntityId<"user">;
   agent_metadata?: AgentMetadata;
   created_at: string;
   deactivated_at?: string;
@@ -122,7 +122,7 @@ export interface Collaborator {
  * Principal — documented role/persona that participates in flows.
  * Referenced by `Action.actor_id`, `Log.actor_id`, `Intent.actors[]`,
  * `Intent.stakeholders[]`. Slimmed from the pre-rename Principal which
- * also held OAuth identity; that concern is now `Collaborator`.
+ * also held OAuth identity; that concern is now `User`.
  */
 // Principal carries `name` (display label) + `body_md` (everything
 // else); the `summary` one-liner was dropped by migration 037 because
@@ -155,7 +155,7 @@ export interface Principal extends CommonFields {
 
 export interface DocoMember {
   /** Membership is at the OAuth-identity layer; the field name reflects that. */
-  collaborator_id: EntityId<"collaborator">;
+  user_id: EntityId<"user">;
   role: "owner" | "maintainer" | "contributor" | "viewer";
   permissions: ("read" | "write" | "execute" | "admin")[];
 }
@@ -167,8 +167,8 @@ export interface DocoImport {
   include?: string[];
 }
 
-/** Doco.owner_id is polymorphic: Collaborator (user/agent) OR Organization. */
-export type OwnerRef = EntityId<"collaborator"> | EntityId<"organization">;
+/** Doco.owner_id is polymorphic: User (user/agent) OR Organization. */
+export type OwnerRef = EntityId<"user"> | EntityId<"organization">;
 
 export interface Doco {
   id: EntityId<"doco">;
@@ -178,9 +178,9 @@ export interface Doco {
   owner_id: OwnerRef;
   summary?: string;
   created_at?: string;
-  created_by?: EntityId<"collaborator">;
+  created_by?: EntityId<"user">;
   updated_at?: string;
-  updated_by?: EntityId<"collaborator">;
+  updated_by?: EntityId<"user">;
   lifecycle?: Lifecycle;
   members?: DocoMember[];
   imports?: DocoImport[];
@@ -208,8 +208,8 @@ export interface Idea extends CommonFields {
   neuron_type: "idea";
   /** Full prose: the idea, context, tradeoffs. */
   idea: string;
-  /** Who proposed it. Collaborator (the OAuth identity), not a principal. */
-  proposer_id?: EntityId<"collaborator">;
+  /** Who proposed it. User (the OAuth identity), not a principal. */
+  proposer_id?: EntityId<"user">;
   promoted_to?: EntityId; // Intent / Decision / Action when picked up
   rejection_reason?: string;
 }
@@ -265,7 +265,7 @@ export type AuthoringPredicate =
    * principal id.
    *
    * Post-rename: principals no longer carry a `type` field — the
-   * person/agent split moved to Collaborator. The predicate no longer
+   * person/agent split moved to User. The predicate no longer
    * constrains by `allowed_principal_types`; it just enforces that the
    * field resolves to an existing principal.
    */
@@ -338,7 +338,7 @@ export interface Decision extends CommonFields {
    * Who decided. References the Principal (role-persona) who made the
    * call — matches the capture-API contract (PR #66) and the FK on
    * decisions.decided_by (migration 025). Pre-rename data used
-   * Collaborator ids here; migration 025 backfilled.
+   * User ids here; migration 025 backfilled.
    */
   decided_by: EntityId<"principal">;
   decided_at: string;
@@ -446,7 +446,7 @@ export interface State extends CommonFields {
 // ─── Organization ─────────────────────────────────────────────────────────
 
 export interface OrganizationMember {
-  collaborator_id: EntityId<"collaborator">;
+  user_id: EntityId<"user">;
   role: "owner" | "admin" | "member" | "viewer";
   permissions?: ("read" | "write" | "execute" | "admin")[];
 }
@@ -478,7 +478,7 @@ export type Neuron =
 export type Policy = GuidancePolicy | NeuronAuthoringPolicy;
 
 /** Every entity across all categories. */
-export type Entity = Neuron | Policy | Collaborator | Doco | Organization;
+export type Entity = Neuron | Policy | User | Doco | Organization;
 
 /** Look up a Neuron interface by its `neuron_type` literal. */
 export type NeuronByType<T extends Neuron["neuron_type"]> = Extract<Neuron, { neuron_type: T }>;
