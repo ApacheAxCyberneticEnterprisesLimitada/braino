@@ -10,9 +10,11 @@
 --     doco_users, oauth_*, audit_events.by_collaborator, chat_*,
 --     perspectives, doco_perspectives, agent_turn_metrics,
 --     group_chat_*, doco_project_tokens).
---   * 20 foreign keys that referenced collaborators(id) re-pointed at
---     users(id) (incl. decisions.decided_by, ideas.proposer_id,
+--   * 18 foreign keys that referenced collaborators(id) re-pointed at
+--     users(id) (incl. ideas.proposer_id,
 --     feedback_reports.created_by/reviewed_by, doco_templates.owner_id).
+--     NB: decisions.decided_by is NOT among them — its FK was dropped in
+--     migration 025 because the column holds a principal_<ulid>.
 --   * Every stored collaborator_<ULID> value rewritten to user_<ULID>:
 --     the FK columns above, the by-convention provenance columns
 --     created_by/updated_by on every neuron/policy/principal table,
@@ -177,20 +179,6 @@ BEGIN
           WHERE data::text LIKE ''%%collaborator_%%''', t);
     END IF;
   END LOOP;
-
-  -- Null out any decided_by / proposer_id values that are not user_ refs
-  -- (e.g. stale principal_<ulid> values that migration 054 may not have
-  -- cleaned up). These columns have no FK today so the values survived
-  -- without enforcement; step 5 adds FK → users(id) which will fail the
-  -- validation scan if non-user IDs are present.
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_name = 'decisions' AND column_name = 'decided_by') THEN
-    UPDATE decisions SET decided_by = NULL WHERE decided_by NOT LIKE 'user_%';
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_name = 'ideas' AND column_name = 'proposer_id') THEN
-    UPDATE ideas SET proposer_id = NULL WHERE proposer_id NOT LIKE 'user_%';
-  END IF;
 END $$;
 
 -- ── 5. Re-point the 19 foreign keys at users(id) (self-FK already on the
@@ -207,7 +195,10 @@ DECLARE
     ['oauth_device_authorizations','user_id','oauth_device_authorizations_user_id_fkey','CASCADE'],
     ['doco_project_tokens','created_by_user_id','doco_project_tokens_created_by_user_id_fkey','CASCADE'],
     ['doco_templates','owner_id','doco_templates_owner_id_fkey','CASCADE'],
-    ['decisions','decided_by','decisions_decided_by_fk','SET NULL'],
+    -- NB: decisions.decided_by deliberately has NO FK. Migration 013 added
+    -- decisions_decided_by_fk → collaborators(id); migration 025 dropped it
+    -- because decided_by holds a principal_<ulid> (a Principal neuron), not
+    -- an OAuth identity. Re-adding it here would 500 every Decision capture.
     ['ideas','proposer_id','ideas_proposer_fk','SET NULL'],
     ['feedback_reports','created_by','feedback_reports_created_by_fkey','SET NULL'],
     ['feedback_reports','reviewed_by','feedback_reports_reviewed_by_fkey','SET NULL'],
