@@ -65,7 +65,7 @@ export interface LoadedPolicy {
   /**
    * Skip this policy unless the candidate's `lifecycle` is in this
    * list. Empty / undefined means "fires regardless of lifecycle".
-   * Lets completeness policies wait for `active`.
+   * Lets completeness policies wait for `accepted`.
    */
   fires_when_neuron_lifecycle?: Lifecycle[];
 }

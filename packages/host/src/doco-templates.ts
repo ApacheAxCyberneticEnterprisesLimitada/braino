@@ -247,11 +247,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // user-flows v2: each principal listed on the Intent's
         // `actors` must be the actor_id of ≥1 Action serving the
-        // Intent. Fires only when the Intent moves to `active` —
+        // Intent. Fires only when the Intent moves to `accepted` —
         // drafting Intents can be captured first and have their Actions
         // filled in after.
         policy:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafting Intents are allowed to be incomplete.",
+          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is accepted — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
           list_field: "actors",
@@ -260,7 +260,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           incoming_field_must_match: "actor_id",
           when_neuron_type: ["intent"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         // user-flows v2: actor_id must point at a real Principal —
@@ -394,7 +394,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // P4
         policy:
           "The state-machines doco's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["intent"],
@@ -416,7 +416,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // P-regions
         policy:
           "If a machine has multiple active States of kind `initial`, the Doco's purpose Intent explains why — parallel regions, optional entry points, etc. — so readers don't assume it's a wiring mistake.",
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
         predicate: {
           kind: "probabilistic",
           when_neuron_type: ["intent"],
@@ -501,7 +501,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["target_ref"],
           when_neuron_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         // D5 — only fires on activate; drafts can be incomplete.
@@ -512,7 +512,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["how_to_run"],
           when_neuron_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       // ── Probabilistic style gates ──
       {
@@ -554,7 +554,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["eval"],
           spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, prompt, URL, or manual procedure, plus any required fixture, input, account, environment, or setup needed to produce `actual`. FAIL when it is vague (`run the tests`, `ask the agent`, `manual QA`) or depends on unstated context.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         // P5
@@ -570,7 +570,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafting"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `active` — it\'s now a regression guard.',
+          'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafting"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `accepted` — it\'s now a regression guard.',
       },
       {
         kind: "guidance",
@@ -684,7 +684,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["question", "chosen", "decided_by"],
           when_neuron_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -695,7 +695,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           case_fold: true,
           when_neuron_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -714,7 +714,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["decision"],
           spec: "Read the Decision's `decision` prose. PASS when it includes (1) a concise definition, (2) the product or domain scope where the term applies, and (3) at least one concrete example or non-example. FAIL with which element is missing when the prose is too vague for a reader to use the term consistently.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -735,7 +735,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["target_ref", "how_to_run"],
           when_neuron_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -745,7 +745,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["eval"],
           spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, search query, URL, script, or manual review procedure, plus the doc/code/product scope to inspect. FAIL when it is vague (`review docs`, `check terminology`) or depends on unstated context.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Guidance ───────────────────────────────────────────────
@@ -833,7 +833,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["actors", "stakeholders"],
           when_neuron_type: ["intent"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -854,7 +854,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["owner_id", "metric", "target", "measurement_window", "source_ref"],
           when_neuron_type: ["rule"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -864,7 +864,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           field: "owner_id",
           when_neuron_type: ["rule"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -875,7 +875,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "reference",
           when_neuron_type: ["rule"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -885,7 +885,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["rule"],
           spec: "Read the Rule's `rule` prose plus `metric`, `target`, `measurement_window`, and any supporting fields. PASS when numerator, denominator, eligible population/scope, timezone or calendar, rounding/threshold treatment, and planned-maintenance handling are clear enough for two reviewers to calculate the same result. FAIL with the missing pieces.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -895,7 +895,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["rule"],
           spec: "Read the Rule. PASS when customer-facing commitments state exclusions, prerequisites/customer obligations, and remedy/claim procedure (service credits, caps, deadline, evidence required) OR when an internal SLO/OLA explicitly says no customer remedy applies. FAIL when the target is documented but exclusions or remedies are missing or ambiguous.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         on_violation: "warn",
@@ -906,7 +906,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["rule"],
           spec: "If the Rule's `target` or prose says 100%, five nines with no error budget, or otherwise zero allowed failure, PASS only when the Rule cites a Decision via `born_from` or prose explaining why no error budget is acceptable and what consequence follows. If the target is below 100%, PASS.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Verification and evidence ──────────────────────────────
@@ -918,7 +918,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["target_ref", "how_to_run"],
           when_neuron_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -929,7 +929,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "rule",
           when_neuron_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -939,7 +939,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["eval"],
           spec: "Read the Eval's `how_to_run`, `criterion`, and `expected`. PASS when it names the measurement source and a concrete rerun path: exact query, dashboard/report URL, command, or manual procedure, plus numerator, denominator, measurement window, and rounding/threshold treatment. FAIL when it says only `check dashboard`, `look at reports`, or otherwise depends on hidden context.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -1082,7 +1082,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Intent's `intent` field. The purpose Intent of a business process must name (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. PASS if all three are discernible; FAIL with which is missing if one or more is absent.",
           when_neuron_type: ["intent"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Action shape ────────────────────────────────────────────
@@ -1094,7 +1094,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["actor_id"],
           when_neuron_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         // Team-roles (`kitchen`, `support`, `finance`) are first-class
@@ -1108,7 +1108,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           field: "actor_id",
           when_neuron_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -1119,7 +1119,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "intent",
           when_neuron_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         // Atomic activity prose — reject umbrella phases and
@@ -1131,7 +1131,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Action's `action` and `verb`. PASS when the text names an atomic business activity — a single unit of work the named actor performs. FAIL with reason if the text is a vague umbrella phase (e.g. `handle request`, `do the thing`, `process order`) or an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
           when_neuron_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       // ── Decision shape ──────────────────────────────────────────
       {
@@ -1143,7 +1143,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "intent",
           when_neuron_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         policy:
@@ -1154,7 +1154,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_neuron_type: "intent",
           when_neuron_type: ["state"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
       {
         // Exhaustive branches: question reads as yes/no or enumerated,
@@ -1167,7 +1167,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Decision's `question`, `alternatives`, and any `sequence_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_neuron_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── State shape & sequence wiring ───────────────────────────
@@ -1215,17 +1215,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["state"],
           spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Coverage ────────────────────────────────────────────────
       {
         // Each principal listed on an Intent's `actors` must be the
         // actor_id of ≥1 Action serving the Intent. Fires only when
-        // the Intent moves to `active` so drafting Intents can be
+        // the Intent moves to `accepted` so drafting Intents can be
         // sketched first and have their Actions filled in later.
         policy:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is active — drafting Intents are allowed to be incomplete.",
+          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is accepted — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
           list_field: "actors",
@@ -1234,7 +1234,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           incoming_field_must_match: "actor_id",
           when_neuron_type: ["intent"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Eval ────────────────────────────────────────────────────
@@ -1246,7 +1246,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["target_ref"],
           when_neuron_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Guidance (prose-only) ───────────────────────────────────
@@ -1283,7 +1283,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Drafting neurons may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `active` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
+          "Drafting neurons may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `accepted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
       },
       {
         kind: "guidance",
@@ -1367,7 +1367,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_neuron_type: ["principal"],
           spec: "Read the Principal candidate. PASS if `reports_to` is a non-empty Principal id. Otherwise, PASS only if `body_md` explains why this Principal has no manager above it (founder, board-reporting, root agent, external authority, etc.). FAIL with reason when an active Principal has no `reports_to` and `body_md` does not explain the missing reporting edge.",
         },
-        fires_when_neuron_lifecycle: ["active"],
+        fires_when_neuron_lifecycle: ["accepted"],
       },
 
       // ── Team Intents declare members ───────────────────────────

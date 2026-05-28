@@ -80,7 +80,7 @@ describe("glossaries template", () => {
       expect(requiredFields?.predicate?.kind).toBe("requires_field");
       if (requiredFields?.predicate?.kind !== "requires_field") return;
       expect(requiredFields.predicate.fields).toEqual(["question", "chosen", "decided_by"]);
-      expect(requiredFields.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(requiredFields.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
 
     it("enforces case-folded uniqueness for the canonical term in `chosen`", () => {
@@ -89,7 +89,7 @@ describe("glossaries template", () => {
       expect(uniqueCanonicalTerm.predicate.field).toBe("chosen");
       expect(uniqueCanonicalTerm.predicate.case_fold).toBe(true);
       expect(uniqueCanonicalTerm.predicate.when_neuron_type).toEqual(["decision"]);
-      expect(uniqueCanonicalTerm.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(uniqueCanonicalTerm.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
 
     it("documents that alternatives are optional unless real alternate names exist", () => {
@@ -154,12 +154,12 @@ describe("glossaries template", () => {
       expect(evalFields?.predicate?.kind).toBe("requires_field");
       if (evalFields?.predicate?.kind !== "requires_field") return;
       expect(evalFields.predicate.fields).toEqual(["target_ref", "how_to_run"]);
-      expect(evalFields.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(evalFields.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
 
     it("requires reproducible terminology checks", () => {
       expect(rerunRule).toBeDefined();
-      expect(rerunRule?.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(rerunRule?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
       expect(rerunRule?.predicate?.kind).toBe("probabilistic");
       if (rerunRule?.predicate?.kind !== "probabilistic") return;
       expect(rerunRule.predicate.spec).toMatch(/concrete rerun path/i);

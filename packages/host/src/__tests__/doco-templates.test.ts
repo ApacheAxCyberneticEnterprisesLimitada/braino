@@ -82,7 +82,7 @@ describe("business-processes template", () => {
         ["actor_id", "action"],
         ["target_ref", "eval"],
       ]) {
-        expect(requiresField(field, entityType)?.fires_when_neuron_lifecycle).toEqual(["active"]);
+        expect(requiresField(field, entityType)?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
       }
     });
   });
@@ -108,15 +108,15 @@ describe("business-processes template", () => {
       expect(requiresEdge("serves", "intent", "state")).toBeDefined();
     });
 
-    it("fires flow membership checks only when the node is active", () => {
+    it("fires flow membership checks only when the node is accepted", () => {
       expect(requiresEdge("serves", "intent", "action")?.fires_when_neuron_lifecycle).toEqual([
-        "active",
+        "accepted",
       ]);
       expect(requiresEdge("serves", "intent", "decision")?.fires_when_neuron_lifecycle).toEqual([
-        "active",
+        "accepted",
       ]);
       expect(requiresEdge("serves", "intent", "state")?.fires_when_neuron_lifecycle).toEqual([
-        "active",
+        "accepted",
       ]);
     });
   });
@@ -131,7 +131,7 @@ describe("business-processes template", () => {
       if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
       expect(rule.predicate.field).toBe("actor_id");
       expect(rule.predicate.when_neuron_type).toContain("action");
-      expect(rule.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(rule.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
 
     // Post-rename: `allowed_principal_types` removed from the predicate.
@@ -210,7 +210,7 @@ describe("business-processes template", () => {
     });
 
     it("fires only when the Intent is active (drafting Intents can be incomplete)", () => {
-      expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
   });
 
@@ -229,13 +229,13 @@ describe("business-processes template", () => {
         (r) =>
           r.predicate?.kind === "probabilistic" && /exhaustive outgoing branches/i.test(r.policy),
       );
-      expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
     it("keeps Action grain as an activation-time check", () => {
       const rule = template.policies.find(
         (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
       );
-      expect(rule?.fires_when_neuron_lifecycle).toEqual(["active"]);
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
   });
 
@@ -252,7 +252,7 @@ describe("business-processes template", () => {
       expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
     });
     it("documents draft-first activation", () => {
-      expect(summaries.some((s) => /Drafting neurons/i.test(s) && /active/i.test(s))).toBe(true);
+      expect(summaries.some((s) => /Drafting neurons/i.test(s) && /accepted/i.test(s))).toBe(true);
     });
     it("Log separation (instances live in a sibling Doco)", () => {
       expect(

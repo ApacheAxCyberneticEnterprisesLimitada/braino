@@ -304,7 +304,7 @@ describe("authoring evaluator — graph-completeness", () => {
         id: "intent_01",
         neuron_type: "intent",
         actors: ["principal_alice", "principal_bob"],
-        lifecycle: "active",
+        lifecycle: "accepted",
       },
       [
         P(
@@ -316,7 +316,7 @@ describe("authoring evaluator — graph-completeness", () => {
             incoming_field_must_match: "actor_id",
             when_neuron_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["active"] },
+          { fires_when_neuron_lifecycle: ["accepted"] },
         ),
       ],
       {
@@ -339,7 +339,7 @@ describe("authoring evaluator — graph-completeness", () => {
         id: "intent_01",
         neuron_type: "intent",
         actors: ["principal_alice", "principal_bob"],
-        lifecycle: "active",
+        lifecycle: "accepted",
       },
       [
         P(
@@ -351,7 +351,7 @@ describe("authoring evaluator — graph-completeness", () => {
             incoming_field_must_match: "actor_id",
             when_neuron_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["active"] },
+          { fires_when_neuron_lifecycle: ["accepted"] },
         ),
       ],
       {
@@ -368,7 +368,7 @@ describe("authoring evaluator — graph-completeness", () => {
 
   it("fails when the matching Action exists but lacks the serves synapse", () => {
     const v = evaluate(
-      { id: "intent_01", neuron_type: "intent", actors: ["principal_alice"], lifecycle: "active" },
+      { id: "intent_01", neuron_type: "intent", actors: ["principal_alice"], lifecycle: "accepted" },
       [
         P(
           {
@@ -379,7 +379,7 @@ describe("authoring evaluator — graph-completeness", () => {
             incoming_field_must_match: "actor_id",
             when_neuron_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["active"] },
+          { fires_when_neuron_lifecycle: ["accepted"] },
         ),
       ],
       {
@@ -408,7 +408,7 @@ describe("authoring evaluator — graph-completeness", () => {
             incoming_field_must_match: "actor_id",
             when_neuron_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["active"] },
+          { fires_when_neuron_lifecycle: ["accepted"] },
         ),
       ],
     );
