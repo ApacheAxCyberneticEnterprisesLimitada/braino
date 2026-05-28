@@ -177,6 +177,20 @@ BEGIN
           WHERE data::text LIKE ''%%collaborator_%%''', t);
     END IF;
   END LOOP;
+
+  -- Null out any decided_by / proposer_id values that are not user_ refs
+  -- (e.g. stale principal_<ulid> values that migration 054 may not have
+  -- cleaned up). These columns have no FK today so the values survived
+  -- without enforcement; step 5 adds FK → users(id) which will fail the
+  -- validation scan if non-user IDs are present.
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'decisions' AND column_name = 'decided_by') THEN
+    UPDATE decisions SET decided_by = NULL WHERE decided_by NOT LIKE 'user_%';
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_name = 'ideas' AND column_name = 'proposer_id') THEN
+    UPDATE ideas SET proposer_id = NULL WHERE proposer_id NOT LIKE 'user_%';
+  END IF;
 END $$;
 
 -- ── 5. Re-point the 19 foreign keys at users(id) (self-FK already on the

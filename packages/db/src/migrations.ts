@@ -37,6 +37,20 @@ async function runOne(c: PoolClient, file: EmbeddedMigration): Promise<void> {
     await c.query("COMMIT");
   } catch (err) {
     await c.query("ROLLBACK");
-    throw new Error(`Migration ${file.id} failed: ${(err as Error).message}`);
+    const e = err as Record<string, unknown>;
+    const detail = [
+      e.message,
+      e.code && `code=${e.code}`,
+      e.detail && `detail=${e.detail}`,
+      e.hint && `hint=${e.hint}`,
+      e.where && `where=${e.where}`,
+      e.schema && `schema=${e.schema}`,
+      e.table && `table=${e.table}`,
+      e.column && `column=${e.column}`,
+      e.constraint && `constraint=${e.constraint}`,
+    ]
+      .filter(Boolean)
+      .join(" | ");
+    throw new Error(`Migration ${file.id} failed: ${detail}`);
   }
 }
