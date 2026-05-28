@@ -1037,6 +1037,7 @@ export async function readAuditEventRows(filters: {
   op?: string[];
   by?: string;
   since?: string;
+  before?: string;
   until?: string;
   limit?: number;
 }): Promise<AuditEventRow[]> {
@@ -1070,6 +1071,10 @@ export async function readAuditEventRows(filters: {
   if (filters.since) {
     where.push(`at >= $${idx++}`);
     vals.push(filters.since);
+  }
+  if (filters.before) {
+    where.push(`at < $${idx++}`);
+    vals.push(filters.before);
   }
   if (filters.until) {
     where.push(`at <= $${idx++}`);
