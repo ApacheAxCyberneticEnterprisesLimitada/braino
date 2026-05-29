@@ -645,7 +645,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Document product and domain terminology — canonical terms, definitions, aliases, deprecated wording, sources, and consistency checks.",
     defaultNeuronLifecycle: "drafting",
-    perspectives: [{ slug: "list", isDefault: true }],
+    // The dictionary-styled Glossary perspective is the natural reading
+    // surface for terminology, so a Doco created from this template
+    // opens directly on it. Graph + list defaults stay attached behind.
+    perspectives: [{ slug: "glossary", isDefault: true }],
     policies: [
       // ── Membership ──────────────────────────────────────────────
       {

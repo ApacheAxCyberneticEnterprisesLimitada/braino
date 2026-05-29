@@ -25,8 +25,8 @@ describe("glossaries template", () => {
     expect(template.description).toMatch(/canonical terms/i);
   });
 
-  it("ships List as the default built-in perspective", () => {
-    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  it("ships the dictionary-styled Glossary perspective as the default", () => {
+    expect(template.perspectives).toEqual([{ slug: "glossary", isDefault: true }]);
   });
 
   it("does NOT set the policy-only `allowedNeuronTypes` field — that's reserved for `global`", () => {
