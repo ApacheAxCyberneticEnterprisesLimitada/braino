@@ -681,10 +681,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Term entry Decisions ───────────────────────────────────
       {
         policy:
-          "Every active glossary Decision declares `question`, `chosen`, and `decided_by`: the concept question, canonical term, and principal who owns the terminology choice.",
+          "Every active glossary Decision declares `question` and `chosen`: the concept question and the canonical term.",
         predicate: {
           kind: "requires_field",
-          fields: ["question", "chosen", "decided_by"],
+          fields: ["question", "chosen"],
           when_neuron_type: ["decision"],
         },
         fires_when_neuron_lifecycle: ["accepted"],

@@ -76,10 +76,11 @@ describe("glossaries template", () => {
       .map((r) => r.policy)
       .join("\n");
 
-    it("requires the concept question, canonical term, and owner only when active", () => {
+    it("requires the concept question and canonical term only when active (no owner required)", () => {
       expect(requiredFields?.predicate?.kind).toBe("requires_field");
       if (requiredFields?.predicate?.kind !== "requires_field") return;
-      expect(requiredFields.predicate.fields).toEqual(["question", "chosen", "decided_by"]);
+      expect(requiredFields.predicate.fields).toEqual(["question", "chosen"]);
+      expect(requiredFields.predicate.fields).not.toContain("decided_by");
       expect(requiredFields.fires_when_neuron_lifecycle).toEqual(["accepted"]);
     });
 
