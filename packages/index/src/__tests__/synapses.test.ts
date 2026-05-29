@@ -46,4 +46,36 @@ describe("deriveSynapses", () => {
       ]),
     );
   });
+
+  it("materializes Decision.implemented_by as implemented_by edges to PR/commit References", () => {
+    const synapses = deriveSynapses({
+      id: "decision_01KSJ000000000000000000000",
+      doco_id: "doco_01KSJ000000000000000000000",
+      neuron_type: "decision",
+      decision: "Rename active lifecycle to accepted",
+      question: "What ships this rename?",
+      chosen: "These PRs.",
+      implemented_by: [
+        "reference_01KSJ000000000000000000003",
+        "reference_01KSJ000000000000000000004",
+      ],
+    } as unknown as Entity);
+
+    expect(synapses).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          from_id: "decision_01KSJ000000000000000000000",
+          from_neuron_type: "decision",
+          to_id: "reference_01KSJ000000000000000000003",
+          to_neuron_type: "reference",
+          synapse_type: "implemented_by",
+        }),
+        expect.objectContaining({
+          from_id: "decision_01KSJ000000000000000000000",
+          to_id: "reference_01KSJ000000000000000000004",
+          synapse_type: "implemented_by",
+        }),
+      ]),
+    );
+  });
 });

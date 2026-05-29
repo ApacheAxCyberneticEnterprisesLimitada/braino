@@ -172,4 +172,12 @@ export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   // design; the explicit entry documents the mapping alongside the
   // identity entries above.
   reports_to: "reports_to",
+  // A neuron (typically a Decision) records the PR/commit Reference(s)
+  // that implement it: `X.implemented_by = [reference_…]` ⇒ those
+  // references implement X. Passive voice matches `superseded_by` /
+  // `preceded_by`, so direction reads off the name. Self-mapping (field
+  // name == edge type) is listed explicitly so `requires_synapse`
+  // policy predicates and the deployment-status rollup can target this
+  // edge by name. Layer A of deriving deployment state from PR refs.
+  implemented_by: "implemented_by",
 };
