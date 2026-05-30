@@ -100,9 +100,14 @@ async function priorVersion(
   return { nextVersion: Number(rows[0].version) + 1, prevHash: rows[0].this_hash ?? null };
 }
 
-/** Append an immutable snapshot of a node to node_versions. */
-export async function appendNodeVersion(
+// Shared body for appendNodeVersion / appendEdgeVersion. The two paths differ
+// only by target table (node_versions vs edge_versions) and the entity_type
+// column value ('node' vs 'edge'). entity_type is deliberately NOT a chainHash
+// input — the hash inputs (entityId, version, op, payload, txId, actor) must
+// stay byte-identical so every previously recorded chain hash remains valid.
+async function appendVersion(
   c: pg.PoolClient,
+  table: "node_versions" | "edge_versions",
   v: {
     entityId: string;
     entityType: string;
@@ -112,7 +117,7 @@ export async function appendNodeVersion(
     actor?: string | null;
   },
 ): Promise<number> {
-  const { nextVersion: version, prevHash } = await priorVersion(c, "node_versions", v.entityId);
+  const { nextVersion: version, prevHash } = await priorVersion(c, table, v.entityId);
   const thisHash = chainHash(prevHash, {
     entityId: v.entityId,
     version,
@@ -122,7 +127,7 @@ export async function appendNodeVersion(
     actor: v.actor ?? null,
   });
   await c.query(
-    `INSERT INTO node_versions (entity_id, entity_type, version, op, payload, tx_id, actor, prev_hash, this_hash)
+    `INSERT INTO ${table} (entity_id, entity_type, version, op, payload, tx_id, actor, prev_hash, this_hash)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
     [
       v.entityId,
@@ -139,6 +144,21 @@ export async function appendNodeVersion(
   return version;
 }
 
+/** Append an immutable snapshot of a node to node_versions. */
+export async function appendNodeVersion(
+  c: pg.PoolClient,
+  v: {
+    entityId: string;
+    entityType: string;
+    op: Op;
+    payload: Record<string, unknown>;
+    txId: number;
+    actor?: string | null;
+  },
+): Promise<number> {
+  return appendVersion(c, "node_versions", v);
+}
+
 /** Append an immutable snapshot of an edge to edge_versions. */
 export async function appendEdgeVersion(
   c: pg.PoolClient,
@@ -150,30 +170,7 @@ export async function appendEdgeVersion(
     actor?: string | null;
   },
 ): Promise<number> {
-  const { nextVersion: version, prevHash } = await priorVersion(c, "edge_versions", v.entityId);
-  const thisHash = chainHash(prevHash, {
-    entityId: v.entityId,
-    version,
-    op: v.op,
-    payload: v.payload,
-    txId: v.txId,
-    actor: v.actor ?? null,
-  });
-  await c.query(
-    `INSERT INTO edge_versions (entity_id, entity_type, version, op, payload, tx_id, actor, prev_hash, this_hash)
-     VALUES ($1, 'edge', $2, $3, $4, $5, $6, $7, $8)`,
-    [
-      v.entityId,
-      version,
-      v.op,
-      JSON.stringify(v.payload),
-      v.txId,
-      v.actor ?? null,
-      prevHash,
-      thisHash,
-    ],
-  );
-  return version;
+  return appendVersion(c, "edge_versions", { ...v, entityType: "edge" });
 }
 
 /**

@@ -1,4 +1,5 @@
 import { type Entity, isEntityId } from "@doco/shared";
+import { entityTypeFromId } from "./entity-id.js";
 
 export interface Edge {
   from_id: string;
@@ -19,7 +20,7 @@ export function deriveEdges(entity: Entity): Edge[] {
   // Entity interfaces use per-category discriminators (node_type /
   // policy_kind / kind), not a uniform entity_type. Derive from the
   // ID prefix instead — it's always present + matches the table name.
-  const fromType = fromId.split("_").slice(0, -1).join("_");
+  const fromType = entityTypeFromId(fromId);
 
   function emit(field: string, target: unknown, props?: Record<string, unknown>): void {
     if (typeof target !== "string") return;

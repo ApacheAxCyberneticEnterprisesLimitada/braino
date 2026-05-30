@@ -28,6 +28,7 @@ import type {
   LoadedEntity,
 } from "@doco/shared";
 import { ENTITY_TYPES, NODE_TYPES, isEntityId } from "@doco/shared";
+import { entityTypeFromId } from "./entity-id.js";
 
 // All node types are Doco-scoped (migration 020 finished the job
 // for Principals).
@@ -44,7 +45,7 @@ export interface LoadDocoOptions {
 }
 
 function typeFromId(id: string): string {
-  return id.split("_").slice(0, -1).join("_");
+  return entityTypeFromId(id);
 }
 
 /**

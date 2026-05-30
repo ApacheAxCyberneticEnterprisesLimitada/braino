@@ -11,6 +11,7 @@ import {
   upsertEmbeddings,
 } from "@doco/db";
 import type { LoadedDoco } from "@doco/shared";
+import { entityTypeFromId } from "./entity-id.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
 
 export interface BuildReport {
@@ -106,7 +107,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Per-category interfaces carry `node_type`, `policy_kind`, or
       // `kind`; the id prefix is the shared discriminator for derived rows.
-      const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
+      const entityType = entityTypeFromId(le.entity.id) || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
       // Migration-022/023: 9 node types collapsed `summary` + `body_md`
@@ -155,7 +156,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       // post-037 shape — summary was dropped); policies embed
       // `policy` (one-line rule, renamed from `summary` in 038) +
       // `body_md`.
-      const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
+      const entityType = entityTypeFromId(le.entity.id) || "unknown";
       const typeNamedColumn =
         entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;
       let summary: string;
