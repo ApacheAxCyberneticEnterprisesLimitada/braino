@@ -25,22 +25,33 @@
 -- Every statement is guarded so the migration is idempotent.
 -- ============================================================
 
--- 1. Convert existing role grants BEFORE tightening the CHECK.
+-- 1. Drop the OLD role CHECK constraints FIRST. On an already-migrated
+--    database these tables still carry the four-role check from an
+--    earlier schema (role IN ('reader','author','approver','owner')); on
+--    a fresh database schema.sql created them with the new three-role
+--    check. Either way DROP ... IF EXISTS clears the way so the step-2
+--    rewrite to 'writer' can't trip a stale constraint. (The original
+--    ordering rewrote the value while the four-role check was still
+--    live, which raised check_violation on production and aborted the
+--    whole migration.) The inline constraints get Postgres's
+--    auto-generated `<table>_role_check` names.
+ALTER TABLE doco_users DROP CONSTRAINT IF EXISTS doco_users_role_check;
+ALTER TABLE org_users  DROP CONSTRAINT IF EXISTS org_users_role_check;
+ALTER TABLE oauth_device_authorizations
+  DROP CONSTRAINT IF EXISTS oauth_device_authorizations_requested_role_check;
+
+-- 2. Convert existing role grants now that no CHECK forbids 'writer'.
 UPDATE doco_users SET role = 'writer' WHERE role IN ('author', 'approver');
 UPDATE org_users  SET role = 'writer' WHERE role IN ('author', 'approver');
 UPDATE oauth_device_authorizations SET requested_role = 'writer'
  WHERE requested_role IN ('author', 'approver');
 
--- 2. Swap the role CHECK constraints to the three-role set. The inline
---    constraints in schema.sql get Postgres's auto-generated names.
-ALTER TABLE doco_users DROP CONSTRAINT IF EXISTS doco_users_role_check;
+-- 3. Re-add the role CHECK constraints as the three-role set, now that
+--    every surviving row satisfies them.
 ALTER TABLE doco_users ADD CONSTRAINT doco_users_role_check
   CHECK (role IN ('owner', 'writer', 'reader'));
-ALTER TABLE org_users DROP CONSTRAINT IF EXISTS org_users_role_check;
 ALTER TABLE org_users ADD CONSTRAINT org_users_role_check
   CHECK (role IN ('owner', 'writer', 'reader'));
-ALTER TABLE oauth_device_authorizations
-  DROP CONSTRAINT IF EXISTS oauth_device_authorizations_requested_role_check;
 ALTER TABLE oauth_device_authorizations
   ADD CONSTRAINT oauth_device_authorizations_requested_role_check
   CHECK (requested_role IS NULL OR requested_role IN ('reader', 'writer', 'owner'));
