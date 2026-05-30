@@ -359,13 +359,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // when_node_type. Personal / informal workflows pass too:
         // the gate cares about "workflow with steps, actors, outcome",
         // not "this is paid work at a company".
+        //
+        // State is ALSO exempt. A milestone State viewed in isolation
+        // ("loan approved", "incident mitigated") genuinely reads like a
+        // bare state-machine stage, so the judge warned on the very
+        // initial/terminal States the template REQUIRES — a false-positive
+        // on every process. States are structural flow nodes admitted by
+        // the entity-type allowlist; their quality is governed by the
+        // milestone-naming probabilistic policy below, not this membership
+        // gate.
         on_violation: "warn",
         policy:
           "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.",
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
-          when_node_type: ["intent", "action", "decision", "state", "eval", "reference"],
+          when_node_type: ["intent", "action", "decision", "eval", "reference"],
         },
       },
       {
@@ -468,13 +477,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: ["asserted"],
       },
       {
-        // Atomic activity prose — reject umbrella phases and
-        // implementation chores divorced from business meaning.
+        // Atomic activity prose — surface umbrella phases and
+        // implementation chores divorced from business meaning. Fires as a
+        // `warn`, not a block: it's an LLM-judged style check, so a blocking
+        // verdict both stopped legitimate single-verb steps ("Reviews the
+        // legal terms") and was non-deterministic (an identical retry could
+        // pass). Warn keeps the nudge without trapping the author. The spec
+        // now PASSES an ordinary single-verb business step and reserves the
+        // FAIL for true umbrellas and conjunction ("examine AND treat")
+        // steps that bundle two activities.
+        on_violation: "warn",
         policy:
-          "Action `action` reads as an atomic business activity — a single unit of work an actor performs. Reject vague umbrella phases (`handle request`, `do the thing`) and reject implementation chores divorced from business meaning (`call API`, `update row`).",
+          "Action `action` reads as an atomic business activity — a single unit of work an actor performs. Avoid vague umbrella phases (`handle request`, `do the thing`), steps that bundle two activities with `and`, and implementation chores divorced from business meaning (`call API`, `update row`).",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Action's `action` and `verb`. PASS when the text names an atomic business activity — a single unit of work the named actor performs. FAIL with reason if the text is a vague umbrella phase (e.g. `handle request`, `do the thing`, `process order`) or an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
+          spec: "Check the Action's `action` and `verb`. PASS when the text names a single business activity the named actor performs — an ordinary single-verb step like `review the legal terms`, `approve the invoice`, or `pack the order` PASSES. FAIL with reason only if the text (a) is a vague umbrella phase covering many steps (e.g. `handle request`, `do the thing`, `process order`), (b) bundles two distinct activities joined by `and` (e.g. `examine and treat the patient`), or (c) is an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
           when_node_type: ["action"],
         },
         fires_when_node_lifecycle: ["asserted"],

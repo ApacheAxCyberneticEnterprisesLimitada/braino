@@ -298,9 +298,25 @@ describe("business-processes template", () => {
       if (gate?.predicate?.kind !== "probabilistic") return;
       const types = gate.predicate.when_node_type ?? [];
       expect(types).toEqual(
-        expect.arrayContaining(["intent", "action", "decision", "state", "eval", "reference"]),
+        expect.arrayContaining(["intent", "action", "decision", "eval", "reference"]),
       );
       expect(types).not.toContain("rule");
+    });
+
+    it("exempts State — milestone States are structural flow nodes, not membership candidates", () => {
+      // A lone terminal/initial State reads like a bare state-machine stage,
+      // so semantic membership-checking it warned on the very States the
+      // template requires. State quality is governed by the milestone-naming
+      // policy instead.
+      if (gate?.predicate?.kind !== "probabilistic") return;
+      expect(gate.predicate.when_node_type ?? []).not.toContain("state");
+    });
+
+    it("softens the atomic-activity grain check to a warning (LLM-judged, non-blocking)", () => {
+      const atomic = template.policies.find(
+        (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
+      );
+      expect(atomic?.on_violation).toBe("warn");
     });
   });
 });
