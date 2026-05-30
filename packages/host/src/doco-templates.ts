@@ -227,8 +227,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: ["asserted"],
       },
       {
+        // Warn, not block: a clashing `chosen` is usually a duplicate
+        // entry, but genuine homographs (distinct concepts sharing a
+        // surface form) are legitimate terminology. Surface the clash so
+        // the author either merges the duplicate or disambiguates the
+        // homograph with a qualifier — don't hard-block the correct
+        // modeling choice. See the homograph guidance below.
+        on_violation: "warn",
         policy:
-          "Active glossary Decisions must have a unique canonical term in `chosen`, compared case-insensitively.",
+          "Active glossary Decisions should have a unique canonical term in `chosen`, compared case-insensitively. A clash is usually a duplicate entry to merge; genuine homographs (distinct concepts sharing a surface form) are allowed when disambiguated with a qualifier.",
         predicate: {
           kind: "unique_field",
           field: "chosen",
@@ -293,6 +300,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
         policy:
           "When rejected, deprecated, misleading, synonymous, or historical terms exist, record them in `alternatives`; otherwise omit `alternatives` rather than inventing filler.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "When two distinct concepts share a surface form (homographs, e.g. `Order` in commerce vs. `Order` as a sort operation), give each its own Decision and disambiguate `chosen` with a qualifier — `Order (commerce)` vs. `Order (sorting)` — so every entry stays uniquely addressable.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "Connect related glossary terms in the graph instead of leaving entries isolated — link a term to the broader concept it specializes, to the narrower terms beneath it, and to terms it is easily confused with, so the vocabulary reads as a navigable network. Deprecation links use `superseded_by` (see below).",
       },
       {
         kind: "guidance",
