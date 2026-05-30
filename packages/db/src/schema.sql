@@ -168,6 +168,7 @@ CREATE TABLE IF NOT EXISTS intents (
   -- legacy headline/body/title trio was collapsed by migrations 022
   -- and 023. Structural data (actors, wanted_by, ...) lives in `data`.
   intent      text NOT NULL DEFAULT '',
+  parent_intent_id text REFERENCES intents(id),
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -182,6 +183,8 @@ CREATE TABLE IF NOT EXISTS decisions (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   lifecycle   text,
   decision    text NOT NULL DEFAULT '',  -- see intents.intent
+  decided_by  text,                      -- principal who decided (promoted from data, migration 025/056)
+  superseded_by_decision_id text REFERENCES decisions(id),
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -262,6 +265,7 @@ CREATE TABLE IF NOT EXISTS actions (
   -- Scalars promoted out of data jsonb by migration 035.
   verb          text,
   performed_at  timestamptz,
+  actor_id      text REFERENCES principals(id),
   data          jsonb NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now(),
   created_by    text,
@@ -281,6 +285,8 @@ CREATE TABLE IF NOT EXISTS logs (
   -- Scalars promoted out of data jsonb by migration 035.
   verb         text,
   happened_at  timestamptz,
+  actor_id     text REFERENCES principals(id),
+  template_id  text REFERENCES actions(id),
   data         jsonb NOT NULL,
   created_at   timestamptz NOT NULL DEFAULT now(),
   created_by   text,
@@ -340,6 +346,7 @@ CREATE TABLE IF NOT EXISTS ideas (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   lifecycle   text,
   idea        text NOT NULL DEFAULT '',  -- see intents.intent
+  proposer_id text REFERENCES users(id),
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -851,3 +858,230 @@ CREATE TABLE IF NOT EXISTS doco_templates (
   updated_at   timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Tables folded into the baseline from the (now-archived) migration chain by
+-- the doco-vnext squash. Previously created incrementally by migrations; the
+-- genesis reset rebuilds from this baseline alone, so they must live here.
+-- Column names are the final post-055 (user, not collaborator) form.
+
+-- Visualization perspectives (was migrations 007 + 030/046/051/059) and the
+-- per-Doco attachment join. owner_user_id is the post-055 column name.
+CREATE TABLE IF NOT EXISTS perspectives (
+  id              text PRIMARY KEY,
+  slug            text NOT NULL UNIQUE,
+  kind            text NOT NULL CHECK (kind IN ('graph','list','bpmn','org-tree','sla','approval','glossary')),
+  name            text NOT NULL,
+  description     text,
+  icon            text,
+  owner_handle    text,
+  owner_user_id   text REFERENCES users(id) ON DELETE SET NULL,
+  is_builtin      boolean NOT NULL DEFAULT false,
+  config          jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS perspectives_owner_handle_idx ON perspectives (owner_handle);
+CREATE INDEX IF NOT EXISTS perspectives_kind_idx         ON perspectives (kind);
+
+-- Built-in perspectives. host.ts attaches graph/list/for-approval to every new
+-- Doco, so these rows must exist for doco creation to succeed.
+INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
+  ('perspective_graph','graph','graph','Graph','Force-directed overview of nodes and edges — the original view.','🕸️',NULL,true,'{}'::jsonb),
+  ('perspective_list','list','list','List','Sortable list of nodes, with type-aware tiebreakers.','📋',NULL,true,'{"default_sort":"recent_desc"}'::jsonb),
+  ('perspective_bpmn','bpmn','bpmn','BPMN','Business process modeling — swim lanes, gateways, and events. Inspired by BPMN.','🏭','torrenegra',true,'{"lane_axis":"principal"}'::jsonb),
+  ('perspective_approval','for-approval','approval','Proposed','Queue of proposed nodes waiting for review.',NULL,NULL,true,'{"lifecycle":"drafting","reject_lifecycle":"drafting","approve_lifecycle":"asserted"}'::jsonb),
+  ('perspective_glossary','glossary','glossary','Glossary','A dictionary-style reading of the Doco''s terminology — canonical headwords, definitions, senses, and aliases laid out like a printed lexicon.','📖',NULL,true,'{"headword_field":"chosen","primary_entity":"decision","definition_field":"decision"}'::jsonb),
+  ('perspective_org_tree','org-tree','org-tree','Org Tree','Organizational chart — Principals as members, `reports_to` edges as reporting lines, with person vs AI agent shown by icon.','🏢',NULL,true,'{"agent_icon":"🤖","person_icon":"👤","root_edge":"reports_to","icon_by_member_kind":true}'::jsonb),
+  ('perspective_sla','sla','sla','SLAs','Service-level agreement control plane — commitments, owners, evidence links, remedies, and review gaps.','📜',NULL,true,'{"event_logs":false,"primary_entity":"rule","evidence_sources":["eval","reference"]}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS doco_perspectives (
+  doco_id            text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  perspective_id     text NOT NULL REFERENCES perspectives(id) ON DELETE CASCADE,
+  position           int  NOT NULL DEFAULT 0,
+  is_default         boolean NOT NULL DEFAULT false,
+  attached_at        timestamptz NOT NULL DEFAULT now(),
+  attached_by_user   text REFERENCES users(id) ON DELETE SET NULL,
+  PRIMARY KEY (doco_id, perspective_id)
+);
+CREATE INDEX IF NOT EXISTS doco_perspectives_doco_idx ON doco_perspectives (doco_id, position);
+CREATE UNIQUE INDEX IF NOT EXISTS doco_perspectives_one_default
+  ON doco_perspectives (doco_id) WHERE is_default;
+
+-- In-page assistant chat (was migrations 003/004/008/009/024/031/032).
+CREATE TABLE IF NOT EXISTS chat_conversations (
+  id                       text PRIMARY KEY,
+  user_id                  text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  archived                 boolean NOT NULL DEFAULT false,
+  active_turn_started_at   timestamptz,
+  active_turn_events       jsonb NOT NULL DEFAULT '[]'::jsonb,
+  title                    text,
+  attached_doco_handles    text[] NOT NULL DEFAULT '{}',
+  attached_org_handles     text[] NOT NULL DEFAULT '{}',
+  attached_doco_ids        text[] NOT NULL DEFAULT '{}',
+  created_at               timestamptz NOT NULL DEFAULT now(),
+  updated_at               timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_conversations_user_active
+  ON chat_conversations (user_id, updated_at DESC) WHERE archived = false;
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id               text PRIMARY KEY,
+  conversation_id  text NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  role             text NOT NULL CHECK (role IN ('user','assistant')),
+  content          jsonb NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created
+  ON chat_messages (conversation_id, created_at);
+
+CREATE TABLE IF NOT EXISTS chat_attachments (
+  id               text PRIMARY KEY,
+  conversation_id  text NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  filename         text NOT NULL,
+  mime_type        text NOT NULL,
+  size_bytes       integer NOT NULL,
+  content          bytea NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  expires_at       timestamptz NOT NULL DEFAULT (now() + INTERVAL '30 days')
+);
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_conversation ON chat_attachments (conversation_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_expires      ON chat_attachments (expires_at);
+
+-- Telemetry (was migration 017). user_id / doco_id are plain text (no FK).
+CREATE TABLE IF NOT EXISTS agent_turn_metrics (
+  id                       text PRIMARY KEY,
+  conversation_id          text NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
+  user_id                  text NOT NULL,
+  model                    text NOT NULL,
+  started_at               timestamptz NOT NULL DEFAULT now(),
+  total_ms                 integer NOT NULL,
+  bootstrap_ms             integer NOT NULL DEFAULT 0,
+  history_load_ms          integer NOT NULL DEFAULT 0,
+  first_text_token_ms      integer,
+  num_anthropic_calls      integer NOT NULL DEFAULT 0,
+  num_tool_calls           integer NOT NULL DEFAULT 0,
+  input_tokens             integer NOT NULL DEFAULT 0,
+  output_tokens            integer NOT NULL DEFAULT 0,
+  cache_read_tokens        integer NOT NULL DEFAULT 0,
+  cache_creation_tokens    integer NOT NULL DEFAULT 0,
+  history_message_count    integer NOT NULL DEFAULT 0,
+  attachment_count         integer NOT NULL DEFAULT 0,
+  stop_reason              text,
+  error                    text,
+  phases                   jsonb NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE TABLE IF NOT EXISTS capture_timings (
+  id                          text PRIMARY KEY,
+  doco_id                     text NOT NULL,
+  entity_type                 text NOT NULL,
+  http_method                 text NOT NULL,
+  principal_id                text,
+  started_at                  timestamptz NOT NULL DEFAULT now(),
+  total_ms                    integer NOT NULL,
+  persist_ms                  integer NOT NULL DEFAULT 0,
+  authoring_ms                integer NOT NULL DEFAULT 0,
+  judge_ms                    integer NOT NULL DEFAULT 0,
+  judge_calls                 integer NOT NULL DEFAULT 0,
+  reindex_structural_ms       integer NOT NULL DEFAULT 0,
+  reindex_load_ms             integer NOT NULL DEFAULT 0,
+  reindex_load_entity_count   integer NOT NULL DEFAULT 0,
+  status_code                 integer,
+  user_agent                  text,
+  error                       text
+);
+
+-- OpenAI usage log (was migration 025).
+CREATE TABLE IF NOT EXISTS openai_usage_log (
+  id            text PRIMARY KEY,
+  occurred_at   timestamptz NOT NULL DEFAULT now(),
+  model         text NOT NULL,
+  input_count   integer NOT NULL DEFAULT 0,
+  total_chars   integer NOT NULL DEFAULT 0,
+  request_ms    integer,
+  ok            boolean NOT NULL DEFAULT true,
+  error         text
+);
+
+-- Group-chat integrations (was migration 047). *_user_id are post-055.
+CREATE TABLE IF NOT EXISTS group_chat_installations (
+  id                          text PRIMARY KEY,
+  provider                    text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
+  workspace_id                text NOT NULL,
+  workspace_name              text NOT NULL DEFAULT '',
+  bot_user_id                 text,
+  bot_access_token            text,
+  bot_scope                   text[] NOT NULL DEFAULT ARRAY[]::text[],
+  installed_by_chat_user_id   text,
+  installed_by_user_id        text REFERENCES users(id) ON DELETE SET NULL,
+  data                        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at                  timestamptz NOT NULL DEFAULT now(),
+  updated_at                  timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, workspace_id)
+);
+CREATE TABLE IF NOT EXISTS group_chat_channel_connections (
+  id                      text PRIMARY KEY,
+  provider                text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
+  workspace_id            text NOT NULL,
+  channel_id              text NOT NULL,
+  channel_name            text NOT NULL DEFAULT '',
+  target_level            text NOT NULL CHECK (target_level IN ('org','doco')),
+  target_id               text NOT NULL,
+  role                    text NOT NULL CHECK (role IN ('owner','approver','author','reader')),
+  created_by_user_id      text REFERENCES users(id) ON DELETE SET NULL,
+  data                    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, workspace_id, channel_id, target_level, target_id)
+);
+CREATE TABLE IF NOT EXISTS group_chat_user_links (
+  id              text PRIMARY KEY,
+  provider        text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
+  workspace_id    text NOT NULL,
+  chat_user_id    text NOT NULL,
+  user_id         text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  data            jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (provider, workspace_id, chat_user_id, user_id)
+);
+
+-- Feedback reports (was migration 048).
+CREATE TABLE IF NOT EXISTS feedback_reports (
+  id                    text PRIMARY KEY,
+  report_type           text NOT NULL CHECK (report_type IN ('bug','idea')),
+  status                text NOT NULL DEFAULT 'new' CHECK (status IN ('new','reviewed','archived')),
+  title                 text NOT NULL DEFAULT '',
+  body                  text NOT NULL DEFAULT '',
+  expected              text NOT NULL DEFAULT '',
+  actual                text NOT NULL DEFAULT '',
+  severity              text NOT NULL DEFAULT '',
+  page_url              text NOT NULL DEFAULT '',
+  route_path            text NOT NULL DEFAULT '',
+  created_by            text REFERENCES users(id) ON DELETE SET NULL,
+  created_by_username   text NOT NULL DEFAULT '',
+  client_context        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  server_context        jsonb NOT NULL DEFAULT '{}'::jsonb,
+  data                  jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  updated_at            timestamptz NOT NULL DEFAULT now(),
+  reviewed_at           timestamptz,
+  reviewed_by           text REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Self-heal columns promoted from `data` jsonb by migrations (013/025/035/056)
+-- that pre-date this squashed baseline. CREATE TABLE IF NOT EXISTS above won't
+-- add them to a DB that already has the table (e.g. a prod that genesis-reset
+-- from an earlier, incomplete baseline), so add them here idempotently — the
+-- same belt-and-suspenders pattern as the oauth_* ADD COLUMN block above.
+ALTER TABLE intents   ADD COLUMN IF NOT EXISTS parent_intent_id text REFERENCES intents(id);
+ALTER TABLE decisions ADD COLUMN IF NOT EXISTS decided_by text;
+ALTER TABLE decisions ADD COLUMN IF NOT EXISTS superseded_by_decision_id text REFERENCES decisions(id);
+ALTER TABLE actions   ADD COLUMN IF NOT EXISTS actor_id text REFERENCES principals(id);
+ALTER TABLE logs      ADD COLUMN IF NOT EXISTS actor_id text REFERENCES principals(id);
+ALTER TABLE logs      ADD COLUMN IF NOT EXISTS template_id text REFERENCES actions(id);
+ALTER TABLE ideas     ADD COLUMN IF NOT EXISTS proposer_id text REFERENCES users(id);
