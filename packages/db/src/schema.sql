@@ -1085,3 +1085,28 @@ ALTER TABLE actions   ADD COLUMN IF NOT EXISTS actor_id text REFERENCES principa
 ALTER TABLE logs      ADD COLUMN IF NOT EXISTS actor_id text REFERENCES principals(id);
 ALTER TABLE logs      ADD COLUMN IF NOT EXISTS template_id text REFERENCES actions(id);
 ALTER TABLE ideas     ADD COLUMN IF NOT EXISTS proposer_id text REFERENCES users(id);
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Append-only guardrails (doco-vnext). The commit log + version snapshots are
+-- immutable: block UPDATE / DELETE / TRUNCATE on them at the DB level, for
+-- EVERY role including superuser — stronger than REVOKE, which superusers
+-- bypass. Inserts are allowed; "removal" is a retire VERSION, never a delete.
+-- The genesis reset uses DROP TABLE (DDL), which these triggers do not block,
+-- so the bookend rebuild still works. Idempotent (CREATE OR REPLACE + DROP IF
+-- EXISTS), so it re-asserts on every cold start.
+CREATE OR REPLACE FUNCTION doco_block_history_mutation() RETURNS trigger AS $$
+BEGIN
+  RAISE EXCEPTION 'doco-vnext: % on % is not allowed — history is append-only', TG_OP, TG_TABLE_NAME;
+END;
+$$ LANGUAGE plpgsql;
+
+DO $$
+DECLARE t text;
+BEGIN
+  FOREACH t IN ARRAY ARRAY['changesets','node_versions','edge_versions'] LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I_append_only_row ON %I', t, t);
+    EXECUTE format('CREATE TRIGGER %I_append_only_row BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION doco_block_history_mutation()', t, t);
+    EXECUTE format('DROP TRIGGER IF EXISTS %I_append_only_stmt ON %I', t, t);
+    EXECUTE format('CREATE TRIGGER %I_append_only_stmt BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION doco_block_history_mutation()', t, t);
+  END LOOP;
+END $$;
