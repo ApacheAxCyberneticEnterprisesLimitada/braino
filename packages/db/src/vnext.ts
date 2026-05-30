@@ -245,6 +245,9 @@ export interface EdgeRow {
   retired_at: string | null;
 }
 
+// NOTE: tsconfig sets exactOptionalPropertyTypes, so every `actor:` passed to
+// appendEdgeVersion/appendNodeVersion MUST be `input.actor ?? null` — a bare
+// `string | null | undefined` fails TS2375. Keep the `?? null` on each call.
 /** Create a first-class edge + its v1 snapshot, within an open commit. */
 export async function createEdge(
   c: pg.PoolClient,
