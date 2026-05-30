@@ -3,8 +3,8 @@
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
  * The framework ships curated templates. `global` is the policies
- * template; the others describe common Doco shapes such as user flows,
- * state machines, tests, and business processes. Per the successor to
+ * template; the others describe common Doco shapes such as business
+ * processes, glossaries, and org charts. Per the successor to
  * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
  * templates down to two) — every other previously-shipped template
  * stays project-owner-authored. Template names are plain handles.
@@ -121,9 +121,9 @@ export interface DocoTemplate {
   /**
    * When set, captures into a Doco created from this template default
    * the new node's `lifecycle` to this value unless the author
-   * overrides with an explicit flag. The state-machines template uses
-   * `"drafting"` so authors can sketch incomplete machines without
-   * tripping completeness rules.
+   * overrides with an explicit flag. The business-processes template
+   * uses `"drafting"` so authors can sketch incomplete processes
+   * without tripping completeness rules.
    */
   defaultNeuronLifecycle?: Lifecycle;
 }
@@ -165,474 +165,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Important doco-wide decisions that don't naturally fit a more specific subject area.",
     policies: [],
-  },
-  {
-    // Per decision_01KRRD6QM7NN2EV56NZK96DNKY the user-flows template
-    // collapses from six guidance rules to deterministic authoring
-    // policies + a concise summary for picker/manifest surfaces.
-    name: "user-flows",
-    label: "user-flows",
-    icon: "🌊",
-    description: "Document end-to-end user journeys as ordered steps, branches, and decisions.",
-    policies: [
-      {
-        // Membership check: probabilistic semantic gate, with a
-        // deterministic node-type allowlist that excludes Rule. Rules
-        // tagged into user-flows *govern* how journeys are authored;
-        // they aren't themselves journey content, so subjecting them
-        // to the journey-prose check would lock out the rules that
-        // define the template's contract.
-        policy:
-          "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature. (Rule nodes that govern user-flow authoring are exempt — they shape the template rather than journey content.)",
-        predicate: {
-          kind: "probabilistic",
-          spec: "A node belongs in user-flows only when it describes an end-to-end journey, a designed journey step, or a branch, route, form submission, handoff, or progression through a feature.",
-          when_neuron_type: ["intent", "action", "decision", "reference"],
-        },
-      },
-      {
-        policy:
-          'Action nodes in user-flows pass the prose style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
-        predicate: {
-          kind: "probabilistic",
-          spec: 'Action nodes in user-flows pass the prose style check when their readable text begins with the responsible principal, such as "User", "Human", "Doco host", or "GitHub", as part of a journey-step sentence. Literal label headings such as "Designed step:" or "Flow step:" fail.',
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        policy:
-          "Only Intent, Action, Decision, Reference, and Rule nodes belong to user-flows. Evals, Ideas, and Logs each have their own home.",
-        predicate: {
-          kind: "requires_neuron_type",
-          neuron_types: ["intent", "action", "decision", "reference", "rule", "principal"],
-        },
-      },
-      {
-        policy:
-          "Every Intent in user-flows must declare the principals who want the journey in the `actors` field.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["actors"],
-          when_neuron_type: ["intent"],
-        },
-      },
-      {
-        policy:
-          "Every Action in user-flows must declare the principal who performs the designed step in the `actor_id` field.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["actor_id"],
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        policy:
-          "Every Decision in user-flows must declare the principal who owns the branch or choice in the `decided_by` field.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["decided_by"],
-          when_neuron_type: ["decision"],
-        },
-      },
-      {
-        policy:
-          "Every Action in user-flows must reference the journey Intent it advances (a `serves` edge to an Intent). Without it the flow renderer can't group steps into a coherent journey.",
-        predicate: {
-          kind: "requires_synapse",
-          synapse_type: "serves",
-          target_neuron_type: "intent",
-          when_neuron_type: ["action"],
-        },
-      },
-      {
-        // user-flows v2: each principal listed on the Intent's
-        // `actors` must be the actor_id of ≥1 Action serving the
-        // Intent. Fires only when the Intent moves to `asserted` —
-        // drafting Intents can be captured first and have their Actions
-        // filled in after.
-        policy:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is asserted — drafting Intents are allowed to be incomplete.",
-        predicate: {
-          kind: "graph-completeness",
-          list_field: "actors",
-          synapse_type: "serves",
-          incoming_neuron_type: "action",
-          incoming_field_must_match: "actor_id",
-          when_neuron_type: ["intent"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        // user-flows v2: actor_id must point at a real Principal —
-        // rejects "the browser", "app.js", "the system" as actors.
-        // System-internal steps belong in `apis` or `adrs`, not in a
-        // user-flow. (Post-rename, person/agent distinction moved to
-        // User; the engine just enforces principal resolution.)
-        policy:
-          "An Action's `actor_id` must resolve to an existing Principal. System-internal steps (the browser, a background job, a script) belong in `apis` or `adrs`, not in a user-flow.",
-        predicate: {
-          kind: "requires_field_resolves_to_principal",
-          field: "actor_id",
-          when_neuron_type: ["action"],
-        },
-      },
-    ],
-  },
-  {
-    // Per decision_01KRRR5BQ16ASY8HQEE0V499YG (v7): formal state-machine
-    // modeling. The template is pure data: atomic policies
-    // policies plus Doco-level defaults. Framework policies the
-    // rules use: State neuron + triggered_by / gated_by synapses +
-    // drafting lifecycle + defaultNeuronLifecycle.
-    name: "state-machines",
-    label: "state-machines",
-    icon: "🔁",
-    description:
-      "Track anything that moves through stages — orders, tasks, bug tickets, deploys. Each stage is a State; transitions are Actions.",
-    defaultNeuronLifecycle: "drafting",
-    policies: [
-      // ── Always-on deterministic (fire on any node lifecycle) ──
-      {
-        // D1 — Idea and Log have their own homes elsewhere.
-        policy:
-          "Only State, Action, Decision, Eval, Reference, Intent, and Rule nodes belong to a state-machines doco. Other captures (Idea, Log) live elsewhere — Ideas are speculative until promoted; Logs capture recorded events rather than designed steps.",
-        predicate: {
-          kind: "requires_neuron_type",
-          neuron_types: [
-            "state",
-            "action",
-            "decision",
-            "eval",
-            "reference",
-            "intent",
-            "rule",
-            "principal",
-          ],
-        },
-      },
-      // Aggregate process checks are tracked as guidance until the
-      // evaluator can express them against a Doco-level process. The
-      // semantics they encode —
-      // alternation, terminal-state outgoing-edge bound, unique state
-      // names, ≥1 initial/terminal — are tracked as descriptive
-      // guidance below until a v16-shape evaluator lands.
-      {
-        policy:
-          "`preceded_by` synapses alternate State ↔ Action — a transition Action is preceded by a State, and a State is preceded by the Action that produced it.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "State `state` is unique within a state-machine doco — duplicate State names ambiguate transitions and break referential semantics.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "Terminal States have no successor Action — no Action's `preceded_by` may point at a terminal State.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "A `preceded_by` edge must point at a node in the same machine — a State / Action that has slipped out (or a typo'd id) breaks the chain.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "An active state-machine doco must have ≥1 active State of kind `initial` — every machine starts somewhere.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "An active state-machine doco must have ≥1 active State of kind `terminal`. Perpetual machines (worker loops, services) are the exception.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "Each active initial State has ≥1 successor Action — otherwise the machine starts but never moves.",
-        kind: "guidance",
-      },
-      {
-        policy:
-          "Each active intermediate State is the `preceded_by` target of ≥1 active Action — orphan intermediates (typos, dangling refactors) signal a wiring mistake.",
-        kind: "guidance",
-      },
-      // ── Probabilistic ──
-      // v7: each rule is gated to the node type it actually inspects so
-      // the LLM judge isn't asked to evaluate, e.g., a State's summary
-      // against a spec about compensating Actions.
-      {
-        // P1
-        policy:
-          "State `state` reads as a noun or past-participle, not an imperative verb. Acceptable: `paid`, `cart`, `cancelled`. Not: `Pay`, `Cancel`, `Process the order`.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["state"],
-          spec: "Check ONLY the State's `state` field. It must read as a noun or past-participle naming the position the modeled entity occupies (`cart`, `paid`, `cancelled`, `awaiting-review`). It must NOT be an imperative verb naming an action (`Pay`, `Cancel`, `Process the order`). A single-word past-participle adjective is acceptable.",
-        },
-      },
-      {
-        // P2
-        policy:
-          "An Action that transitions between States names the event or command, not the destination state. Acceptable: `checkout submitted`, `payment captured`. Not: `becomes paid`.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["action"],
-          spec: "An Action transitioning between States names the event or command, not the destination state.",
-        },
-      },
-      {
-        // P3
-        policy:
-          "State `invariants` are observable predicates a reader can check — `order.payment.captured = false`, not `the order is happy`.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["state"],
-          spec: "Check ONLY the State's `invariants` array. If `invariants` is empty, missing, or absent from the entity, this rule PASSES (vacuously true). When invariants are present, each entry must read as an observable predicate a reader can check programmatically (e.g., `order.payment.captured = false`), not a subjective quality (e.g., `the order is happy`). Do NOT judge the State's `state` field — only the invariants array matters here.",
-        },
-      },
-      {
-        // P4
-        policy:
-          "The state-machines doco's purpose Intent names the entity being modeled (e.g., `order`, `worker job`, `agent session`) so readers can read the machine.",
-        fires_when_neuron_lifecycle: ["asserted"],
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["intent"],
-          spec: "The Doco's purpose Intent names the entity being modeled.",
-        },
-      },
-      {
-        // P5 — fires only on Actions that look like compensating /
-        // cancellation paths. Happy-path transitions pass.
-        policy:
-          "Compensating or cancellation transitions reference a Decision explaining why the path exists — they're the exceptional flow and need their reasoning recorded. Happy-path transitions are exempt.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["action"],
-          spec: "STEP 1 — decide whether this Action represents a compensating, cancellation, rollback, refund, undo, abort, abandon, or otherwise-undoing transition between States. Look at the Action's `verb` and `action` for words like 'cancel', 'refund', 'rollback', 'undo', 'revert', 'abort', 'abandon', 'compensate', 'reverse'. If the Action is a normal happy-path transition (e.g., 'checkout submitted', 'payment captured', 'order shipped'), this rule PASSES — return ok. STEP 2 — only if the Action IS a compensating/cancellation transition, check that `decision_ids` is non-empty. If empty, FAIL with a reason explaining the Action looks like a compensating path but doesn't cite a Decision.",
-        },
-      },
-      {
-        // P-regions
-        policy:
-          "If a machine has multiple active States of kind `initial`, the Doco's purpose Intent explains why — parallel regions, optional entry points, etc. — so readers don't assume it's a wiring mistake.",
-        fires_when_neuron_lifecycle: ["asserted"],
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["intent"],
-          spec: "When the Doco has multiple active initial States, the purpose Intent explains parallel regions or optional entry points.",
-        },
-      },
-      {
-        // P-orphan-transition
-        policy:
-          "A transition Action with empty `triggered_by` AND empty `gated_by` is either an explicit immediate transition (the `action` field explains why it fires unconditionally) or an authoring oversight — capture the intent.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["action"],
-          spec: "A transition Action with empty triggered_by AND empty gated_by either explicitly justifies its unconditional firing in the `action` field, or is an authoring oversight to flag.",
-        },
-      },
-      // ── Descriptive (documentation-only) ──
-      {
-        // D11 (descriptive, not enforced)
-        policy:
-          "Reachability isn't enforced at the framework level. The completeness rules above catch missing wiring on activate (orphan intermediates) — strict reachability (every State reachable from an initial) is a manual review.",
-        kind: "guidance",
-      },
-      {
-        // D12 (descriptive)
-        policy:
-          "Hierarchical / composite / parallel States are deliberately not modeled in v1. A machine that needs them models the sub-machine as a separate Doco or a clearly linked Intent.",
-        kind: "guidance",
-      },
-    ],
-  },
-  {
-    // Executable tests inspired by TDD and AI evals. Each Eval pins one
-    // checkable claim about a Decision, Policy, Action, or other
-    // load-bearing neuron; the template seeds the policies that govern
-    // how those Evals are authored. Opt-in (not auto-installed) —
-    // projects that want test add it explicitly.
-    name: "test",
-    label: "Tests",
-    icon: "🧪",
-    description:
-      "Executable tests and AI evals pin load-bearing claims in the doco. Each Eval names one checkable property, declares a criterion, and points at the entity it tests.",
-    defaultNeuronLifecycle: "drafting",
-    policies: [
-      // ── Deterministic structural gates ──
-      {
-        // D1 — content-type gate. Evals belong here; policies
-        // seeded by this template live alongside them.
-        policy:
-          "Only Eval neurons and policies (guidance_policy, neuron_authoring_policy) belong to test. Domain content lives in its own Doco.",
-        predicate: {
-          kind: "requires_entity_type",
-          entity_types: ["eval", "guidance_policy", "neuron_authoring_policy"],
-        },
-      },
-      {
-        // D2
-        policy:
-          "Every Eval declares what it is and how it's graded — `eval` and `criterion` are required from creation.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["eval", "criterion"],
-          when_neuron_type: ["eval"],
-        },
-      },
-      {
-        // D3
-        policy:
-          "Every Eval declares its `kind` (unit, integration, eval, process, doc-consistency). Choosing one frames how reviewers read the criterion and how the runner produces `actual`.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["kind"],
-          when_neuron_type: ["eval"],
-        },
-      },
-      {
-        // D4 — only fires on activate so drafts can be sketched without a target.
-        policy:
-          "An active Eval points at the claim it tests via `target_ref`. Drafted Evals can be captured without a target while the test is being shaped.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["target_ref"],
-          when_neuron_type: ["eval"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        // D5 — only fires on activate; drafts can be incomplete.
-        policy:
-          "An active Eval ships its reproduction steps in `how_to_run` — the exact command, prompt, URL, or manual procedure. Without it the test can't be re-run.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["how_to_run"],
-          when_neuron_type: ["eval"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      // ── Probabilistic style gates ──
-      {
-        // P1
-        policy:
-          "Eval `eval` reads as a checkable property of the system (e.g. `user-email-validation accepts .+@.+ form`), not a serial label (`test 1`, `eval A`, `it works`).",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["eval"],
-          spec: "Check ONLY the Eval's `eval` field. It must read as a checkable property of the system — a phrase describing what should be true (e.g. `user-email-validation accepts .+@.+ form`, `merge button disabled until reviewers approve`). It must NOT be a serial or meaningless label (`test 1`, `eval A`, `it works`, `tbd`).",
-        },
-      },
-      {
-        // P2
-        policy:
-          "An Eval tests one property. If `eval` or `criterion.spec` joins multiple independent claims with 'and', it's a split candidate.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["eval"],
-          spec: "Check the Eval's `eval` field and `criterion.spec`. The Eval should test ONE checkable property. If either field describes multiple independent properties joined by 'and' (e.g. 'the form validates emails AND rejects empty submissions AND shows a toast'), it's a split candidate — FAIL with a reason naming the split.",
-        },
-      },
-      {
-        // P3
-        policy:
-          "`exact` and `shape` criteria need a concrete top-level Eval `expected` value, not prose. `llm-judge` criteria put the prose property into `criterion.spec` (or top-level `expected` when more natural) and read crisply enough that two reviewers would reach the same verdict.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["eval"],
-          spec: "Inspect the Eval's `criterion.kind` and top-level `expected` field. If criterion.kind is `exact` or `shape`, the Eval's top-level `expected` MUST be a concrete value or shape (number, string, object, array) — prose like 'the user is signed in' FAILS. Do not require `expected` inside the `criterion` object; the API shape stores it beside `criterion`. If criterion.kind is `llm-judge`, the prose property lives in `criterion.spec` (or top-level `expected` when more natural) and reads crisply enough that two reviewers would reach the same verdict. Vague or subjective specs (`the output is good`) FAIL.",
-        },
-      },
-      {
-        // P4 — only fires once the Eval is meant to be runnable.
-        policy:
-          "An active Eval's `how_to_run` is reproducible without hidden context: it names the command, prompt, URL, or manual procedure plus any required fixture or environment.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["eval"],
-          spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, prompt, URL, or manual procedure, plus any required fixture, input, account, environment, or setup needed to produce `actual`. FAIL when it is vague (`run the tests`, `ask the agent`, `manual QA`) or depends on unstated context.",
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        // P5
-        policy:
-          "An Eval has a recognizable test oracle: the `criterion` / top-level `expected` pair says what evidence is observed, what it is compared against, and what counts as pass/fail.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["eval"],
-          spec: "Inspect the Eval's `criterion` and top-level `expected` field. PASS when the oracle is recognizable: it names the actual evidence to observe, the expected value or property to compare against, and the pass/fail boundary. For `exact` and `shape`, a concrete top-level `expected` value can carry the oracle if it is clear what `actual` is compared to. For `llm-judge`, `criterion.spec` must name the evidence and the decision boundary. FAIL vague or circular criteria like `works`, `matches requirements`, `is good`, or restatements of the Eval label without observable evidence.",
-        },
-      },
-      // ── Guidance ──
-      {
-        kind: "guidance",
-        policy:
-          'TDD-style evals are first-class. Write the eval before the feature lands with `expected_status: "fail"` and `lifecycle: "drafting"`. The first time it reports `last_status: "pass"`, flip `expected_status` to `"pass"` and move to `asserted` — it\'s now a regression guard.',
-      },
-      {
-        kind: "guidance",
-        policy:
-          "A regression eval (one written to lock in a bug fix) stays in the doco forever. Removing it requires a Decision linking back to the eval that explains why the guard is no longer needed.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Treat this as a test-pyramid rule: prefer the smallest effective check. Use a unit or integration Eval when deterministic behavior answers the question; reserve process, doc-consistency, and `llm-judge` Evals for behavior that cannot be recognized by a smaller structural or executable test.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Given/When/Then or Arrange/Act/Assert phrasing is welcome when it clarifies setup, action, and expectation, but keep one behavior per Eval.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          'To track per-run history (e.g. for flakiness), capture a Log per run with `Log.target` pointing at the Eval, `verb` set to `"passed"` or `"failed"`, and `happened_at` set to the run time. The Eval\'s `last_*` fields are a snapshot of the most recent Log.',
-      },
-      {
-        kind: "guidance",
-        policy:
-          "A flaky Eval is not green. Record every outcome as a Log, stabilize the runner/data/environment before relying on it, or retire the Eval with a Decision that explains why the signal is no longer useful.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          'A `last_status: "pass"` from long ago is effectively unknown — re-run before citing it. Project owners pick the freshness threshold; the framework doesn\'t impose one.',
-      },
-      {
-        kind: "guidance",
-        policy:
-          'Process and doc-consistency evals are graded by `criterion.kind: "llm-judge"` whose spec describes the procedure or claim to check (e.g. `the agent reads connections.md before posting captures`). The runner produces `actual` from the trace or a human transcript and submits it for judging.',
-      },
-      {
-        kind: "guidance",
-        policy:
-          "When a repo-native automated test exists or can reasonably exist, the Eval's `how_to_run` points at that command or file. The Doco Eval is the durable claim and audit trail, not a replacement for executable test code.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Large fixtures, golden files, screenshots, and transcripts live as References or repo artifacts. Keep Eval `input`, `expected`, and `actual` small enough to review inline.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "`exact` and `shape` are preferred for deterministic checks; reserve `llm-judge` for semantic behavior, process traces, and documentation consistency where a structural comparison would hide the real question.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Use `target_ref` to pin the Eval to the specific entity whose meaning it locks in: a Decision when it tests a choice, a neuron_authoring_policy or guidance_policy when it tests a policy claim, an Action when it tests designed behavior.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "An Eval tests entities in its own doco via `target_ref`. Tests that span multiple docos wait for the imports machinery — the framework doesn't yet resolve cross-doco refs (refs.ts:14-15).",
-      },
-    ],
   },
   {
     // Glossaries define product and domain language. Each active term
@@ -771,229 +303,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
         policy:
           "Use Rules for terminology usage policies, such as banned words, capitalization conventions, UI copy constraints, or when two related terms must not be used interchangeably.",
-      },
-    ],
-  },
-  {
-    // Service-level agreements are agreement/control-plane Docos, not
-    // event ledgers. The template models commitments as Rules; Evals
-    // describe reproducible verification snapshots; References point to
-    // contracts, dashboards, reports, and vendor SLAs; Actions model the
-    // breach / claim playbook. The custom SLA perspective renders that
-    // register directly.
-    name: "slas",
-    label: "SLAs",
-    icon: "📜",
-    description:
-      "Document service-level agreements — commitments, owners, measurement rules, evidence links, exclusions, remedies, and review history.",
-    defaultNeuronLifecycle: "drafting",
-    perspectives: [{ slug: "sla", isDefault: true }],
-    policies: [
-      // ── Membership ──────────────────────────────────────────────
-      {
-        on_violation: "warn",
-        policy:
-          "A node belongs in SLAs when it defines a service commitment, names a party or owner, cites a contract/dashboard/report/provider SLA, verifies a commitment, records an approval/change, or describes the breach/claim response. Raw service-delivery events and telemetry streams belong in source systems or a sibling evidence Doco.",
-        predicate: {
-          kind: "probabilistic",
-          spec: "A node belongs in SLAs when it defines a service commitment, owner/party, evidence source, verification method, approval/change history, or breach/claim response for a service-level agreement. PASS for SLA clauses, source documents, dashboards/reports, owner roles, verification Evals, change Decisions, and response Actions. FAIL for raw uptime samples, ticket cycles, incident timelines, implementation tasks unrelated to the agreement, or generic observability data.",
-          when_neuron_type: [
-            "intent",
-            "rule",
-            "eval",
-            "reference",
-            "decision",
-            "action",
-            "principal",
-          ],
-        },
-      },
-      {
-        policy:
-          "Only Intent, Rule, Eval, Reference, Decision, Action, Principal, and policies belong in SLAs. Logs, Ideas, and States live elsewhere: the SLA Doco records the agreement and evidence pointers, not raw delivery history.",
-        predicate: {
-          kind: "requires_entity_type",
-          entity_types: [
-            "intent",
-            "rule",
-            "eval",
-            "reference",
-            "decision",
-            "action",
-            "principal",
-            "guidance_policy",
-            "neuron_authoring_policy",
-          ],
-        },
-      },
-
-      // ── Agreement scope ────────────────────────────────────────
-      {
-        policy:
-          "Every active SLA Intent declares `actors` and `stakeholders`: provider roles, customer or business parties, and the owners who care about the outcome.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["actors", "stakeholders"],
-          when_neuron_type: ["intent"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "The purpose Intent for an SLA names the covered service, covered customer or user group, effective period, and review cadence.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["intent"],
-          spec: "Read the Intent's `intent` prose. PASS when it names (1) the covered service, (2) the covered customer/user/business group, (3) the effective period or start date, and (4) the review cadence. FAIL with which element is missing.",
-        },
-      },
-
-      // ── Commitment Rules ───────────────────────────────────────
-      {
-        policy:
-          "Every active SLA Rule declares `owner_id`, `metric`, `target`, `measurement_window`, and `source_ref`. These are the agreement register fields the SLA perspective needs to make a commitment auditable.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["owner_id", "metric", "target", "measurement_window", "source_ref"],
-          when_neuron_type: ["rule"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "An SLA Rule's `owner_id` must resolve to an existing Principal accountable for the commitment.",
-        predicate: {
-          kind: "requires_field_resolves_to_principal",
-          field: "owner_id",
-          when_neuron_type: ["rule"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "An active SLA Rule's `source_ref` points at the authoritative Reference for the clause, dashboard, report, or provider SLA.",
-        predicate: {
-          kind: "requires_synapse",
-          synapse_type: "source_ref",
-          target_neuron_type: "reference",
-          when_neuron_type: ["rule"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "SLA targets are fully defined: numerator, denominator, eligible population, timezone/calendar, rounding, and planned-maintenance treatment are clear enough for two reviewers to calculate the same result.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["rule"],
-          spec: "Read the Rule's `rule` prose plus `metric`, `target`, `measurement_window`, and any supporting fields. PASS when numerator, denominator, eligible population/scope, timezone or calendar, rounding/threshold treatment, and planned-maintenance handling are clear enough for two reviewers to calculate the same result. FAIL with the missing pieces.",
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "Customer-facing SLA Rules state exclusions, prerequisites/customer obligations, and remedies or claim procedure. Internal SLO/OLA Rules may explicitly say no customer remedy applies.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["rule"],
-          spec: "Read the Rule. PASS when customer-facing commitments state exclusions, prerequisites/customer obligations, and remedy/claim procedure (service credits, caps, deadline, evidence required) OR when an internal SLO/OLA explicitly says no customer remedy applies. FAIL when the target is documented but exclusions or remedies are missing or ambiguous.",
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        on_violation: "warn",
-        policy:
-          "No SLA target is 100% unless a Decision records why the project accepts no error budget and what operational or commercial consequence follows.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["rule"],
-          spec: "If the Rule's `target` or prose says 100%, five nines with no error budget, or otherwise zero allowed failure, PASS only when the Rule cites a Decision via `born_from` or prose explaining why no error budget is acceptable and what consequence follows. If the target is below 100%, PASS.",
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-
-      // ── Verification and evidence ──────────────────────────────
-      {
-        policy:
-          "Every active SLA Eval declares `target_ref` and `how_to_run` so the commitment can be verified without hidden context.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["target_ref", "how_to_run"],
-          when_neuron_type: ["eval"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "Every active SLA Eval tests a Rule via `target_ref`; Evals verify agreement clauses, they are not free-floating monitoring notes.",
-        predicate: {
-          kind: "requires_synapse",
-          synapse_type: "tests",
-          target_neuron_type: "rule",
-          when_neuron_type: ["eval"],
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "SLA Eval `how_to_run` points at the authoritative measurement source and states the exact query, dashboard, report, or manual procedure plus numerator, denominator, window, and rounding.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["eval"],
-          spec: "Read the Eval's `how_to_run`, `criterion`, and `expected`. PASS when it names the measurement source and a concrete rerun path: exact query, dashboard/report URL, command, or manual procedure, plus numerator, denominator, measurement window, and rounding/threshold treatment. FAIL when it says only `check dashboard`, `look at reports`, or otherwise depends on hidden context.",
-        },
-        fires_when_neuron_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "SLA References are authoritative sources: contracts, order forms, policy documents, dashboards, compliance reports, vendor SLAs, or sibling evidence Docos.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["reference"],
-          spec: "Read the Reference's `reference`, `ref_type`, and `locator`. PASS when it points to an authoritative SLA source: contract/order form, policy document, dashboard, compliance report, vendor SLA, ticket/reporting system, or sibling Doco for evidence history. FAIL for decorative links, generic explainers, or unrelated docs.",
-        },
-      },
-
-      // ── Change and response ────────────────────────────────────
-      {
-        policy:
-          "Decisions that change active SLA commitments cite the affected Rules via `rules_consulted` and record approver, rationale, effective date, alternatives, and notice or migration plan.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["decision"],
-          spec: "Read the Decision. PASS when a change to active SLA commitments cites affected Rules via `rules_consulted` or prose, names the approver, rationale, effective date, alternatives considered, and any customer notice/migration plan. PASS for Decisions unrelated to SLA changes. FAIL when an SLA change is approved without those elements.",
-        },
-      },
-      {
-        policy:
-          "Breach, escalation, or claim-response Actions declare `actor_id`, cite the relevant SLA Rule through `gated_by`, and describe the customer/internal communication path.",
-        predicate: {
-          kind: "probabilistic",
-          when_neuron_type: ["action"],
-          spec: "STEP 1 - decide whether the Action is a breach, escalation, claim, credit, notice, remediation, or review response. If not, PASS. STEP 2 - for response Actions, PASS when `actor_id` is set, `gated_by` cites the relevant SLA Rule, and the `action` prose describes who is notified or what communication path is used. FAIL with what is missing.",
-        },
-      },
-
-      // ── Guidance ───────────────────────────────────────────────
-      {
-        kind: "guidance",
-        policy:
-          "Do not store raw service-delivery events, uptime samples, or ticket-cycle history in the SLA Doco. Keep the source of truth in monitoring/support/billing/contract systems and link to those systems with References or Evals.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Model public/contractual SLAs and internal SLOs/OLAs in the same register, but mark the distinction in the Rule prose or fields so readers know whether customer remedies apply.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "When an SLA depends on a third-party provider, cite the provider's SLA as a Reference and record the assumption explicitly; do not multiply provider percentages into a fake composite commitment without a Decision.",
-      },
-      {
-        kind: "guidance",
-        policy:
-          "Review active SLA Rules on a fixed cadence. Retiring or weakening a commitment requires a Decision that explains the replacement, customer notice, and why the old promise no longer applies.",
       },
     ],
   },
@@ -1209,8 +518,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
       },
       {
-        // State summary as milestone/condition (parallels state-machines
-        // P1) — noun or past-participle naming the milestone.
+        // State summary as milestone/condition — noun or past-participle
+        // naming the milestone.
         policy:
           "State `state` reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`), not an imperative verb naming an Action (`Approve invoice`).",
         predicate: {
@@ -1256,7 +565,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys belong in user-flows; pure state machines in state-machines.",
+          "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys and pure state machines belong in their own Docos.",
       },
       {
         kind: "guidance",
@@ -1331,7 +640,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // homes; an org chart describes who reports to whom, not
         // what they do.
         policy:
-          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. Actions describe activities (use business-processes or user-flows); States describe stages (use state-machines); Logs describe events; Ideas live in their own home.",
+          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. Actions describe activities (use business-processes); States describe stages; Logs describe events; Ideas live in their own home.",
         predicate: {
           kind: "requires_neuron_type",
           neuron_types: ["principal", "intent", "decision", "reference", "rule"],
@@ -1377,7 +686,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Team / org-unit Intents (engineering, kitchen, support, etc.)
         // declare their member Principals in `actors`. This mirrors
-        // the user-flows / business-processes convention. Stakeholders
+        // the business-processes convention. Stakeholders
         // (people interested in the unit's outcomes without being on
         // the team) optionally go in `stakeholders`.
         policy:
@@ -1393,7 +702,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in business-processes or user-flows Docos linked via Reference.",
+          "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in business-processes Docos linked via Reference.",
       },
       {
         kind: "guidance",
@@ -1438,8 +747,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  * Lookup a template by name. Returns undefined for unknown names.
  *
  * Templates are stored under plain handles (`global`, `important`,
- * `user-flows`, `state-machines`, `test`, `glossaries`, `slas`,
- * `business-processes`, `org-chart`).
+ * `glossaries`, `business-processes`, `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);
