@@ -41,9 +41,39 @@ export const EDGE_TYPES = [
   "owned_by",
   "has_parent",
   "has_stakeholder",
+  // Associative ("see also") relation. The SKOS `related` analogue: a
+  // generic, untyped link between two peer nodes with no hierarchy or
+  // direction implied. Glossaries use it to connect related, confusable,
+  // parent/child, or homograph terms into a navigable vocabulary network.
+  "relates_to",
 ] as const;
 
 export type EdgeType = (typeof EDGE_TYPES)[number];
+
+/**
+ * Endpoint node-type constraints for semantically-typed edges, enforced at
+ * the edge-capture boundary so the graph can't accumulate nonsense edges
+ * (e.g. a `serves` edge that points at a Decision instead of an Intent).
+ * `from` / `to` list the node types each endpoint may be; an absent key
+ * means "any node type". Edge types omitted here (sequence_flow,
+ * preceded_by, born_from, superseded_by, implemented_by, relates_to) accept
+ * any endpoints by design — they're generic associative/provenance links.
+ */
+export const EDGE_ENDPOINT_TYPES: Record<
+  string,
+  { from?: readonly NodeType[]; to?: readonly NodeType[] }
+> = {
+  serves: { to: ["intent"] },
+  enacts: { to: ["decision"] },
+  gated_by: { to: ["rule"] },
+  consults: { to: ["rule"] },
+  tests: { from: ["eval", "reference"] },
+  reports_to: { from: ["principal"], to: ["principal"] },
+  performed_by: { to: ["principal"] },
+  owned_by: { to: ["principal"] },
+  has_parent: { from: ["intent"], to: ["intent"] },
+  has_stakeholder: { to: ["principal"] },
+};
 
 /** Every write-gateable type: the 10 node types plus the edge types. */
 export const WRITABLE_TYPES = [...NODE_TYPES, ...EDGE_TYPES] as const;

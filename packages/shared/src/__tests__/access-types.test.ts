@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  EDGE_ENDPOINT_TYPES,
   EDGE_TYPES,
   WRITABLE_TYPES,
   WRITE_ALL,
@@ -14,6 +15,35 @@ describe("access-types", () => {
   it("WRITABLE_TYPES is the union of node and edge types, no dupes", () => {
     expect(WRITABLE_TYPES).toEqual([...NODE_TYPES, ...EDGE_TYPES]);
     expect(new Set(WRITABLE_TYPES).size).toBe(WRITABLE_TYPES.length);
+  });
+
+  it("includes the associative relates_to edge type", () => {
+    expect(EDGE_TYPES).toContain("relates_to");
+  });
+
+  describe("EDGE_ENDPOINT_TYPES", () => {
+    const nodeSet = new Set<string>(NODE_TYPES);
+    const edgeSet = new Set<string>(EDGE_TYPES);
+
+    it("only constrains real edge types with real node types", () => {
+      for (const [edgeType, ends] of Object.entries(EDGE_ENDPOINT_TYPES)) {
+        expect(edgeSet.has(edgeType)).toBe(true);
+        for (const t of [...(ends.from ?? []), ...(ends.to ?? [])]) {
+          expect(nodeSet.has(t)).toBe(true);
+        }
+      }
+    });
+
+    it("pins the load-bearing endpoint shapes (serves→intent, reports_to principal→principal)", () => {
+      expect(EDGE_ENDPOINT_TYPES.serves?.to).toEqual(["intent"]);
+      expect(EDGE_ENDPOINT_TYPES.reports_to).toEqual({ from: ["principal"], to: ["principal"] });
+    });
+
+    it("leaves generic associative/provenance edges unconstrained", () => {
+      for (const generic of ["relates_to", "superseded_by", "born_from", "implemented_by"]) {
+        expect(EDGE_ENDPOINT_TYPES[generic]).toBeUndefined();
+      }
+    });
   });
 
   it("isWritableType recognizes known types and rejects the wildcard + junk", () => {

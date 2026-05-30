@@ -245,32 +245,24 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: ["asserted"],
       },
       {
+        // One combined quality judge for term-entry Decisions. This used to
+        // be three separate probabilistic policies (one-concept, definition
+        // completeness, acronym expansion); stress-testing showed three
+        // problems they now fix together: (1) they BLOCKED by default, so a
+        // single judge misfire lost the author's work — a quality nudge, not
+        // an integrity constraint, so it now WARNs; (2) the acronym check
+        // fired on any incidental abbreviation in prose (`rep`, `WIP`), so it
+        // is now scoped to the headword in `chosen`; (3) one combined judge
+        // call replaces three, cutting latency and the misfire surface.
+        on_violation: "warn",
         policy:
-          "A glossary Decision defines one concept. Split entries that define multiple independent terms or concepts.",
+          "A glossary term-entry Decision defines exactly one concept with a usable definition. It keeps one concept per entry, its `decision` prose gives a concise definition plus the product/domain scope, and — when the canonical term in `chosen` is itself an acronym or abbreviation — spells out the expanded form and says when the short form is acceptable.",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["decision"],
-          spec: "Read the Decision's `question`, `chosen`, and `decision` prose. PASS when the entry defines one concept or one canonical term. FAIL with a reason when it defines multiple independent terms, bundles a term with an unrelated policy, or uses one entry as a catch-all for several concepts.",
-        },
-      },
-      {
-        policy:
-          "An active glossary Decision's `decision` prose includes a concise definition, product/domain scope, and at least one example or non-example.",
-        predicate: {
-          kind: "probabilistic",
-          when_node_type: ["decision"],
-          spec: "Read the Decision's `decision` prose. PASS when it includes (1) a concise definition, (2) the product or domain scope where the term applies, and (3) at least one concrete example or non-example. FAIL with which element is missing when the prose is too vague for a reader to use the term consistently.",
+          spec: "Judge a glossary term-entry Decision on three aspects; report each failing aspect with a reason, but treat them as warnings, not hard errors. (a) ONE CONCEPT: PASS when the entry defines one concept or one canonical term; FAIL when it defines multiple independent terms, bundles a term with an unrelated policy, or is a catch-all for several concepts. (b) USABLE DEFINITION: PASS when the `decision` prose gives a concise definition AND the product or domain scope where the term applies AND at least one concrete example OR non-example — EITHER an example or a non-example is sufficient, do not require both; FAIL only when one of those three is genuinely absent. (c) ACRONYMS AND ABBREVIATIONS: only inspect the canonical term in `chosen`. If `chosen` is itself an acronym or abbreviation, PASS when the prose expands it at least once and states whether the short form is acceptable in product/docs/UI copy; FAIL when it is left unexpanded. Incidental abbreviations that merely appear in the prose (not the headword) are OUT OF SCOPE — ignore them. If `chosen` is not an acronym, this aspect PASSES.",
         },
         fires_when_node_lifecycle: ["asserted"],
-      },
-      {
-        policy:
-          "Acronyms and abbreviations in glossary entries spell out the expanded form and state when the short form is acceptable.",
-        predicate: {
-          kind: "probabilistic",
-          when_node_type: ["decision"],
-          spec: "Inspect the Decision's `chosen` term and `decision` prose. PASS when acronyms or abbreviations are expanded at least once and the prose states whether the short form is acceptable in product/docs/UI copy. If there are no acronyms or abbreviations, PASS. FAIL when a short form appears without expansion or usage guidance.",
-        },
       },
 
       // ── Eval shape ─────────────────────────────────────────────
@@ -285,6 +277,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: ["asserted"],
       },
       {
+        // Quality nudge, not an integrity constraint: warn rather than block
+        // so a borderline `how_to_run` (or a judge misfire) never loses the
+        // author's Eval. The deterministic requires_field gate above still
+        // blocks a truly missing field.
+        on_violation: "warn",
         policy:
           "An active glossary Eval's `how_to_run` names a concrete command, query, URL, or review procedure plus any scope needed to reproduce the terminology check.",
         predicate: {
@@ -309,7 +306,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Connect related glossary terms in the graph instead of leaving entries isolated — link a term to the broader concept it specializes, to the narrower terms beneath it, and to terms it is easily confused with, so the vocabulary reads as a navigable network. Deprecation links use `superseded_by` (see below).",
+          "Connect related glossary terms in the graph instead of leaving entries isolated — use a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Deprecation links use `superseded_by` (see below).",
       },
       {
         kind: "guidance",
