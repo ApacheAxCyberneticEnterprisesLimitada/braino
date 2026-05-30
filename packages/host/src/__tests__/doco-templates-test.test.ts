@@ -71,11 +71,11 @@ describe("test template", () => {
     });
 
     it("requires `target_ref` only when the Eval is active", () => {
-      expect(requiresField("target_ref")?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+      expect(requiresField("target_ref")?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
     });
 
     it("requires `how_to_run` only when the Eval is active", () => {
-      expect(requiresField("how_to_run")?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+      expect(requiresField("how_to_run")?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
     });
   });
 
@@ -111,7 +111,7 @@ describe("test template", () => {
           /how_to_run/i.test(r.policy),
       );
       expect(rule).toBeDefined();
-      expect(rule?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.spec).toMatch(/concrete rerun path/i);

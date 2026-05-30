@@ -73,7 +73,7 @@ describe("slas template", () => {
         "measurement_window",
         "source_ref",
       ]);
-      expect(fields.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+      expect(fields.fires_when_neuron_lifecycle).toEqual(["asserted"]);
     }
     expect(owner?.predicate?.kind).toBe("requires_field_resolves_to_principal");
     expect(sourceRef?.predicate?.kind).toBe("requires_synapse");
@@ -83,7 +83,7 @@ describe("slas template", () => {
     const noErrorBudget = template.policies.find((r) => /No SLA target is 100%/.test(r.policy));
 
     expect(noErrorBudget?.predicate?.kind).toBe("probabilistic");
-    expect(noErrorBudget?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+    expect(noErrorBudget?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
     expect(noErrorBudget?.on_violation).toBe("warn");
   });
 
@@ -104,7 +104,7 @@ describe("slas template", () => {
         /how_to_run/i.test(r.policy),
     );
 
-    expect(evalFields?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+    expect(evalFields?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
     expect(testsRule?.predicate?.kind).toBe("requires_synapse");
     expect(rerun?.predicate?.kind).toBe("probabilistic");
     if (rerun?.predicate?.kind === "probabilistic") {

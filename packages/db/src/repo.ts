@@ -690,7 +690,7 @@ export async function listOrganizations(): Promise<OrganizationRow[]> {
 
 export async function listOrganizationsForUser(
   userId: string,
-  roles: string[] = ["owner", "approver", "author", "reader"],
+  roles: string[] = ["owner", "writer", "reader"],
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
@@ -760,16 +760,15 @@ export async function removeOrgUser(orgId: string, userId: string): Promise<void
 
 // ─── Role policies (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62) ───────────────────
 
-export type DocoRole = "owner" | "approver" | "author" | "reader";
+export type DocoRole = "owner" | "writer" | "reader";
 
 export const ROLE_RANK: Record<DocoRole, number> = {
-  owner: 3,
-  approver: 2,
-  author: 1,
+  owner: 2,
+  writer: 1,
   reader: 0,
 };
 
-const ROLE_VALUES = new Set<DocoRole>(["owner", "approver", "author", "reader"]);
+const ROLE_VALUES = new Set<DocoRole>(["owner", "writer", "reader"]);
 
 function toRole(v: unknown): DocoRole | null {
   return typeof v === "string" && ROLE_VALUES.has(v as DocoRole) ? (v as DocoRole) : null;

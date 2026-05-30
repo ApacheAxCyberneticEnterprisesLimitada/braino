@@ -337,7 +337,7 @@ export async function createDocoInOrg(opts: {
       template_handle: opts.templateHandle ?? null,
       created_at: created,
       created_by: opts.createdByUserId,
-      lifecycle: "accepted",
+      lifecycle: "asserted",
       ...(allowedNeuronTypes ? { allowed_neuron_types: allowedNeuronTypes } : {}),
       ...(defaultNeuronLifecycle ? { default_neuron_lifecycle: defaultNeuronLifecycle } : {}),
     };
@@ -407,14 +407,14 @@ export async function createDocoInOrg(opts: {
           template_handle: opts.templateHandle ?? null,
           created_at: created,
           created_by: opts.createdByUserId,
-          lifecycle: "accepted",
+          lifecycle: "asserted",
         };
         await c.query(
           // policies table column renamed from `summary` to `policy`
           // in migration 038; the seed insert tracks the new name.
           `INSERT INTO ${table} (id, doco_id, policy, data, body_md, lifecycle,
                                 created_at, updated_at, created_by, updated_by)
-           VALUES ($1, $2, $3, $4::jsonb, $5, 'accepted', $6, $6, $7, $7)`,
+           VALUES ($1, $2, $3, $4::jsonb, $5, 'asserted', $6, $6, $7, $7)`,
           [
             policyId,
             docoId,

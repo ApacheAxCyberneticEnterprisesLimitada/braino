@@ -113,8 +113,8 @@ describe("org-chart template", () => {
       expect(rule?.policy).toMatch(/top-of-chain/);
     });
 
-    it("fires only on `accepted` — drafting members can be captured before their manager exists", () => {
-      expect(rule?.fires_when_neuron_lifecycle).toEqual(["accepted"]);
+    it("fires only on `asserted` — drafting members can be captured before their manager exists", () => {
+      expect(rule?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
     });
 
     it("warns rather than blocks while the author is shaping the org", () => {

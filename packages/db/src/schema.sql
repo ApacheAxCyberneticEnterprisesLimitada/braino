@@ -122,7 +122,7 @@ CREATE TABLE IF NOT EXISTS organizations (
 CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
+  role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (org_id, user_id)
 );
@@ -505,10 +505,12 @@ CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organi
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
--- Four roles (owner / approver / author / reader) granted at two levels
+-- Three roles (owner / writer / reader) granted at two levels
 -- (org / doco). Effective role = max across levels (highest-wins
--- additive composition). Author-role writes default to lifecycle
--- `proposed`; only approver+ can transition.
+-- additive composition). Writers may add, edit, retire, and transition
+-- the lifecycle of any neuron or synapse; what they may or may not do
+-- is governed by the Doco's own policies, not a built-in role ladder.
+-- Owners additionally administer the Doco (users, tokens, policies).
 
 -- Per-doco user grants. Invite redemption and owner/admin surfaces write
 -- these rows directly; OAuth tokens authenticate callers but do not store
@@ -516,7 +518,7 @@ CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organi
 CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role          text NOT NULL CHECK (role IN ('owner', 'approver', 'author', 'reader')),
+  role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (doco_id, user_id)
 );
@@ -732,7 +734,7 @@ ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS target_doco_handle text;
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS requested_role text
-    CHECK (requested_role IS NULL OR requested_role IN ('reader','author','approver','owner'));
+    CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner'));
 
 -- Committable read-only "project tokens" for Docos. Distinct from
 -- oauth_access_tokens: tied to the Doco (not a user), fixed

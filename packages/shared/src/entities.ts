@@ -23,7 +23,7 @@
 
 import type { EntityId, EntityType, NeuronType } from "./branded.js";
 
-export type Lifecycle = "drafting" | "proposed" | "accepted" | "retired";
+export type Lifecycle = "drafting" | "asserted" | "retired";
 
 export type Outcome = "succeeded" | "failed";
 
@@ -331,7 +331,7 @@ export interface Decision extends CommonFields {
   decision: string;
   intent_ids?: EntityId<"intent">[];
   question: string;
-  chosen: string | null; // null when lifecycle is "proposed"
+  chosen: string | null; // null while lifecycle is "drafting"
   alternatives?: DecisionAlternative[];
   rules_consulted?: EntityId<"rule">[];
   /**
