@@ -11,6 +11,7 @@
 //
 // See docs/plans/doco-vnext.md.
 
+import { createHash } from "node:crypto";
 import { type EntityId, generateUlid, makeEntityId } from "@doco/shared";
 import type pg from "pg";
 
@@ -43,12 +44,41 @@ export async function createChangeset(c: pg.PoolClient, input: CommitInput): Pro
 
 type Op = "create" | "update" | "retire";
 
-async function nextVersion(c: pg.PoolClient, table: string, entityId: string): Promise<number> {
-  const { rows } = await c.query<{ v: number }>(
-    `SELECT COALESCE(MAX(version), 0) + 1 AS v FROM ${table} WHERE entity_id = $1`,
+// Merkle tamper-evidence (doco-vnext, optional track). Each version's
+// this_hash = H(prev_hash, entity_id, version, op, payload, tx_id, actor) so
+// the per-entity history forms a hash chain — rewriting any past version
+// breaks every hash after it (detectable via verifyHistory). Append-only by
+// policy (triggers) + cryptographically verifiable.
+function chainHash(
+  prevHash: string | null,
+  f: {
+    entityId: string;
+    version: number;
+    op: Op;
+    payload: Record<string, unknown>;
+    txId: number;
+    actor: string | null;
+  },
+): string {
+  return createHash("sha256")
+    .update(prevHash ?? "genesis")
+    .update(
+      `\n${f.entityId}\n${f.version}\n${f.op}\n${JSON.stringify(f.payload)}\n${f.txId}\n${f.actor ?? ""}`,
+    )
+    .digest("hex");
+}
+
+async function priorVersion(
+  c: pg.PoolClient,
+  table: string,
+  entityId: string,
+): Promise<{ nextVersion: number; prevHash: string | null }> {
+  const { rows } = await c.query<{ version: number; this_hash: string | null }>(
+    `SELECT version, this_hash FROM ${table} WHERE entity_id = $1 ORDER BY version DESC LIMIT 1`,
     [entityId],
   );
-  return Number(rows[0].v);
+  if (rows.length === 0) return { nextVersion: 1, prevHash: null };
+  return { nextVersion: Number(rows[0].version) + 1, prevHash: rows[0].this_hash ?? null };
 }
 
 /** Append an immutable snapshot of a node to node_versions. */
@@ -63,11 +93,29 @@ export async function appendNodeVersion(
     actor?: string | null;
   },
 ): Promise<number> {
-  const version = await nextVersion(c, "node_versions", v.entityId);
+  const { nextVersion: version, prevHash } = await priorVersion(c, "node_versions", v.entityId);
+  const thisHash = chainHash(prevHash, {
+    entityId: v.entityId,
+    version,
+    op: v.op,
+    payload: v.payload,
+    txId: v.txId,
+    actor: v.actor ?? null,
+  });
   await c.query(
-    `INSERT INTO node_versions (entity_id, entity_type, version, op, payload, tx_id, actor)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [v.entityId, v.entityType, version, v.op, JSON.stringify(v.payload), v.txId, v.actor ?? null],
+    `INSERT INTO node_versions (entity_id, entity_type, version, op, payload, tx_id, actor, prev_hash, this_hash)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      v.entityId,
+      v.entityType,
+      version,
+      v.op,
+      JSON.stringify(v.payload),
+      v.txId,
+      v.actor ?? null,
+      prevHash,
+      thisHash,
+    ],
   );
   return version;
 }
@@ -83,11 +131,28 @@ export async function appendEdgeVersion(
     actor?: string | null;
   },
 ): Promise<number> {
-  const version = await nextVersion(c, "edge_versions", v.entityId);
+  const { nextVersion: version, prevHash } = await priorVersion(c, "edge_versions", v.entityId);
+  const thisHash = chainHash(prevHash, {
+    entityId: v.entityId,
+    version,
+    op: v.op,
+    payload: v.payload,
+    txId: v.txId,
+    actor: v.actor ?? null,
+  });
   await c.query(
-    `INSERT INTO edge_versions (entity_id, entity_type, version, op, payload, tx_id, actor)
-     VALUES ($1, 'edge', $2, $3, $4, $5, $6)`,
-    [v.entityId, version, v.op, JSON.stringify(v.payload), v.txId, v.actor ?? null],
+    `INSERT INTO edge_versions (entity_id, entity_type, version, op, payload, tx_id, actor, prev_hash, this_hash)
+     VALUES ($1, 'edge', $2, $3, $4, $5, $6, $7, $8)`,
+    [
+      v.entityId,
+      version,
+      v.op,
+      JSON.stringify(v.payload),
+      v.txId,
+      v.actor ?? null,
+      prevHash,
+      thisHash,
+    ],
   );
   return version;
 }
@@ -257,6 +322,40 @@ export async function getVersions(
     reason: (r.reason as string | null) ?? null,
     payload: r.payload as Record<string, unknown>,
   }));
+}
+
+/**
+ * Verify the Merkle hash chain of one entity's history (tamper-evidence).
+ * Recomputes each version's hash from the prior version + row contents; any
+ * rewrite of a past version breaks the chain from that version onward.
+ */
+export async function verifyHistory(
+  c: pg.PoolClient,
+  kind: "node" | "edge",
+  entityId: string,
+): Promise<{ ok: boolean; versions: number; brokenAtVersion?: number }> {
+  const table = kind === "edge" ? "edge_versions" : "node_versions";
+  const { rows } = await c.query(
+    `SELECT entity_id, version, op, payload, tx_id, actor, prev_hash, this_hash
+       FROM ${table} WHERE entity_id = $1 ORDER BY version ASC`,
+    [entityId],
+  );
+  let prev: string | null = null;
+  for (const r of rows) {
+    const expected = chainHash(prev, {
+      entityId: String(r.entity_id),
+      version: Number(r.version),
+      op: r.op as Op,
+      payload: r.payload as Record<string, unknown>,
+      txId: Number(r.tx_id),
+      actor: (r.actor as string | null) ?? null,
+    });
+    if (r.prev_hash !== prev || r.this_hash !== expected) {
+      return { ok: false, versions: rows.length, brokenAtVersion: Number(r.version) };
+    }
+    prev = r.this_hash as string;
+  }
+  return { ok: true, versions: rows.length };
 }
 
 /**

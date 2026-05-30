@@ -111,6 +111,7 @@ export {
   updateEdge,
   retireEdge,
   getVersions,
+  verifyHistory,
   entityAsOf,
   type CommitInput,
   type CommitSource,
