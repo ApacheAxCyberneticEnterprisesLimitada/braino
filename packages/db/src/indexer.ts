@@ -1,10 +1,10 @@
-// Postgres-backed derived-data builder. Computes the `edges` and FTS
-// rows the indexer (@doco/index) builds, and writes them straight to
-// Postgres.
+// Postgres-backed FTS row builder. Computes the full-text-search rows
+// the indexer (@doco/index) builds and writes them straight to Postgres.
 //
-// Pure side-effecting writer: caller supplies the entities + computed
-// edges and the doco_id; we wipe and rebuild PG-side derived rows for
-// that Doco atomically.
+// Pure side-effecting writer: caller supplies the entities' FTS rows and
+// the doco_id; we wipe and rebuild the PG-side FTS rows for that Doco
+// atomically. Edges are FIRST-CLASS (doco-vnext) — authored via commit()
+// + edge CRUD (see vnext.ts), never derived, wiped, or rebuilt here.
 //
 // Post-migration-005 FTS shape: ONE table per top-level category
 // (nodes, policies, users, docos, organizations). The
@@ -50,15 +50,6 @@ export interface FtsRowInput {
   body: string;
 }
 
-export interface EdgeRowInput {
-  from_id: string;
-  from_node_type: string;
-  to_id: string;
-  to_node_type: string;
-  edge_type: string;
-  edge_props?: Record<string, unknown> | undefined;
-}
-
 export interface RebuildOptions {
   /**
    * When set, scope the wipe to FTS rows / outgoing edges for these
@@ -73,22 +64,15 @@ export interface RebuildOptions {
 }
 
 /**
- * Replace edge and FTS rows in Postgres. Runs in a single transaction —
+ * Replace the FTS rows in Postgres. Runs in a single transaction —
  * readers see the old set or the new set, never a partial mix.
  */
 export async function rebuildDocoDerivedData(
   docoId: string,
   fts: FtsRowInput[],
-  edges: EdgeRowInput[],
   opts: RebuildOptions = {},
-): Promise<{ ftsRows: number; edgeRows: number }> {
+): Promise<{ ftsRows: number }> {
   const dedupedFts = dedupeFts(fts);
-  // Edges are FIRST-CLASS (doco-vnext): authored via commit() + edge CRUD
-  // (see vnext.ts), each with its own id, lifecycle, provenance, and history.
-  // The indexer no longer derives, wipes, or owns them — doing so would delete
-  // authored edges and violate the append-only invariant. The `edges` arg is
-  // accepted for call-site compatibility and intentionally ignored.
-  void edges;
 
   // Split FTS rows by category — nodes vs policies.
   const nodeFts = dedupedFts.filter((r) => NODE_TYPES.has(r.entity_type));
@@ -96,7 +80,7 @@ export async function rebuildDocoDerivedData(
 
   return withTransaction(async (c) => {
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
-      // Incremental wipe (FTS only — edges are not derived).
+      // Incremental wipe — FTS rows for these entity ids only.
       await c.query(
         "DELETE FROM entity_fts_nodes WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
         [docoId, opts.onlyEntityIds],
@@ -157,7 +141,7 @@ export async function rebuildDocoDerivedData(
       );
     }
 
-    return { ftsRows: dedupedFts.length, edgeRows: 0 };
+    return { ftsRows: dedupedFts.length };
   });
 }
 
@@ -167,7 +151,3 @@ function dedupeFts(rows: FtsRowInput[]): FtsRowInput[] {
   for (const r of rows) map.set(r.entity_id, r);
   return [...map.values()];
 }
-
-// dedupeEdges removed (doco-vnext): the indexer no longer derives edges.
-// EdgeRowInput is retained for call-site compatibility until callers stop
-// computing derived edges (tracked in docs/plans/doco-vnext.md, Phase 3).

@@ -98,7 +98,6 @@ export {
 export {
   rebuildDocoDerivedData,
   type FtsRowInput,
-  type EdgeRowInput,
 } from "./indexer.js";
 
 // Append-only write runtime (doco-vnext): commit boundary + first-class

@@ -11,7 +11,6 @@ import {
   upsertEmbeddings,
 } from "@doco/db";
 import type { LoadedDoco } from "@doco/shared";
-import { deriveEdges } from "./edges.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
 
 export interface BuildReport {
@@ -103,7 +102,6 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       summary: string | null;
       body: string;
     }[] = [];
-    const pgEdges: ReturnType<typeof deriveEdges> = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Per-category interfaces carry `node_type`, `policy_kind`, or
@@ -139,14 +137,10 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         summary,
         body,
       });
-      for (const edge of deriveEdges(le.entity)) {
-        pgEdges.push(edge);
-      }
     }
     await rebuildDocoDerivedData(
       docoId,
       pgFts,
-      pgEdges,
       incrementalIds ? { onlyEntityIds: [...incrementalIds] } : {},
     );
   }
