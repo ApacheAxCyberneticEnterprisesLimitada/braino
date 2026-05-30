@@ -1,13 +1,13 @@
 import type { Entity } from "@doco/shared";
 import { describe, expect, it } from "vitest";
-import { deriveSynapses } from "../synapses.js";
+import { deriveEdges } from "../edges.js";
 
-describe("deriveSynapses", () => {
+describe("deriveEdges", () => {
   it("materializes BPMN sequence_to as forward sequence_flow edges", () => {
-    const synapses = deriveSynapses({
+    const edges = deriveEdges({
       id: "decision_01KSJ000000000000000000000",
       doco_id: "doco_01KSJ000000000000000000000",
-      neuron_type: "decision",
+      node_type: "decision",
       decision: "Route payment path",
       question: "Does the user have credits?",
       chosen: "Route to the matching payment action.",
@@ -26,18 +26,18 @@ describe("deriveSynapses", () => {
       ],
     } as unknown as Entity);
 
-    expect(synapses).toEqual(
+    expect(edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
           to_id: "action_01KSJ000000000000000000003",
-          synapse_type: "sequence_flow",
+          edge_type: "sequence_flow",
         }),
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
           to_id: "action_01KSJ000000000000000000004",
-          synapse_type: "sequence_flow",
-          synapse_props: {
+          edge_type: "sequence_flow",
+          edge_props: {
             label: "No credits",
             condition: "credits = 0",
             kind: "conditional",
@@ -48,10 +48,10 @@ describe("deriveSynapses", () => {
   });
 
   it("materializes Decision.implemented_by as implemented_by edges to PR/commit References", () => {
-    const synapses = deriveSynapses({
+    const edges = deriveEdges({
       id: "decision_01KSJ000000000000000000000",
       doco_id: "doco_01KSJ000000000000000000000",
-      neuron_type: "decision",
+      node_type: "decision",
       decision: "Rename active lifecycle to accepted",
       question: "What ships this rename?",
       chosen: "These PRs.",
@@ -61,19 +61,19 @@ describe("deriveSynapses", () => {
       ],
     } as unknown as Entity);
 
-    expect(synapses).toEqual(
+    expect(edges).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
-          from_neuron_type: "decision",
+          from_node_type: "decision",
           to_id: "reference_01KSJ000000000000000000003",
-          to_neuron_type: "reference",
-          synapse_type: "implemented_by",
+          to_node_type: "reference",
+          edge_type: "implemented_by",
         }),
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
           to_id: "reference_01KSJ000000000000000000004",
-          synapse_type: "implemented_by",
+          edge_type: "implemented_by",
         }),
       ]),
     );

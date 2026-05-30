@@ -31,7 +31,7 @@ export {
   listUsers,
   patchUserData,
   type UserRow,
-  // Principals (role-personas — neuron type)
+  // Principals (role-personas — node type)
   getPrincipalById,
   getPrincipalByName,
   listPrincipals,
@@ -71,9 +71,9 @@ export {
 
 export {
   ALL_ENTITY_TABLES,
-  DOCO_NEURON_TABLE_BY_TYPE,
-  DOCO_NEURON_TABLE_SPECS,
-  NEURON_TABLES,
+  DOCO_NODE_TABLE_BY_TYPE,
+  DOCO_NODE_TABLE_SPECS,
+  NODE_TABLES,
   POLICY_TABLES,
   USER_TABLES,
   CONTAINER_TABLES,
@@ -98,8 +98,25 @@ export {
 export {
   rebuildDocoDerivedData,
   type FtsRowInput,
-  type SynapseRowInput,
+  type EdgeRowInput,
 } from "./indexer.js";
+
+// Append-only write runtime (doco-vnext): commit boundary + first-class
+// edge CRUD + immutable version snapshots + as-of reads.
+export {
+  createChangeset,
+  appendNodeVersion,
+  appendEdgeVersion,
+  createEdge,
+  updateEdge,
+  retireEdge,
+  getVersions,
+  entityAsOf,
+  type CommitInput,
+  type CommitSource,
+  type CreateEdgeInput,
+  type EdgeRow,
+} from "./vnext.js";
 
 // Postgres is the only source-of-truth. There is no legacy filesystem
 // fallback (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids back-compat).

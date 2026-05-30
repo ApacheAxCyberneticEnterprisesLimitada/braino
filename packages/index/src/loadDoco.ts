@@ -4,7 +4,7 @@
 //
 // Two modes:
 //   - Full load (no `opts.entityIds`): every entity in the Doco (all 10
-//     neuron types are Doco-scoped post-migration 020), plus the host's
+//     node types are Doco-scoped post-migration 020), plus the host's
 //     organizations. Used for first-build and bulk rebuilds.
 //   - Scoped load (`opts.entityIds` set): only the named ids are read from
 //     their own tables, and host-wide organization rows are skipped
@@ -27,11 +27,11 @@ import type {
   LoadedDoco,
   LoadedEntity,
 } from "@doco/shared";
-import { ENTITY_TYPES, NEURON_TYPES, isEntityId } from "@doco/shared";
+import { ENTITY_TYPES, NODE_TYPES, isEntityId } from "@doco/shared";
 
-// All neuron types are Doco-scoped (migration 020 finished the job
+// All node types are Doco-scoped (migration 020 finished the job
 // for Principals).
-const DOCO_SCOPED_NEURON_TYPES: EntityType[] = [...NEURON_TYPES] as EntityType[];
+const DOCO_SCOPED_NODE_TYPES: EntityType[] = [...NODE_TYPES] as EntityType[];
 
 export interface LoadDocoOptions {
   /**
@@ -84,7 +84,7 @@ export async function loadDocoFromPostgres(
 
   // Host-level identity rows are loaded once (no doco_id filter). Only
   // needed by the full-rebuild path; incremental captures don't consume
-  // them (deriveSynapses works off the entity alone, and the indexer's
+  // them (deriveEdges works off the entity alone, and the indexer's
   // FTS/embedding writers don't need org text). Principals moved to
   // the doco-scoped loop below in migration 020.
   if (!scoped) {
@@ -125,7 +125,7 @@ export async function loadDocoFromPostgres(
     }
   }
 
-  for (const t of DOCO_SCOPED_NEURON_TYPES) {
+  for (const t of DOCO_SCOPED_NODE_TYPES) {
     let rows: EntityRecord[] = [];
     try {
       if (scoped) {
@@ -154,7 +154,7 @@ export async function loadDocoFromPostgres(
         continue;
       }
       const entity = fm as unknown as Entity;
-      // Migration-022/023: migrated neurons store their full prose in a
+      // Migration-022/023: migrated nodes store their full prose in a
       // type-named column (intents.intent, decisions.decision, ...);
       // `rowToRecord` hoists that onto `row.type_named_value`. Carry it
       // through `parsed` so the indexer can route it to the FTS body /

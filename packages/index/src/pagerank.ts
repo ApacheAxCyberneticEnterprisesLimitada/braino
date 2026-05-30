@@ -1,7 +1,7 @@
 /**
  * Personalized PageRank (PPR) — given a source node, returns the most
  * relevant other nodes by random-walk-with-restart, treating the
- * indexer's synapses as undirected.
+ * indexer's edges as undirected.
  *
  * Used by the entity-detail page's graph view (ADR-076) to pick which
  * neighbors to surface around the focal node.
@@ -11,11 +11,11 @@
  * tolerance; capped at iters.
  */
 
-export interface PprSynapse {
+export interface PprEdge {
   from: string;
   to: string;
   /** Optional edge type; lets callers tune relevance by relationship kind. */
-  synapse_type?: string;
+  edge_type?: string;
 }
 
 export interface PprNeighbor {
@@ -34,10 +34,10 @@ export interface PprOptions {
   tol?: number;
   /** Weight per edge type. Default returns 1 for every type. Higher weight =
    * more random-walker mass flows along that edge. */
-  synapseWeight?: (synapse_type: string | undefined) => number;
+  edgeWeight?: (edge_type: string | undefined) => number;
 }
 
-export function defaultSynapseWeight(_synapseType: string | undefined): number {
+export function defaultEdgeWeight(_edgeType: string | undefined): number {
   return 1;
 }
 
@@ -62,7 +62,7 @@ function add(values: Float64Array, index: number, amount: number): void {
 }
 
 export function personalizedPageRank(
-  synapses: PprSynapse[],
+  edges: PprEdge[],
   sourceId: string,
   options: PprOptions = {},
 ): PprNeighbor[] {
@@ -70,7 +70,7 @@ export function personalizedPageRank(
   const iters = options.iters ?? 50;
   const topK = options.topK ?? 30;
   const tol = options.tol ?? 1e-6;
-  const synapseWeight = options.synapseWeight ?? defaultSynapseWeight;
+  const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
 
   // Build node index. Walk every edge endpoint plus the source.
   const idToIdx = new Map<string, number>();
@@ -83,7 +83,7 @@ export function personalizedPageRank(
     return i;
   }
   idx(sourceId);
-  for (const e of synapses) {
+  for (const e of edges) {
     idx(e.from);
     idx(e.to);
   }
@@ -94,16 +94,16 @@ export function personalizedPageRank(
 
   // Build undirected weighted adjacency (in semantic terms, "A → B" and
   // "B referenced by A" are equally informative for relevance — distinguishing
-  // them in PPR would weight the central node toward only its outbound synapses,
+  // them in PPR would weight the central node toward only its outbound edges,
   // which is wrong for context discovery).
-  // Per-edge weight via options.synapseWeight (default 1.0). Out-degree becomes
+  // Per-edge weight via options.edgeWeight (default 1.0). Out-degree becomes
   // the sum of incident weights.
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
-  for (const e of synapses) {
+  for (const e of edges) {
     const a = mustGetIndex(idToIdx, e.from);
     const b = mustGetIndex(idToIdx, e.to);
-    if (a === b) continue; // self-synapses add nothing
-    const w = synapseWeight(e.synapse_type);
+    if (a === b) continue; // self-edges add nothing
+    const w = edgeWeight(e.edge_type);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
     mustGetBucket(neighbors, b).push({ idx: a, w });
@@ -174,13 +174,13 @@ export function personalizedPageRank(
  * to compute on every entity-detail page load.
  */
 export function globalPageRank(
-  synapses: PprSynapse[],
+  edges: PprEdge[],
   options: Omit<PprOptions, "topK"> = {},
 ): PprNeighbor[] {
   const alpha = options.alpha ?? 0.85;
   const iters = options.iters ?? 50;
   const tol = options.tol ?? 1e-6;
-  const synapseWeight = options.synapseWeight ?? defaultSynapseWeight;
+  const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
 
   const idToIdx = new Map<string, number>();
   function idx(id: string): number {
@@ -191,7 +191,7 @@ export function globalPageRank(
     }
     return i;
   }
-  for (const e of synapses) {
+  for (const e of edges) {
     idx(e.from);
     idx(e.to);
   }
@@ -201,11 +201,11 @@ export function globalPageRank(
   for (const [id, i] of idToIdx) idxToId[i] = id;
 
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
-  for (const e of synapses) {
+  for (const e of edges) {
     const a = mustGetIndex(idToIdx, e.from);
     const b = mustGetIndex(idToIdx, e.to);
     if (a === b) continue;
-    const w = synapseWeight(e.synapse_type);
+    const w = edgeWeight(e.edge_type);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
     mustGetBucket(neighbors, b).push({ idx: a, w });

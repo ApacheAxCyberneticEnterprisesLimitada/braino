@@ -11,15 +11,15 @@
 --     in a consistent order (id, doco_id, summary, lifecycle, ...).
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
---   - `synapses` materializes relationships between neurons for graph queries.
+--   - `edges` materializes relationships between nodes for graph queries.
 --   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
 --   - New schema changes belong in packages/db/migrations/.
 --
 -- Vocabulary (post-migration-005):
---   neurons   — graph entities (10 types: intent/idea/rule/decision/action/
+--   nodes   — graph entities (10 types: intent/idea/rule/decision/action/
 --               log/eval/reference/state/principal)
---   policies — Doco-level authoring metadata (2 kinds: guidance / neuron_authoring)
---   synapses   — relationships between neurons
+--   policies — Doco-level authoring metadata (2 kinds: guidance / node_authoring)
+--   edges   — relationships between nodes
 --   users      — OAuth identities (person/agent), separate from principals
 --                (which are role-personas referenced by actor_id/actors[]).
 
@@ -60,12 +60,12 @@ ON CONFLICT (id) DO NOTHING;
 --
 -- Two distinct concerns, split into two tables:
 --   `users`      — OAuth identity (person or agent runtime that holds
---                  auth tokens). Authored neurons via `created_by` /
+--                  auth tokens). Authored nodes via `created_by` /
 --                  `updated_by`. Members of orgs/docos. Agent users are
 --                  owned by an organization; person users are unowned.
 --   `principals` — role-personas (the "actor" in a documented business
 --                  process). Referenced by Action.actor_id, Log.actor_id,
---                  Intent.actors[], etc. Modeled as a neuron type.
+--                  Intent.actors[], etc. Modeled as a node type.
 
 CREATE TABLE IF NOT EXISTS users (
   id              text PRIMARY KEY,            -- user_<ulid>
@@ -143,8 +143,8 @@ CREATE TABLE IF NOT EXISTS docos (
   owner_id        text NOT NULL,    -- organization_<ulid>
   org_id          text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  allowed_neuron_types text[],
-  default_neuron_lifecycle text,
+  allowed_node_types text[],
+  default_node_lifecycle text,
   -- Free-form sentence the project owner writes (or the creation template
   -- seeds) to tell agents what this Doco is for. Surfaced at the top of
   -- each Doco's policy set in the agent-bootstrap manifest, and under
@@ -221,7 +221,7 @@ CREATE TABLE IF NOT EXISTS guidance_policies (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   -- One-line rule statement. Renamed from `summary` to `policy` in
   -- migration 038 to match the migration-023 type-named-prose pattern
-  -- the 9 neuron types use.
+  -- the 9 node types use.
   policy      text,
   lifecycle   text,
   body_md     text,
@@ -236,7 +236,7 @@ CREATE INDEX IF NOT EXISTS guidance_policies_doco_idx
 CREATE INDEX IF NOT EXISTS guidance_policies_lifecycle_idx
   ON guidance_policies (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS neuron_authoring_policies (
+CREATE TABLE IF NOT EXISTS node_authoring_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   -- See guidance_policies.policy — same rename.
@@ -249,10 +249,10 @@ CREATE TABLE IF NOT EXISTS neuron_authoring_policies (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS neuron_authoring_policies_doco_idx
-  ON neuron_authoring_policies (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS neuron_authoring_policies_lifecycle_idx
-  ON neuron_authoring_policies (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS node_authoring_policies_doco_idx
+  ON node_authoring_policies (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
+  ON node_authoring_policies (doco_id, lifecycle);
 
 CREATE TABLE IF NOT EXISTS actions (
   id            text PRIMARY KEY,
@@ -307,7 +307,7 @@ CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
 -- evals.kind index lives in migration 035.
 
--- State is a neuron in a
+-- State is a node in a
 -- formal state machine. Mirrors the actions table shape; the structured
 -- fields (`kind`, `invariants`) live in `data`.
 CREATE TABLE IF NOT EXISTS states (
@@ -374,7 +374,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
-  op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'entity.delete', 'lifecycle.transition', 'synapse.add')),
+  op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'entity.delete', 'lifecycle.transition', 'edge.add')),
   before_json   jsonb,
   after_json    jsonb,
   reason        text
@@ -392,31 +392,100 @@ ALTER TABLE audit_events
 ALTER TABLE audit_events ALTER COLUMN doco_id DROP NOT NULL;
 CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events (org_id, at DESC);
 
+-- ──────────────────────────────────────────────────────────────────────────
+-- Append-only history (doco-vnext). The commit log + immutable version
+-- snapshots are the SOURCE OF TRUTH; the per-type node tables and `edges`
+-- are a rebuildable projection. Nothing is ever deleted — removal is a
+-- `retire` version. See docs/plans/doco-vnext.md.
+
+-- Commit log — one row per atomic changeset (Git's commit). Carries
+-- who/when/WHY. tx_id is a global monotonic sequence enabling whole-graph
+-- "as-of" reads. Append-only; never updated or deleted (see migration 063
+-- which REVOKEs UPDATE/DELETE on the history tables from the app role).
+CREATE TABLE IF NOT EXISTS changesets (
+  tx_id        bigserial PRIMARY KEY,
+  doco_id      text REFERENCES docos(id) ON DELETE CASCADE,
+  actor        text,                          -- user_<ulid>
+  source       text NOT NULL DEFAULT 'api'
+                 CHECK (source IN ('api','mcp','ui','slack','import','reset','system')),
+  reason       text,                          -- the rich "why"
+  metadata     jsonb,
+  recorded_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS changesets_doco_idx ON changesets (doco_id, tx_id DESC);
+
+-- Immutable version snapshots — one row per (entity, version). payload is
+-- the FULL state of the node/edge at that version, so "how it was" is an
+-- O(1) read, never a replay (Git's blob/tree). Append-only.
+CREATE TABLE IF NOT EXISTS node_versions (
+  entity_id    text NOT NULL,
+  entity_type  text NOT NULL,                 -- node type (decision, intent, …)
+  version      int  NOT NULL,
+  op           text NOT NULL CHECK (op IN ('create','update','retire')),
+  payload      jsonb NOT NULL,
+  tx_id        bigint NOT NULL REFERENCES changesets(tx_id),
+  actor        text,
+  recorded_at  timestamptz NOT NULL DEFAULT now(),
+  prev_hash    text,                          -- reserved: Merkle track (M)
+  this_hash    text,
+  PRIMARY KEY (entity_id, version)
+);
+CREATE INDEX IF NOT EXISTS node_versions_tx_idx   ON node_versions (tx_id);
+CREATE INDEX IF NOT EXISTS node_versions_asof_idx ON node_versions (entity_id, tx_id);
+
+CREATE TABLE IF NOT EXISTS edge_versions (
+  entity_id    text NOT NULL,                 -- edge_<ulid>
+  entity_type  text NOT NULL DEFAULT 'edge',
+  version      int  NOT NULL,
+  op           text NOT NULL CHECK (op IN ('create','update','retire')),
+  payload      jsonb NOT NULL,
+  tx_id        bigint NOT NULL REFERENCES changesets(tx_id),
+  actor        text,
+  recorded_at  timestamptz NOT NULL DEFAULT now(),
+  prev_hash    text,
+  this_hash    text,
+  PRIMARY KEY (entity_id, version)
+);
+CREATE INDEX IF NOT EXISTS edge_versions_tx_idx   ON edge_versions (tx_id);
+CREATE INDEX IF NOT EXISTS edge_versions_asof_idx ON edge_versions (entity_id, tx_id);
+
 -- Indexing layer tables. These hold the derived-data the read side
--- consumes — graph synapses, vector embeddings, denormalized rule targets,
+-- consumes — graph edges, vector embeddings, denormalized rule targets,
 -- and full-text search rows. Supersedes ADR-023 (tiered architecture)
 -- and ADR-024 (SQLite + FTS5) — Postgres is now both source of truth
 -- and read-side index.
 
--- Graph synapses (ADR-025). Materialized from frontmatter ID-shaped fields
--- by the indexer. Doco-scoped via doco_id; both endpoints can be any
--- neuron_type so we can't FK them.
-CREATE TABLE IF NOT EXISTS synapses (
-  from_id         text NOT NULL,
-  from_neuron_type  text NOT NULL,
-  to_id           text NOT NULL,
-  to_neuron_type    text NOT NULL,
-  synapse_type       text NOT NULL,
+-- Graph edges — FIRST-CLASS entities (doco-vnext). Each edge is its own
+-- row with a surrogate id (edge_<ulid>), lifecycle, and provenance — a
+-- peer of nodes, NOT a derived cache. Endpoints can be any node type so
+-- we can't FK them; existence + same-doco is enforced in app code.
+-- Mutated only by edge CRUD via commit(); the indexer never wipes/rebuilds
+-- this table. Removal is lifecycle='retired', never DELETE.
+CREATE TABLE IF NOT EXISTS edges (
+  id              text PRIMARY KEY,           -- edge_<ulid>
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  synapse_props_json jsonb,
-  PRIMARY KEY (from_id, to_id, synapse_type)
+  edge_type       text NOT NULL,
+  from_id         text NOT NULL,
+  from_node_type  text NOT NULL,
+  to_id           text NOT NULL,
+  to_node_type    text NOT NULL,
+  props           jsonb,
+  lifecycle       text NOT NULL DEFAULT 'asserted',
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  created_by      text,                       -- user_<ulid>
+  updated_at      timestamptz NOT NULL DEFAULT now(),
+  updated_by      text,
+  retired_at      timestamptz
 );
-CREATE INDEX IF NOT EXISTS synapses_doco_idx        ON synapses (doco_id);
-CREATE INDEX IF NOT EXISTS synapses_to_idx          ON synapses (to_id, synapse_type);
-CREATE INDEX IF NOT EXISTS synapses_from_type_idx   ON synapses (from_id, synapse_type);
-CREATE INDEX IF NOT EXISTS synapses_type_idx        ON synapses (synapse_type);
-CREATE INDEX IF NOT EXISTS synapses_doco_type_from_idx ON synapses (doco_id, synapse_type, from_id);
-CREATE INDEX IF NOT EXISTS synapses_doco_type_to_idx   ON synapses (doco_id, synapse_type, to_id);
+-- At most one LIVE edge per (doco, from, to, type); retired duplicates ok.
+CREATE UNIQUE INDEX IF NOT EXISTS edges_live_uniq
+  ON edges (doco_id, from_id, to_id, edge_type) WHERE lifecycle <> 'retired';
+CREATE INDEX IF NOT EXISTS edges_doco_idx           ON edges (doco_id);
+CREATE INDEX IF NOT EXISTS edges_doco_type_from_idx ON edges (doco_id, edge_type, from_id);
+CREATE INDEX IF NOT EXISTS edges_doco_type_to_idx   ON edges (doco_id, edge_type, to_id);
+CREATE INDEX IF NOT EXISTS edges_from_idx           ON edges (from_id);
+CREATE INDEX IF NOT EXISTS edges_to_idx             ON edges (to_id);
+CREATE INDEX IF NOT EXISTS edges_lifecycle_idx      ON edges (doco_id, lifecycle);
 
 -- Vector embeddings (ADR-052). One row per entity. Storage is bytea
 -- (Float32Array bytes, little-endian). pgvector + ivfflat/hnsw is an
@@ -442,10 +511,10 @@ CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
 -- stemming and weighting (A=summary, B=body). A GIN index per table handles
 -- `@@` queries efficiently. Cross-category search is a UNION over tables.
 
-CREATE TABLE IF NOT EXISTS entity_fts_neurons (
+CREATE TABLE IF NOT EXISTS entity_fts_nodes (
   entity_id    text PRIMARY KEY,
   doco_id      text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  neuron_type  text NOT NULL,
+  node_type  text NOT NULL,
   summary      text,
   body         text,
   search_tsv   tsvector GENERATED ALWAYS AS (
@@ -453,13 +522,13 @@ CREATE TABLE IF NOT EXISTS entity_fts_neurons (
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
   ) STORED
 );
-CREATE INDEX IF NOT EXISTS entity_fts_neurons_doco_idx ON entity_fts_neurons (doco_id);
-CREATE INDEX IF NOT EXISTS entity_fts_neurons_tsv_idx  ON entity_fts_neurons USING gin (search_tsv);
+CREATE INDEX IF NOT EXISTS entity_fts_nodes_doco_idx ON entity_fts_nodes (doco_id);
+CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING gin (search_tsv);
 
 CREATE TABLE IF NOT EXISTS entity_fts_policies (
   entity_id       text PRIMARY KEY,
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  policy_kind     text NOT NULL CHECK (policy_kind IN ('guidance', 'neuron_authoring')),
+  policy_kind     text NOT NULL CHECK (policy_kind IN ('guidance', 'node_authoring')),
   -- Renamed from `summary` to `policy` by migration 038 to match the
   -- canonical policies tables. The FTS column tracks the source.
   policy          text,
@@ -511,7 +580,7 @@ CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organi
 -- Three roles (owner / writer / reader) granted at two levels
 -- (org / doco). Effective role = max across levels (highest-wins
 -- additive composition). Writers may add, edit, retire, and transition
--- the lifecycle of any neuron or synapse; what they may or may not do
+-- the lifecycle of any node or edge; what they may or may not do
 -- is governed by the Doco's own policies, not a built-in role ladder.
 -- Owners additionally administer the Doco (users, tokens, policies).
 

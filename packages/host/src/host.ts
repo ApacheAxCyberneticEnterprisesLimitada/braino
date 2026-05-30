@@ -323,8 +323,8 @@ export async function createDocoInOrg(opts: {
     const created = nowIso();
     const visibility = opts.visibility ?? "private";
     const template = opts.templateHandle ? findDocoTemplate(opts.templateHandle) : null;
-    const allowedNeuronTypes = template?.allowedNeuronTypes ?? null;
-    const defaultNeuronLifecycle = template?.defaultNeuronLifecycle ?? null;
+    const allowedNodeTypes = template?.allowedNodeTypes ?? null;
+    const defaultNodeLifecycle = template?.defaultNodeLifecycle ?? null;
     // Goal: explicit caller value wins (including ""), else the
     // template's description, else empty for no-template Docos.
     const goal = opts.goal !== undefined ? opts.goal : (template?.description ?? "");
@@ -338,13 +338,13 @@ export async function createDocoInOrg(opts: {
       created_at: created,
       created_by: opts.createdByUserId,
       lifecycle: "asserted",
-      ...(allowedNeuronTypes ? { allowed_neuron_types: allowedNeuronTypes } : {}),
-      ...(defaultNeuronLifecycle ? { default_neuron_lifecycle: defaultNeuronLifecycle } : {}),
+      ...(allowedNodeTypes ? { allowed_node_types: allowedNodeTypes } : {}),
+      ...(defaultNodeLifecycle ? { default_node_lifecycle: defaultNodeLifecycle } : {}),
     };
 
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data,
-                          allowed_neuron_types, default_neuron_lifecycle,
+                          allowed_node_types, default_node_lifecycle,
                           goal,
                           created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $10)`,
@@ -355,8 +355,8 @@ export async function createDocoInOrg(opts: {
         opts.orgId,
         visibility,
         JSON.stringify(data),
-        allowedNeuronTypes,
-        defaultNeuronLifecycle,
+        allowedNodeTypes,
+        defaultNodeLifecycle,
         goal,
         created,
       ],
@@ -383,16 +383,16 @@ export async function createDocoInOrg(opts: {
     if (template && template.policies.length > 0) {
       for (const policy of template.policies) {
         const isAuthoring = Boolean(policy.predicate);
-        const firesWhen = Array.isArray(policy.fires_when_neuron_lifecycle)
-          ? policy.fires_when_neuron_lifecycle
+        const firesWhen = Array.isArray(policy.fires_when_node_lifecycle)
+          ? policy.fires_when_node_lifecycle
           : [];
-        const entityType = isAuthoring ? "neuron_authoring_policy" : "guidance_policy";
-        const table = isAuthoring ? "neuron_authoring_policies" : "guidance_policies";
+        const entityType = isAuthoring ? "node_authoring_policy" : "guidance_policy";
+        const table = isAuthoring ? "node_authoring_policies" : "guidance_policies";
         const policyId = `${entityType}_${generateUlid()}`;
         const policyData: Record<string, unknown> = {
           id: policyId,
           doco_id: docoId,
-          policy_kind: isAuthoring ? "neuron_authoring" : "guidance",
+          policy_kind: isAuthoring ? "node_authoring" : "guidance",
           policy: policy.policy,
           ...(policy.predicate
             ? {
@@ -402,7 +402,7 @@ export async function createDocoInOrg(opts: {
                 on_violation: policy.on_violation ?? "block",
               }
             : {}),
-          ...(firesWhen.length > 0 ? { fires_when_neuron_lifecycle: firesWhen } : {}),
+          ...(firesWhen.length > 0 ? { fires_when_node_lifecycle: firesWhen } : {}),
           template_seeded: true,
           template_handle: opts.templateHandle ?? null,
           created_at: created,

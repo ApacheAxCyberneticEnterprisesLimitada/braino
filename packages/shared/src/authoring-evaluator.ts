@@ -1,56 +1,56 @@
 /**
  * Authoring policies evaluator — pure module.
  *
- * Walks the doco's `neuron_authoring_policies` directly. Policies
+ * Walks the doco's `node_authoring_policies` directly. Policies
  * apply to the whole doco.
  *
  * Inputs in, violations out. No IO, no LLM. The caller (web layer) is
  * responsible for:
- *   - loading the doco's policies, principals, synapses, and population
- *   - deriving the candidate's outgoing synapses from its structured fields
- *     (via `deriveSynapses` from `@doco/index`)
+ *   - loading the doco's policies, principals, edges, and population
+ *   - deriving the candidate's outgoing edges from its structured fields
+ *     (via `deriveEdges` from `@doco/index`)
  *   - resolving probabilistic violations via an LLM judge (the engine
  *     just emits them as `pending` violations with the spec attached)
  *
  * Predicate kinds handled:
- *   - requires_synapse, forbids_synapse
+ *   - requires_edge, forbids_edge
  *   - requires_field, forbids_field, unique_field
- *   - requires_neuron_type, requires_entity_type
+ *   - requires_node_type, requires_entity_type
  *   - requires_field_resolves_to_principal
  *   - graph-completeness
  *   - probabilistic   → emitted as pending violation
  *   - descriptive     → no-op (records intent only)
  *
  * Per-predicate filters:
- *   - `when_neuron_type` (on the predicate)
- *   - `fires_when_neuron_lifecycle` (on the policy wrapper)
+ *   - `when_node_type` (on the predicate)
+ *   - `fires_when_node_lifecycle` (on the policy wrapper)
  */
 
-import type { NeuronType } from "./branded.js";
+import type { NodeType } from "./branded.js";
 import type { AuthoringPredicate, Lifecycle } from "./entities.js";
 
 /**
- * Candidate neuron / policy fields the engine evaluates. Just
+ * Candidate node / policy fields the engine evaluates. Just
  * the fields-as-bag the persister would write — the engine doesn't care
- * about the full Entity union, only that it has an id, a neuron_type
+ * about the full Entity union, only that it has an id, a node_type
  * (or policy_kind), and optionally a lifecycle.
  */
 export type CandidateFields = Record<string, unknown> & {
   id: string;
-  neuron_type?: NeuronType;
-  policy_kind?: "guidance" | "neuron_authoring";
+  node_type?: NodeType;
+  policy_kind?: "guidance" | "node_authoring";
   lifecycle?: Lifecycle;
 };
 
-/** One synapse in the doco. Shape mirrors `Synapse` from `@doco/index`. */
-export interface EngineSynapse {
+/** One edge in the doco. Shape mirrors `Edge` from `@doco/index`. */
+export interface EngineEdge {
   from_id: string;
   to_id: string;
-  synapse_type: string;
+  edge_type: string;
 }
 
 /**
- * A neuron_authoring_policy loaded from the doco, with the bits the
+ * A node_authoring_policy loaded from the doco, with the bits the
  * engine consults.
  */
 export interface LoadedPolicy {
@@ -67,7 +67,7 @@ export interface LoadedPolicy {
    * list. Empty / undefined means "fires regardless of lifecycle".
    * Lets completeness policies wait for `accepted`.
    */
-  fires_when_neuron_lifecycle?: Lifecycle[];
+  fires_when_node_lifecycle?: Lifecycle[];
 }
 
 export interface Violation {
@@ -92,29 +92,29 @@ export interface EvaluateOpts {
   /** All predicate-bearing policies loaded from the doco. */
   policies: LoadedPolicy[];
   /**
-   * Synapses derived from the candidate's fields (via
-   * `deriveSynapses`). The candidate hasn't been persisted yet so these
-   * aren't in the synapses table — pass them explicitly.
+   * Edges derived from the candidate's fields (via
+   * `deriveEdges`). The candidate hasn't been persisted yet so these
+   * aren't in the edges table — pass them explicitly.
    */
-  candidateSynapses: EngineSynapse[];
+  candidateEdges: EngineEdge[];
   /**
-   * Existing synapses in the doco (other nodes' edges). Used by
+   * Existing edges in the doco (other nodes' edges). Used by
    * `graph-completeness` to look up incoming edges.
    */
-  synapses: EngineSynapse[];
+  edges: EngineEdge[];
   /** Principals known to the host. */
   principals: PrincipalIndex;
   /**
-   * Fields of OTHER neurons in the doco (i.e., everything that isn't
+   * Fields of OTHER nodes in the doco (i.e., everything that isn't
    * the candidate). Used by `graph-completeness` to look up
-   * `incoming_field_must_match` values on the producing neurons.
+   * `incoming_field_must_match` values on the producing nodes.
    */
   population: CandidateFields[];
 }
 
-const NEURON_TYPE_PREDICATE_KINDS: ReadonlySet<AuthoringPredicate["kind"]> = new Set([
-  "requires_synapse",
-  "forbids_synapse",
+const NODE_TYPE_PREDICATE_KINDS: ReadonlySet<AuthoringPredicate["kind"]> = new Set([
+  "requires_edge",
+  "forbids_edge",
   "requires_field",
   "forbids_field",
   "unique_field",
@@ -162,16 +162,16 @@ export function evaluatePolicies(opts: EvaluateOpts): Violation[] {
 }
 
 export function policyFiresFor(p: LoadedPolicy, candidate: CandidateFields): boolean {
-  const lifecycles = p.fires_when_neuron_lifecycle;
+  const lifecycles = p.fires_when_node_lifecycle;
   if (lifecycles && lifecycles.length > 0) {
     if (!candidate.lifecycle || !lifecycles.includes(candidate.lifecycle)) return false;
   }
-  // `when_neuron_type` filter — only on predicates that carry one.
+  // `when_node_type` filter — only on predicates that carry one.
   const pred = p.predicate;
-  if (NEURON_TYPE_PREDICATE_KINDS.has(pred.kind)) {
-    const when = "when_neuron_type" in pred ? pred.when_neuron_type : undefined;
+  if (NODE_TYPE_PREDICATE_KINDS.has(pred.kind)) {
+    const when = "when_node_type" in pred ? pred.when_node_type : undefined;
     if (when && when.length > 0) {
-      const ct = candidate.neuron_type;
+      const ct = candidate.node_type;
       if (!ct || !when.includes(ct)) return false;
     }
   }
@@ -192,29 +192,29 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
   });
 
   switch (pred.kind) {
-    case "requires_synapse": {
-      const wanted = opts.candidateSynapses.find((s) => {
-        if (s.synapse_type !== pred.synapse_type) return false;
-        if (pred.target_neuron_type) {
-          return entityTypeFromId(s.to_id) === pred.target_neuron_type;
+    case "requires_edge": {
+      const wanted = opts.candidateEdges.find((s) => {
+        if (s.edge_type !== pred.edge_type) return false;
+        if (pred.target_node_type) {
+          return entityTypeFromId(s.to_id) === pred.target_node_type;
         }
         return true;
       });
       if (wanted) return null;
-      const target = pred.target_neuron_type ? ` to a ${pred.target_neuron_type}` : "";
-      return fail(`missing required \`${pred.synapse_type}\` synapse${target}`);
+      const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
+      return fail(`missing required \`${pred.edge_type}\` edge${target}`);
     }
-    case "forbids_synapse": {
-      const offender = opts.candidateSynapses.find((s) => {
-        if (s.synapse_type !== pred.synapse_type) return false;
-        if (pred.target_neuron_type) {
-          return entityTypeFromId(s.to_id) === pred.target_neuron_type;
+    case "forbids_edge": {
+      const offender = opts.candidateEdges.find((s) => {
+        if (s.edge_type !== pred.edge_type) return false;
+        if (pred.target_node_type) {
+          return entityTypeFromId(s.to_id) === pred.target_node_type;
         }
         return true;
       });
       if (!offender) return null;
-      const target = pred.target_neuron_type ? ` to a ${pred.target_neuron_type}` : "";
-      return fail(`carries a forbidden \`${pred.synapse_type}\` synapse${target}`);
+      const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
+      return fail(`carries a forbidden \`${pred.edge_type}\` edge${target}`);
     }
     case "requires_field": {
       const missing = pred.fields.filter((f) => !isNonEmpty(candidate[f]));
@@ -231,9 +231,9 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       if (candidateValue === null) return null;
       const duplicate = opts.population.find((n) => {
         if (n.id === candidate.id || n.lifecycle === "retired") return false;
-        const when = pred.when_neuron_type;
+        const when = pred.when_node_type;
         if (when && when.length > 0) {
-          if (!n.neuron_type || !when.includes(n.neuron_type)) return false;
+          if (!n.node_type || !when.includes(n.node_type)) return false;
         }
         return comparableFieldValue(n[pred.field], Boolean(pred.case_fold)) === candidateValue;
       });
@@ -243,11 +243,11 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       const value = original ? ` value \`${original}\`` : "";
       return fail(`\`${pred.field}\`${value} duplicates active ${duplicate.id}`);
     }
-    case "requires_neuron_type": {
-      const ct = candidate.neuron_type;
-      if (ct && pred.neuron_types.includes(ct)) return null;
+    case "requires_node_type": {
+      const ct = candidate.node_type;
+      if (ct && pred.node_types.includes(ct)) return null;
       return fail(
-        `neuron_type \`${ct ?? "<missing>"}\` not in allowlist [${pred.neuron_types.map((n) => `\`${n}\``).join(", ")}]`,
+        `node_type \`${ct ?? "<missing>"}\` not in allowlist [${pred.node_types.map((n) => `\`${n}\``).join(", ")}]`,
       );
     }
     case "requires_entity_type": {
@@ -273,25 +273,22 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       const missing: string[] = [];
       for (const id of list) {
         if (typeof id !== "string") continue;
-        // Find an incoming neuron of the required type whose
+        // Find an incoming node of the required type whose
         // `incoming_field_must_match` equals this id AND that has a
-        // matching synapse_type pointing at the candidate.
+        // matching edge_type pointing at the candidate.
         const covered = opts.population.some((n) => {
-          if (n.neuron_type !== pred.incoming_neuron_type) return false;
+          if (n.node_type !== pred.incoming_node_type) return false;
           if (n[pred.incoming_field_must_match] !== id) return false;
-          // Verify the synapse exists: incoming.id --synapse_type--> candidate.id
-          return opts.synapses.some(
-            (s) =>
-              s.from_id === n.id &&
-              s.to_id === candidate.id &&
-              s.synapse_type === pred.synapse_type,
+          // Verify the edge exists: incoming.id --edge_type--> candidate.id
+          return opts.edges.some(
+            (s) => s.from_id === n.id && s.to_id === candidate.id && s.edge_type === pred.edge_type,
           );
         });
         if (!covered) missing.push(id);
       }
       if (missing.length === 0) return null;
       return fail(
-        `\`${pred.list_field}\` entries lack a matching incoming \`${pred.synapse_type}\` from a \`${pred.incoming_neuron_type}\`: ${missing.map((m) => `\`${m}\``).join(", ")}`,
+        `\`${pred.list_field}\` entries lack a matching incoming \`${pred.edge_type}\` from a \`${pred.incoming_node_type}\`: ${missing.map((m) => `\`${m}\``).join(", ")}`,
       );
     }
     case "probabilistic": {

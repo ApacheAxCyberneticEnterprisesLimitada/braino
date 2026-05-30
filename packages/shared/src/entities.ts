@@ -4,15 +4,15 @@
  * load + cross-reference resolution only.
  *
  * Post-rename vocabulary:
- *   - Neurons (10): graph-knowledge entities (intent, idea, rule,
+ *   - Nodes (10): graph-knowledge entities (intent, idea, rule,
  *     decision, action, log, eval, reference, state, principal)
- *   - Policies (2): Doco-level authoring metadata (guidance, neuron_authoring)
+ *   - Policies (2): Doco-level authoring metadata (guidance, node_authoring)
  *   - User (1): OAuth identity layer (separate from principal)
  *   - Doco, Organization: workspace + org containers
  *
  * Per-category discriminator fields (matches stored data jsonb):
- *   - Neurons   → `neuron_type: NeuronType`
- *   - Policies → `policy_kind: "guidance" | "neuron_authoring"`
+ *   - Nodes   → `node_type: NodeType`
+ *   - Policies → `policy_kind: "guidance" | "node_authoring"`
  *   - User → `kind: "person" | "agent"`
  *   - Doco, Organization → no per-row discriminator
  *
@@ -21,7 +21,7 @@
  * reference principals (the role-personas).
  */
 
-import type { EntityId, EntityType, NeuronType } from "./branded.js";
+import type { EntityId, EntityType, NodeType } from "./branded.js";
 
 export type Lifecycle = "drafting" | "asserted" | "retired";
 
@@ -35,8 +35,8 @@ export interface SequenceFlowTarget {
 }
 
 /**
- * Common fields present on every neuron + policy entity (D-006,
- * D-007). The per-category discriminator (`neuron_type` /
+ * Common fields present on every node + policy entity (D-006,
+ * D-007). The per-category discriminator (`node_type` /
  * `policy_kind` / `kind`) lives on each concrete interface, not
  * here — different categories use different discriminator names.
  */
@@ -70,7 +70,7 @@ export interface SummarizedFields extends CommonFields {
 }
 
 /**
- * Migration-022: each neuron type gains a type-named prose field
+ * Migration-022: each node type gains a type-named prose field
  * (`intent` on intents, `rule` on rules, etc.). During the additive
  * window the field is optional and parallel to `summary` + `body_md`;
  * once the rename completes it becomes the single required prose
@@ -95,11 +95,11 @@ export interface AgentMetadata {
 
 /**
  * User — host-scoped OAuth identity. Person or agent runtime.
- * Authored neurons via `created_by` / `updated_by`. Member of orgs/docos
- * via `member_of` synapses.
+ * Authored nodes via `created_by` / `updated_by`. Member of orgs/docos
+ * via `member_of` edges.
  *
- * NOT on the graph as a neuron — users are an identity layer.
- * Use `Principal` (the neuron) when documenting a role/persona that
+ * NOT on the graph as a node — users are an identity layer.
+ * Use `Principal` (the node) when documenting a role/persona that
  * participates in a flow.
  */
 export interface User {
@@ -116,7 +116,7 @@ export interface User {
   deactivated_at?: string;
 }
 
-// ─── Principal (role-persona — neuron type) ───────────────────────────────
+// ─── Principal (role-persona — node type) ───────────────────────────────
 
 /**
  * Principal — documented role/persona that participates in flows.
@@ -128,12 +128,12 @@ export interface User {
 // else); the `summary` one-liner was dropped by migration 037 because
 // it duplicated body_md prose without adding signal. Extends
 // CommonFields rather than SummarizedFields for that reason — same
-// pattern the 9 migrated neuron types (Intent, Decision, …) use.
+// pattern the 9 migrated node types (Intent, Decision, …) use.
 export interface Principal extends CommonFields {
-  neuron_type: "principal";
+  node_type: "principal";
   /** Markdown body — the canonical narrative for the Principal. */
   body_md?: string;
-  /** Display label for the Principal. Other neurons reference Principals
+  /** Display label for the Principal. Other nodes reference Principals
    *  by id; duplicate names are allowed. */
   name: string;
   /**
@@ -143,7 +143,7 @@ export interface Principal extends CommonFields {
   role_principal?: boolean;
   /**
    * Optional manager Principal. `X.reports_to = Y` ⇒ X reports to Y —
-   * the synapse forms the reporting hierarchy in `org-chart` Docos.
+   * the edge forms the reporting hierarchy in `org-chart` Docos.
    * Omitted means top-of-chain; the org-chart template asks
    * top-of-chain Principals to explain why in body_md (no manager
    * above, founder, root agent, external authority).
@@ -189,7 +189,7 @@ export interface Doco {
 // ─── Intent ───────────────────────────────────────────────────────────────
 
 export interface Intent extends CommonFields {
-  neuron_type: "intent";
+  node_type: "intent";
   /** Full prose: what someone wants, why, success criteria. */
   intent: string;
   parent_intent_id?: EntityId<"intent"> | null;
@@ -205,7 +205,7 @@ export interface Intent extends CommonFields {
 // ─── Idea ─────────────────────────────────────────────────────────────────
 
 export interface Idea extends CommonFields {
-  neuron_type: "idea";
+  node_type: "idea";
   /** Full prose: the idea, context, tradeoffs. */
   idea: string;
   /** Who proposed it. User (the OAuth identity), not a principal. */
@@ -222,41 +222,41 @@ export type RuleKind = "guidance" | "tagged";
  * Authoring predicate — the structured shape the engine evaluates at
  * write time. Stored as `Rule.predicate`.
  *
- * `when_neuron_type` (was `when_node_type`) filters the predicate to
- * candidates of specific neuron types. Note: predicates that target
+ * `when_node_type` (was `when_node_type`) filters the predicate to
+ * candidates of specific node types. Note: predicates that target
  * policies use a different filter; see plan §6.
  */
 export type AuthoringPredicate =
   | {
-      kind: "requires_synapse";
-      synapse_type: string;
-      target_neuron_type?: string;
-      when_neuron_type?: NeuronType[];
+      kind: "requires_edge";
+      edge_type: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
     }
   | {
-      kind: "forbids_synapse";
-      synapse_type: string;
-      target_neuron_type?: string;
-      when_neuron_type?: NeuronType[];
+      kind: "forbids_edge";
+      edge_type: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
     }
-  | { kind: "requires_field"; fields: string[]; when_neuron_type?: NeuronType[] }
-  | { kind: "forbids_field"; fields: string[]; when_neuron_type?: NeuronType[] }
-  | { kind: "unique_field"; field: string; case_fold?: boolean; when_neuron_type?: NeuronType[] }
-  | { kind: "requires_neuron_type"; neuron_types: NeuronType[] }
+  | { kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
+  | { kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
+  | { kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
+  | { kind: "requires_node_type"; node_types: NodeType[] }
   /**
-   * Like `requires_neuron_type` but accepts any entity type, including
+   * Like `requires_node_type` but accepts any entity type, including
    * policies. Used by the global policies template to allow Eval +
    * the two policy kinds.
    */
   | { kind: "requires_entity_type"; entity_types: EntityType[] }
-  | { kind: "probabilistic"; spec: string; when_neuron_type?: NeuronType[] }
+  | { kind: "probabilistic"; spec: string; when_node_type?: NodeType[] }
   | {
       kind: "graph-completeness";
       list_field: string;
-      synapse_type: string;
-      incoming_neuron_type: NeuronType;
+      edge_type: string;
+      incoming_node_type: NodeType;
       incoming_field_must_match: string;
-      when_neuron_type?: NeuronType[];
+      when_node_type?: NodeType[];
     }
   /**
    * Field-resolution check: `entity[field]` must be the id of an
@@ -272,17 +272,17 @@ export type AuthoringPredicate =
   | {
       kind: "requires_field_resolves_to_principal";
       field: string;
-      when_neuron_type?: NeuronType[];
+      when_node_type?: NodeType[];
     }
-  | { kind: "descriptive"; spec: string; when_neuron_type?: NeuronType[] };
+  | { kind: "descriptive"; spec: string; when_node_type?: NodeType[] };
 
 export interface Rule extends CommonFields {
-  neuron_type: "rule";
+  node_type: "rule";
   /** Full prose: the rule statement, rationale, scope, exceptions. */
   rule: string;
   kind?: RuleKind;
   predicate?: AuthoringPredicate;
-  fires_when_neuron_lifecycle?: Lifecycle[];
+  fires_when_node_lifecycle?: Lifecycle[];
   modality?: "must" | "must_not" | "should" | "should_not";
   severity?: "blocker" | "warning" | "info";
   phase?: "declared" | "pre" | "post" | "invariant";
@@ -294,7 +294,7 @@ export interface Rule extends CommonFields {
 //
 // Policies carry a type-named prose column (`policy`) — the one-line
 // rule statement — instead of the legacy `summary`. Renamed by
-// migration 038 so the surface matches the 9 migrated neuron types
+// migration 038 so the surface matches the 9 migrated node types
 // (intent / decision / rule / action / log / eval / state / idea /
 // reference) which each carry their own type-named column.
 
@@ -306,15 +306,15 @@ export interface GuidancePolicy extends CommonFields {
   body_md?: string;
 }
 
-export interface NeuronAuthoringPolicy extends CommonFields {
-  policy_kind: "neuron_authoring";
+export interface NodeAuthoringPolicy extends CommonFields {
+  policy_kind: "node_authoring";
   /** The one-line rule statement that describes the check. */
   policy: string;
   /** Optional long-form rationale. */
   body_md?: string;
   evaluation_kind: "deterministic" | "probabilistic";
   predicate: AuthoringPredicate;
-  fires_when_neuron_lifecycle?: Lifecycle[];
+  fires_when_node_lifecycle?: Lifecycle[];
   on_violation?: "block" | "warn" | "log";
 }
 
@@ -326,7 +326,7 @@ export interface DecisionAlternative {
 }
 
 export interface Decision extends CommonFields {
-  neuron_type: "decision";
+  node_type: "decision";
   /** Full prose: the decision narrative — context, chosen path, why. */
   decision: string;
   intent_ids?: EntityId<"intent">[];
@@ -348,7 +348,7 @@ export interface Decision extends CommonFields {
 // ─── Action (designed step) ───────────────────────────────────────────────
 
 export interface Action extends CommonFields {
-  neuron_type: "action";
+  node_type: "action";
   /** Full prose: past-tense verb phrase describing what was done + context. */
   action: string;
   verb: string;
@@ -366,7 +366,7 @@ export interface Action extends CommonFields {
 // ─── Log (recorded happening) ─────────────────────────────────────────────
 
 export interface Log extends CommonFields {
-  neuron_type: "log";
+  node_type: "log";
   /** Full prose: what happened, when, in what state. */
   log: string;
   verb: string;
@@ -391,7 +391,7 @@ export interface EvalCriterion {
 export type EvalKind = "unit" | "integration" | "eval" | "process" | "doc-consistency";
 
 export interface Eval extends CommonFields {
-  neuron_type: "eval";
+  node_type: "eval";
   /** Full prose: what's being checked, plus rationale. */
   eval: string;
   kind?: EvalKind;
@@ -410,7 +410,7 @@ export interface Eval extends CommonFields {
 // ─── Reference ────────────────────────────────────────────────────────────
 
 export interface Reference extends CommonFields {
-  neuron_type: "reference";
+  node_type: "reference";
   /** Full prose: human-readable label for the external thing. */
   reference: string;
   ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
@@ -435,7 +435,7 @@ export interface Reference extends CommonFields {
 export type StateKind = "initial" | "intermediate" | "terminal";
 
 export interface State extends CommonFields {
-  neuron_type: "state";
+  node_type: "state";
   /** Full prose: state description, invariants explained. */
   state: string;
   kind: StateKind;
@@ -461,8 +461,8 @@ export interface Organization extends SummarizedFields {
 
 // ─── Discriminated unions ─────────────────────────────────────────────────
 
-/** The 10 neuron types. */
-export type Neuron =
+/** The 10 node types. */
+export type Node =
   | Principal
   | Intent
   | Idea
@@ -475,13 +475,13 @@ export type Neuron =
   | State;
 
 /** The 2 policy types. */
-export type Policy = GuidancePolicy | NeuronAuthoringPolicy;
+export type Policy = GuidancePolicy | NodeAuthoringPolicy;
 
 /** Every entity across all categories. */
-export type Entity = Neuron | Policy | User | Doco | Organization;
+export type Entity = Node | Policy | User | Doco | Organization;
 
-/** Look up a Neuron interface by its `neuron_type` literal. */
-export type NeuronByType<T extends Neuron["neuron_type"]> = Extract<Neuron, { neuron_type: T }>;
+/** Look up a Node interface by its `node_type` literal. */
+export type NodeByType<T extends Node["node_type"]> = Extract<Node, { node_type: T }>;
 
 /** Look up a Policy interface by its `policy_kind` literal. */
 export type PolicyByKind<T extends Policy["policy_kind"]> = Extract<Policy, { policy_kind: T }>;

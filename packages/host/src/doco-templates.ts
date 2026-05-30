@@ -14,10 +14,10 @@
  *   bootstrap manifest.
  * - `policies` — at install time entries seed Doco-level
  *   policies: prose-only entries become guidance_policies;
- *   predicate-bearing entries become neuron_authoring_policies.
- * - `allowedNeuronTypes` (optional) — a Doco-level allowlist. `global`
+ *   predicate-bearing entries become node_authoring_policies.
+ * - `allowedNodeTypes` (optional) — a Doco-level allowlist. `global`
  *   ships with policy types so the Doco's policy set is kept
- *   separate from domain Rule neurons.
+ *   separate from domain Rule nodes.
  *
  * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
  * `kind: "authoring"` value from RuleKind. Templates no longer mark
@@ -42,15 +42,15 @@ export interface TemplatePolicy {
   policy: string;
   /**
    * Engine-readable predicate. When set, the seeder creates a
-   * neuron_authoring_policy so the check can run during capture.
+   * node_authoring_policy so the check can run during capture.
    */
   predicate?: AuthoringPredicate;
   /**
    * v7: when set, the engine only fires this policy against
    * candidates whose `lifecycle` is in the list. Used by completeness
-   * rules that skip drafting neurons during mid-construction.
+   * rules that skip drafting nodes during mid-construction.
    */
-  fires_when_neuron_lifecycle?: Lifecycle[];
+  fires_when_node_lifecycle?: Lifecycle[];
   /**
    * Override the seeded policy's `on_violation` behavior. Defaults
    * to "block" when unset. Use "warn" for soft / probabilistic rules
@@ -102,16 +102,16 @@ export interface DocoTemplate {
    */
   perspectives?: TemplatePerspectiveAttachment[];
   /**
-   * Doco-level allowlist for captured neuron types. `global` keeps the
+   * Doco-level allowlist for captured node types. `global` keeps the
    * Doco policy set focused by accepting only policy types.
    */
-  allowedNeuronTypes?: (
+  allowedNodeTypes?: (
     | "decision"
     | "intent"
     | "action"
     | "rule"
     | "guidance_policy"
-    | "neuron_authoring_policy"
+    | "node_authoring_policy"
     | "log"
     | "eval"
     | "reference"
@@ -125,7 +125,7 @@ export interface DocoTemplate {
    * uses `"drafting"` so authors can sketch incomplete processes
    * without tripping completeness rules.
    */
-  defaultNeuronLifecycle?: Lifecycle;
+  defaultNodeLifecycle?: Lifecycle;
 }
 
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
@@ -137,8 +137,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     label: "global policies",
     icon: "🌐",
     description:
-      "Your doco's global policies — guidance policies and neuron-authoring policies that govern how contributors work.",
-    allowedNeuronTypes: ["guidance_policy", "neuron_authoring_policy"],
+      "Your doco's global policies — guidance policies and node-authoring policies that govern how contributors work.",
+    allowedNodeTypes: ["guidance_policy", "node_authoring_policy"],
     policies: [
       {
         kind: "guidance",
@@ -176,7 +176,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "📚",
     description:
       "Document product and domain terminology — canonical terms, definitions, aliases, deprecated wording, sources, and consistency checks.",
-    defaultNeuronLifecycle: "drafting",
+    defaultNodeLifecycle: "drafting",
     // The dictionary-styled Glossary perspective is the natural reading
     // surface for terminology, so a Doco created from this template
     // opens directly on it. Graph + list defaults stay attached behind.
@@ -190,7 +190,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. PASS for term entries, glossary scope, terminology usage rules, references to source glossaries/specs/docs, and evals that scan terminology consistency. FAIL for feature implementation work, process flows, org charts, runtime incidents, or state-machine stages.",
-          when_neuron_type: ["intent", "decision", "rule", "reference", "eval"],
+          when_node_type: ["intent", "decision", "rule", "reference", "eval"],
         },
       },
       {
@@ -205,7 +205,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
             "reference",
             "eval",
             "guidance_policy",
-            "neuron_authoring_policy",
+            "node_authoring_policy",
           ],
         },
       },
@@ -217,9 +217,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field",
           fields: ["question", "chosen"],
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         policy:
@@ -228,16 +228,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           kind: "unique_field",
           field: "chosen",
           case_fold: true,
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         policy:
           "A glossary Decision defines one concept. Split entries that define multiple independent terms or concepts.",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
           spec: "Read the Decision's `question`, `chosen`, and `decision` prose. PASS when the entry defines one concept or one canonical term. FAIL with a reason when it defines multiple independent terms, bundles a term with an unrelated policy, or uses one entry as a catch-all for several concepts.",
         },
       },
@@ -246,17 +246,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "An active glossary Decision's `decision` prose includes a concise definition, product/domain scope, and at least one example or non-example.",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
           spec: "Read the Decision's `decision` prose. PASS when it includes (1) a concise definition, (2) the product or domain scope where the term applies, and (3) at least one concrete example or non-example. FAIL with which element is missing when the prose is too vague for a reader to use the term consistently.",
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         policy:
           "Acronyms and abbreviations in glossary entries spell out the expanded form and state when the short form is acceptable.",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
           spec: "Inspect the Decision's `chosen` term and `decision` prose. PASS when acronyms or abbreviations are expanded at least once and the prose states whether the short form is acceptable in product/docs/UI copy. If there are no acronyms or abbreviations, PASS. FAIL when a short form appears without expansion or usage guidance.",
         },
       },
@@ -268,19 +268,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field",
           fields: ["target_ref", "how_to_run"],
-          when_neuron_type: ["eval"],
+          when_node_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         policy:
           "An active glossary Eval's `how_to_run` names a concrete command, query, URL, or review procedure plus any scope needed to reproduce the terminology check.",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["eval"],
+          when_node_type: ["eval"],
           spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, search query, URL, script, or manual review procedure, plus the doc/code/product scope to inspect. FAIL when it is vague (`review docs`, `check terminology`) or depends on unstated context.",
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Guidance ───────────────────────────────────────────────
@@ -310,14 +310,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // Repeatable business processes modeled on BPMN swimlanes and
     // gateways. Sequence flow is explicit and forward-only via
     // `sequence_to`, which materializes as `sequence_flow`; generic Doco
-    // dependency / rationale synapses remain associations and are not
+    // dependency / rationale edges remain associations and are not
     // treated as BPMN arrows.
     name: "business-processes",
     label: "business-processes",
     icon: "🏭",
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
-    defaultNeuronLifecycle: "drafting",
+    defaultNodeLifecycle: "drafting",
     // Ship the BPMN perspective pre-attached and as the default tab,
     // so a freshly-created business-processes Doco opens directly on
     // the swim-lane view (where the template's authoring rules are
@@ -333,7 +333,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // not to second-guess their template choice. Rule nodes are
         // exempt (they govern process authoring rather than being
         // process content) — handled by omitting "rule" from
-        // when_neuron_type. Personal / informal workflows pass too:
+        // when_node_type. Personal / informal workflows pass too:
         // the gate cares about "workflow with steps, actors, outcome",
         // not "this is paid work at a company".
         on_violation: "warn",
@@ -342,7 +342,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
-          when_neuron_type: ["intent", "action", "decision", "state", "eval", "reference"],
+          when_node_type: ["intent", "action", "decision", "state", "eval", "reference"],
         },
       },
       {
@@ -352,8 +352,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         policy:
           "Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
-          kind: "requires_neuron_type",
-          neuron_types: [
+          kind: "requires_node_type",
+          node_types: [
             "intent",
             "action",
             "decision",
@@ -378,7 +378,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "Check the Principal's `name` and `body_md`. PASS when the Principal clearly names a process actor — a role, team, external party, or system — and the body explains what responsibility or boundary it owns in this process. FAIL if it reads like an uncontextualized org-chart person, a vague label (`user`, `team`, `system`) with no process responsibility, or an empty shell with no body prose.",
-          when_neuron_type: ["principal"],
+          when_node_type: ["principal"],
         },
       },
 
@@ -392,9 +392,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "Check the Intent's `intent` field. The purpose Intent of a business process must name (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. PASS if all three are discernible; FAIL with which is missing if one or more is absent.",
-          when_neuron_type: ["intent"],
+          when_node_type: ["intent"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Action shape ────────────────────────────────────────────
@@ -404,9 +404,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field",
           fields: ["actor_id"],
-          when_neuron_type: ["action"],
+          when_node_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         // Team-roles (`kitchen`, `support`, `finance`) are first-class
@@ -418,20 +418,20 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          when_neuron_type: ["action"],
+          when_node_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         policy:
           "Every Action in business-processes must `serves` an Intent. Without it the process renderer can't tie the step to the business outcome it advances.",
         predicate: {
-          kind: "requires_synapse",
-          synapse_type: "serves",
-          target_neuron_type: "intent",
-          when_neuron_type: ["action"],
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          when_node_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         // Atomic activity prose — reject umbrella phases and
@@ -441,32 +441,32 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "Check the Action's `action` and `verb`. PASS when the text names an atomic business activity — a single unit of work the named actor performs. FAIL with reason if the text is a vague umbrella phase (e.g. `handle request`, `do the thing`, `process order`) or an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
-          when_neuron_type: ["action"],
+          when_node_type: ["action"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       // ── Decision shape ──────────────────────────────────────────
       {
         policy:
           "Every Decision in business-processes must `serves` an Intent — gateways belong to a concrete process/pool and need that link to be explicit.",
         predicate: {
-          kind: "requires_synapse",
-          synapse_type: "serves",
-          target_neuron_type: "intent",
-          when_neuron_type: ["decision"],
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          when_node_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         policy:
           "Every State in business-processes must `serves` an Intent — milestones and events belong to a concrete process/pool and need that link to be explicit.",
         predicate: {
-          kind: "requires_synapse",
-          synapse_type: "serves",
-          target_neuron_type: "intent",
-          when_neuron_type: ["state"],
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          when_node_type: ["state"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
       {
         // Exhaustive branches: question reads as yes/no or enumerated,
@@ -477,9 +477,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "Check the Decision's `question`, `alternatives`, and any `sequence_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── State shape & sequence wiring ───────────────────────────
@@ -524,10 +524,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "State `state` reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`), not an imperative verb naming an Action (`Approve invoice`).",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["state"],
+          when_node_type: ["state"],
           spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Coverage ────────────────────────────────────────────────
@@ -541,12 +541,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "graph-completeness",
           list_field: "actors",
-          synapse_type: "serves",
-          incoming_neuron_type: "action",
+          edge_type: "serves",
+          incoming_node_type: "action",
           incoming_field_must_match: "actor_id",
-          when_neuron_type: ["intent"],
+          when_node_type: ["intent"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Eval ────────────────────────────────────────────────────
@@ -556,9 +556,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field",
           fields: ["target_ref"],
-          when_neuron_type: ["eval"],
+          when_node_type: ["eval"],
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Guidance (prose-only) ───────────────────────────────────
@@ -595,7 +595,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Drafting neurons may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
+          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
       },
       {
         kind: "guidance",
@@ -616,7 +616,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Organizational chart template. Principals are the org members,
-    // `reports_to` synapses form the hierarchy, Intents represent
+    // `reports_to` edges form the hierarchy, Intents represent
     // teams/units, Decisions record reorgs and appointments. After
     // the Principal slim-down (decision_01KSDR_PRINCIPAL_SLIM_DOWN)
     // a Principal carries only `name` + `body_md`; the person-vs-agent
@@ -627,7 +627,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🏢",
     description:
       "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every member declares whether they're a person or an AI agent in their `body_md` prose.",
-    defaultNeuronLifecycle: "drafting",
+    defaultNodeLifecycle: "drafting",
     perspectives: [{ slug: "org-tree", isDefault: true }],
     policies: [
       // ── Membership ──────────────────────────────────────────────
@@ -642,8 +642,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         policy:
           "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. Actions describe activities (use business-processes); States describe stages; Logs describe events; Ideas live in their own home.",
         predicate: {
-          kind: "requires_neuron_type",
-          neuron_types: ["principal", "intent", "decision", "reference", "rule"],
+          kind: "requires_node_type",
+          node_types: ["principal", "intent", "decision", "reference", "rule"],
         },
       },
 
@@ -658,16 +658,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Every Principal in an org chart must declare whether it's a person or an AI agent in its `body_md` prose. The org-tree perspective infers the distinction from the prose; without an explicit declaration a chart can't tell humans from AI agents.",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["principal"],
+          when_node_type: ["principal"],
           spec: "Read the Principal's `body_md`. PASS if the prose clearly states the role is filled by a human person (e.g. 'Human director of …', 'Person responsible for …') OR by an AI agent (e.g. 'AI agent operated by @alice', 'Autonomous research bot'). FAIL with a reason if `body_md` is empty or doesn't take a stance on person-vs-agent.",
         },
       },
 
       // ── Hierarchy: every Principal either reports up or explains root ──
       {
-        // `reports_to` is a Principal→Principal synapse that forms the
+        // `reports_to` is a Principal→Principal edge that forms the
         // org tree. This uses a single probabilistic warning rather
-        // than a deterministic `requires_synapse` predicate because a
+        // than a deterministic `requires_edge` predicate because a
         // valid root Principal (CEO/founder/root agent/external
         // authority) should not receive an unavoidable "missing
         // reports_to" warning once its body_md explains the absence.
@@ -676,10 +676,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Every active Principal in an org chart either declares `reports_to` (the Principal they report to) or explains in `body_md` why it is top-of-chain (founder, board-reporting, root agent, external authority).",
         predicate: {
           kind: "probabilistic",
-          when_neuron_type: ["principal"],
+          when_node_type: ["principal"],
           spec: "Read the Principal candidate. PASS if `reports_to` is a non-empty Principal id. Otherwise, PASS only if `body_md` explains why this Principal has no manager above it (founder, board-reporting, root agent, external authority, etc.). FAIL with reason when an active Principal has no `reports_to` and `body_md` does not explain the missing reporting edge.",
         },
-        fires_when_neuron_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Team Intents declare members ───────────────────────────
@@ -694,7 +694,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_field",
           fields: ["actors"],
-          when_neuron_type: ["intent"],
+          when_node_type: ["intent"],
         },
       },
 

@@ -5,7 +5,7 @@ import {
   isEntityType,
   isUlid,
   makeEntityId,
-  normalizeNeuronType,
+  normalizeNodeType,
   parseEntityId,
 } from "../branded.js";
 import type { Ulid } from "../branded.js";
@@ -68,7 +68,7 @@ describe("isEntityType", () => {
       "idea",
       "rule",
       "guidance_policy",
-      "neuron_authoring_policy",
+      "node_authoring_policy",
       "decision",
       "action",
       "eval",
@@ -85,22 +85,22 @@ describe("isEntityType", () => {
   });
 });
 
-describe("normalizeNeuronType", () => {
-  it("keeps canonical singular neuron types", () => {
-    expect(normalizeNeuronType("intent")).toBe("intent");
-    expect(normalizeNeuronType("reference")).toBe("reference");
+describe("normalizeNodeType", () => {
+  it("keeps canonical singular node types", () => {
+    expect(normalizeNodeType("intent")).toBe("intent");
+    expect(normalizeNodeType("reference")).toBe("reference");
   });
 
   it("accepts plural URL segments used by humans and agents", () => {
-    expect(normalizeNeuronType("intents")).toBe("intent");
-    expect(normalizeNeuronType("references")).toBe("reference");
-    expect(normalizeNeuronType("principals")).toBe("principal");
+    expect(normalizeNodeType("intents")).toBe("intent");
+    expect(normalizeNodeType("references")).toBe("reference");
+    expect(normalizeNodeType("principals")).toBe("principal");
   });
 
-  it("rejects unknown or non-neuron values", () => {
-    expect(normalizeNeuronType("policies")).toBeNull();
-    expect(normalizeNeuronType("widget")).toBeNull();
-    expect(normalizeNeuronType(null)).toBeNull();
+  it("rejects unknown or non-node values", () => {
+    expect(normalizeNodeType("policies")).toBeNull();
+    expect(normalizeNodeType("widget")).toBeNull();
+    expect(normalizeNodeType(null)).toBeNull();
   });
 });
 

@@ -10,22 +10,22 @@
 //   - the wildcard token "*" in a write-type set → writes every type
 //     (this is how a pre-per-type "writer" is represented after backfill).
 //
-// The gateable universe is the 10 neuron types plus the synapse/relation
+// The gateable universe is the 10 node types plus the edge/relation
 // types. Both lists are defined here so the access layer has ONE source
 // of truth; the web graph-authoring contract (RELATION_KINDS) is checked
-// against SYNAPSE_TYPES by a consistency test so the two can't drift.
+// against EDGE_TYPES by a consistency test so the two can't drift.
 
-import { NEURON_TYPES, type NeuronType } from "./branded.js";
+import { NODE_TYPES, type NodeType } from "./branded.js";
 
 /** Wildcard write-type token: grants write on every type. */
 export const WRITE_ALL = "*" as const;
 
 /**
- * Synapse / relation types that can be independently write-gated. Mirrors
+ * Edge / relation types that can be independently write-gated. Mirrors
  * the keys of the web layer's RELATION_KINDS registry; a consistency test
  * asserts the two stay identical.
  */
-export const SYNAPSE_TYPES = [
+export const EDGE_TYPES = [
   "sequence_flow",
   "preceded_by",
   "serves",
@@ -43,12 +43,12 @@ export const SYNAPSE_TYPES = [
   "has_stakeholder",
 ] as const;
 
-export type SynapseType = (typeof SYNAPSE_TYPES)[number];
+export type EdgeType = (typeof EDGE_TYPES)[number];
 
-/** Every write-gateable type: the 10 neuron types plus the synapse types. */
-export const WRITABLE_TYPES = [...NEURON_TYPES, ...SYNAPSE_TYPES] as const;
+/** Every write-gateable type: the 10 node types plus the edge types. */
+export const WRITABLE_TYPES = [...NODE_TYPES, ...EDGE_TYPES] as const;
 
-export type WritableType = NeuronType | SynapseType;
+export type WritableType = NodeType | EdgeType;
 
 const WRITABLE_TYPE_SET: ReadonlySet<string> = new Set(WRITABLE_TYPES);
 

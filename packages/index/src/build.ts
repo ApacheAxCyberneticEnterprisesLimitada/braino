@@ -1,4 +1,4 @@
-// Reindexer. Rebuilds the derived-data tables in Postgres (`synapses`,
+// Reindexer. Rebuilds the derived-data tables in Postgres (`edges`,
 // `entity_fts`, `embeddings`) from the source-of-truth entity rows
 // that already live in Postgres.
 
@@ -11,8 +11,8 @@ import {
   upsertEmbeddings,
 } from "@doco/db";
 import type { LoadedDoco } from "@doco/shared";
+import { deriveEdges } from "./edges.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
-import { deriveSynapses } from "./synapses.js";
 
 export interface BuildReport {
   inserted: number;
@@ -48,7 +48,7 @@ export interface IndexOptions {
   docoId?: string;
   /**
    * When set, restrict the derived-data rebuild to these entity ids
-   * only — wipe and re-insert just their FTS rows + outgoing synapses,
+   * only — wipe and re-insert just their FTS rows + outgoing edges,
    * leave the rest of the Doco's derived data alone. Embeddings are
    * recomputed only for the named entities (content-hash gated as
    * usual, so unchanged content is still skipped).
@@ -61,14 +61,14 @@ export interface IndexOptions {
   /**
    * When true, skip the embedding pass even if `embeddingProvider`
    * is set. Used by the capture flow to split the fast structural
-   * rebuild (FTS + synapses) from the slower OpenAI-bound embedding
+   * rebuild (FTS + edges) from the slower OpenAI-bound embedding
    * pass — the structural pass runs inline so the response reflects
    * a fresh graph, while embeddings are offloaded to `waitUntil` and
    * caught up after the response is sent.
    */
   skipEmbeddings?: boolean;
   /**
-   * When true, skip the FTS + synapses rebuild. Paired with the above:
+   * When true, skip the FTS + edges rebuild. Paired with the above:
    * the capture flow first runs `{ skipEmbeddings: true }` inline,
    * then `{ skipStructural: true }` in `waitUntil` so the embedding
    * pass catches up off the request path.
@@ -77,7 +77,7 @@ export interface IndexOptions {
 }
 
 /**
- * Rebuild derived data (synapses, FTS, embeddings) for one Doco. Caller
+ * Rebuild derived data (edges, FTS, embeddings) for one Doco. Caller
  * supplies the pre-loaded LoadedDoco; this function does the PG writes.
  *
  * When `opts.changedEntityIds` is set, only those entities' derived
@@ -103,15 +103,15 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       summary: string | null;
       body: string;
     }[] = [];
-    const pgSynapses: ReturnType<typeof deriveSynapses> = [];
+    const pgEdges: ReturnType<typeof deriveEdges> = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      // Per-category interfaces carry `neuron_type`, `policy_kind`, or
+      // Per-category interfaces carry `node_type`, `policy_kind`, or
       // `kind`; the id prefix is the shared discriminator for derived rows.
       const entityType = le.entity.id.split("_").slice(0, -1).join("_") || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
-      // Migration-022/023: 9 neuron types collapsed `summary` + `body_md`
+      // Migration-022/023: 9 node types collapsed `summary` + `body_md`
       // (+ type-specific extras) into a single type-named prose column
       // (`intents.intent`, `decisions.decision`, ...). The whole prose
       // block goes into FTS `body`; there's no separate headline to
@@ -139,14 +139,14 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         summary,
         body,
       });
-      for (const synapse of deriveSynapses(le.entity)) {
-        pgSynapses.push(synapse);
+      for (const edge of deriveEdges(le.entity)) {
+        pgEdges.push(edge);
       }
     }
     await rebuildDocoDerivedData(
       docoId,
       pgFts,
-      pgSynapses,
+      pgEdges,
       incrementalIds ? { onlyEntityIds: [...incrementalIds] } : {},
     );
   }
@@ -156,7 +156,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      // Migration-022/023: migrated neurons embed the type-named prose
+      // Migration-022/023: migrated nodes embed the type-named prose
       // column verbatim. Principals embed `name` + `body_md` (the
       // post-037 shape — summary was dropped); policies embed
       // `policy` (one-line rule, renamed from `summary` in 038) +
@@ -216,7 +216,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
 
 /**
  * Pass `opts.changedEntityIds` for the incremental path (single-entity
- * captures): only those entities' FTS rows + outgoing synapses are touched
+ * captures): only those entities' FTS rows + outgoing edges are touched
  * and the embedding pass is scoped to them. Omit for the safe-but-slow
  * full rebuild — first build, bulk import.
  */

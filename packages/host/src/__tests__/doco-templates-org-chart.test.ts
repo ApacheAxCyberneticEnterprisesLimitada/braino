@@ -17,10 +17,10 @@ describe("org-chart template", () => {
     expect(hashtagged).toBeUndefined();
   });
 
-  it("has the expected metadata (icon, label, defaultNeuronLifecycle)", () => {
+  it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
     expect(template.icon).toBe("🏢");
     expect(template.label).toBe("org-chart");
-    expect(template.defaultNeuronLifecycle).toBe("drafting");
+    expect(template.defaultNodeLifecycle).toBe("drafting");
     expect(template.description).toMatch(/person/i);
     expect(template.description).toMatch(/AI agent/i);
   });
@@ -29,27 +29,27 @@ describe("org-chart template", () => {
     expect(template.perspectives).toEqual([{ slug: "org-tree", isDefault: true }]);
   });
 
-  it("does NOT set the policy-only `allowedNeuronTypes` field — that's reserved for `global`", () => {
-    expect(template.allowedNeuronTypes).toBeUndefined();
+  it("does NOT set the policy-only `allowedNodeTypes` field — that's reserved for `global`", () => {
+    expect(template.allowedNodeTypes).toBeUndefined();
   });
 
-  describe("neuron-type allowlist", () => {
+  describe("node-type allowlist", () => {
     const allowlist = template.policies.find(
-      (r) => r.predicate?.kind === "requires_neuron_type",
+      (r) => r.predicate?.kind === "requires_node_type",
     )?.predicate;
 
     it("includes exactly Principal, Intent, Decision, Reference, and Rule", () => {
-      expect(allowlist?.kind).toBe("requires_neuron_type");
-      if (allowlist?.kind !== "requires_neuron_type") return;
-      expect([...allowlist.neuron_types].sort()).toEqual(
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
         ["decision", "intent", "principal", "reference", "rule"].sort(),
       );
     });
 
     it("excludes Action, State, Eval, Log, and Idea (those describe activity, not org structure)", () => {
-      if (allowlist?.kind !== "requires_neuron_type") throw new Error("allowlist missing");
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
       for (const t of ["action", "state", "eval", "log", "idea"]) {
-        expect(allowlist.neuron_types).not.toContain(t);
+        expect(allowlist.node_types).not.toContain(t);
       }
     });
   });
@@ -61,7 +61,7 @@ describe("org-chart template", () => {
     const rule = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.when_neuron_type?.includes("principal") &&
+        r.predicate.when_node_type?.includes("principal") &&
         /person/i.test(r.predicate.spec) &&
         /agent/i.test(r.predicate.spec) &&
         /body_md/i.test(r.predicate.spec),
@@ -72,10 +72,10 @@ describe("org-chart template", () => {
       expect(rule?.predicate?.kind).toBe("probabilistic");
     });
 
-    it("fires on every Principal regardless of lifecycle (no fires_when_neuron_lifecycle gate)", () => {
+    it("fires on every Principal regardless of lifecycle (no fires_when_node_lifecycle gate)", () => {
       // A drafting member still needs the kind declared — that's the
       // first thing the org-tree perspective renders.
-      expect(rule?.fires_when_neuron_lifecycle).toBeUndefined();
+      expect(rule?.fires_when_node_lifecycle).toBeUndefined();
     });
 
     it("blocks by default — person-vs-agent is identity-grade for an org chart", () => {
@@ -90,19 +90,19 @@ describe("org-chart template", () => {
   describe("hierarchy — reports_to", () => {
     const deterministicRule = template.policies.find(
       (r) =>
-        r.predicate?.kind === "requires_synapse" &&
-        r.predicate.synapse_type === "reports_to" &&
-        r.predicate.when_neuron_type?.includes("principal"),
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "reports_to" &&
+        r.predicate.when_node_type?.includes("principal"),
     );
     const rule = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.when_neuron_type?.includes("principal") &&
+        r.predicate.when_node_type?.includes("principal") &&
         /reports_to/i.test(r.predicate.spec) &&
         /top-of-chain/i.test(r.policy),
     );
 
-    it("does not use a deterministic `requires_synapse` rule that would warn legitimate roots", () => {
+    it("does not use a deterministic `requires_edge` rule that would warn legitimate roots", () => {
       expect(deterministicRule).toBeUndefined();
     });
 
@@ -114,7 +114,7 @@ describe("org-chart template", () => {
     });
 
     it("fires only on `asserted` — drafting members can be captured before their manager exists", () => {
-      expect(rule?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
+      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
     it("warns rather than blocks while the author is shaping the org", () => {
@@ -127,7 +127,7 @@ describe("org-chart template", () => {
       (r) =>
         r.predicate?.kind === "requires_field" &&
         r.predicate.fields.includes("actors") &&
-        r.predicate.when_neuron_type?.includes("intent"),
+        r.predicate.when_node_type?.includes("intent"),
     );
 
     it("exists", () => {
@@ -147,7 +147,7 @@ describe("org-chart template", () => {
       const nameStyleGate = template.policies.find(
         (r) =>
           r.predicate?.kind === "probabilistic" &&
-          r.predicate.when_neuron_type?.includes("principal") &&
+          r.predicate.when_node_type?.includes("principal") &&
           r.predicate.spec.includes("`name`") &&
           /slug|role, title|serial|placeholder/i.test(r.predicate.spec),
       );
@@ -159,7 +159,7 @@ describe("org-chart template", () => {
       const topGate = template.policies.find(
         (r) =>
           r.predicate?.kind === "probabilistic" &&
-          r.predicate.when_neuron_type?.includes("principal") &&
+          r.predicate.when_node_type?.includes("principal") &&
           /top-of-chain/i.test(r.policy) &&
           /no manager above/i.test(r.predicate.spec),
       );

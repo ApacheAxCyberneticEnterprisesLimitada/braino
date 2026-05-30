@@ -5,18 +5,18 @@
 // (e.g. "intent", "guidance_policy", "user") names the row.
 
 /**
- * The 10 neuron types (graph-knowledge entities).
+ * The 10 node types (graph-knowledge entities).
  *
  * `typeNamedColumn`, where present, is the per-table text column that
- * holds the full prose content for that neuron — the destination of
+ * holds the full prose content for that node — the destination of
  * the old `summary` + `body_md` (+ `title` on intents, + `name`/
  * `description` on evals) collapse landed by migrations 022 and 023.
  *
  * `body` reflects whether the table physically has a `body_md`
- * column. For the 9 migrated neurons it is false (prose lives in the
+ * column. For the 9 migrated nodes it is false (prose lives in the
  * type-named column). Principal still carries name + body_md.
  */
-export const NEURON_TABLES: Record<
+export const NODE_TABLES: Record<
   string,
   { table: string; body: boolean; typeNamedColumn?: string }
 > = {
@@ -44,7 +44,7 @@ export interface EntityTableSpec {
   nameExpr?: string;
 }
 
-export const DOCO_NEURON_TABLE_SPECS: readonly EntityTableSpec[] = [
+export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = [
   { table: "decisions", entityType: "decision", body: false },
   { table: "intents", entityType: "intent", body: false },
   { table: "actions", entityType: "action", body: false },
@@ -56,8 +56,8 @@ export const DOCO_NEURON_TABLE_SPECS: readonly EntityTableSpec[] = [
   { table: "states", entityType: "state", body: false },
 ] as const;
 
-export const DOCO_NEURON_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
-  Object.fromEntries(DOCO_NEURON_TABLE_SPECS.map((spec) => [spec.entityType, spec]));
+export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
+  Object.fromEntries(DOCO_NODE_TABLE_SPECS.map((spec) => [spec.entityType, spec]));
 
 /** The 2 policy types. Policies are always Doco-scoped. */
 export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
@@ -65,8 +65,8 @@ export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
     table: "guidance_policies",
     body: true,
   },
-  neuron_authoring_policy: {
-    table: "neuron_authoring_policies",
+  node_authoring_policy: {
+    table: "node_authoring_policies",
     body: true,
   },
 };
@@ -96,7 +96,7 @@ export const ALL_ENTITY_TABLES: Record<
   string,
   { table: string; body: boolean; typeNamedColumn?: string }
 > = {
-  ...NEURON_TABLES,
+  ...NODE_TABLES,
   ...USER_TABLES,
   ...CONTAINER_TABLES,
   ...AUX_TABLES,
@@ -104,7 +104,7 @@ export const ALL_ENTITY_TABLES: Record<
   // policies are addressed by their separate org table in callers that
   // care.
   guidance_policy: { table: "guidance_policies", body: true },
-  neuron_authoring_policy: { table: "neuron_authoring_policies", body: true },
+  node_authoring_policy: { table: "node_authoring_policies", body: true },
 };
 
 /**
@@ -114,7 +114,7 @@ export const ALL_ENTITY_TABLES: Record<
  * from this shape.
  *
  * `entity_type` carries the discriminator string (one of 14 values
- * across all categories: 10 neurons + 2 policies + 1 user +
+ * across all categories: 10 nodes + 2 policies + 1 user +
  * doco + organization, plus the auxiliary "tag"). The field was named
  * `node_type` pre-migration-005.
  */
@@ -133,7 +133,7 @@ export interface EntityRecord {
   /**
    * Migration-022 type-named column — `intent` for intent rows,
    * `decision` for decision rows, etc. Holds the full prose content
-   * for the neuron once the rename completes. During the additive
+   * for the node once the rename completes. During the additive
    * window this carries the same content as `summary` (+ optional
    * `body_md` and type-specific extras, merged at backfill time).
    */

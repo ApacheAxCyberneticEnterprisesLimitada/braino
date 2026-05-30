@@ -17,10 +17,10 @@ describe("glossaries template", () => {
     expect(hashtagged).toBeUndefined();
   });
 
-  it("has the expected metadata (icon, label, defaultNeuronLifecycle)", () => {
+  it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
     expect(template.icon).toBe("📚");
     expect(template.label).toBe("Glossaries");
-    expect(template.defaultNeuronLifecycle).toBe("drafting");
+    expect(template.defaultNodeLifecycle).toBe("drafting");
     expect(template.description).toMatch(/terminology/i);
     expect(template.description).toMatch(/canonical terms/i);
   });
@@ -29,8 +29,8 @@ describe("glossaries template", () => {
     expect(template.perspectives).toEqual([{ slug: "glossary", isDefault: true }]);
   });
 
-  it("does NOT set the policy-only `allowedNeuronTypes` field — that's reserved for `global`", () => {
-    expect(template.allowedNeuronTypes).toBeUndefined();
+  it("does NOT set the policy-only `allowedNodeTypes` field — that's reserved for `global`", () => {
+    expect(template.allowedNodeTypes).toBeUndefined();
   });
 
   describe("entity-type allowlist", () => {
@@ -47,7 +47,7 @@ describe("glossaries template", () => {
           "eval",
           "guidance_policy",
           "intent",
-          "neuron_authoring_policy",
+          "node_authoring_policy",
           "reference",
           "rule",
         ].sort(),
@@ -66,7 +66,7 @@ describe("glossaries template", () => {
     const requiredFields = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_field" &&
-        r.predicate.when_neuron_type?.includes("decision") &&
+        r.predicate.when_node_type?.includes("decision") &&
         r.predicate.fields.includes("question") &&
         r.predicate.fields.includes("chosen"),
     );
@@ -81,7 +81,7 @@ describe("glossaries template", () => {
       if (requiredFields?.predicate?.kind !== "requires_field") return;
       expect(requiredFields.predicate.fields).toEqual(["question", "chosen"]);
       expect(requiredFields.predicate.fields).not.toContain("decided_by");
-      expect(requiredFields.fires_when_neuron_lifecycle).toEqual(["asserted"]);
+      expect(requiredFields.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
     it("enforces case-folded uniqueness for the canonical term in `chosen`", () => {
@@ -89,8 +89,8 @@ describe("glossaries template", () => {
       if (uniqueCanonicalTerm?.predicate?.kind !== "unique_field") return;
       expect(uniqueCanonicalTerm.predicate.field).toBe("chosen");
       expect(uniqueCanonicalTerm.predicate.case_fold).toBe(true);
-      expect(uniqueCanonicalTerm.predicate.when_neuron_type).toEqual(["decision"]);
-      expect(uniqueCanonicalTerm.fires_when_neuron_lifecycle).toEqual(["asserted"]);
+      expect(uniqueCanonicalTerm.predicate.when_node_type).toEqual(["decision"]);
+      expect(uniqueCanonicalTerm.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
     it("documents that alternatives are optional unless real alternate names exist", () => {
@@ -140,14 +140,14 @@ describe("glossaries template", () => {
     const evalFields = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_field" &&
-        r.predicate.when_neuron_type?.includes("eval") &&
+        r.predicate.when_node_type?.includes("eval") &&
         r.predicate.fields.includes("target_ref") &&
         r.predicate.fields.includes("how_to_run"),
     );
     const rerunRule = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.when_neuron_type?.includes("eval") &&
+        r.predicate.when_node_type?.includes("eval") &&
         /how_to_run/i.test(r.policy),
     );
 
@@ -155,12 +155,12 @@ describe("glossaries template", () => {
       expect(evalFields?.predicate?.kind).toBe("requires_field");
       if (evalFields?.predicate?.kind !== "requires_field") return;
       expect(evalFields.predicate.fields).toEqual(["target_ref", "how_to_run"]);
-      expect(evalFields.fires_when_neuron_lifecycle).toEqual(["asserted"]);
+      expect(evalFields.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
     it("requires reproducible terminology checks", () => {
       expect(rerunRule).toBeDefined();
-      expect(rerunRule?.fires_when_neuron_lifecycle).toEqual(["asserted"]);
+      expect(rerunRule?.fires_when_node_lifecycle).toEqual(["asserted"]);
       expect(rerunRule?.predicate?.kind).toBe("probabilistic");
       if (rerunRule?.predicate?.kind !== "probabilistic") return;
       expect(rerunRule.predicate.spec).toMatch(/concrete rerun path/i);

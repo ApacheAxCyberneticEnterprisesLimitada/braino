@@ -3,13 +3,13 @@
  * accidentally pass a raw string where an EntityId is expected.
  *
  * Post-rename (migration 005): entities are split across five categories.
- *   - Neurons (10):       graph-knowledge entities
+ *   - Nodes (10):       graph-knowledge entities
  *   - Policies (2):       Doco-level authoring metadata
  *   - User (1):   OAuth identity layer
  *   - Doco (1):           workspace container
  *   - Organization (1):   org container
  *
- * `EntityType` is the union of all 14 discriminator strings; `NeuronType`
+ * `EntityType` is the union of all 14 discriminator strings; `NodeType`
  * and `PolicyType` are the narrower types for code that wants to
  * statically prohibit cross-category misuse.
  */
@@ -30,8 +30,8 @@ export type DocoHandle = Brand<string, "DocoHandle">;
 /** URL handle for an Organization — the segment after `/orgs/`. */
 export type OrgHandle = Brand<string, "OrgHandle">;
 
-/** The 10 neuron types — graph-knowledge entities. */
-export const NEURON_TYPES = [
+/** The 10 node types — graph-knowledge entities. */
+export const NODE_TYPES = [
   "intent",
   "idea",
   "rule",
@@ -44,10 +44,10 @@ export const NEURON_TYPES = [
   "principal",
 ] as const;
 
-export type NeuronType = (typeof NEURON_TYPES)[number];
+export type NodeType = (typeof NODE_TYPES)[number];
 
 /** The 2 policy types — Doco-level authoring metadata, not on the graph. */
-export const POLICY_TYPES = ["guidance_policy", "neuron_authoring_policy"] as const;
+export const POLICY_TYPES = ["guidance_policy", "node_authoring_policy"] as const;
 
 export type PolicyType = (typeof POLICY_TYPES)[number];
 
@@ -60,14 +60,23 @@ export const CONTAINER_TYPES = ["doco", "organization"] as const;
 export type ContainerType = (typeof CONTAINER_TYPES)[number];
 
 /**
+ * The edge entity type. Edges are first-class peers of nodes: their id is
+ * `edge_<ulid>`. The relationship kind (implemented_by, serves, …) is a
+ * separate `edge_type` sub-classification — see EDGE_TYPES in access-types.
+ */
+export const EDGE_ID_TYPE = "edge" as const;
+export type EdgeEntityType = typeof EDGE_ID_TYPE;
+
+/**
  * The union of every entity-type discriminator. Surfaces that genuinely
  * accept any entity (audit log, generic ID parser, search index) take
- * `EntityType`; surfaces that only accept neurons take `NeuronType`, etc.
+ * `EntityType`; surfaces that only accept nodes take `NodeType`, etc.
  */
 export const ENTITY_TYPES = [
-  ...NEURON_TYPES,
+  ...NODE_TYPES,
   ...POLICY_TYPES,
   USER_TYPE,
+  EDGE_ID_TYPE,
   ...CONTAINER_TYPES,
 ] as const;
 
@@ -117,11 +126,11 @@ export function isEntityType(value: unknown): value is EntityType {
   return typeof value === "string" && (ENTITY_TYPES as readonly string[]).includes(value);
 }
 
-export function isNeuronType(value: unknown): value is NeuronType {
-  return typeof value === "string" && (NEURON_TYPES as readonly string[]).includes(value);
+export function isNodeType(value: unknown): value is NodeType {
+  return typeof value === "string" && (NODE_TYPES as readonly string[]).includes(value);
 }
 
-const NEURON_TYPE_URL_ALIASES: Readonly<Record<string, NeuronType>> = {
+const NODE_TYPE_URL_ALIASES: Readonly<Record<string, NodeType>> = {
   intents: "intent",
   ideas: "idea",
   rules: "rule",
@@ -135,14 +144,14 @@ const NEURON_TYPE_URL_ALIASES: Readonly<Record<string, NeuronType>> = {
 };
 
 /**
- * Canonicalize a neuron type URL segment. Entity URLs are singular
+ * Canonicalize a node type URL segment. Entity URLs are singular
  * (`/<doco>/intent/<id>`), but humans and agents naturally paste plural
  * API/list segments (`/<doco>/intents/<id>`). Accept both at the boundary.
  */
-export function normalizeNeuronType(value: unknown): NeuronType | null {
-  if (isNeuronType(value)) return value;
+export function normalizeNodeType(value: unknown): NodeType | null {
+  if (isNodeType(value)) return value;
   if (typeof value !== "string") return null;
-  return NEURON_TYPE_URL_ALIASES[value] ?? null;
+  return NODE_TYPE_URL_ALIASES[value] ?? null;
 }
 
 export function isPolicyType(value: unknown): value is PolicyType {

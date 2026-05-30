@@ -1,22 +1,22 @@
 import { type Entity, isEntityId } from "@doco/shared";
 
-export interface Synapse {
+export interface Edge {
   from_id: string;
-  from_neuron_type: string;
+  from_node_type: string;
   to_id: string;
-  to_neuron_type: string;
-  synapse_type: string;
-  synapse_props?: Record<string, unknown>;
+  to_node_type: string;
+  edge_type: string;
+  edge_props?: Record<string, unknown>;
 }
 
 /**
- * Derive synapses from an entity's ID-shaped fields per D-017 ("fields-as-synapses").
- * Returns one edge per ID reference; field name → edge type via FIELD_TO_SYNAPSE_TYPE.
+ * Derive edges from an entity's ID-shaped fields per D-017 ("fields-as-edges").
+ * Returns one edge per ID reference; field name → edge type via FIELD_TO_EDGE_TYPE.
  */
-export function deriveSynapses(entity: Entity): Synapse[] {
-  const synapses: Synapse[] = [];
+export function deriveEdges(entity: Entity): Edge[] {
+  const edges: Edge[] = [];
   const fromId = entity.id;
-  // Entity interfaces use per-category discriminators (neuron_type /
+  // Entity interfaces use per-category discriminators (node_type /
   // policy_kind / kind), not a uniform entity_type. Derive from the
   // ID prefix instead — it's always present + matches the table name.
   const fromType = fromId.split("_").slice(0, -1).join("_");
@@ -25,17 +25,17 @@ export function deriveSynapses(entity: Entity): Synapse[] {
     if (typeof target !== "string") return;
     if (target.includes(":")) return; // cross-Doco, skip for now
     if (!isEntityId(target)) return;
-    if (target === fromId) return; // self-synapses add no graph info (e.g. bootstrap principal's `created_by`)
+    if (target === fromId) return; // self-edges add no graph info (e.g. bootstrap principal's `created_by`)
     const m = /^(\w+)_/.exec(target);
     if (!m) return;
     const toType = m[1] as string;
-    synapses.push({
+    edges.push({
       from_id: fromId,
-      from_neuron_type: fromType,
+      from_node_type: fromType,
       to_id: target,
-      to_neuron_type: toType,
-      synapse_type: FIELD_TO_SYNAPSE_TYPE[field] ?? field,
-      ...(props ? { synapse_props: props } : {}),
+      to_node_type: toType,
+      edge_type: FIELD_TO_EDGE_TYPE[field] ?? field,
+      ...(props ? { edge_props: props } : {}),
     });
   }
 
@@ -59,7 +59,7 @@ export function deriveSynapses(entity: Entity): Synapse[] {
       handleObject(field, value as Record<string, unknown>, emit);
     }
   }
-  return synapses;
+  return edges;
 }
 
 function handleObject(
@@ -104,17 +104,17 @@ function handleObject(
  * - `inputs` / `outputs`: free-form bags on Action. Their nested keys are
  *   ad-hoc descriptive fields ("founder_direction", "asset_files",
  *   "completion_note") not relationships. Walking them produced noisy
- *   pseudo-synapses like `inputs.assets_provided_by`. Per ADR-091.
+ *   pseudo-edges like `inputs.assets_provided_by`. Per ADR-091.
  * - `created_by` / `updated_by`: provenance audit columns on every entity.
  *   The DB still tracks them as scalar columns; we just don't materialize
- *   them as graph synapses anymore (they were already filtered from the graph
+ *   them as graph edges anymore (they were already filtered from the graph
  *   render, and they carried no traversal value).
  *
- * IMPORTANT for policy authors: a `requires_synapse` / `forbids_synapse`
- * predicate works off the synapses derived here. If your check targets an
+ * IMPORTANT for policy authors: a `requires_edge` / `forbids_edge`
+ * predicate works off the edges derived here. If your check targets an
  * id that lives under one of these field names (or nested under one), the
- * synapse will not exist and the predicate will silently never match.
- * The constant is exported so callers (e.g. `validateSynapseType` in the
+ * edge will not exist and the predicate will silently never match.
+ * The constant is exported so callers (e.g. `validateEdgeType` in the
  * capture layer) can surface this at write time.
  */
 export const SKIP_FIELDS: ReadonlySet<string> = new Set([
@@ -134,11 +134,11 @@ export const SKIP_FIELDS: ReadonlySet<string> = new Set([
 /**
  * Field name → canonical edge type. Anything not listed defaults to the
  * field name. Exported so capture-time predicate validation can warn when a
- * predicate's `synapse_type` matches a *field name* listed here (e.g.
+ * predicate's `edge_type` matches a *field name* listed here (e.g.
  * `intent_ids`) — the engine sees the *mapped* type (`serves`) and the
  * predicate would never match.
  */
-export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
+export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   intent_ids: "serves",
   rules_consulted: "consults",
   decision_ids: "enacts",
@@ -151,7 +151,7 @@ export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   owner_id: "owned_by",
   born_from: "born_from",
   superseded_by: "superseded_by",
-  // rule_id / target_id were the Evaluation-specific synapses (evaluates_rule,
+  // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.
   member: "member_of",
@@ -166,17 +166,17 @@ export const FIELD_TO_SYNAPSE_TYPE: Record<string, string> = {
   // from any node to its evals (and vice-versa for the eval page).
   target_ref: "tests",
   // Principal→Principal reporting line — `X.reports_to = Y` ⇒ X reports
-  // to Y. The org-chart template's `requires_synapse` predicate (see
+  // to Y. The org-chart template's `requires_edge` predicate (see
   // `org-chart` template policies) walks edges of this type to find each
-  // active Principal's manager. Field name and synapse type match by
+  // active Principal's manager. Field name and edge type match by
   // design; the explicit entry documents the mapping alongside the
   // identity entries above.
   reports_to: "reports_to",
-  // A neuron (typically a Decision) records the PR/commit Reference(s)
+  // A node (typically a Decision) records the PR/commit Reference(s)
   // that implement it: `X.implemented_by = [reference_…]` ⇒ those
   // references implement X. Passive voice matches `superseded_by` /
   // `preceded_by`, so direction reads off the name. Self-mapping (field
-  // name == edge type) is listed explicitly so `requires_synapse`
+  // name == edge type) is listed explicitly so `requires_edge`
   // policy predicates and the deployment-status rollup can target this
   // edge by name. Layer A of deriving deployment state from PR refs.
   implemented_by: "implemented_by",

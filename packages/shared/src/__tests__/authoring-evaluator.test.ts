@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   type CandidateFields,
-  type EngineSynapse,
+  type EngineEdge,
   type LoadedPolicy,
   type PrincipalIndex,
   evaluatePolicies,
@@ -9,12 +9,12 @@ import {
 
 function P(predicate: LoadedPolicy["predicate"], extras: Partial<LoadedPolicy> = {}): LoadedPolicy {
   return {
-    policy_id: extras.policy_id ?? "neuron_authoring_policy_test",
+    policy_id: extras.policy_id ?? "node_authoring_policy_test",
     policy: extras.policy ?? "test policy",
     predicate,
     ...(extras.on_violation ? { on_violation: extras.on_violation } : {}),
-    ...(extras.fires_when_neuron_lifecycle
-      ? { fires_when_neuron_lifecycle: extras.fires_when_neuron_lifecycle }
+    ...(extras.fires_when_node_lifecycle
+      ? { fires_when_node_lifecycle: extras.fires_when_node_lifecycle }
       : {}),
   };
 }
@@ -23,8 +23,8 @@ function evaluate(
   candidate: CandidateFields,
   policies: LoadedPolicy[],
   extras: {
-    candidateSynapses?: EngineSynapse[];
-    synapses?: EngineSynapse[];
+    candidateEdges?: EngineEdge[];
+    edges?: EngineEdge[];
     principals?: PrincipalIndex;
     population?: CandidateFields[];
   } = {},
@@ -32,8 +32,8 @@ function evaluate(
   return evaluatePolicies({
     candidate,
     policies,
-    candidateSynapses: extras.candidateSynapses ?? [],
-    synapses: extras.synapses ?? [],
+    candidateEdges: extras.candidateEdges ?? [],
+    edges: extras.edges ?? [],
     principals: extras.principals ?? new Set(),
     population: extras.population ?? [],
   });
@@ -41,15 +41,15 @@ function evaluate(
 
 describe("authoring evaluator — requires_field", () => {
   it("passes when the required field is populated", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action", actor_id: "principal_alice" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_neuron_type: ["action"] }),
+    const v = evaluate({ id: "action_01", node_type: "action", actor_id: "principal_alice" }, [
+      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v).toEqual([]);
   });
 
   it("fails when the required field is missing", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_neuron_type: ["action"] }),
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
+      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v).toHaveLength(1);
     expect(v[0]?.predicate_kind).toBe("requires_field");
@@ -57,11 +57,11 @@ describe("authoring evaluator — requires_field", () => {
   });
 
   it("treats empty string / empty array as missing", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action", actor_id: "", intent_ids: [] }, [
+    const v = evaluate({ id: "action_01", node_type: "action", actor_id: "", intent_ids: [] }, [
       P({
         kind: "requires_field",
         fields: ["actor_id", "intent_ids"],
-        when_neuron_type: ["action"],
+        when_node_type: ["action"],
       }),
     ]);
     expect(v).toHaveLength(1);
@@ -69,9 +69,9 @@ describe("authoring evaluator — requires_field", () => {
     expect(v[0]?.reason).toMatch(/intent_ids/);
   });
 
-  it("respects when_neuron_type — skips non-matching candidates", () => {
-    const v = evaluate({ id: "intent_01", neuron_type: "intent" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_neuron_type: ["action"] }),
+  it("respects when_node_type — skips non-matching candidates", () => {
+    const v = evaluate({ id: "intent_01", node_type: "intent" }, [
+      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v).toEqual([]);
   });
@@ -79,55 +79,55 @@ describe("authoring evaluator — requires_field", () => {
 
 describe("authoring evaluator — forbids_field", () => {
   it("passes when the forbidden field is empty", () => {
-    const v = evaluate({ id: "intent_01", neuron_type: "intent" }, [
-      P({ kind: "forbids_field", fields: ["actor_id"], when_neuron_type: ["intent"] }),
+    const v = evaluate({ id: "intent_01", node_type: "intent" }, [
+      P({ kind: "forbids_field", fields: ["actor_id"], when_node_type: ["intent"] }),
     ]);
     expect(v).toEqual([]);
   });
 
   it("fails when the forbidden field is set", () => {
-    const v = evaluate({ id: "intent_01", neuron_type: "intent", actor_id: "principal_x" }, [
-      P({ kind: "forbids_field", fields: ["actor_id"], when_neuron_type: ["intent"] }),
+    const v = evaluate({ id: "intent_01", node_type: "intent", actor_id: "principal_x" }, [
+      P({ kind: "forbids_field", fields: ["actor_id"], when_node_type: ["intent"] }),
     ]);
     expect(v).toHaveLength(1);
   });
 });
 
 describe("authoring evaluator — unique_field", () => {
-  it("passes when no active neuron has the same field value", () => {
+  it("passes when no active node has the same field value", () => {
     const v = evaluate(
-      { id: "decision_02", neuron_type: "decision", chosen: "Activation key" },
+      { id: "decision_02", node_type: "decision", chosen: "Activation key" },
       [
         P({
           kind: "unique_field",
           field: "chosen",
           case_fold: true,
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
         }),
       ],
       {
         population: [
-          { id: "decision_01", neuron_type: "decision", chosen: "Invite code" },
-          { id: "action_01", neuron_type: "action", chosen: "Activation key" },
+          { id: "decision_01", node_type: "decision", chosen: "Invite code" },
+          { id: "action_01", node_type: "action", chosen: "Activation key" },
         ],
       },
     );
     expect(v).toEqual([]);
   });
 
-  it("fails when an active same-type neuron has the same field value after case folding", () => {
+  it("fails when an active same-type node has the same field value after case folding", () => {
     const v = evaluate(
-      { id: "decision_02", neuron_type: "decision", chosen: "Activation Key" },
+      { id: "decision_02", node_type: "decision", chosen: "Activation Key" },
       [
         P({
           kind: "unique_field",
           field: "chosen",
           case_fold: true,
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
         }),
       ],
       {
-        population: [{ id: "decision_01", neuron_type: "decision", chosen: " activation key " }],
+        population: [{ id: "decision_01", node_type: "decision", chosen: " activation key " }],
       },
     );
     expect(v).toHaveLength(1);
@@ -138,16 +138,16 @@ describe("authoring evaluator — unique_field", () => {
 
   it("does not case-fold unless requested", () => {
     const v = evaluate(
-      { id: "decision_02", neuron_type: "decision", chosen: "Activation Key" },
+      { id: "decision_02", node_type: "decision", chosen: "Activation Key" },
       [
         P({
           kind: "unique_field",
           field: "chosen",
-          when_neuron_type: ["decision"],
+          when_node_type: ["decision"],
         }),
       ],
       {
-        population: [{ id: "decision_01", neuron_type: "decision", chosen: "activation key" }],
+        population: [{ id: "decision_01", node_type: "decision", chosen: "activation key" }],
       },
     );
     expect(v).toEqual([]);
@@ -158,52 +158,52 @@ describe("authoring evaluator — unique_field", () => {
       kind: "unique_field",
       field: "chosen",
       case_fold: true,
-      when_neuron_type: ["decision"],
+      when_node_type: ["decision"],
     });
     expect(
-      evaluate({ id: "decision_02", neuron_type: "decision", chosen: "Activation key" }, [policy], {
+      evaluate({ id: "decision_02", node_type: "decision", chosen: "Activation key" }, [policy], {
         population: [
           {
             id: "decision_01",
-            neuron_type: "decision",
+            node_type: "decision",
             chosen: "activation key",
             lifecycle: "retired",
           },
         ],
       }),
     ).toEqual([]);
-    expect(evaluate({ id: "decision_03", neuron_type: "decision", chosen: " " }, [policy])).toEqual(
+    expect(evaluate({ id: "decision_03", node_type: "decision", chosen: " " }, [policy])).toEqual(
       [],
     );
   });
 });
 
-describe("authoring evaluator — requires_synapse", () => {
-  it("passes when the required outgoing synapse is present", () => {
+describe("authoring evaluator — requires_edge", () => {
+  it("passes when the required outgoing edge is present", () => {
     const v = evaluate(
-      { id: "action_01", neuron_type: "action" },
+      { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_synapse",
-          synapse_type: "serves",
-          target_neuron_type: "intent",
-          when_neuron_type: ["action"],
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          when_node_type: ["action"],
         }),
       ],
       {
-        candidateSynapses: [{ from_id: "action_01", to_id: "intent_42", synapse_type: "serves" }],
+        candidateEdges: [{ from_id: "action_01", to_id: "intent_42", edge_type: "serves" }],
       },
     );
     expect(v).toEqual([]);
   });
 
-  it("fails when the candidate carries no matching outgoing synapse", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
+  it("fails when the candidate carries no matching outgoing edge", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
       P({
-        kind: "requires_synapse",
-        synapse_type: "serves",
-        target_neuron_type: "intent",
-        when_neuron_type: ["action"],
+        kind: "requires_edge",
+        edge_type: "serves",
+        target_node_type: "intent",
+        when_node_type: ["action"],
       }),
     ]);
     expect(v).toHaveLength(1);
@@ -211,36 +211,36 @@ describe("authoring evaluator — requires_synapse", () => {
     expect(v[0]?.reason).toMatch(/intent/);
   });
 
-  it("fails when the synapse exists but points at the wrong neuron type", () => {
+  it("fails when the edge exists but points at the wrong node type", () => {
     const v = evaluate(
-      { id: "action_01", neuron_type: "action" },
+      { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_synapse",
-          synapse_type: "serves",
-          target_neuron_type: "intent",
-          when_neuron_type: ["action"],
+          kind: "requires_edge",
+          edge_type: "serves",
+          target_node_type: "intent",
+          when_node_type: ["action"],
         }),
       ],
       {
-        candidateSynapses: [{ from_id: "action_01", to_id: "decision_42", synapse_type: "serves" }],
+        candidateEdges: [{ from_id: "action_01", to_id: "decision_42", edge_type: "serves" }],
       },
     );
     expect(v).toHaveLength(1);
   });
 });
 
-describe("authoring evaluator — requires_neuron_type", () => {
-  it("passes when the candidate's neuron_type is in the allowlist", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
-      P({ kind: "requires_neuron_type", neuron_types: ["action", "intent", "decision"] }),
+describe("authoring evaluator — requires_node_type", () => {
+  it("passes when the candidate's node_type is in the allowlist", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
+      P({ kind: "requires_node_type", node_types: ["action", "intent", "decision"] }),
     ]);
     expect(v).toEqual([]);
   });
 
-  it("fails when the candidate's neuron_type is not in the allowlist", () => {
-    const v = evaluate({ id: "log_01", neuron_type: "log" }, [
-      P({ kind: "requires_neuron_type", neuron_types: ["action", "intent", "decision"] }),
+  it("fails when the candidate's node_type is not in the allowlist", () => {
+    const v = evaluate({ id: "log_01", node_type: "log" }, [
+      P({ kind: "requires_node_type", node_types: ["action", "intent", "decision"] }),
     ]);
     expect(v).toHaveLength(1);
     expect(v[0]?.reason).toMatch(/log/);
@@ -250,12 +250,12 @@ describe("authoring evaluator — requires_neuron_type", () => {
 describe("authoring evaluator — requires_field_resolves_to_principal", () => {
   it("passes when the field resolves to a known Principal id", () => {
     const v = evaluate(
-      { id: "action_01", neuron_type: "action", actor_id: "principal_alice" },
+      { id: "action_01", node_type: "action", actor_id: "principal_alice" },
       [
         P({
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          when_neuron_type: ["action"],
+          when_node_type: ["action"],
         }),
       ],
       { principals: new Set(["principal_alice"]) },
@@ -265,12 +265,12 @@ describe("authoring evaluator — requires_field_resolves_to_principal", () => {
 
   it("fails when the field is empty", () => {
     const v = evaluate(
-      { id: "action_01", neuron_type: "action" },
+      { id: "action_01", node_type: "action" },
       [
         P({
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          when_neuron_type: ["action"],
+          when_node_type: ["action"],
         }),
       ],
       { principals: new Set(["principal_alice"]) },
@@ -281,12 +281,12 @@ describe("authoring evaluator — requires_field_resolves_to_principal", () => {
 
   it("fails when the field references an unknown id (the BPM bug)", () => {
     const v = evaluate(
-      { id: "action_01", neuron_type: "action", actor_id: "principal_ghost" },
+      { id: "action_01", node_type: "action", actor_id: "principal_ghost" },
       [
         P({
           kind: "requires_field_resolves_to_principal",
           field: "actor_id",
-          when_neuron_type: ["action"],
+          when_node_type: ["action"],
         }),
       ],
       { principals: new Set(["principal_alice"]) },
@@ -302,7 +302,7 @@ describe("authoring evaluator — graph-completeness", () => {
     const v = evaluate(
       {
         id: "intent_01",
-        neuron_type: "intent",
+        node_type: "intent",
         actors: ["principal_alice", "principal_bob"],
         lifecycle: "accepted",
       },
@@ -311,22 +311,22 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            synapse_type: "serves",
-            incoming_neuron_type: "action",
+            edge_type: "serves",
+            incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
-            when_neuron_type: ["intent"],
+            when_node_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["accepted"] },
+          { fires_when_node_lifecycle: ["accepted"] },
         ),
       ],
       {
         population: [
-          { id: "action_01", neuron_type: "action", actor_id: "principal_alice" },
-          { id: "action_02", neuron_type: "action", actor_id: "principal_bob" },
+          { id: "action_01", node_type: "action", actor_id: "principal_alice" },
+          { id: "action_02", node_type: "action", actor_id: "principal_bob" },
         ],
-        synapses: [
-          { from_id: "action_01", to_id: "intent_01", synapse_type: "serves" },
-          { from_id: "action_02", to_id: "intent_01", synapse_type: "serves" },
+        edges: [
+          { from_id: "action_01", to_id: "intent_01", edge_type: "serves" },
+          { from_id: "action_02", to_id: "intent_01", edge_type: "serves" },
         ],
       },
     );
@@ -337,7 +337,7 @@ describe("authoring evaluator — graph-completeness", () => {
     const v = evaluate(
       {
         id: "intent_01",
-        neuron_type: "intent",
+        node_type: "intent",
         actors: ["principal_alice", "principal_bob"],
         lifecycle: "accepted",
       },
@@ -346,45 +346,45 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            synapse_type: "serves",
-            incoming_neuron_type: "action",
+            edge_type: "serves",
+            incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
-            when_neuron_type: ["intent"],
+            when_node_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["accepted"] },
+          { fires_when_node_lifecycle: ["accepted"] },
         ),
       ],
       {
         population: [
-          { id: "action_01", neuron_type: "action", actor_id: "principal_alice" },
+          { id: "action_01", node_type: "action", actor_id: "principal_alice" },
           // No Action for principal_bob.
         ],
-        synapses: [{ from_id: "action_01", to_id: "intent_01", synapse_type: "serves" }],
+        edges: [{ from_id: "action_01", to_id: "intent_01", edge_type: "serves" }],
       },
     );
     expect(v).toHaveLength(1);
     expect(v[0]?.reason).toMatch(/principal_bob/);
   });
 
-  it("fails when the matching Action exists but lacks the serves synapse", () => {
+  it("fails when the matching Action exists but lacks the serves edge", () => {
     const v = evaluate(
-      { id: "intent_01", neuron_type: "intent", actors: ["principal_alice"], lifecycle: "accepted" },
+      { id: "intent_01", node_type: "intent", actors: ["principal_alice"], lifecycle: "accepted" },
       [
         P(
           {
             kind: "graph-completeness",
             list_field: "actors",
-            synapse_type: "serves",
-            incoming_neuron_type: "action",
+            edge_type: "serves",
+            incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
-            when_neuron_type: ["intent"],
+            when_node_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["accepted"] },
+          { fires_when_node_lifecycle: ["accepted"] },
         ),
       ],
       {
-        population: [{ id: "action_01", neuron_type: "action", actor_id: "principal_alice" }],
-        synapses: [], // No synapse → Intent.
+        population: [{ id: "action_01", node_type: "action", actor_id: "principal_alice" }],
+        edges: [], // No edge → Intent.
       },
     );
     expect(v).toHaveLength(1);
@@ -394,7 +394,7 @@ describe("authoring evaluator — graph-completeness", () => {
     const v = evaluate(
       {
         id: "intent_01",
-        neuron_type: "intent",
+        node_type: "intent",
         actors: ["principal_alice"],
         lifecycle: "drafting",
       },
@@ -403,12 +403,12 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            synapse_type: "serves",
-            incoming_neuron_type: "action",
+            edge_type: "serves",
+            incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
-            when_neuron_type: ["intent"],
+            when_node_type: ["intent"],
           },
-          { fires_when_neuron_lifecycle: ["accepted"] },
+          { fires_when_node_lifecycle: ["accepted"] },
         ),
       ],
     );
@@ -418,11 +418,11 @@ describe("authoring evaluator — graph-completeness", () => {
 
 describe("authoring evaluator — probabilistic", () => {
   it("emits a pending violation with the spec for the LLM judge", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
       P({
         kind: "probabilistic",
         spec: "Action summary reads as an atomic business activity, not an umbrella phase.",
-        when_neuron_type: ["action"],
+        when_node_type: ["action"],
       }),
     ]);
     expect(v).toHaveLength(1);
@@ -433,7 +433,7 @@ describe("authoring evaluator — probabilistic", () => {
 
 describe("authoring evaluator — descriptive", () => {
   it("never produces a violation", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
       P({ kind: "descriptive", spec: "Just a note for readers." }),
     ]);
     expect(v).toEqual([]);
@@ -442,16 +442,16 @@ describe("authoring evaluator — descriptive", () => {
 
 describe("authoring evaluator — on_violation propagation", () => {
   it("default on_violation is block", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_neuron_type: ["action"] }),
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
+      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v[0]?.on_violation).toBe("block");
   });
 
   it("warn propagates", () => {
-    const v = evaluate({ id: "action_01", neuron_type: "action" }, [
+    const v = evaluate({ id: "action_01", node_type: "action" }, [
       P(
-        { kind: "requires_field", fields: ["actor_id"], when_neuron_type: ["action"] },
+        { kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] },
         { on_violation: "warn" },
       ),
     ]);

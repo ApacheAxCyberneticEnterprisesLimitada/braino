@@ -23,7 +23,7 @@ function tableFor(entityType: string): {
 }
 
 /**
- * Drop the legacy prose keys from a migrated neuron's `data` jsonb
+ * Drop the legacy prose keys from a migrated node's `data` jsonb
  * before persisting. The merged content already lives in the
  * type-named column; keeping a stale copy in `data` would diverge on
  * subsequent updates and leak into JSON API responses.
@@ -74,7 +74,7 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   ) {
     return upsertIdentity(rec, client);
   }
-  // Migrated neurons store prose in a single type-named column
+  // Migrated nodes store prose in a single type-named column
   // (intents.intent, decisions.decision, …); the legacy `summary`,
   // `body_md`, `title`, `name`, and `description` keys were dropped by
   // migration 023 and must not leak back into `data` jsonb either.
@@ -108,8 +108,8 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
     }
   }
   // Promoted FK columns (real foreign keys). Extract from rec.data so
-  // captures land typed-column values on the way in — the synapses
-  // table still materializes via deriveSynapses for the array-shaped
+  // captures land typed-column values on the way in — the edges
+  // table still materializes via deriveEdges for the array-shaped
   // refs (intent_ids, decision_ids, …).
   for (const [col, source] of fkColumnSources(rec.entity_type, rec.data)) {
     cols.push(col);
@@ -145,7 +145,7 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
  * pairs to splice into the INSERT/UPSERT. Polymorphic refs (target,
  * target_ref, born_from) and arrays (intent_ids, decision_ids) are
  * excluded — those stay in the data jsonb bag, materialized into
- * synapses by the indexer.
+ * edges by the indexer.
  */
 function fkColumnSources(
   entityType: string,
@@ -598,7 +598,7 @@ export async function listUsers(opts: { kind?: "person" | "agent" } = {}): Promi
   });
 }
 
-// ─── Principals (role-personas, neuron) ───────────────────────────────────
+// ─── Principals (role-personas, node) ───────────────────────────────────
 //
 // Principals are Doco-scoped (migration 020). Each Doco owns its own
 // role-personas; the same name in two different Docos is two
