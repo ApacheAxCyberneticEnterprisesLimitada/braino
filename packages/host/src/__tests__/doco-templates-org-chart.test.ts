@@ -23,6 +23,9 @@ describe("org-chart template", () => {
     expect(template.defaultNodeLifecycle).toBe("drafting");
     expect(template.description).toMatch(/person/i);
     expect(template.description).toMatch(/AI agent/i);
+    // The seat model adds a third occupant state — vacant seats appear
+    // on the chart (HR best practice / W3C org:Post-style continuity).
+    expect(template.description).toMatch(/vacant/i);
   });
 
   it("ships with the org-tree perspective attached as default", () => {
@@ -86,6 +89,13 @@ describe("org-chart template", () => {
       expect(rule?.predicate?.kind).toBe("probabilistic");
     });
 
+    it("admits a third state — a vacant/open seat — so budgeted roles appear on the chart", () => {
+      expect(rule?.predicate?.kind).toBe("probabilistic");
+      if (rule?.predicate?.kind !== "probabilistic") return;
+      expect(rule.predicate.spec).toMatch(/vacant|open/i);
+      expect(rule.policy).toMatch(/vacant/i);
+    });
+
     it("fires on every Principal regardless of lifecycle (no fires_when_node_lifecycle gate)", () => {
       // A drafting member still needs the kind declared — that's the
       // first thing the org-tree perspective renders.
@@ -147,6 +157,13 @@ describe("org-chart template", () => {
     it("exists", () => {
       expect(rule).toBeDefined();
       expect(rule?.predicate?.kind).toBe("requires_field");
+    });
+
+    it("fires only on `asserted` — a team can be drafted before its roster is filled", () => {
+      // Without the gate, the default `drafting` lifecycle would make
+      // this requires_field block the moment a unit is created — the
+      // opposite of letting authors sketch incomplete structure.
+      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
   });
 
@@ -226,6 +243,32 @@ describe("org-chart template", () => {
 
     it("person vs agent is about who fills the seat, not about who signed in", () => {
       expect(summaries.some((s) => /seat/i.test(s) && /User|sign(ed)? in/i.test(s))).toBe(true);
+    });
+
+    it("vacant/budgeted seats are modeled as Principals (seat continuity, not omitted)", () => {
+      expect(
+        summaries.some((s) => /vacant/i.test(s) && /seat/i.test(s) && /budgeted/i.test(s)),
+      ).toBe(true);
+    });
+
+    it("seats persist across routine turnover; only a person<->agent nature flip retires + recreates", () => {
+      expect(
+        summaries.some((s) => /seat/i.test(s) && /turnover|persist/i.test(s) && /retire/i.test(s)),
+      ).toBe(true);
+    });
+
+    it("team membership changes are captured as Decisions / a versioned `member_of` edge", () => {
+      expect(
+        summaries.some((s) => /member(ship|_of)/i.test(s) && /Decision|versioned|edge/i.test(s)),
+      ).toBe(true);
+    });
+
+    it("secondary / dotted-line / matrix reporting layers on top of the single `reports_to` line", () => {
+      expect(
+        summaries.some(
+          (s) => /dotted|matrix|secondary/i.test(s) && /reports_to|reporting/i.test(s),
+        ),
+      ).toBe(true);
     });
   });
 });
