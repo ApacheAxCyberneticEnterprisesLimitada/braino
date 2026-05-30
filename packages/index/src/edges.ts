@@ -172,6 +172,15 @@ export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   // design; the explicit entry documents the mapping alongside the
   // identity entries above.
   reports_to: "reports_to",
+  // Secondary / dotted-line (matrix) reporting — `X.dotted_reports_to =
+  // [Y]` ⇒ X also reports to Y, but as a non-primary line that doesn't
+  // reparent X in the org tree. The org-tree perspective renders these
+  // dashed; the primary tree stays driven by `reports_to` alone.
+  dotted_reports_to: "dotted_reports_to",
+  // Two seats filled by the same occupant — `X.same_occupant_as = [Y]`
+  // ⇒ the same person/agent holds both seats X and Y (e.g. CEO who also
+  // acts as VP Eng). Lets the chart avoid double-counting one occupant.
+  same_occupant_as: "same_occupant_as",
   // A node (typically a Decision) records the PR/commit Reference(s)
   // that implement it: `X.implemented_by = [reference_…]` ⇒ those
   // references implement X. Passive voice matches `superseded_by` /

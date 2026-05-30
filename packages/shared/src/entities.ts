@@ -149,6 +149,23 @@ export interface Principal extends CommonFields {
    * above, founder, root agent, external authority).
    */
   reports_to?: EntityId<"principal">;
+  /**
+   * Secondary / dotted-line (matrix) managers. `reports_to` carries the
+   * single primary (solid-line) manager that forms the org tree; this
+   * list carries additional matrix reporting lines (project lead,
+   * functional vs operational manager) that layer on top without
+   * reparenting the node. Each materializes as a `dotted_reports_to`
+   * edge; the org-tree perspective draws them dashed.
+   */
+  dotted_reports_to?: EntityId<"principal">[];
+  /**
+   * Other seats filled by the same occupant. A Principal is a *seat*
+   * (role + current occupant); when one person/agent holds several
+   * seats (the CEO who also acts as VP Eng), link the seats with
+   * `same_occupant_as` so the chart can tell it's one occupant rather
+   * than duplicating them. Materializes as a `same_occupant_as` edge.
+   */
+  same_occupant_as?: EntityId<"principal">[];
 }
 
 // ─── Doco (root entity) ───────────────────────────────────────────────────

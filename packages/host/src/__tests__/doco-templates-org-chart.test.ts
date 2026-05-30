@@ -270,5 +270,13 @@ describe("org-chart template", () => {
         ),
       ).toBe(true);
     });
+
+    it("dotted-line guidance points at the structured `dotted_reports_to` field", () => {
+      expect(summaries.some((s) => /`dotted_reports_to`/.test(s))).toBe(true);
+    });
+
+    it("one occupant / many seats is modeled with `same_occupant_as`", () => {
+      expect(summaries.some((s) => /`same_occupant_as`/.test(s) && /seat/i.test(s))).toBe(true);
+    });
   });
 });

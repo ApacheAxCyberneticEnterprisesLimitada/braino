@@ -935,6 +935,13 @@ export interface DocoRow {
   visibility: "public" | "private";
   goal: string;
   data: Record<string, unknown>;
+  /**
+   * Template-seeded default lifecycle for new nodes captured into this
+   * Doco (e.g. `org-chart` / `glossaries` / `business-processes` ship
+   * `drafting`). Null when the Doco's template set no default; capture
+   * then falls back to each node type's built-in default.
+   */
+  default_node_lifecycle: string | null;
 }
 
 function mapDocoRow(row: Record<string, unknown>): DocoRow {
@@ -947,6 +954,8 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     visibility: row.visibility === "public" ? "public" : "private",
     goal: row.goal === null || row.goal === undefined ? "" : String(row.goal),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
+    default_node_lifecycle:
+      typeof row.default_node_lifecycle === "string" ? row.default_node_lifecycle : null,
   };
 }
 
@@ -956,6 +965,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
  */
 const DOCO_SELECT = `
   SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.data,
+         d.default_node_lifecycle,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
     LEFT JOIN users c ON c.id = d.owner_id

@@ -37,6 +37,8 @@ export const EDGE_TYPES = [
   "superseded_by",
   "implemented_by",
   "reports_to",
+  "dotted_reports_to",
+  "same_occupant_as",
   "performed_by",
   "owned_by",
   "has_parent",
