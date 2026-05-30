@@ -105,6 +105,7 @@ export {
 // edge CRUD + immutable version snapshots + as-of reads.
 export {
   createChangeset,
+  recordEntityVersion,
   appendNodeVersion,
   appendEdgeVersion,
   createEdge,

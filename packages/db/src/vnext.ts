@@ -49,6 +49,25 @@ type Op = "create" | "update" | "retire";
 // the per-entity history forms a hash chain — rewriting any past version
 // breaks every hash after it (detectable via verifyHistory). Append-only by
 // policy (triggers) + cryptographically verifiable.
+// Deterministic JSON: sorted keys, recursively. Hashing must survive the
+// JSONB round-trip (Postgres jsonb does NOT preserve key order, and timestamps
+// stored as Dates come back as strings), so canonicalize the payload the same
+// way at write time and at verify time. JSON.parse(JSON.stringify(...)) first
+// flattens Dates→ISO strings + drops undefined; stableStringify then sorts.
+function stableStringify(v: unknown): string {
+  if (v === null || typeof v !== "object") return JSON.stringify(v) ?? "null";
+  if (Array.isArray(v)) return `[${v.map(stableStringify).join(",")}]`;
+  const o = v as Record<string, unknown>;
+  return `{${Object.keys(o)
+    .sort()
+    .map((k) => `${JSON.stringify(k)}:${stableStringify(o[k])}`)
+    .join(",")}}`;
+}
+
+function canonicalPayload(payload: Record<string, unknown>): string {
+  return stableStringify(JSON.parse(JSON.stringify(payload)));
+}
+
 function chainHash(
   prevHash: string | null,
   f: {
@@ -63,7 +82,7 @@ function chainHash(
   return createHash("sha256")
     .update(prevHash ?? "genesis")
     .update(
-      `\n${f.entityId}\n${f.version}\n${f.op}\n${JSON.stringify(f.payload)}\n${f.txId}\n${f.actor ?? ""}`,
+      `\n${f.entityId}\n${f.version}\n${f.op}\n${canonicalPayload(f.payload)}\n${f.txId}\n${f.actor ?? ""}`,
     )
     .digest("hex");
 }
@@ -155,6 +174,46 @@ export async function appendEdgeVersion(
     ],
   );
   return version;
+}
+
+/**
+ * Record a node/entity version from the capture path. Determines op
+ * (create / update / retire) from whether prior versions exist + the
+ * lifecycle, opens a changeset, and appends the snapshot. Call within the
+ * caller's transaction (pass its client) so the version is atomic with the
+ * current-state write.
+ */
+export async function recordEntityVersion(
+  c: pg.PoolClient,
+  input: {
+    docoId: string;
+    entityType: string;
+    entityId: string;
+    payload: Record<string, unknown>;
+    actor?: string | null;
+    reason?: string | null;
+  },
+): Promise<void> {
+  const { rows } = await c.query<{ n: number }>(
+    "SELECT COUNT(*)::int AS n FROM node_versions WHERE entity_id = $1",
+    [input.entityId],
+  );
+  const lifecycle = typeof input.payload.lifecycle === "string" ? input.payload.lifecycle : null;
+  const op: Op = rows[0].n === 0 ? "create" : lifecycle === "retired" ? "retire" : "update";
+  const txId = await createChangeset(c, {
+    docoId: input.docoId,
+    actor: input.actor ?? null,
+    source: "api",
+    reason: input.reason ?? null,
+  });
+  await appendNodeVersion(c, {
+    entityId: input.entityId,
+    entityType: input.entityType,
+    op,
+    payload: input.payload,
+    txId,
+    actor: input.actor ?? null,
+  });
 }
 
 export interface CreateEdgeInput {
