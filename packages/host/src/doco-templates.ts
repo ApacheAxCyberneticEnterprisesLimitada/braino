@@ -588,7 +588,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes.",
+          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`serves` via `intent_ids`, the actor via `actor_principal_id`, `gated_by`, `sequence_to`) can be set inline in the create `body` with `$alias` references, so a node can be created already `asserted` and fully wired in one op — no draft-then-assert round trip.",
       },
       {
         kind: "guidance",
