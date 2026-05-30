@@ -154,6 +154,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         policy:
           "AI agents: document every explicit rule and decision from the project owner, and especially every correction. Corrections are the highest-signal moments — they encode preferences that aren't visible in the code or docs. Capture them in Doco the same turn they happen, so the next agent (or the next session of you) doesn't repeat the mistake.",
       },
+      {
+        kind: "guidance",
+        policy:
+          "Nothing is ever deleted — nodes and edges are retired, not removed, and every prior version stays recoverable. When you retire or change something load-bearing, say why in the change's reason so the history explains itself to whoever reads it next.",
+      },
     ],
   },
   {
@@ -346,14 +351,18 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        // Deterministic node-type allowlist. Logs (recorded executions)
+        // Deterministic entity-type allowlist. Logs (recorded executions)
         // live in a sibling Doco and are surfaced here via Reference;
-        // Ideas live in their own home until promoted.
+        // Ideas live in their own home until promoted. The Doco's own
+        // policies (guidance_policy / node_authoring_policy) are admitted
+        // so authors can add process-specific authoring rules in place —
+        // policy candidates carry no `node_type`, so a node-only gate
+        // would block them (this gate fires against every candidate).
         policy:
-          "Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
+          "Only Intent, Action, Decision, State, Eval, Reference, Rule, Principal, and the Doco's own policies belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
-          kind: "requires_node_type",
-          node_types: [
+          kind: "requires_entity_type",
+          entity_types: [
             "intent",
             "action",
             "decision",
@@ -362,6 +371,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
             "reference",
             "rule",
             "principal",
+            "guidance_policy",
+            "node_authoring_policy",
           ],
         },
       },
@@ -595,6 +606,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
+          "Edges are first-class: a `serves`, `sequence_flow`, or `gated_by` edge has its own lifecycle and history, and its endpoints are immutable. To reroute the process — send a step to a different next step, or move an Action under another Intent — retire the old edge and add the new one instead of editing endpoints in place. Nothing is deleted; the previous wiring stays recoverable with the reason it changed.",
+      },
+      {
+        kind: "guidance",
+        policy:
           "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
       },
       {
@@ -632,18 +648,29 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     policies: [
       // ── Membership ──────────────────────────────────────────────
       {
-        // Deterministic node-type allowlist. Org charts are made of
+        // Deterministic entity-type allowlist. Org charts are made of
         // Principals (members), Intents (teams/units), Decisions
         // (appointments / reorgs), References (external org diagrams,
         // headcount budgets), and Rules (delegation policies).
         // Actions, States, Evals, Logs, and Ideas have their own
         // homes; an org chart describes who reports to whom, not
-        // what they do.
+        // what they do. The Doco's own policies (guidance_policy /
+        // node_authoring_policy) are admitted too so authors can add
+        // org-specific authoring rules in place — policy candidates
+        // carry no `node_type`, so a node-only gate would block them.
         policy:
-          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. Actions describe activities (use business-processes); States describe stages; Logs describe events; Ideas live in their own home.",
+          "Only Principal, Intent, Decision, Reference, Rule, and the Doco's own policies belong in an org chart. Actions describe activities (use business-processes); States describe stages; Logs describe events; Ideas live in their own home.",
         predicate: {
-          kind: "requires_node_type",
-          node_types: ["principal", "intent", "decision", "reference", "rule"],
+          kind: "requires_entity_type",
+          entity_types: [
+            "principal",
+            "intent",
+            "decision",
+            "reference",
+            "rule",
+            "guidance_policy",
+            "node_authoring_policy",
+          ],
         },
       },
 
@@ -718,6 +745,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         kind: "guidance",
         policy:
           "Capture reorgs, hires, departures, and role changes as Decisions, and link the affected Principals via `decision_ids`. Org charts churn; without Decisions, the history of WHY a reporting line moved is lost.",
+      },
+      {
+        kind: "guidance",
+        policy:
+          "`reports_to` is a first-class edge with its own lifecycle and history, and its endpoints are immutable. When a reporting line moves, retire the old `reports_to` edge and add the new one rather than rewriting it in place — the prior line stays recoverable alongside the Decision that explains the reorg.",
       },
       {
         kind: "guidance",

@@ -33,23 +33,40 @@ describe("business-processes template", () => {
     expect(template.perspectives).toEqual([{ slug: "bpmn", isDefault: true }]);
   });
 
-  describe("node-type allowlist", () => {
+  describe("entity-type allowlist", () => {
     const allowlist = template.policies.find(
-      (r) => r.predicate?.kind === "requires_node_type",
+      (r) => r.predicate?.kind === "requires_entity_type",
     )?.predicate;
 
-    it("includes the eight allowed types (Intent, Action, Decision, State, Eval, Reference, Rule, Principal)", () => {
-      expect(allowlist?.kind).toBe("requires_node_type");
-      if (allowlist?.kind !== "requires_node_type") return;
-      expect([...allowlist.node_types].sort()).toEqual(
-        ["action", "decision", "eval", "intent", "principal", "reference", "rule", "state"].sort(),
+    it("includes the eight process node types plus the Doco's own policy types", () => {
+      expect(allowlist?.kind).toBe("requires_entity_type");
+      if (allowlist?.kind !== "requires_entity_type") return;
+      expect([...allowlist.entity_types].sort()).toEqual(
+        [
+          "action",
+          "decision",
+          "eval",
+          "guidance_policy",
+          "intent",
+          "node_authoring_policy",
+          "principal",
+          "reference",
+          "rule",
+          "state",
+        ].sort(),
       );
     });
 
+    it("admits in-Doco policy authoring (guidance_policy / node_authoring_policy)", () => {
+      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
+      expect(allowlist.entity_types).toContain("guidance_policy");
+      expect(allowlist.entity_types).toContain("node_authoring_policy");
+    });
+
     it("excludes Log and Idea (Logs live in a sibling Doco; Ideas live in their own home)", () => {
-      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
-      expect(allowlist.node_types).not.toContain("log");
-      expect(allowlist.node_types).not.toContain("idea");
+      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
+      expect(allowlist.entity_types).not.toContain("log");
+      expect(allowlist.entity_types).not.toContain("idea");
     });
   });
 

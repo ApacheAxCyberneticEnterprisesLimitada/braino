@@ -33,23 +33,37 @@ describe("org-chart template", () => {
     expect(template.allowedNodeTypes).toBeUndefined();
   });
 
-  describe("node-type allowlist", () => {
+  describe("entity-type allowlist", () => {
     const allowlist = template.policies.find(
-      (r) => r.predicate?.kind === "requires_node_type",
+      (r) => r.predicate?.kind === "requires_entity_type",
     )?.predicate;
 
-    it("includes exactly Principal, Intent, Decision, Reference, and Rule", () => {
-      expect(allowlist?.kind).toBe("requires_node_type");
-      if (allowlist?.kind !== "requires_node_type") return;
-      expect([...allowlist.node_types].sort()).toEqual(
-        ["decision", "intent", "principal", "reference", "rule"].sort(),
+    it("includes the five org node types plus the Doco's own policy types", () => {
+      expect(allowlist?.kind).toBe("requires_entity_type");
+      if (allowlist?.kind !== "requires_entity_type") return;
+      expect([...allowlist.entity_types].sort()).toEqual(
+        [
+          "decision",
+          "guidance_policy",
+          "intent",
+          "node_authoring_policy",
+          "principal",
+          "reference",
+          "rule",
+        ].sort(),
       );
     });
 
+    it("admits in-Doco policy authoring (guidance_policy / node_authoring_policy)", () => {
+      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
+      expect(allowlist.entity_types).toContain("guidance_policy");
+      expect(allowlist.entity_types).toContain("node_authoring_policy");
+    });
+
     it("excludes Action, State, Eval, Log, and Idea (those describe activity, not org structure)", () => {
-      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
       for (const t of ["action", "state", "eval", "log", "idea"]) {
-        expect(allowlist.node_types).not.toContain(t);
+        expect(allowlist.entity_types).not.toContain(t);
       }
     });
   });

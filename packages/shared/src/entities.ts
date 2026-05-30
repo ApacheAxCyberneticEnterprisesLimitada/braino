@@ -222,9 +222,12 @@ export type RuleKind = "guidance" | "tagged";
  * Authoring predicate — the structured shape the engine evaluates at
  * write time. Stored as `Rule.predicate`.
  *
- * `when_node_type` (was `when_node_type`) filters the predicate to
- * candidates of specific node types. Note: predicates that target
- * policies use a different filter; see plan §6.
+ * `when_node_type` filters a predicate to candidates of specific node
+ * types. The membership gates (`requires_node_type` /
+ * `requires_entity_type`) carry no `when_node_type`, so they fire against
+ * every candidate — including policy captures. A gate that must admit
+ * in-Doco policy authoring therefore uses `requires_entity_type` and
+ * lists the policy types (a node-only gate would reject them).
  */
 export type AuthoringPredicate =
   | {
@@ -244,9 +247,11 @@ export type AuthoringPredicate =
   | { kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
   | { kind: "requires_node_type"; node_types: NodeType[] }
   /**
-   * Like `requires_node_type` but accepts any entity type, including
-   * policies. Used by the global policies template to allow Eval +
-   * the two policy kinds.
+   * Like `requires_node_type` but matches on the candidate's id prefix,
+   * so it accepts any entity type — including the two policy kinds. Used
+   * by every template whose membership gate must admit in-Doco policy
+   * authoring (glossaries, business-processes, org-chart): a node-only
+   * gate blocks policy captures because they carry no `node_type`.
    */
   | { kind: "requires_entity_type"; entity_types: EntityType[] }
   | { kind: "probabilistic"; spec: string; when_node_type?: NodeType[] }
