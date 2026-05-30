@@ -20,7 +20,10 @@ describe("org-chart template", () => {
   it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
     expect(template.icon).toBe("🏢");
     expect(template.label).toBe("org-chart");
-    expect(template.defaultNodeLifecycle).toBe("drafting");
+    // Definitional/live-on-creation Doco: no drafting default, so a
+    // captured seat/team/appointment lands `asserted`. Sketch with an
+    // explicit `lifecycle: "drafting"`.
+    expect(template.defaultNodeLifecycle).toBeUndefined();
     expect(template.description).toMatch(/person/i);
     expect(template.description).toMatch(/AI agent/i);
     // The seat model adds a third occupant state — vacant seats appear

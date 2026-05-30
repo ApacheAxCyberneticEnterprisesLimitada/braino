@@ -71,6 +71,8 @@ export const EDGE_ENDPOINT_TYPES: Record<
   consults: { to: ["rule"] },
   tests: { from: ["eval", "reference"] },
   reports_to: { from: ["principal"], to: ["principal"] },
+  dotted_reports_to: { from: ["principal"], to: ["principal"] },
+  same_occupant_as: { from: ["principal"], to: ["principal"] },
   performed_by: { to: ["principal"] },
   owned_by: { to: ["principal"] },
   has_parent: { from: ["intent"], to: ["intent"] },

@@ -20,7 +20,10 @@ describe("glossaries template", () => {
   it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
     expect(template.icon).toBe("📚");
     expect(template.label).toBe("Glossaries");
-    expect(template.defaultNodeLifecycle).toBe("drafting");
+    // A glossary term is definitional and complete-on-creation, so it
+    // lands `asserted` (no drafting default); the term-completeness
+    // gates apply right away. Stub a term with explicit `drafting`.
+    expect(template.defaultNodeLifecycle).toBeUndefined();
     expect(template.description).toMatch(/terminology/i);
     expect(template.description).toMatch(/canonical terms/i);
   });

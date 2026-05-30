@@ -181,7 +181,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "📚",
     description:
       "Document product and domain terminology — canonical terms, definitions, aliases, deprecated wording, sources, and consistency checks.",
-    defaultNodeLifecycle: "drafting",
+    // No `defaultNodeLifecycle` override: a glossary term is a
+    // definitional, complete-on-creation node, so a captured term lands
+    // live (`asserted`) and the term-completeness gates apply right
+    // away. Authors who want to stub a term sketch it explicitly with
+    // `lifecycle: "drafting"`. (Contrast business-processes, which
+    // defaults to `drafting` so a flow can be wired up incrementally.)
     // The dictionary-styled Glossary perspective is the natural reading
     // surface for terminology, so a Doco created from this template
     // opens directly on it. Graph + list defaults stay attached behind.
@@ -671,7 +676,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🏢",
     description:
       "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every seat declares in its `body_md` prose whether it's filled by a person, filled by an AI agent, or currently vacant.",
-    defaultNodeLifecycle: "drafting",
+    // No `defaultNodeLifecycle` override: a seat, team, or appointment
+    // is live the moment it's created, so a captured node lands
+    // `asserted` (and the asserted-gated completeness rules — e.g. a
+    // team Intent's roster — apply right away). To sketch a tentative
+    // seat or a roster-less team, pass `lifecycle: "drafting"`
+    // explicitly. (Business-processes keeps a `drafting` default so a
+    // flow can be wired up incrementally.)
     perspectives: [{ slug: "org-tree", isDefault: true }],
     policies: [
       // ── Membership ──────────────────────────────────────────────
