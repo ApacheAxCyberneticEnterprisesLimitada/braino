@@ -221,21 +221,40 @@ export async function retireEdge(
   return row;
 }
 
-/** Full version history of one node or edge, oldest first. */
+export interface VersionEntry {
+  version: number;
+  op: Op;
+  tx_id: number;
+  actor: string | null;
+  recorded_at: string | null;
+  /** The rich "why" from the commit log. */
+  reason: string | null;
+  payload: Record<string, unknown>;
+}
+
+/** Full version history of one node or edge, oldest first, joined to the
+ *  commit log so each entry carries who / when / why. */
 export async function getVersions(
   c: pg.PoolClient,
   kind: "node" | "edge",
   entityId: string,
-): Promise<Array<{ version: number; op: Op; tx_id: number; payload: Record<string, unknown> }>> {
+): Promise<VersionEntry[]> {
   const table = kind === "edge" ? "edge_versions" : "node_versions";
   const { rows } = await c.query(
-    `SELECT version, op, tx_id, payload FROM ${table} WHERE entity_id = $1 ORDER BY version ASC`,
+    `SELECT v.version, v.op, v.tx_id, v.actor, v.recorded_at, cs.reason, v.payload
+       FROM ${table} v
+       LEFT JOIN changesets cs ON cs.tx_id = v.tx_id
+      WHERE v.entity_id = $1
+      ORDER BY v.version ASC`,
     [entityId],
   );
   return rows.map((r) => ({
     version: Number(r.version),
     op: r.op as Op,
     tx_id: Number(r.tx_id),
+    actor: (r.actor as string | null) ?? null,
+    recorded_at: r.recorded_at ? String(r.recorded_at) : null,
+    reason: (r.reason as string | null) ?? null,
     payload: r.payload as Record<string, unknown>,
   }));
 }
