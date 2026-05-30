@@ -123,6 +123,9 @@ CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
+  -- Per-type write grants (migration 062). '*' = write every type;
+  -- owners ignore this and write everything.
+  write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (org_id, user_id)
 );
@@ -519,6 +522,9 @@ CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
+  -- Per-type write grants (migration 062). '*' = write every type;
+  -- owners ignore this and write everything.
+  write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (doco_id, user_id)
 );
@@ -588,6 +594,9 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- where they're owner) but never raise it. Missing entries mean
   -- "inherit the principal's actual role" — i.e. no scope-down.
   granted_doco_roles    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Per-type write scope-down (migration 062), keyed by doco_id →
+  -- list of writable-type tokens ('*' = all). Parallels granted_doco_roles.
+  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- Org-level grants. When the user approves access to an org, every
   -- Doco owned by that org becomes reachable through this token —
   -- including Docos created under the org after the token was minted
@@ -596,6 +605,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- granted_doco_roles.
   granted_org_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_org_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope                 text,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
@@ -614,8 +624,10 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -638,8 +650,10 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -674,8 +688,10 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   user_id             text REFERENCES users(id) ON DELETE CASCADE,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   expires_at       timestamptz NOT NULL,
   last_polled_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
