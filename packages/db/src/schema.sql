@@ -200,13 +200,15 @@ CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
 -- ideas/reference_entities/principals) — the sharding was a false split; this
 -- mirrors how `edges` is already a single discriminated table.
 --
--- "Wide" by design: every per-type promoted column is preserved here as a
--- real (nullable) column so reads keep their existing column names. Every
--- promoted relationship column carries a foreign key again (migration 070):
--- five are self-referential to nodes(id) — the collapse turned the old
--- cross-table FKs into self-FKs rather than making them impossible — and
--- `proposer_id` points at `users(id)` (it holds the OAuth identity that
--- proposed the idea, not a node). The `edges` table likewise FKs from_id /
+-- "Wide" by design: per-type promoted SCALAR columns are preserved here as
+-- real (nullable) columns so reads keep their existing column names. The five
+-- promoted node→node relationship columns (parent_intent_id, decided_by,
+-- superseded_by_decision_id, actor_id, template_id) were DROPPED by migration
+-- 074 (option (i): edges as the authored source of truth) — each relationship
+-- now lives on the `edges` table (FK'd to nodes(id)), with the authored value
+-- still carried in `data`. `proposer_id` stays a column: it points at
+-- `users(id)` (the OAuth identity that proposed the idea, not a node), so it is
+-- not expressible as a node→node edge. The `edges` table likewise FKs from_id /
 -- to_id to nodes(id): edges connect nodes only; org/doco containment rides on
 -- the doco_id / org_id columns, never on a graph edge. The
 -- migration that copies the legacy rows in is 064; the legacy tables are
@@ -225,19 +227,14 @@ CREATE TABLE IF NOT EXISTS nodes (
   name           text,                       -- principal display label (NULL for the others)
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
-  -- Promoted relationship columns — every one carries a foreign key
-  -- (migration 070). The five intra-graph refs self-reference nodes(id),
-  -- DEFERRABLE INITIALLY DEFERRED so a changeset can write a node before the
-  -- node it references and a `docos` cascade-delete clears a whole doco
-  -- without tripping mid-cascade (both resolve at COMMIT). `proposer_id`
-  -- points at users(id) — the OAuth identity that proposed the idea, not a
-  -- node — so it is ON DELETE SET NULL (a deleted user just drops the credit).
-  parent_intent_id          text CONSTRAINT nodes_parent_intent_fk          REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- intent → intent
+  -- The five node→node relationship columns were dropped by migration 074:
+  -- each (intent→intent parent, decision→principal decider, decision→decision
+  -- supersession, action/log→principal actor, log→action template) is now a
+  -- first-class `edges` row (origin='field'), authored by the capture path.
+  -- `proposer_id` stays — it points at users(id) (the OAuth identity that
+  -- proposed the idea, not a node), so it is not a node→node edge; ON DELETE
+  -- SET NULL (a deleted user just drops the credit).
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
-  decided_by                text CONSTRAINT nodes_decided_by_fk             REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- decision → principal
-  superseded_by_decision_id text CONSTRAINT nodes_superseded_by_decision_fk REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- decision → decision
-  actor_id                  text CONSTRAINT nodes_actor_fk                  REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- action, log → principal
-  template_id               text CONSTRAINT nodes_template_fk               REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- log → action
   -- Promoted scalar columns (migration 035 lineage).
   verb         text,                          -- action, log
   performed_at timestamptz,                   -- action (matches actions.performed_at)
@@ -259,8 +256,8 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
-CREATE INDEX IF NOT EXISTS nodes_superseded_idx ON nodes (superseded_by_decision_id) WHERE superseded_by_decision_id IS NOT NULL;
-CREATE INDEX IF NOT EXISTS nodes_actor_idx      ON nodes (actor_id) WHERE actor_id IS NOT NULL;
+-- nodes_superseded_idx / nodes_actor_idx removed with their columns (migration
+-- 074): the relationships are queried via the `edges` table now.
 
 -- Audit events: one row per mutation.
 

@@ -1,15 +1,19 @@
-// Guards the database-level referential integrity restored for the unified
-// `nodes` table and the `edges` table (migration 070 + schema.sql inline FKs).
+// Guards the database-level referential integrity around the unified `nodes`
+// and `edges` tables across migrations 070 (restore) and 074 (drop the
+// node→node columns in favour of edges) plus schema.sql.
 //
 // String/structure assertions over the SQL, not live-DB checks: the package
 // has no Postgres in CI (see schema-consistency test). They lock in the things
 // that are easy to get wrong and dangerous to regress:
-//   1. The five intra-graph node refs self-FK to nodes(id), DEFERRABLE.
-//   2. `proposer_id` FKs to USERS(id) (it holds an OAuth identity, not a node)
-//      and must NOT point at nodes.
+//   1. The five intra-graph node→node relationship columns are GONE from
+//      schema.sql and dropped by migration 074 (option (i): each is a
+//      first-class `edges` row now). Migration 070 still documents the FKs it
+//      added (historical; 074 reverses the node self-FK half).
+//   2. `proposer_id` FKs to USERS(id) (an OAuth identity, not a node), stays a
+//      column, and must NOT point at nodes — it is not a node→node edge.
 //   3. Both `edges` endpoints FK to nodes(id), DEFERRABLE — edges are node↔node.
-//   4. The migration only ADDs constraints NOT VALID and never VALIDATEs —
-//      the explicit lesson from migration 025's production incident.
+//   4. The restore migration only ADDs constraints NOT VALID and never
+//      VALIDATEs — the explicit lesson from migration 025's production incident.
 
 import { readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -43,6 +47,13 @@ function migration070(): string {
   return stripSqlComments(readFileSync(join(dir, name), "utf8"));
 }
 
+function migration074(): string {
+  const dir = join(dbRoot, "migrations");
+  const name = readdirSync(dir).find((f) => /^074_.*\.sql$/.test(f));
+  if (!name) throw new Error("migration 074_*.sql not found");
+  return stripSqlComments(readFileSync(join(dir, name), "utf8"));
+}
+
 function referencesDeferrable(block: string, col: string, target: string): boolean {
   return new RegExp(
     `\\b${col}\\b[^,]*REFERENCES\\s+${target}\\s*\\(\\s*id\\s*\\)[^,]*DEFERRABLE\\s+INITIALLY\\s+DEFERRED`,
@@ -59,12 +70,16 @@ const NODE_SELF_FK = [
   "decided_by",
 ] as const;
 
-describe("nodes relationship FKs — schema.sql baseline", () => {
+describe("nodes relationship columns — schema.sql baseline", () => {
   const nodes = tableBlock("nodes");
 
+  // Option (i): the five node→node relationship columns were dropped (migration
+  // 074) — each is a first-class `edges` row now. schema.sql must no longer
+  // declare them, so fresh installs get the post-drop shape. (tableBlock strips
+  // `-- comments`, so the prose naming them in the schema doesn't count.)
   for (const col of NODE_SELF_FK) {
-    it(`${col} self-FKs to nodes(id), DEFERRABLE`, () => {
-      expect(referencesDeferrable(nodes, col, "nodes")).toBe(true);
+    it(`${col} is no longer a column on nodes (moved to edges)`, () => {
+      expect(new RegExp(`\\b${col}\\b`).test(nodes)).toBe(false);
     });
   }
 
@@ -130,5 +145,23 @@ describe("migration 070 — restore FKs on existing DBs", () => {
   it("guards each ADD against re-running (idempotent: 8 constraints)", () => {
     const guards = sql.match(/IF\s+NOT\s+EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+pg_constraint/gi) ?? [];
     expect(guards.length).toBe(8);
+  });
+});
+
+describe("migration 074 — drop the node→node relationship columns", () => {
+  const sql = migration074();
+
+  for (const col of NODE_SELF_FK) {
+    it(`drops nodes.${col} (DROP COLUMN cascades its FK + indexes)`, () => {
+      expect(new RegExp(`DROP\\s+COLUMN\\s+IF\\s+EXISTS\\s+${col}\\b`, "i").test(sql)).toBe(true);
+    });
+  }
+
+  it("does NOT drop proposer_id (an OAuth identity ref, not a node→node edge)", () => {
+    expect(/DROP\s+COLUMN\s+IF\s+EXISTS\s+proposer_id\b/i.test(sql)).toBe(false);
+  });
+
+  it("is guarded for a fresh-genesis bootstrap (nodes may be absent)", () => {
+    expect(/to_regclass\(\s*'public\.nodes'\s*\)/i.test(sql)).toBe(true);
   });
 });

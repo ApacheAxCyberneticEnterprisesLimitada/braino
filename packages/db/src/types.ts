@@ -92,20 +92,20 @@ export interface PromotedColumnSpec {
 }
 
 export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedColumnSpec[]>> = {
-  intent: [{ column: "parent_intent_id", field: "parent_intent_id" }],
+  // Node→node relationships are no longer promoted to columns — migration 074
+  // dropped those columns and the capture path projects each into a first-class
+  // `edges` row instead (option (i): edges as the authored source of truth).
+  // intent/decision promoted only relationship refs, so they promote nothing
+  // now; the authored values still live in `data`. `proposer_id` stays — it
+  // points at users(id) (an OAuth identity, not a node), not a node→node edge.
+  intent: [],
   idea: [{ column: "proposer_id", field: "proposer_id" }],
-  decision: [
-    { column: "decided_by", field: "decided_by" },
-    { column: "superseded_by_decision_id", field: "superseded_by", requirePrefix: "decision_" },
-  ],
+  decision: [],
   action: [
-    { column: "actor_id", field: "actor_id" },
     { column: "verb", field: "verb", stripFromData: true },
     { column: "performed_at", field: "performed_at", stripFromData: true },
   ],
   log: [
-    { column: "actor_id", field: "actor_id" },
-    { column: "template_id", field: "template_id" },
     { column: "verb", field: "verb", stripFromData: true },
     { column: "happened_at", field: "happened_at", stripFromData: true },
   ],

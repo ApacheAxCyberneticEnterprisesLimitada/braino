@@ -36,8 +36,11 @@ function tableBlock(table: string): string {
 
 function migration073(): string {
   const dir = join(dbRoot, "migrations");
-  const name = readdirSync(dir).find((f) => /^073_.*\.sql$/.test(f));
-  if (!name) throw new Error("migration 073_*.sql not found");
+  // Match the exact file — main carries a second 073 migration
+  // (073_drop_entity_fts_policies) from a concurrent PR; both apply (the ledger
+  // keys on the full filename), but this test wants the edges.origin one.
+  const name = readdirSync(dir).find((f) => /^073_edges_origin\.sql$/.test(f));
+  if (!name) throw new Error("073_edges_origin.sql not found");
   return stripSqlComments(readFileSync(join(dir, name), "utf8"));
 }
 
