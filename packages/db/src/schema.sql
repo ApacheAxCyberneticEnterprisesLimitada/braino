@@ -220,10 +220,14 @@ CREATE TABLE IF NOT EXISTS tags (
 -- mirrors how `edges` is already a single discriminated table.
 --
 -- "Wide" by design: every per-type promoted column is preserved here as a
--- real (nullable) column so reads keep their existing column names. Promoted
--- relationship columns carry NO foreign key — existence is enforced in app
--- code exactly like `edges` endpoints (every inbound FK to the old node
--- tables came from another node table, so none survives the collapse). The
+-- real (nullable) column so reads keep their existing column names. Every
+-- promoted relationship column carries a foreign key again (migration 070):
+-- five are self-referential to nodes(id) — the collapse turned the old
+-- cross-table FKs into self-FKs rather than making them impossible — and
+-- `proposer_id` points at `users(id)` (it holds the OAuth identity that
+-- proposed the idea, not a node). The `edges` table likewise FKs from_id /
+-- to_id to nodes(id): edges connect nodes only; org/doco containment rides on
+-- the doco_id / org_id columns, never on a graph edge. The
 -- migration that copies the legacy rows in is 064; the legacy tables are
 -- dropped in a later migration once this is production-verified.
 --
@@ -240,13 +244,19 @@ CREATE TABLE IF NOT EXISTS nodes (
   name           text,                       -- principal display label (NULL for the others)
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
-  -- Promoted relationship columns (no FK; existence app-enforced, like edges).
-  parent_intent_id          text,            -- intent
-  proposer_id               text,            -- idea
-  decided_by                text,            -- decision
-  superseded_by_decision_id text,            -- decision
-  actor_id                  text,            -- action, log
-  template_id               text,            -- log
+  -- Promoted relationship columns — every one carries a foreign key
+  -- (migration 070). The five intra-graph refs self-reference nodes(id),
+  -- DEFERRABLE INITIALLY DEFERRED so a changeset can write a node before the
+  -- node it references and a `docos` cascade-delete clears a whole doco
+  -- without tripping mid-cascade (both resolve at COMMIT). `proposer_id`
+  -- points at users(id) — the OAuth identity that proposed the idea, not a
+  -- node — so it is ON DELETE SET NULL (a deleted user just drops the credit).
+  parent_intent_id          text CONSTRAINT nodes_parent_intent_fk          REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- intent → intent
+  proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
+  decided_by                text CONSTRAINT nodes_decided_by_fk             REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- decision → principal
+  superseded_by_decision_id text CONSTRAINT nodes_superseded_by_decision_fk REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- decision → decision
+  actor_id                  text CONSTRAINT nodes_actor_fk                  REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- action, log → principal
+  template_id               text CONSTRAINT nodes_template_fk               REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,  -- log → action
   -- Promoted scalar columns (migration 035 lineage).
   verb         text,                          -- action, log
   performed_at timestamptz,                   -- action (matches actions.performed_at)
@@ -371,9 +381,9 @@ CREATE TABLE IF NOT EXISTS edges (
   id              text PRIMARY KEY,           -- edge_<ulid>
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   edge_type       text NOT NULL,
-  from_id         text NOT NULL,
+  from_id         text NOT NULL CONSTRAINT edges_from_fk REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,
   from_node_type  text NOT NULL,
-  to_id           text NOT NULL,
+  to_id           text NOT NULL CONSTRAINT edges_to_fk   REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,
   to_node_type    text NOT NULL,
   props           jsonb,
   lifecycle       text NOT NULL DEFAULT 'asserted',

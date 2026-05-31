@@ -70,9 +70,10 @@ export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> 
  * one-time copy map in migration 064.
  *
  * These are the per-type graph columns promoted out of the `data` jsonb:
- * relationship refs (no FK — existence is app-enforced, like `edges`) and
- * filterable scalars. Principal's identity columns (name / body_md /
- * role_principal) are handled directly by the writer, not here.
+ * relationship refs (each carries a foreign key again — migration 070: five
+ * self-reference nodes(id); `proposer_id` → users(id)) and filterable
+ * scalars. Principal's identity columns (name / body_md / role_principal)
+ * are handled directly by the writer, not here.
  *
  * - `field`        — source key in the entity's `data`/frontmatter.
  * - `requirePrefix`— only persist the value when it has this id prefix
