@@ -282,4 +282,53 @@ describe("org-chart template", () => {
       expect(summaries.some((s) => /`same_occupant_as`/.test(s) && /seat/i.test(s))).toBe(true);
     });
   });
+
+  // After the node-table collapse dropped the five promoted node→node FK
+  // columns (#694), the project settled on one uniform model: a node→node
+  // relationship is an id-shaped POINTER FIELD in `data` — re-pointed by
+  // editing the field in place (it versions with the node) — unless it has
+  // been deliberately promoted to a first-class authored edge, which you
+  // reroute by retiring the old edge and adding a new one. `reports_to`,
+  // `dotted_reports_to`, and `same_occupant_as` are pointer fields (none is
+  // in MANAGED_RELATION_EDGE_TYPES; the org-tree reads them straight from
+  // `data`), so the guidance must frame them as edited-in-place, NOT as
+  // authored edges you retire-and-re-add. This mirrors business-processes'
+  // own "promoted pointer fields, not first-class edges" guidance.
+  describe("relationship pointer fields are re-pointed in place (post-FK-drop cohesion)", () => {
+    const guidance = template.policies.filter((r) => !r.predicate);
+    const summaries = guidance.map((r) => r.policy);
+
+    it("frames `reports_to` as an in-place pointer field, not an edge you retire-and-re-add", () => {
+      const g = summaries.find((s) => /`reports_to`/.test(s) && /in place/i.test(s));
+      expect(g).toBeDefined();
+      expect(g).toMatch(/versions with the node|in place/i);
+      expect(g).not.toMatch(/retire the old `reports_to` edge/i);
+    });
+
+    it("frames `dotted_reports_to` as an in-place pointer field, not an edge you retire to change", () => {
+      const g = summaries.find((s) => /`dotted_reports_to`/.test(s));
+      expect(g).toBeDefined();
+      expect(g).toMatch(/in place/i);
+      expect(g).not.toMatch(/retire (the|its) [^.]*\bedge\b/i);
+    });
+
+    it("frames `same_occupant_as` as an in-place pointer field, not an edge you retire to change", () => {
+      const g = summaries.find((s) => /`same_occupant_as`/.test(s));
+      expect(g).toBeDefined();
+      expect(g).toMatch(/in place/i);
+      expect(g).not.toMatch(/retire the edge/i);
+    });
+
+    it("never tells authors to retire-and-re-add an edge for these promoted pointer fields", () => {
+      for (const s of summaries) {
+        if (/`reports_to`|`dotted_reports_to`|`same_occupant_as`/.test(s)) {
+          expect(s).not.toMatch(/retire (the|its) (old )?[^.]*\bedge\b.*add (the )?new/i);
+        }
+      }
+    });
+
+    it("ties the in-place model back to the dropped inter-node foreign keys", () => {
+      expect(summaries.join("\n")).toMatch(/foreign key/i);
+    });
+  });
 });

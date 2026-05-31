@@ -634,13 +634,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // prose, enforced by a probabilistic policy rather than a
     // `requires_field` check.
     //
-    // Reporting and occupancy are modeled as *relationships*, not
-    // columns: `reports_to`, `dotted_reports_to`, and `same_occupant_as`
-    // are ID-shaped refs in the Principal's `data` that `deriveEdges`
-    // projects into first-class edges. None carries a DB foreign key —
-    // existence is app-enforced, exactly like every other edge. That is
-    // the uniform model the node-table collapse settled on when it
-    // dropped the promoted intra-node FK columns.
+    // Reporting and occupancy are modeled as *relationship pointer
+    // fields*, not columns: `reports_to`, `dotted_reports_to`, and
+    // `same_occupant_as` are ID-shaped refs in the Principal's `data`
+    // that `deriveEdges` projects into graph edges for the org-tree to
+    // render and traverse. They are neither promoted columns nor
+    // separately-authored edges — none is in MANAGED_RELATION_EDGE_TYPES,
+    // none carries a DB foreign key, so target existence is app-enforced
+    // and you re-point one by editing the field in place (it versions
+    // with the node). That is the uniform model the node-table collapse
+    // settled on when it dropped the five promoted intra-node FK columns:
+    // a node→node relationship stays a pointer field unless it is
+    // deliberately promoted to a first-class authored edge (own
+    // lifecycle, immutable endpoints, rerouted by retire-and-add).
     //
     // Industry alignment (W3C Organization Ontology + HR practice):
     // a seat that can stand vacant approximates `org:Post`; secondary
@@ -777,19 +783,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Team membership lives in the Intent's `actors` list, which the org-tree renders but does not version. When someone joins or leaves a team, record it as a Decision linking the affected Principals so the *why* and *when* survive the in-place edit. Once a Doco needs real join/leave history, prefer a first-class `member_of` edge over editing `actors`, mirroring how `reports_to` is already a versioned edge — an `actors` array overwrite leaves no trail.",
+          "Team membership lives in the Intent's `actors` list, which the org-tree renders but does not version. When someone joins or leaves a team, record it as a Decision linking the affected Principals so the *why* and *when* survive the in-place edit. Once a Doco needs real join/leave history, promote membership to a first-class `member_of` edge — own lifecycle, immutable endpoints, rerouted by retiring the old edge and adding a new one — instead of overwriting the `actors` list, which leaves no trail. (`reports_to` would graduate to a versioned edge the same way; today it is still an in-place pointer field — see below.)",
       },
       {
         policy:
-          "`reports_to` is a first-class edge with its own lifecycle and history, and its endpoints are immutable. When a reporting line moves, retire the old `reports_to` edge and add the new one rather than rewriting it in place — the prior line stays recoverable alongside the Decision that explains the reorg.",
+          "`reports_to` is an id-shaped pointer field in the Principal's `data`, not a separately-lifecycled edge: `deriveEdges` projects it into a `reports_to` graph edge for the org-tree to draw, but it carries no independent history of its own. Re-point a reporting line by editing the field in place (it versions with the node), and capture the *why* of the reorg as a Decision so the rationale survives the edit. Since the inter-node foreign keys were dropped, nothing at the database layer guarantees the manager id resolves — point it at a Principal that already exists.",
       },
       {
         policy:
-          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids that, like `reports_to`, each derive a first-class edge with its own lifecycle and immutable endpoints. The org-tree perspective draws those dashed and never reparents the node; to drop or move a dotted line, retire its edge and add the new one rather than relying on a silent in-place overwrite. Add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
+          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids in the Principal's `data` that, like `reports_to`, project graph edges (drawn dashed) without reparenting the node. They are pointer fields, not separately-lifecycled edges: add, drop, or move a dotted line by editing the list in place (it versions with the node), and add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
       },
       {
         policy:
-          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — a first-class edge (own lifecycle, immutable endpoints) — so the chart knows it's one person, not two; to split or re-pair seats, retire the edge and add the new one. Don't collapse two distinct roles into one Principal just because the same person fills them today.",
+          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — an id-shaped pointer field in the Principal's `data` that projects a `same_occupant_as` graph edge — so the chart knows it's one person, not two. It is a field, not a separately-lifecycled edge: split or re-pair seats by editing the field in place (it versions with the node). Don't collapse two distinct roles into one Principal just because the same person fills them today.",
       },
       {
         policy:
