@@ -662,20 +662,31 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // (a role plus its current occupant), `reports_to` edges form the
     // primary hierarchy, Intents represent teams/units, Decisions
     // record reorgs and appointments. After the Principal slim-down
-    // (decision_01KSDR_PRINCIPAL_SLIM_DOWN) a Principal carries only
-    // `name` + `body_md`; the person / AI-agent / vacant distinction
-    // lives in the body_md prose, enforced by a probabilistic policy
-    // rather than a `requires_field` check.
+    // (decision_01KSDR_PRINCIPAL_SLIM_DOWN) a Principal carries no
+    // structured occupant attribute — just `name` + `body_md`; the
+    // person / AI-agent / vacant distinction lives in the body_md
+    // prose, enforced by a probabilistic policy rather than a
+    // `requires_field` check.
+    //
+    // Reporting and occupancy are modeled as *relationships*, not
+    // columns: `reports_to`, `dotted_reports_to`, and `same_occupant_as`
+    // are ID-shaped refs in the Principal's `data` that `deriveEdges`
+    // projects into first-class edges. None carries a DB foreign key —
+    // existence is app-enforced, exactly like every other edge. That is
+    // the uniform model the node-table collapse settled on when it
+    // dropped the promoted intra-node FK columns.
     //
     // Industry alignment (W3C Organization Ontology + HR practice):
     // a seat that can stand vacant approximates `org:Post`; secondary
     // (dotted-line / matrix) reporting layers on top of the single
-    // primary `reports_to` line via guidance, since the Principal
-    // schema carries exactly one manager. A fully structural
-    // Post/Membership split (separate occupant nodes, a versioned
-    // `member_of` / `held_by` edge, a real vacancy field) would need a
-    // schema change beyond this template and is intentionally left as a
-    // follow-up rather than half-modeled here.
+    // primary `reports_to` line as a structured `dotted_reports_to`
+    // list of additional managers — drawn dashed, never reparenting the
+    // node. Those refs live in `data` (not promoted columns), so adding
+    // them needed no migration. A fully structural Post / Membership
+    // split — occupant nodes distinct from the seat, a versioned
+    // `member_of` / `held_by` edge, a real vacancy field instead of
+    // body_md prose — remains a deliberate follow-up rather than
+    // half-modeled here.
     name: "org-chart",
     label: "org-chart",
     icon: "🏢",
