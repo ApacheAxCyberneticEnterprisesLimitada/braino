@@ -106,6 +106,22 @@ describe("glossaries template", () => {
       expect(guidance).toMatch(/Retired glossary Decisions/i);
       expect(guidance).toMatch(/superseded_by/i);
     });
+
+    it("aligns the superseded_by replacement link with the first-class-edge, no-FK model", () => {
+      // The node-table collapse dropped `superseded_by` as a promoted FK
+      // column; the capture path now projects it into a first-class edge with
+      // no database foreign key (existence is app-enforced). The glossary
+      // guidance must teach that model so a retired term's replacement link
+      // reads like org-chart's `reports_to` and business-processes'
+      // `sequence_flow` rather than a dangling pointer.
+      const supersede = guidance
+        .split("\n")
+        .find((line) => /Retired glossary Decisions/i.test(line) && /superseded_by/.test(line));
+      expect(supersede).toBeDefined();
+      expect(supersede).toMatch(/first-class/i);
+      expect(supersede).toMatch(/edge/i);
+      expect(supersede).toMatch(/foreign key|app-enforced/i);
+    });
   });
 
   describe("quality gates", () => {

@@ -167,6 +167,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // entry is a Decision: `question` names the concept, `chosen` is the
     // canonical term, and `decision` holds the definition, scope, and
     // examples. List is the natural authoring surface for terminology.
+    //
+    // Term relationships are first-class edges, not promoted FK columns.
+    // `relates_to` links confusable or related terms; `superseded_by` points
+    // a deprecated term at its replacement. The node-table collapse dropped
+    // the `superseded_by` FK column (migration 074), so the capture path now
+    // projects the authored field into a `superseded_by` edge whose target
+    // existence is app-enforced like every other edge — the same model
+    // org-chart (`reports_to`) and business-processes (`sequence_flow`) adopted.
     name: "glossaries",
     label: "Glossaries",
     icon: "📚",
@@ -307,7 +315,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Retired glossary Decisions point at the replacement term via `superseded_by` when one exists, and keep the deprecated term visible so readers understand old docs, tickets, or UI copy.",
+          "Retired glossary Decisions point at the replacement term via `superseded_by`, and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. `superseded_by` is authored on the retiring term and projects into a first-class `superseded_by` edge (term → replacement term) with its own lifecycle and history — the same fields-as-edges model the node-table collapse settled on when it dropped the promoted FK columns. That edge carries no database foreign key, so the replacement's existence is app-enforced, not guaranteed by the DB: point `superseded_by` at a term that already exists, and re-point it by editing the field so the capture path reconciles the edge (retiring the stale one, adding the new) rather than overwriting a pointer in place.",
       },
       {
         policy:
