@@ -1,5 +1,6 @@
 export * from "./branded.js";
 export * from "./access-types.js";
+export * from "./constitution.js";
 export * from "./history.js";
 export * from "./ulid.js";
 export * from "./time.js";

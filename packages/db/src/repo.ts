@@ -917,6 +917,13 @@ export interface DocoRow {
   org_id: string;
   visibility: "public" | "private";
   goal: string;
+  /**
+   * Free-form governing charter for the Doco — the standing "how work is
+   * done here" text agents read at bootstrap. Seeded with
+   * DEFAULT_DOCO_CONSTITUTION on creation; editable from settings. Empty
+   * string only if an owner has explicitly cleared it.
+   */
+  constitution: string;
   data: Record<string, unknown>;
   /**
    * Template-seeded default lifecycle for new nodes captured into this
@@ -936,6 +943,8 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     org_id: String(row.org_id ?? row.owner_id),
     visibility: row.visibility === "public" ? "public" : "private",
     goal: row.goal === null || row.goal === undefined ? "" : String(row.goal),
+    constitution:
+      row.constitution === null || row.constitution === undefined ? "" : String(row.constitution),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
     default_node_lifecycle:
       typeof row.default_node_lifecycle === "string" ? row.default_node_lifecycle : null,
@@ -947,7 +956,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
  * `organizations.handle` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.data,
+  SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.constitution, d.data,
          d.default_node_lifecycle,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
