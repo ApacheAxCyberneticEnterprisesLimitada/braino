@@ -297,6 +297,39 @@ describe("business-processes template", () => {
     });
   });
 
+  describe("field-authored relations stay cohesive with the managed-edge model", () => {
+    // After the node-table collapse dropped the five promoted intra-node FK
+    // columns (#694), `actor_id` and `parent_intent_id` are authored as fields
+    // but PROJECTED by the capture path into first-class edges
+    // (`performed_by` / `has_parent`) — they are no longer "not edges" with "no
+    // history". The guidance must describe that model, matching the org-chart
+    // template, not the pre-drop promoted-column framing.
+    const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
+    const pointerGuidance = guidanceSummaries.find(
+      (s) => /actor_id/.test(s) && /parent_intent_id/.test(s),
+    );
+
+    it("documents that actor_id / parent_intent_id project into first-class edges", () => {
+      expect(pointerGuidance).toBeDefined();
+      expect(pointerGuidance).toMatch(/performed_by/);
+      expect(pointerGuidance).toMatch(/has_parent/);
+      expect(pointerGuidance).toMatch(/first-class edge/i);
+    });
+
+    it("drops the stale pre-FK-drop framing (not edges / no separate history)", () => {
+      expect(pointerGuidance).toBeDefined();
+      expect(pointerGuidance).not.toMatch(/not first-class edges/i);
+      expect(pointerGuidance).not.toMatch(/no separate lifecycle or history/i);
+    });
+
+    it("keeps the still-true facts: no DB foreign key, app-enforced, re-point in place", () => {
+      expect(pointerGuidance).toBeDefined();
+      expect(pointerGuidance).toMatch(/foreign key|\bFK\b/);
+      expect(pointerGuidance).toMatch(/resolves?-to-a-Principal|resolve to an existing Principal/i);
+      expect(pointerGuidance).toMatch(/editing the field in place/i);
+    });
+  });
+
   describe("membership probabilistic gate", () => {
     const gate = template.policies.find(
       (r) =>
