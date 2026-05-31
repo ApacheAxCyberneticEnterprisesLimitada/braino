@@ -358,9 +358,12 @@ export interface Decision extends CommonFields {
   rules_consulted?: EntityId<"rule">[];
   /**
    * Who decided. References the Principal (role-persona) who made the
-   * call — matches the capture-API contract (PR #66) and the FK on
-   * decisions.decided_by (migration 025). Pre-rename data used
-   * User ids here; migration 025 backfilled.
+   * call — matches the capture-API contract (PR #66). Stored as the
+   * promoted `decided_by` column on the unified `nodes` table; the
+   * node-table collapse dropped the old inter-node FK (migration 066),
+   * so the column carries no database foreign key — existence is
+   * app-enforced, like edges. Pre-rename data used User ids here;
+   * migration 025 backfilled.
    */
   decided_by: EntityId<"principal">;
   decided_at: string;

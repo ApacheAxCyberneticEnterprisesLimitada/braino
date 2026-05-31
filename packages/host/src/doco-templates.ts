@@ -633,6 +633,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
+          "Not every node-to-node link is an edge. An Action's actor (`actor_id`) and a sub-process's `parent_intent_id` are promoted pointer fields on the node itself — not first-class edges — so they carry no separate lifecycle or history, and, since the inter-node foreign keys were dropped, no database guarantee that their target exists. Point them at ids that already exist; the `actor_id`-resolves-to-a-Principal rule is what now catches a dangling actor at capture time. Re-point a pointer by editing the field in place (it versions with the node) — unlike `serves` / `sequence_flow` / `gated_by`, which you reroute by retiring the old edge and adding a new one.",
+      },
+      {
+        kind: "guidance",
+        policy:
           "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
       },
       {
