@@ -826,12 +826,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         kind: "guidance",
         policy:
-          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` (a list of additional managers on the Principal); the org-tree perspective draws those dashed and never reparents the node. Add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
+          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids that, like `reports_to`, each derive a first-class edge with its own lifecycle and immutable endpoints. The org-tree perspective draws those dashed and never reparents the node; to drop or move a dotted line, retire its edge and add the new one rather than relying on a silent in-place overwrite. Add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
       },
       {
         kind: "guidance",
         policy:
-          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` so the chart knows it's one person, not two. Don't collapse two distinct roles into one Principal just because the same person fills them today.",
+          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — a first-class edge (own lifecycle, immutable endpoints) — so the chart knows it's one person, not two; to split or re-pair seats, retire the edge and add the new one. Don't collapse two distinct roles into one Principal just because the same person fills them today.",
       },
       {
         kind: "guidance",

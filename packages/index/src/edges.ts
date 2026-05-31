@@ -167,11 +167,16 @@ export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   // from any node to its evals (and vice-versa for the eval page).
   target_ref: "tests",
   // Principal→Principal reporting line — `X.reports_to = Y` ⇒ X reports
-  // to Y. The org-chart template's `requires_edge` predicate (see
-  // `org-chart` template policies) walks edges of this type to find each
-  // active Principal's manager. Field name and edge type match by
-  // design; the explicit entry documents the mapping alongside the
-  // identity entries above.
+  // to Y. Authored as an id field on the Principal and materialized here
+  // as a first-class `reports_to` edge; the org-tree perspective walks
+  // these edges to build the hierarchy. Target existence is app-enforced
+  // (there is no DB foreign key behind it since the node-table collapse).
+  // The org-chart template does NOT gate this with a `requires_edge`
+  // predicate — that deterministic check was retired (migration 041)
+  // because it warned legitimate root Principals (CEO/founder/root
+  // agent); the template uses a probabilistic warn that lets a root
+  // explain the absence in body_md. Field name and edge type match by
+  // design.
   reports_to: "reports_to",
   // Secondary / dotted-line (matrix) reporting — `X.dotted_reports_to =
   // [Y]` ⇒ X also reports to Y, but as a non-primary line that doesn't
