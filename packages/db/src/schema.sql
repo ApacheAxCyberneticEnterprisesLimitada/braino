@@ -372,6 +372,65 @@ CREATE TABLE IF NOT EXISTS reference_entities (
 );
 -- reference_entities.ref_type index lives in migration 035.
 
+-- ── Unified node table (doco-vnext follow-up: collapse the 10 per-type
+--    node tables into one) ───────────────────────────────────────────────
+-- One row per graph node of ANY type, discriminated by `node_type`. Replaces
+-- the 10 per-type tables (intents/decisions/rules/actions/logs/evals/states/
+-- ideas/reference_entities/principals) — the sharding was a false split; this
+-- mirrors how `edges` is already a single discriminated table.
+--
+-- "Wide" by design: every per-type promoted column is preserved here as a
+-- real (nullable) column so reads keep their existing column names. Promoted
+-- relationship columns carry NO foreign key — existence is enforced in app
+-- code exactly like `edges` endpoints (every inbound FK to the old node
+-- tables came from another node table, so none survives the collapse). The
+-- migration that copies the legacy rows in is 064; the legacy tables are
+-- dropped in a later migration once this is production-verified.
+--
+-- Policies are deliberately NOT folded in here: guidance_policies /
+-- node_authoring_policies stay their own tables (governance config, not graph
+-- knowledge). They share the node_versions spine, so any rebuild-from-spine
+-- MUST filter entity_type to the node types below.
+CREATE TABLE IF NOT EXISTS nodes (
+  id             text PRIMARY KEY,            -- <node_type>_<ulid>
+  doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  node_type      text NOT NULL,              -- intent|idea|rule|decision|action|log|eval|reference|state|principal
+  lifecycle      text,
+  prose          text NOT NULL DEFAULT '',   -- unified type-named column (the 9 prose nodes); '' for principals
+  name           text,                       -- principal display label (NULL for the others)
+  body_md        text,                       -- principal prose description (NULL for the others)
+  role_principal boolean NOT NULL DEFAULT false,
+  -- Promoted relationship columns (no FK; existence app-enforced, like edges).
+  parent_intent_id          text,            -- intent
+  proposer_id               text,            -- idea
+  decided_by                text,            -- decision
+  superseded_by_decision_id text,            -- decision
+  actor_id                  text,            -- action, log
+  template_id               text,            -- log
+  -- Promoted scalar columns (migration 035 lineage).
+  verb         text,                          -- action, log
+  performed_at timestamptz,                   -- action (matches actions.performed_at)
+  happened_at  timestamptz,                   -- log (matches logs.happened_at)
+  kind         text,                          -- eval, rule, state
+  modality     text,                          -- rule
+  severity     text,                          -- rule
+  phase        text,                          -- rule
+  on_violation text,                          -- rule
+  ref_type     text,                          -- reference
+  locator      text,                          -- reference
+  citation     text,                          -- reference
+  title        text,                          -- reference
+  data         jsonb NOT NULL,
+  created_at   timestamptz NOT NULL DEFAULT now(),
+  created_by   text,
+  updated_at   timestamptz NOT NULL DEFAULT now(),
+  updated_by   text
+);
+CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS nodes_superseded_idx ON nodes (superseded_by_decision_id) WHERE superseded_by_decision_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS nodes_actor_idx      ON nodes (actor_id) WHERE actor_id IS NOT NULL;
+
 -- Audit events: one row per mutation.
 
 CREATE TABLE IF NOT EXISTS audit_events (
