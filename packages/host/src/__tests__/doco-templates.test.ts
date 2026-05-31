@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_DOCO_TEMPLATES, findDocoTemplateByName } from "../doco-templates.js";
 
+describe("template policies carry no vestigial rule `kind`", () => {
+  // Rules are no longer guidances: the guidance/authoring distinction
+  // lives in standalone policies (guidance_policies / node_authoring_policies),
+  // seeded purely by predicate-presence — never a `kind` field
+  // (decision_01KRRR5BQ16ASY8HQEE0V499YG). Keep the vestige out for good.
+  it("no seeded template policy declares a `kind`", () => {
+    for (const t of DEFAULT_DOCO_TEMPLATES) {
+      for (const p of t.policies) {
+        expect(p).not.toHaveProperty("kind");
+      }
+    }
+  });
+});
+
 describe("business-processes template", () => {
   const template = findDocoTemplateByName("business-processes");
   if (!template) throw new Error("business-processes template not registered");
@@ -183,9 +197,7 @@ describe("business-processes template", () => {
     // Aggregate predicates that originally encoded these rules ship as
     // guidance until the evaluator can express them directly. The tests
     // below match the guidance summaries' shape rather than predicate kinds.
-    const guidanceSummaries = template.policies
-      .filter((r) => r.kind === "guidance" && !r.predicate)
-      .map((r) => r.policy);
+    const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
 
     it("State uniqueness within the process is documented", () => {
       expect(guidanceSummaries.some((s) => /\bstate\b.*\bunique\b/i.test(s))).toBe(true);
@@ -257,7 +269,7 @@ describe("business-processes template", () => {
   });
 
   describe("guidance rules", () => {
-    const guidance = template.policies.filter((r) => r.kind === "guidance" && !r.predicate);
+    const guidance = template.policies.filter((r) => !r.predicate);
     const summaries = guidance.map((r) => r.policy);
 
     it("tells agents to use the authoring contract and changesets", () => {

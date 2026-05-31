@@ -19,21 +19,16 @@
  *   ships with policy types so the Doco's policy set is kept
  *   separate from domain Rule nodes.
  *
- * v7 (decision_01KRRR5BQ16ASY8HQEE0V499YG) drops the
- * `kind: "authoring"` value from RuleKind. Templates no longer mark
- * policies "authoring" explicitly. Templates now store those
- * meta-constraints as policies instead of overloading
- * Rule.
+ * Template policy entries seed Doco-level policies, split purely by
+ * predicate-presence: prose-only entries become guidance_policies,
+ * predicate-bearing entries become node_authoring_policies (see
+ * host.ts). The historical Rule.kind overloading (guidance / authoring /
+ * tagged) is gone — meta-constraints are policies, not Rule nodes
+ * (decision_01KRRR5BQ16ASY8HQEE0V499YG).
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
 export interface TemplatePolicy {
-  /**
-   * Policy kind on the seeded policy. Optional —
-   * defaults to "tagged" when `predicate` is set, "guidance" otherwise.
-   * v7 dropped "authoring" (decision_01KRRR5BQ16ASY8HQEE0V499YG).
-   */
-  kind?: "guidance" | "tagged";
   /** The one-line rule statement. Renamed from `summary` to `policy`
    *  in migration 038 to match the migration-023 type-named-prose
    *  pattern. For predicate-bearing policies this is the reason text
@@ -141,21 +136,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     allowedNodeTypes: ["guidance_policy", "node_authoring_policy"],
     policies: [
       {
-        kind: "guidance",
         policy:
           "Capture each meaningful decision, correction, and load-bearing implementation outcome in Doco.",
       },
       {
-        kind: "guidance",
         policy: "If you're an agent, check with your client before changing the policies.",
       },
       {
-        kind: "guidance",
         policy:
           "AI agents: document every explicit rule and decision from the project owner, and especially every correction. Corrections are the highest-signal moments — they encode preferences that aren't visible in the code or docs. Capture them in Doco the same turn they happen, so the next agent (or the next session of you) doesn't repeat the mistake.",
       },
       {
-        kind: "guidance",
         policy:
           "Nothing is ever deleted — nodes and edges are retired, not removed, and every prior version stays recoverable. When you retire or change something load-bearing, say why in the change's reason so the history explains itself to whoever reads it next.",
       },
@@ -299,32 +290,26 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Guidance ───────────────────────────────────────────────
       {
-        kind: "guidance",
         policy:
           "When rejected, deprecated, misleading, synonymous, or historical terms exist, record them in `alternatives`; otherwise omit `alternatives` rather than inventing filler.",
       },
       {
-        kind: "guidance",
         policy:
           "When two distinct concepts share a surface form (homographs, e.g. `Order` in commerce vs. `Order` as a sort operation), give each its own Decision and disambiguate `chosen` with a qualifier — `Order (commerce)` vs. `Order (sorting)` — so every entry stays uniquely addressable.",
       },
       {
-        kind: "guidance",
         policy:
           "Connect related glossary terms in the graph instead of leaving entries isolated — use a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Deprecation links use `superseded_by` (see below).",
       },
       {
-        kind: "guidance",
         policy:
           "Borrowed, standards-based, or industry terms cite a Reference when possible. Product-internal terms state that they are product-specific so readers don't mistake them for external standards.",
       },
       {
-        kind: "guidance",
         policy:
           "Retired glossary Decisions point at the replacement term via `superseded_by` when one exists, and keep the deprecated term visible so readers understand old docs, tickets, or UI copy.",
       },
       {
-        kind: "guidance",
         policy:
           "Use Rules for terminology usage policies, such as banned words, capitalization conventions, UI copy constraints, or when two related terms must not be used interchangeably.",
       },
@@ -516,12 +501,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── State shape & sequence wiring (graph invariants kept as
       //    guidance until the evaluator can express subgraph shape) ──
       {
-        kind: "guidance",
         policy:
           "A business process has ≥1 active initial State and ≥1 active terminal State, with each `state` name unique within the process. Every process starts somewhere, ends at a business outcome (or an explicitly cancelled outcome), and names its milestones unambiguously.",
       },
       {
-        kind: "guidance",
         policy:
           "Flow runs forward from the initial State: each active initial State has ≥1 outgoing `sequence_to`, every non-initial flow node is reachable from an earlier flow node through forward `sequence_to`, and every non-terminal flow node has ≥1 outgoing `sequence_to` target in the same process Intent. Terminal States have no outgoing `sequence_to` — they end the process path.",
       },
@@ -571,87 +554,70 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Guidance (prose-only) ───────────────────────────────────
       {
-        kind: "guidance",
         policy:
           "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys and pure state machines belong in their own Docos.",
       },
       {
-        kind: "guidance",
         policy:
           "Use one linked Intent per concrete process when the Doco is large. Split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
       },
       {
-        kind: "guidance",
         policy:
           "When a step is itself a whole sub-process, model it as its own child process Intent and link the calling Action to that Intent (the BPMN call-activity pattern) instead of inlining dozens of Actions. The BPMN view collapses the child Intent into its own pool, keeping the parent process readable.",
       },
       {
-        kind: "guidance",
         policy:
           "Name the single accountable process owner in the purpose Intent — the Principal answerable for the whole process's outcome. This is the RACI 'Accountable' role, distinct from the per-step 'Responsible' actors named in each Action's `actor_id`.",
       },
       {
-        kind: "guidance",
         policy:
           "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`serves` via `intent_ids`, the actor via `actor_principal_id`, `gated_by`, `sequence_to`) can be set inline in the create `body` with `$alias` references, so a node can be created already `asserted` and fully wired in one op — no draft-then-assert round trip.",
       },
       {
-        kind: "guidance",
         policy:
           "Use `relate_many` for sibling edges that must be valid together, especially exhaustive gateway branches. Adding one branch at a time can create a temporarily invalid BPMN graph.",
       },
       {
-        kind: "guidance",
         policy:
           "BPMN vocabulary: use `sequence_to` for forward process flow; it materializes as `sequence_flow` and renders source -> target with no reversal. Use `intent_ids`/`serves` for pool membership, `gated_by` for policy guards, and `decision_ids` only for rationale/provenance associations.",
       },
       {
-        kind: "guidance",
         policy:
           "`sequence_to` may be a list of target ids or objects like `{ target, label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
       },
       {
-        kind: "guidance",
         policy:
           "For parallel work, give one flow node multiple unconditional `sequence_to` targets — an AND-split needs no gateway Decision. Reserve gateway Decisions for exclusive or conditional (XOR/inclusive) branching, and reconverge parallel branches on a shared downstream node.",
       },
       {
-        kind: "guidance",
         policy:
           "Rework and retry loops are allowed: a `sequence_to` may target an earlier flow node to send work back (revise-and-resubmit, fix-and-recheck). Route the loop back through a gateway Decision so the cycle has an explicit exit and can't spin forever. A single edge still renders source -> target — a loop is about where the edge points, not reversing its direction.",
       },
       {
-        kind: "guidance",
         policy:
           'Model the unhappy path. Use `sequence_to` objects with `kind: "exception"` or `kind: "timer"` to route failures, rejections, and timeouts to a recovery step or an explicitly cancelled terminal State, so the process documents what happens when the happy path does not hold.',
       },
       {
-        kind: "guidance",
         policy:
           "Edges are first-class: a `serves`, `sequence_flow`, or `gated_by` edge has its own lifecycle and history, and its endpoints are immutable. To reroute the process — send a step to a different next step, or move an Action under another Intent — retire the old edge and add the new one instead of editing endpoints in place. Nothing is deleted; the previous wiring stays recoverable with the reason it changed.",
       },
       {
-        kind: "guidance",
         policy:
           "Not every node-to-node link is an edge. An Action's actor (`actor_id`) and a sub-process's `parent_intent_id` are promoted pointer fields on the node itself — not first-class edges — so they carry no separate lifecycle or history, and, since the inter-node foreign keys were dropped, no database guarantee that their target exists. Point them at ids that already exist; the `actor_id`-resolves-to-a-Principal rule is what now catches a dangling actor at capture time. Re-point a pointer by editing the field in place (it versions with the node) — unlike `serves` / `sequence_flow` / `gated_by`, which you reroute by retiring the old edge and adding a new one.",
       },
       {
-        kind: "guidance",
         policy:
           "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
       },
       {
-        kind: "guidance",
         policy:
           "Process *instances* (recorded runs) live in a separate Doco as Logs; surface them here only via References. This template describes the design of the process, not the history of its executions.",
       },
       {
-        kind: "guidance",
         policy:
           "Rules in a business-processes Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
       },
       {
-        kind: "guidance",
         policy:
           "Don't model every click, method call, or DB mutation — only the steps that mean something to a business operator. Implementation detail belongs in `apis` or code Docos, not here.",
       },
@@ -794,67 +760,54 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Guidance (prose-only) ───────────────────────────────────
       {
-        kind: "guidance",
         policy:
           "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in business-processes Docos linked via Reference.",
       },
       {
-        kind: "guidance",
         policy:
           "`reports_to` chains must not be circular. A cycle (A reports to B, B reports to C, C reports to A) usually means a refactor in progress; resolve it before activating the affected Principals. The framework evaluator can't check this yet — it's a manual review.",
       },
       {
-        kind: "guidance",
         policy:
           "AI-agent Principals that act on a human's behalf should declare that human via prose in `body_md` (`Operates under: @alice`), or via a `delegated_by` Decision linking the human Principal to the agent Principal. Autonomous agents (no human owner) state that explicitly so readers know the accountability stops at the agent.",
       },
       {
-        kind: "guidance",
         policy:
           "Capture reorgs, hires, departures, and role changes as Decisions, and link the affected Principals via `decision_ids`. Org charts churn; without Decisions, the history of WHY a reporting line moved is lost.",
       },
       {
-        kind: "guidance",
         policy:
           "Team membership lives in the Intent's `actors` list, which the org-tree renders but does not version. When someone joins or leaves a team, record it as a Decision linking the affected Principals so the *why* and *when* survive the in-place edit. Once a Doco needs real join/leave history, prefer a first-class `member_of` edge over editing `actors`, mirroring how `reports_to` is already a versioned edge — an `actors` array overwrite leaves no trail.",
       },
       {
-        kind: "guidance",
         policy:
           "`reports_to` is a first-class edge with its own lifecycle and history, and its endpoints are immutable. When a reporting line moves, retire the old `reports_to` edge and add the new one rather than rewriting it in place — the prior line stays recoverable alongside the Decision that explains the reorg.",
       },
       {
-        kind: "guidance",
         policy:
           "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids that, like `reports_to`, each derive a first-class edge with its own lifecycle and immutable endpoints. The org-tree perspective draws those dashed and never reparents the node; to drop or move a dotted line, retire its edge and add the new one rather than relying on a silent in-place overwrite. Add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
       },
       {
-        kind: "guidance",
         policy:
           "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — a first-class edge (own lifecycle, immutable endpoints) — so the chart knows it's one person, not two; to split or re-pair seats, retire the edge and add the new one. Don't collapse two distinct roles into one Principal just because the same person fills them today.",
       },
       {
-        kind: "guidance",
         policy:
           "Use Intents to model teams, departments, and org units. The Intent's `intent` field names the unit's mandate; `actors` lists the member Principals; `stakeholders` lists the people who care about the unit's outcomes without being on the team.",
       },
       {
-        kind: "guidance",
         policy:
           "Model load-bearing roles and recurring positions — not every contractor, intern, or one-day visitor. If a seat would be empty in three months, it probably belongs in a sibling Doco or a Reference rather than as a Principal here.",
       },
       {
-        kind: "guidance",
         policy:
           "Treat each Principal as a seat — a role plus its current occupant — not just a person. A budgeted-but-unfilled seat is a valid Principal: declare it `vacant` in `body_md`, name the role it's budgeted for, and keep its `reports_to` line so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure (the same mistake as leaving vacant boxes off a printed chart).",
       },
       {
-        kind: "guidance",
         policy:
           "Person vs agent isn't about who signed in — it's about who fills the seat. A Principal whose `body_md` describes an AI agent (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal whose `body_md` describes a human is a person, even if that human has no Doco account.",
       },
       {
-        kind: "guidance",
         policy:
           "Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md`, and record the change as a Decision, so the `reports_to` line and team memberships stay intact and the seat's history reads continuously. Only when the seat's *nature* flips between person and AI agent do you retire the old Principal and create a new one: person-vs-agent is part of the seat's identity in this Doco, and flipping it via a body_md edit erases the prior occupant's history.",
       },

@@ -207,7 +207,7 @@ describe("org-chart template", () => {
   });
 
   describe("guidance rules", () => {
-    const guidance = template.policies.filter((r) => r.kind === "guidance" && !r.predicate);
+    const guidance = template.policies.filter((r) => !r.predicate);
     const summaries = guidance.map((r) => r.policy);
 
     it("`reports_to` chains must not be circular (engine can't check yet)", () => {

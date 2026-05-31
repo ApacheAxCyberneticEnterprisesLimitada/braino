@@ -233,8 +233,6 @@ export interface Idea extends CommonFields {
 
 // ─── Rule ─────────────────────────────────────────────────────────────────
 
-export type RuleKind = "guidance" | "tagged";
-
 /**
  * Authoring predicate — the structured shape the engine evaluates at
  * write time. Stored as `Rule.predicate`.
@@ -302,7 +300,6 @@ export interface Rule extends CommonFields {
   node_type: "rule";
   /** Full prose: the rule statement, rationale, scope, exceptions. */
   rule: string;
-  kind?: RuleKind;
   predicate?: AuthoringPredicate;
   fires_when_node_lifecycle?: Lifecycle[];
   modality?: "must" | "must_not" | "should" | "should_not";

@@ -261,7 +261,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   verb         text,                          -- action, log
   performed_at timestamptz,                   -- action (matches actions.performed_at)
   happened_at  timestamptz,                   -- log (matches logs.happened_at)
-  kind         text,                          -- eval, rule, state
+  kind         text,                          -- eval, state
   modality     text,                          -- rule
   severity     text,                          -- rule
   phase        text,                          -- rule

@@ -75,7 +75,7 @@ describe("glossaries template", () => {
     );
     const uniqueCanonicalTerm = template.policies.find((r) => r.predicate?.kind === "unique_field");
     const guidance = template.policies
-      .filter((r) => r.kind === "guidance" && !r.predicate)
+      .filter((r) => !r.predicate)
       .map((r) => r.policy)
       .join("\n");
 

@@ -111,7 +111,6 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   ],
   eval: [{ column: "kind", field: "kind", stripFromData: true }],
   rule: [
-    { column: "kind", field: "kind", stripFromData: true },
     { column: "modality", field: "modality", stripFromData: true },
     { column: "severity", field: "severity", stripFromData: true },
     { column: "phase", field: "phase", stripFromData: true },
