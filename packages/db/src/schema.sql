@@ -356,8 +356,10 @@ CREATE INDEX IF NOT EXISTS edge_versions_asof_idx ON edge_versions (entity_id, t
 -- row with a surrogate id (edge_<ulid>), lifecycle, and provenance — a
 -- peer of nodes, NOT a derived cache. Endpoints can be any node type so
 -- we can't FK them; existence + same-doco is enforced in app code.
--- Mutated only by edge CRUD via commit(); the indexer never wipes/rebuilds
--- this table. Removal is lifecycle='retired', never DELETE.
+-- Mutated by edge CRUD via commit() (origin='authored', carrying provenance)
+-- and reconciled by the capture path from node relationship fields
+-- (origin='field'); the indexer never wipes/rebuilds this table. Removal is
+-- lifecycle='retired', never DELETE.
 CREATE TABLE IF NOT EXISTS edges (
   id              text PRIMARY KEY,           -- edge_<ulid>
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -368,6 +370,14 @@ CREATE TABLE IF NOT EXISTS edges (
   to_node_type    text NOT NULL,
   props           jsonb,
   lifecycle       text NOT NULL DEFAULT 'asserted',
+  -- How this edge came to exist (option (i): edges as the authored source of
+  -- truth). 'authored' = created directly via the edges API (captureEdge),
+  -- carrying its own provenance/history. 'field' = projected by the capture
+  -- path from a node relationship field (e.g. a Decision's decided_by) and
+  -- reconciled on every re-capture of that node. Only 'field' edges are
+  -- reconciled; 'authored' edges are never auto-retired.
+  origin          text NOT NULL DEFAULT 'authored'
+                    CHECK (origin IN ('authored','field')),
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      text,                       -- user_<ulid>
   updated_at      timestamptz NOT NULL DEFAULT now(),

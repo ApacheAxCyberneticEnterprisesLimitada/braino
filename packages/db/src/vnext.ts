@@ -220,6 +220,10 @@ export interface CreateEdgeInput {
   toNodeType: string;
   props?: Record<string, unknown> | null;
   lifecycle?: "drafting" | "asserted";
+  /** 'authored' (default) for edges created directly via the edges API;
+   *  'field' for edges the capture path projects from a node relationship
+   *  field and reconciles. */
+  origin?: "authored" | "field";
   actor?: string | null;
 }
 
@@ -233,6 +237,7 @@ export interface EdgeRow {
   to_node_type: string;
   props: Record<string, unknown> | null;
   lifecycle: string;
+  origin: string;
   created_at: string;
   created_by: string | null;
   updated_at: string;
@@ -253,8 +258,8 @@ export async function createEdge(
   const { rows } = await c.query<EdgeRow>(
     `INSERT INTO edges
        (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type,
-        props, lifecycle, created_by, updated_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10)
+        props, lifecycle, origin, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
      RETURNING *`,
     [
       id,
@@ -266,6 +271,7 @@ export async function createEdge(
       input.toNodeType,
       input.props ? JSON.stringify(input.props) : null,
       input.lifecycle ?? "asserted",
+      input.origin ?? "authored",
       input.actor ?? null,
     ],
   );

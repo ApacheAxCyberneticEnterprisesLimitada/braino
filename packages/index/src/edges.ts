@@ -195,4 +195,78 @@ export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   // policy predicates and the deployment-status rollup can target this
   // edge by name. Layer A of deriving deployment state from PR refs.
   implemented_by: "implemented_by",
+  // Log → Action template. The Log's `template_id` points at the Action it
+  // instantiates; the edge reads "log templated_by action".
+  template_id: "templated_by",
+  // Decision → Principal attribution. `decided_by` already defaults to its
+  // field name, but list it so the managed-edge set is explicit.
+  decided_by: "decided_by",
 };
+
+/**
+ * The five promoted relationship columns retired by the "edges as the authored
+ * source of truth" refactor (option (i)) each project exactly one edge type.
+ * The capture path authors these as first-class edges; Stage 2 drops the
+ * columns. Every other relationship `deriveEdges` emits stays a node field for
+ * now — those columns are not being dropped.
+ */
+export const MANAGED_RELATION_EDGE_TYPES = [
+  "has_parent", // intent.parent_intent_id → intent
+  "performed_by", // action/log.actor_id    → principal
+  "superseded_by", // decision.superseded_by → decision
+  "decided_by", // decision.decided_by      → principal
+  "templated_by", // log.template_id         → action
+] as const;
+
+const MANAGED_EDGE_TYPE_SET: ReadonlySet<string> = new Set(MANAGED_RELATION_EDGE_TYPES);
+
+/**
+ * The subset of `deriveEdges` output the capture path persists as first-class
+ * edges: exactly the edges projected by the five promoted columns Stage 2
+ * drops. Because the managed types are all node→node, a non-node ref like
+ * `idea.proposer_id` (→ user) is naturally excluded.
+ */
+export function managedEdges(entity: Entity): Edge[] {
+  return deriveEdges(entity).filter((e) => MANAGED_EDGE_TYPE_SET.has(e.edge_type));
+}
+
+/** A live managed-type edge already in the DB, as needed for reconciliation. */
+export interface ExistingManagedEdge {
+  id: string;
+  edge_type: string;
+  to_id: string;
+  origin: "authored" | "field";
+}
+
+export interface ManagedEdgeReconciliation {
+  /** Desired edges with no live edge of the same (edge_type, to_id) yet. */
+  toCreate: Edge[];
+  /** Ids of live origin='field' edges the node no longer projects. */
+  toRetireIds: string[];
+}
+
+/**
+ * Diff the edges a node should project (`desired`, from `managedEdges`) against
+ * the live managed-type edges already stored (`existing`). Returns the
+ * create/retire plan the capture path runs in one transaction.
+ *
+ * - Idempotent: identical input → empty plan, so a full backfill/reindex never
+ *   churns edge history.
+ * - origin='authored' edges are never auto-retired, and a desired edge that is
+ *   already live (as either origin) is not re-created — the live-unique index
+ *   would reject the duplicate anyway.
+ */
+export function reconcileManagedEdges(
+  desired: Edge[],
+  existing: ExistingManagedEdge[],
+): ManagedEdgeReconciliation {
+  const key = (edgeType: string, toId: string): string => `${edgeType} ${toId}`;
+  const desiredKeys = new Set(desired.map((e) => key(e.edge_type, e.to_id)));
+  const liveKeys = new Set(existing.map((e) => key(e.edge_type, e.to_id)));
+  return {
+    toCreate: desired.filter((e) => !liveKeys.has(key(e.edge_type, e.to_id))),
+    toRetireIds: existing
+      .filter((e) => e.origin === "field" && !desiredKeys.has(key(e.edge_type, e.to_id)))
+      .map((e) => e.id),
+  };
+}
