@@ -1,0 +1,104 @@
+{
+  "_comment": "Labeled retrieval fixture for scripts/eval-retrieval.mjs. Documents and queries are drawn from this repository's real Doco-domain content (ADRs, auth flow, workflow rules, search architecture) so the harness exercises representative agent traffic. `relevant` is a list of document ids, or an object of { id: gain } for graded nDCG. Replace with exported Doco nodes once the Doco handle resolves.",
+  "documents": [
+    {
+      "id": "decision_adr052_provider",
+      "type": "decision",
+      "text": "ADR-052: vector embeddings live behind a pluggable EmbeddingProvider interface with modelId, dimensions, and embed(). The default is a no-op (FTS only); when OPENAI_API_KEY is set the OpenAI text-embedding-3-small provider with 1536 dimensions is used. Self-hosted deployments add their own provider class."
+    },
+    {
+      "id": "decision_adr049_tier",
+      "type": "decision",
+      "text": "ADR-049: the deployment is at Tier B scale, where sequential cosine similarity over every embedding in a Doco runs in microseconds. pgvector with ivfflat or hnsw indexes is an additive optimization deferred to Tier C; it is not needed yet."
+    },
+    {
+      "id": "rule_embedding_storage",
+      "type": "rule",
+      "text": "Embeddings are stored in the embeddings table as bytea: the raw Float32Array bytes, little-endian, one row per entity. This is the same on-disk shape as the old SQLite blob, so a future swap to pgvector's vector(N) type is a column-type migration with no data reformat."
+    },
+    {
+      "id": "idea_asymmetric_embeddings",
+      "type": "idea",
+      "text": "Agent queries are short natural-language questions while the corpus is dense typed prose, so retrieval is an asymmetric query-versus-document match. Instruction-tuned models that accept an input_type (query or document), such as Voyage and Cohere, outperform symmetric general-purpose embeddings on this shape."
+    },
+    {
+      "id": "idea_reranker",
+      "type": "idea",
+      "text": "A cross-encoder reranker reads the query and document together and resolves distinctions a single cosine score blurs. Running a reranker such as Cohere rerank-3.5 or Voyage rerank-2.5 over the hybrid top-K is the largest precision-at-k lever for natural-language retrieval."
+    },
+    {
+      "id": "idea_contextual_retrieval",
+      "type": "idea",
+      "text": "Contextual retrieval prepends a short generated blurb situating each chunk in the whole document before embedding, which substantially reduces failed retrievals. It pairs well with hybrid lexical-plus-vector search and a reranker on a small high-value corpus."
+    },
+    {
+      "id": "rule_hybrid_ranking",
+      "type": "rule",
+      "text": "Search is hybrid: a dense vector cosine score, Postgres full-text search over a weighted tsvector with English stemming, and a global PageRank centrality signal computed over the Doco's edge graph. Cross-category search is a union over the per-type FTS tables."
+    },
+    {
+      "id": "reference_oauth_device_flow",
+      "type": "reference",
+      "text": "Agents authenticate to a Doco over OAuth 2.1. Shell-capable agents use the localhost-loopback flow; chat-only or sandboxed agents use the RFC 8628 device authorization grant, where the project owner approves the device code at doco.to/device. Both end with an Authorization Bearer token."
+    },
+    {
+      "id": "reference_project_token",
+      "type": "reference",
+      "text": "A read-only project token is a committable credential stored in .doco/project-tokens.json that lets any agent cloning the repo read the Doco without an interactive OAuth approval. The owner mints it from the project-tokens page after confirming repo readers may read the Doco."
+    },
+    {
+      "id": "reference_dev_signin",
+      "type": "reference",
+      "text": "For UI testing against production, POST a reserved test username such as doco-test-harness to /auth/dev-signin to obtain a doco_session cookie, then drive doco.to with that cookie. Any non-reserved username returns 403."
+    },
+    {
+      "id": "rule_land_in_main",
+      "type": "rule",
+      "text": "Every task that introduces commits must land in main before the turn ends. main is push-protected, so the path is: commit on a feature branch, open a pull request, mark it ready, and squash-merge it into main. Opening a draft PR and stopping is not done."
+    },
+    {
+      "id": "rule_indicator_protocol",
+      "type": "rule",
+      "text": "Every turn that touches the Doco renders an indicator at the top of the first text output, footer lines verbatim after any write, and a tally line at the very end reporting how many nodes were added or updated per source."
+    }
+  ],
+  "queries": [
+    {
+      "query": "which embedding model and dimensions does Doco use by default?",
+      "relevant": ["decision_adr052_provider"]
+    },
+    {
+      "query": "how are vector embeddings stored in Postgres?",
+      "relevant": ["rule_embedding_storage", "decision_adr052_provider"]
+    },
+    {
+      "query": "do we need pgvector and an HNSW index for similarity search?",
+      "relevant": ["decision_adr049_tier", "rule_embedding_storage"]
+    },
+    {
+      "query": "how do agents sign in to read a private Doco?",
+      "relevant": ["reference_oauth_device_flow", "reference_project_token"]
+    },
+    {
+      "query": "how do I get a session cookie to screenshot the UI in a sandbox?",
+      "relevant": ["reference_dev_signin"]
+    },
+    {
+      "query": "where should finished work end up and how does it get there?",
+      "relevant": ["rule_land_in_main"]
+    },
+    {
+      "query": "how can we make search results better for agent queries?",
+      "relevant": {
+        "idea_asymmetric_embeddings": 2,
+        "idea_reranker": 2,
+        "idea_contextual_retrieval": 1,
+        "rule_hybrid_ranking": 1
+      }
+    },
+    {
+      "query": "what signals besides cosine similarity rank search results?",
+      "relevant": ["rule_hybrid_ranking"]
+    }
+  ]
+}

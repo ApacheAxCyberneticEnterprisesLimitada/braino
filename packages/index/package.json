@@ -18,7 +18,8 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "eval:retrieval": "node scripts/eval-retrieval.mjs"
   },
   "dependencies": {
     "@doco/db": "workspace:*",

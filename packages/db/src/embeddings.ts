@@ -11,10 +11,13 @@
 // vite/rollup don't drag it into browser bundles via the @doco/db barrel.
 import { withClient, withTransaction } from "./client.js";
 
+// `inputType` mirrors @doco/index's EmbeddingInputType ("query" | "document").
+// Inlined rather than imported because @doco/index depends on @doco/db, not
+// the other way round; the two definitions must stay in sync.
 export interface EmbeddingProviderLike {
   modelId: string;
   dimensions: number;
-  embed(texts: string[]): Promise<Float32Array[]>;
+  embed(texts: string[], inputType?: "query" | "document"): Promise<Float32Array[]>;
 }
 
 /** SHA-1 of (summary + "\n\n" + body). Stable across runs. */
@@ -130,7 +133,12 @@ export async function upsertEmbeddings(
     return { computed: 0, skipped, pruned, modelId };
   }
 
-  const vectors = await provider.embed(toEmbed.map((c) => c.text));
+  // Indexing the corpus: these are documents, not queries. Asymmetric
+  // providers (Voyage/Cohere) use the hint; symmetric ones ignore it.
+  const vectors = await provider.embed(
+    toEmbed.map((c) => c.text),
+    "document",
+  );
   if (vectors.length !== toEmbed.length) {
     throw new Error(
       `Embedding provider returned ${vectors.length} vectors for ${toEmbed.length} inputs (provider=${modelId}).`,
