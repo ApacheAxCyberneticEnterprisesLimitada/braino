@@ -725,7 +725,7 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
-  kind            text NOT NULL CHECK (kind IN ('graph','list','bpmn','org-tree','sla','approval','glossary')),
+  kind            text NOT NULL CHECK (kind IN ('graph','list','bpmn','org-tree','sla','approval','glossary','pull-requests')),
   name            text NOT NULL,
   description     text,
   icon            text,
@@ -747,7 +747,8 @@ INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle,
   ('perspective_approval','for-approval','approval','Proposed','Queue of proposed nodes waiting for review.',NULL,NULL,true,'{"lifecycle":"drafting","reject_lifecycle":"drafting","approve_lifecycle":"asserted"}'::jsonb),
   ('perspective_glossary','glossary','glossary','Glossary','A dictionary-style reading of the Doco''s terminology — canonical headwords, definitions, senses, and aliases laid out like a printed lexicon.','📖',NULL,true,'{"headword_field":"chosen","primary_entity":"decision","definition_field":"decision"}'::jsonb),
   ('perspective_org_tree','org-tree','org-tree','Org Tree','Organizational chart — Principals as members, `reports_to` edges as reporting lines, with person vs AI agent shown by icon.','🏢',NULL,true,'{"agent_icon":"🤖","person_icon":"👤","root_edge":"reports_to","icon_by_member_kind":true}'::jsonb),
-  ('perspective_sla','sla','sla','SLAs','Service-level agreement control plane — commitments, owners, evidence links, remedies, and review gaps.','📜',NULL,true,'{"event_logs":false,"primary_entity":"rule","evidence_sources":["eval","reference"]}'::jsonb)
+  ('perspective_sla','sla','sla','SLAs','Service-level agreement control plane — commitments, owners, evidence links, remedies, and review gaps.','📜',NULL,true,'{"event_logs":false,"primary_entity":"rule","evidence_sources":["eval","reference"]}'::jsonb),
+  ('perspective_pull_requests','pull-requests','pull-requests','Pull requests','Imported GitHub pull requests, grouped by lifecycle — merged, open, and closed.','🔀',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS doco_perspectives (

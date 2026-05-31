@@ -365,3 +365,33 @@ describe("business-processes template", () => {
     });
   });
 });
+
+describe("github-pull-requests template", () => {
+  it("is registered and findable by handle", () => {
+    const template = findDocoTemplateByName("github-pull-requests");
+    expect(template).toBeDefined();
+    expect(template?.name).toBe("github-pull-requests");
+  });
+
+  it("has a non-empty label and description", () => {
+    const template = findDocoTemplateByName("github-pull-requests");
+    expect(template?.label).toBeTruthy();
+    expect(template?.description).toBeTruthy();
+    expect(template?.description.length).toBeGreaterThan(10);
+  });
+
+  it("ships with an empty policies array (no authoring constraints)", () => {
+    const template = findDocoTemplateByName("github-pull-requests");
+    expect(template?.policies).toEqual([]);
+  });
+
+  it("defaults the Doco overview to the Pull requests perspective", () => {
+    const template = findDocoTemplateByName("github-pull-requests");
+    expect(template?.perspectives).toEqual([{ slug: "pull-requests", isDefault: true }]);
+  });
+
+  it("does NOT set allowedNodeTypes — PRs are stored as reference nodes, allow all", () => {
+    const template = findDocoTemplateByName("github-pull-requests");
+    expect(template?.allowedNodeTypes).toBeUndefined();
+  });
+});
