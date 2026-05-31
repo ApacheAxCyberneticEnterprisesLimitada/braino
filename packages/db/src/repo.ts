@@ -10,7 +10,16 @@
 import { normalizeWriteTypes } from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
-import { ALL_ENTITY_TABLES, type EntityRecord } from "./types.js";
+import {
+  ALL_ENTITY_TABLES,
+  type EntityRecord,
+  NODE_PROMOTED_COLUMNS,
+  NODE_TABLES,
+  type PromotedColumnSpec,
+} from "./types.js";
+
+/** The 10 graph node types — all stored in the unified `nodes` table. */
+const NODE_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(NODE_TABLES));
 
 function tableFor(entityType: string): {
   table: string;
@@ -60,60 +69,118 @@ function deriveLifecycleColumn(rec: EntityRecord, data: Record<string, unknown>)
 }
 
 /**
- * Upsert one entity. Identity tables (principals/organizations/docos/
- * users) have richer columns and use their own writers — the
- * generic path here covers Doco entity types.
+ * Upsert one entity, routing by category:
+ *  - the 10 graph node types (incl. principal) → the unified `nodes` table
+ *  - the 2 policy types → their per-Doco policy table
+ *  - identity (organization / doco / user) → richer per-table writers
  */
 export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
-  const spec = tableFor(rec.entity_type);
-  if (
-    rec.entity_type === "principal" ||
-    rec.entity_type === "organization" ||
-    rec.entity_type === "doco" ||
-    rec.entity_type === "user"
-  ) {
-    return upsertIdentity(rec, client);
-  }
-  // Migrated nodes store prose in a single type-named column
-  // (intents.intent, decisions.decision, …); the legacy `summary`,
-  // `body_md`, `title`, `name`, and `description` keys were dropped by
-  // migration 023 and must not leak back into `data` jsonb either.
-  // Policies (the only non-migrated entity type reaching this branch
-  // — principals go through upsertIdentity) carry their one-line rule
-  // in the `policy` column (renamed from `summary` by migration 038)
-  // plus an optional `body_md`.
-  // Strip prose-collapsed keys (migration 023) and promoted-scalar keys
-  // (migration 035) from the jsonb bag so the typed columns are the
-  // single source of truth and the two surfaces can never drift.
-  const baseData = spec.typeNamedColumn ? stripLegacyProseKeys(rec.data) : rec.data;
-  const cleanData = stripPromotedKeys(rec.entity_type, baseData);
-  // Single source of truth for lifecycle: `data.lifecycle`. The column
-  // is a denormalized mirror used for filtering/indexing — derive it
-  // from `data` instead of trusting the caller-supplied `rec.lifecycle`
-  // so the two can never drift. Warn if the caller passed a value that
-  // disagrees, since that signals a bug at the call site.
+  const t = rec.entity_type;
+  if (t === "organization" || t === "doco" || t === "user") return upsertIdentity(rec, client);
+  if (t === "guidance_policy" || t === "node_authoring_policy") return upsertPolicy(rec, client);
+  if (NODE_TYPE_SET.has(t)) return upsertNode(rec, client);
+  throw new Error(`Unknown entity type for storage: ${t}`);
+}
+
+/** Resolve a promoted column's value from the entity's data bag. */
+function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): string | null {
+  const raw = data[pc.field];
+  const v = typeof raw === "string" && raw.length > 0 ? raw : null;
+  if (v !== null && pc.requirePrefix && !v.startsWith(pc.requirePrefix)) return null;
+  return v;
+}
+
+/**
+ * Upsert a graph node (any of the 10 types) into the unified `nodes` table.
+ *
+ * Prose: the 9 prose nodes carry their content in `prose` (was the per-type
+ * intents.intent / decisions.decision / … column); principals carry name +
+ * body_md and leave prose = ''. Promoted columns (relationship refs +
+ * scalars) come from NODE_PROMOTED_COLUMNS; their keys are stripped from
+ * `data` only when the spec says so (the migration-035 scalars), so the typed
+ * column is the single source of truth while relationship refs stay in `data`
+ * for edge derivation. `data.lifecycle` is the source of truth for the
+ * lifecycle column (deriveLifecycleColumn warns on drift).
+ */
+async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
+  const t = rec.entity_type;
+  const isPrincipal = t === "principal";
+  const baseData = isPrincipal ? rec.data : stripLegacyProseKeys(rec.data);
+  const cleanData = stripPromotedKeys(t, baseData);
   const lifecycleCol = deriveLifecycleColumn(rec, cleanData);
-  const cols = ["id", "doco_id", "lifecycle", "data"];
-  const vals: unknown[] = [rec.id, rec.doco_id, lifecycleCol, JSON.stringify(cleanData)];
-  if (spec.typeNamedColumn) {
-    cols.push(spec.typeNamedColumn);
-    vals.push(rec.type_named_value ?? "");
-  } else {
-    // Policies — `policy` column holds the one-line rule.
-    cols.push("policy");
-    vals.push(typeof rec.data.policy === "string" ? rec.data.policy : "");
-    if (spec.body) {
-      cols.push("body_md");
-      vals.push(rec.body_md ?? null);
-    }
+
+  const cols: string[] = [
+    "id",
+    "doco_id",
+    "node_type",
+    "lifecycle",
+    "prose",
+    "name",
+    "body_md",
+    "role_principal",
+    "data",
+  ];
+  const vals: unknown[] = [
+    rec.id,
+    rec.doco_id,
+    t,
+    lifecycleCol,
+    isPrincipal ? "" : (rec.type_named_value ?? ""),
+    isPrincipal ? String(rec.data.name ?? rec.id) : null,
+    isPrincipal ? (rec.body_md ?? null) : null,
+    isPrincipal ? Boolean(rec.data.role_principal) : false,
+    JSON.stringify(cleanData),
+  ];
+  for (const pc of NODE_PROMOTED_COLUMNS[t] ?? []) {
+    cols.push(pc.column);
+    vals.push(promotedValue(pc, rec.data));
   }
-  // Promoted FK columns (real foreign keys). Extract from rec.data so
-  // captures land typed-column values on the way in — the edges
-  // table still materializes via deriveEdges for the array-shaped
-  // refs (intent_ids, decision_ids, …).
-  for (const [col, source] of fkColumnSources(rec.entity_type, rec.data)) {
-    cols.push(col);
-    vals.push(source);
+  cols.push("created_at", "created_by", "updated_at", "updated_by");
+  vals.push(
+    rec.created_at ?? new Date().toISOString(),
+    rec.created_by ?? null,
+    rec.updated_at ?? new Date().toISOString(),
+    rec.updated_by ?? null,
+  );
+  const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
+  // node_type is immutable (the id prefix encodes it); exclude it, id, and
+  // created_* from the UPDATE set.
+  const updates = cols
+    .filter((c) => c !== "id" && c !== "node_type" && c !== "created_at" && c !== "created_by")
+    .map((c) => `${c} = EXCLUDED.${c}`)
+    .join(", ");
+  const sql = `INSERT INTO nodes (${cols.join(",")}) VALUES (${placeholders})
+               ON CONFLICT (id) DO UPDATE SET ${updates}`;
+  const run = (c: pg.PoolClient) => c.query(sql, vals);
+  if (client) {
+    await run(client);
+  } else {
+    await withClient(async (c) => {
+      await run(c);
+    });
+  }
+}
+
+/**
+ * Upsert a policy (guidance / node_authoring) into its per-Doco table.
+ * Policies are NOT folded into `nodes` — they are governance config, not
+ * graph knowledge. The one-line rule lives in the `policy` column; the rest
+ * of the structured fields stay in `data`.
+ */
+async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
+  const spec = tableFor(rec.entity_type);
+  const lifecycleCol = deriveLifecycleColumn(rec, rec.data);
+  const cols = ["id", "doco_id", "lifecycle", "data", "policy"];
+  const vals: unknown[] = [
+    rec.id,
+    rec.doco_id,
+    lifecycleCol,
+    JSON.stringify(rec.data),
+    typeof rec.data.policy === "string" ? rec.data.policy : "",
+  ];
+  if (spec.body) {
+    cols.push("body_md");
+    vals.push(rec.body_md ?? null);
   }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
@@ -140,95 +207,29 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
 }
 
 /**
- * Map an entity's frontmatter to the typed column values added by
- * migrations 013 (FKs) and 035 (scalars). Returns [columnName, value]
- * pairs to splice into the INSERT/UPSERT. Polymorphic refs (target,
- * target_ref, born_from) and arrays (intent_ids, decision_ids) are
- * excluded — those stay in the data jsonb bag, materialized into
- * edges by the indexer.
+ * Keys promoted to typed columns that must be stripped from the `data` jsonb
+ * so the typed column is the single source of truth (the migration-035
+ * scalars + principal.role_principal). Derived from NODE_PROMOTED_COLUMNS;
+ * relationship refs are intentionally NOT stripped — the indexer still
+ * derives edges from them in `data`.
  */
-function fkColumnSources(
-  entityType: string,
-  fm: Record<string, unknown>,
-): Array<[string, unknown]> {
-  const out: Array<[string, unknown]> = [];
-  const stringOrNull = (v: unknown) => (typeof v === "string" && v.length > 0 ? v : null);
-  switch (entityType) {
-    case "intent":
-      out.push(["parent_intent_id", stringOrNull(fm.parent_intent_id)]);
-      break;
-    case "idea":
-      out.push(["proposer_id", stringOrNull(fm.proposer_id)]);
-      break;
-    case "decision": {
-      out.push(["decided_by", stringOrNull(fm.decided_by)]);
-      // superseded_by in frontmatter is polymorphic; only persist when
-      // it looks like a decision id so the FK constraint holds.
-      const sb = stringOrNull(fm.superseded_by);
-      out.push(["superseded_by_decision_id", sb?.startsWith("decision_") ? sb : null]);
-      break;
-    }
-    case "action":
-      out.push(["actor_id", stringOrNull(fm.actor_id)]);
-      // Scalars promoted by migration 035.
-      out.push(["verb", stringOrNull(fm.verb)]);
-      out.push(["performed_at", stringOrNull(fm.performed_at)]);
-      break;
-    case "log":
-      out.push(["actor_id", stringOrNull(fm.actor_id)]);
-      out.push(["template_id", stringOrNull(fm.template_id)]);
-      // Scalars promoted by migration 035.
-      out.push(["verb", stringOrNull(fm.verb)]);
-      out.push(["happened_at", stringOrNull(fm.happened_at)]);
-      break;
-    case "eval":
-      // Scalar promoted by migration 035.
-      out.push(["kind", stringOrNull(fm.kind)]);
-      break;
-    case "rule":
-      // Scalars promoted by migration 035 — predicate/expected/applies_to
-      // stay in data jsonb because they're compound.
-      out.push(["kind", stringOrNull(fm.kind)]);
-      out.push(["modality", stringOrNull(fm.modality)]);
-      out.push(["severity", stringOrNull(fm.severity)]);
-      out.push(["phase", stringOrNull(fm.phase)]);
-      out.push(["on_violation", stringOrNull(fm.on_violation)]);
-      break;
-    case "state":
-      // Scalar promoted by migration 035.
-      out.push(["kind", stringOrNull(fm.kind)]);
-      break;
-    case "reference":
-      // Scalars promoted by migration 035.
-      out.push(["ref_type", stringOrNull(fm.ref_type)]);
-      out.push(["locator", stringOrNull(fm.locator)]);
-      out.push(["citation", stringOrNull(fm.citation)]);
-      out.push(["title", stringOrNull(fm.title)]);
-      break;
+const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() => {
+  const out: Record<string, Set<string>> = {};
+  for (const [type, columns] of Object.entries(NODE_PROMOTED_COLUMNS)) {
+    const keys = new Set<string>();
+    for (const pc of columns) if (pc.stripFromData) keys.add(pc.field);
+    if (keys.size > 0) out[type] = keys;
   }
+  // Principal's role_principal is promoted to its own column by the writer.
+  out.principal = new Set(["role_principal"]);
   return out;
-}
-
-/**
- * Keys that have been promoted to typed columns and must not also
- * live in the `data` jsonb. Keeps the jsonb tight and prevents the
- * two surfaces from drifting on update.
- */
-const PROMOTED_DATA_KEYS_BY_TYPE: Record<string, ReadonlySet<string>> = {
-  action: new Set(["verb", "performed_at"]),
-  log: new Set(["verb", "happened_at"]),
-  eval: new Set(["kind"]),
-  rule: new Set(["kind", "modality", "severity", "phase", "on_violation"]),
-  state: new Set(["kind"]),
-  reference: new Set(["ref_type", "locator", "citation", "title"]),
-  principal: new Set(["role_principal"]),
-};
+})();
 
 function stripPromotedKeys(
   entityType: string,
   fm: Record<string, unknown>,
 ): Record<string, unknown> {
-  const promoted = PROMOTED_DATA_KEYS_BY_TYPE[entityType];
+  const promoted = STRIP_KEYS_BY_TYPE[entityType];
   if (!promoted) return fm;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(fm)) {
@@ -240,42 +241,7 @@ function stripPromotedKeys(
 async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const fields = rec.data;
   const run = async (c: pg.PoolClient) => {
-    if (rec.entity_type === "principal") {
-      const name = String(fields.name ?? rec.id);
-      // Same drift-prevention as upsertEntity: principals' lifecycle
-      // column mirrors data.lifecycle.
-      const lifecycleCol = deriveLifecycleColumn(rec, fields);
-      // Promoted scalar (migration 035): role_principal lives on its
-      // own column and the key is stripped from the data jsonb so the
-      // column is the single source of truth.
-      const rolePrincipal = Boolean(fields.role_principal);
-      const cleanedFields = stripPromotedKeys(rec.entity_type, fields);
-      const dataJson = JSON.stringify(cleanedFields);
-      await c.query(
-        // `summary` column dropped by migration 037. Principal carries
-        // `name` (display label) + `body_md` (everything else).
-        `INSERT INTO principals (id, name, doco_id, lifecycle, body_md, role_principal, data,
-                                  created_at, created_by, updated_at, updated_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10,$11)
-         ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name,
-           doco_id=EXCLUDED.doco_id, lifecycle=EXCLUDED.lifecycle,
-           body_md=EXCLUDED.body_md, role_principal=EXCLUDED.role_principal, data=EXCLUDED.data,
-           updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
-        [
-          rec.id,
-          name,
-          rec.doco_id || null,
-          lifecycleCol,
-          rec.body_md ?? null,
-          rolePrincipal,
-          dataJson,
-          rec.created_at ?? new Date().toISOString(),
-          rec.created_by ?? null,
-          rec.updated_at ?? new Date().toISOString(),
-          rec.updated_by ?? null,
-        ],
-      );
-    } else if (rec.entity_type === "user") {
+    if (rec.entity_type === "user") {
       const dataJson = JSON.stringify(fields);
       const kind = String(fields.kind ?? "person");
       const github_id = (fields.github_id as string | null) ?? null;
@@ -346,9 +312,10 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
 }
 
 export async function getEntity(entityType: string, id: string): Promise<EntityRecord | null> {
-  const spec = tableFor(entityType);
   return withClient(async (c) => {
-    const r = await c.query(`SELECT * FROM ${spec.table} WHERE id = $1`, [id]);
+    const r = NODE_TYPE_SET.has(entityType)
+      ? await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [id, entityType])
+      : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE id = $1`, [id]);
     if (r.rowCount === 0) return null;
     return rowToRecord(entityType, r.rows[0]);
   });
@@ -358,9 +325,13 @@ export async function listEntitiesByDoco(
   entityType: string,
   docoId: string,
 ): Promise<EntityRecord[]> {
-  const spec = tableFor(entityType);
   return withClient(async (c) => {
-    const r = await c.query(`SELECT * FROM ${spec.table} WHERE doco_id = $1`, [docoId]);
+    const r = NODE_TYPE_SET.has(entityType)
+      ? await c.query("SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2", [
+          docoId,
+          entityType,
+        ])
+      : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1`, [docoId]);
     return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
@@ -376,12 +347,16 @@ export async function listEntitiesByDocoAndIds(
   ids: string[],
 ): Promise<EntityRecord[]> {
   if (ids.length === 0) return [];
-  const spec = tableFor(entityType);
   return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT * FROM ${spec.table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
-      [docoId, ids],
-    );
+    const r = NODE_TYPE_SET.has(entityType)
+      ? await c.query(
+          "SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2 AND id = ANY($3::text[])",
+          [docoId, entityType, ids],
+        )
+      : await c.query(
+          `SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
+          [docoId, ids],
+        );
     return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
@@ -389,9 +364,11 @@ export async function listEntitiesByDocoAndIds(
 export async function listIdentityRows(
   entityType: "principal" | "organization" | "doco" | "user",
 ): Promise<EntityRecord[]> {
-  const spec = tableFor(entityType);
   return withClient(async (c) => {
-    const r = await c.query(`SELECT * FROM ${spec.table}`);
+    const r =
+      entityType === "principal"
+        ? await c.query("SELECT * FROM nodes WHERE node_type = 'principal'")
+        : await c.query(`SELECT * FROM ${tableFor(entityType).table}`);
     return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
@@ -441,13 +418,16 @@ function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRe
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
-  // Migration-022: hydrate the type-named column (intent/decision/…)
-  // off whichever key the row carries. Empty string is treated as
-  // "not set yet" so callers can fall back to summary cleanly during
-  // the additive window.
-  const tnCol = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
-  if (tnCol && tnCol in row && row[tnCol] !== null && row[tnCol] !== "") {
-    rec.type_named_value = String(row[tnCol]);
+  // Hydrate the prose content. Unified `nodes` rows carry it in `prose`;
+  // legacy per-type rows used the type-named column (intent/decision/…).
+  // Empty string means "not set yet". Prefer `prose` when the row has it.
+  if ("prose" in row && row.prose !== null && row.prose !== "") {
+    rec.type_named_value = String(row.prose);
+  } else {
+    const tnCol = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
+    if (tnCol && tnCol in row && row[tnCol] !== null && row[tnCol] !== "") {
+      rec.type_named_value = String(row[tnCol]);
+    }
   }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
@@ -622,7 +602,10 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
 
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
-    const r = await c.query("SELECT id, name, doco_id, data FROM principals WHERE id = $1", [id]);
+    const r = await c.query(
+      "SELECT id, name, doco_id, data FROM nodes WHERE id = $1 AND node_type = 'principal'",
+      [id],
+    );
     if (r.rowCount === 0) return null;
     return mapPrincipalRow(r.rows[0]);
   });
@@ -635,8 +618,8 @@ export async function getPrincipalByName(
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id, name, doco_id, data
-       FROM principals
-       WHERE name = $1 AND doco_id = $2
+       FROM nodes
+       WHERE node_type = 'principal' AND name = $1 AND doco_id = $2
        ORDER BY created_at, id
        LIMIT 1`,
       [name, docoId],
@@ -653,8 +636,8 @@ export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id, name, doco_id, data
-       FROM principals
-       WHERE doco_id = $1
+       FROM nodes
+       WHERE node_type = 'principal' AND doco_id = $1
        ORDER BY name, created_at, id`,
       [docoId],
     );

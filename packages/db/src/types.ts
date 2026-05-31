@@ -59,6 +59,69 @@ export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = [
 export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
   Object.fromEntries(DOCO_NODE_TABLE_SPECS.map((spec) => [spec.entityType, spec]));
 
+/**
+ * Promoted columns on the unified `nodes` table, per node type. Single source
+ * of truth for the storage writer (`upsertEntity` → `nodes`). Mirrors the
+ * one-time copy map in migration 064.
+ *
+ * These are the per-type graph columns promoted out of the `data` jsonb:
+ * relationship refs (no FK — existence is app-enforced, like `edges`) and
+ * filterable scalars. Principal's identity columns (name / body_md /
+ * role_principal) are handled directly by the writer, not here.
+ *
+ * - `field`        — source key in the entity's `data`/frontmatter.
+ * - `requirePrefix`— only persist the value when it has this id prefix
+ *                    (decisions.superseded_by_decision_id is decision-only;
+ *                    the frontmatter `superseded_by` is polymorphic).
+ * - `stripFromData`— drop the key from the `data` jsonb after promoting, so
+ *                    the typed column is the single source of truth (the
+ *                    migration-035 scalars). Relationship refs are NOT
+ *                    stripped (the indexer still derives edges from them).
+ */
+export interface PromotedColumnSpec {
+  column: string;
+  field: string;
+  requirePrefix?: string;
+  stripFromData?: boolean;
+}
+
+export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedColumnSpec[]>> = {
+  intent: [{ column: "parent_intent_id", field: "parent_intent_id" }],
+  idea: [{ column: "proposer_id", field: "proposer_id" }],
+  decision: [
+    { column: "decided_by", field: "decided_by" },
+    { column: "superseded_by_decision_id", field: "superseded_by", requirePrefix: "decision_" },
+  ],
+  action: [
+    { column: "actor_id", field: "actor_id" },
+    { column: "verb", field: "verb", stripFromData: true },
+    { column: "performed_at", field: "performed_at", stripFromData: true },
+  ],
+  log: [
+    { column: "actor_id", field: "actor_id" },
+    { column: "template_id", field: "template_id" },
+    { column: "verb", field: "verb", stripFromData: true },
+    { column: "happened_at", field: "happened_at", stripFromData: true },
+  ],
+  eval: [{ column: "kind", field: "kind", stripFromData: true }],
+  rule: [
+    { column: "kind", field: "kind", stripFromData: true },
+    { column: "modality", field: "modality", stripFromData: true },
+    { column: "severity", field: "severity", stripFromData: true },
+    { column: "phase", field: "phase", stripFromData: true },
+    { column: "on_violation", field: "on_violation", stripFromData: true },
+  ],
+  state: [{ column: "kind", field: "kind", stripFromData: true }],
+  reference: [
+    { column: "ref_type", field: "ref_type", stripFromData: true },
+    { column: "locator", field: "locator", stripFromData: true },
+    { column: "citation", field: "citation", stripFromData: true },
+    { column: "title", field: "title", stripFromData: true },
+  ],
+  // principal: no graph promoted columns; name/body_md/role_principal handled
+  // directly by the writer (role_principal is stripped from data there).
+};
+
 /** The 2 policy types. Policies are always Doco-scoped. */
 export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
   guidance_policy: {
