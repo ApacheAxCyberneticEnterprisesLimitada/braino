@@ -89,6 +89,13 @@ CREATE TABLE IF NOT EXISTS organizations (
   id          text PRIMARY KEY,
   handle      text NOT NULL UNIQUE,
   name        text NOT NULL,
+  -- Free-form governing charter for the org — the standing "how work is
+  -- done here" text shared with every agent granted access to the org at
+  -- bootstrap, and shown on the org home page. Column default is ''; the
+  -- real default text (DEFAULT_ORG_CONSTITUTION in @doco/shared) is applied
+  -- by addOrganizationByHandle for new orgs and backfilled onto existing
+  -- rows by migration 069_org_constitution.sql.
+  constitution text NOT NULL DEFAULT '',
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
@@ -126,13 +133,6 @@ CREATE TABLE IF NOT EXISTS docos (
   -- each Doco's policy set in the agent-bootstrap manifest, and under
   -- the title on the Doco home page.
   goal            text NOT NULL DEFAULT '',
-  -- Free-form governing charter for the Doco — the standing "how work is
-  -- done here" text every agent reads at bootstrap (alongside `goal` and
-  -- the policy set). Column default is '' to mirror `goal`; the real
-  -- default text (DEFAULT_DOCO_CONSTITUTION in @doco/shared) is applied by
-  -- createDocoInOrg for new Docos and backfilled onto existing rows by
-  -- migration 068_doco_constitution.sql.
-  constitution    text NOT NULL DEFAULT '',
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()

@@ -651,24 +651,37 @@ export interface OrganizationRow {
   id: string;
   handle: string;
   name: string;
+  /**
+   * Free-form governing charter for the org — the standing "how work is
+   * done here" text shared with agents granted access to the org at
+   * bootstrap. Seeded with DEFAULT_ORG_CONSTITUTION on creation; editable
+   * by org owners. Empty string only if an owner has explicitly cleared it.
+   */
+  constitution: string;
   data: Record<string, unknown>;
   member_count: number;
+}
+
+function mapOrgRow(row: Record<string, unknown>): OrganizationRow {
+  return {
+    id: String(row.id),
+    handle: String(row.handle),
+    name: String(row.name),
+    constitution:
+      row.constitution === null || row.constitution === undefined ? "" : String(row.constitution),
+    data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
+    member_count: Number(row.member_count),
+  };
 }
 
 export async function listOrganizations(): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.handle, o.name, o.data,
+      `SELECT o.id, o.handle, o.name, o.constitution, o.data,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o ORDER BY o.handle`,
     );
-    return r.rows.map((row) => ({
-      id: String(row.id),
-      handle: String(row.handle),
-      name: String(row.name),
-      data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
-      member_count: Number(row.member_count),
-    }));
+    return r.rows.map(mapOrgRow);
   });
 }
 
@@ -678,7 +691,7 @@ export async function listOrganizationsForUser(
 ): Promise<OrganizationRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.handle, o.name, o.data,
+      `SELECT o.id, o.handle, o.name, o.constitution, o.data,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
        FROM organizations o
        JOIN org_users m ON m.org_id = o.id
@@ -686,13 +699,7 @@ export async function listOrganizationsForUser(
        ORDER BY o.handle`,
       [userId, roles],
     );
-    return r.rows.map((row) => ({
-      id: String(row.id),
-      handle: String(row.handle),
-      name: String(row.name),
-      data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
-      member_count: Number(row.member_count),
-    }));
+    return r.rows.map(mapOrgRow);
   });
 }
 
@@ -917,13 +924,6 @@ export interface DocoRow {
   org_id: string;
   visibility: "public" | "private";
   goal: string;
-  /**
-   * Free-form governing charter for the Doco — the standing "how work is
-   * done here" text agents read at bootstrap. Seeded with
-   * DEFAULT_DOCO_CONSTITUTION on creation; editable from settings. Empty
-   * string only if an owner has explicitly cleared it.
-   */
-  constitution: string;
   data: Record<string, unknown>;
   /**
    * Template-seeded default lifecycle for new nodes captured into this
@@ -943,8 +943,6 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     org_id: String(row.org_id ?? row.owner_id),
     visibility: row.visibility === "public" ? "public" : "private",
     goal: row.goal === null || row.goal === undefined ? "" : String(row.goal),
-    constitution:
-      row.constitution === null || row.constitution === undefined ? "" : String(row.constitution),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
     default_node_lifecycle:
       typeof row.default_node_lifecycle === "string" ? row.default_node_lifecycle : null,
@@ -956,7 +954,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
  * `organizations.handle` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.constitution, d.data,
+  SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.data,
          d.default_node_lifecycle,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
@@ -1007,23 +1005,63 @@ export async function resolveOwnerSlug(
   if (collab) return { kind: "user", user: collab };
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, handle, name, data,
+      `SELECT id, handle, name, constitution, data,
               COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = organizations.id), 0) AS member_count
        FROM organizations WHERE handle = $1`,
       [handle],
     );
     if (r.rowCount === 0) return null;
-    const row = r.rows[0];
     return {
       kind: "organization" as const,
-      org: {
-        id: String(row.id),
-        handle: String(row.handle),
-        name: String(row.name),
-        data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
-        member_count: Number(row.member_count),
-      },
+      org: mapOrgRow(r.rows[0]),
     };
+  });
+}
+
+/**
+ * A single org's constitution for the agent-bootstrap manifest.
+ */
+export interface OrgConstitution {
+  org_id: string;
+  org_handle: string;
+  constitution: string;
+}
+
+/**
+ * Fetch the constitutions of the given orgs, skipping any with an empty
+ * constitution. Used by the agent-bootstrap manifest to surface the
+ * charter of every org the caller can reach. Deduplicates input ids.
+ */
+export async function getOrgConstitutionsByIds(ids: string[]): Promise<OrgConstitution[]> {
+  const unique = Array.from(new Set(ids));
+  if (unique.length === 0) return [];
+  return withClient(async (c) => {
+    const r = await c.query<{ id: string; handle: string; constitution: string }>(
+      `SELECT id, handle, constitution
+         FROM organizations
+        WHERE id = ANY($1::text[]) AND constitution <> ''
+        ORDER BY handle`,
+      [unique],
+    );
+    return r.rows.map((row) => ({
+      org_id: String(row.id),
+      org_handle: String(row.handle),
+      constitution: String(row.constitution),
+    }));
+  });
+}
+
+/**
+ * Update an org's constitution. Empty string clears it. Returns false when
+ * no org with that id exists.
+ */
+export async function updateOrgConstitution(orgId: string, constitution: string): Promise<boolean> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      "UPDATE organizations SET constitution = $2, updated_at = now() WHERE id = $1",
+      [orgId, constitution],
+    );
+    return (r.rowCount ?? 0) > 0;
   });
 }
 

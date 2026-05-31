@@ -1,8 +1,8 @@
-// Guard: the default constitution text has THREE copies that must stay in
-// sync — the TS constant (DEFAULT_DOCO_CONSTITUTION, the canonical source,
-// applied to new Docos by createDocoInOrg), the schema.sql column, and the
-// migration-068 backfill that seeds existing rows. SQL can't import the TS
-// constant, so this test reads all three from disk and asserts they agree.
+// Guard: the default org-constitution text has copies that must stay in
+// sync — the TS constant (DEFAULT_ORG_CONSTITUTION, the canonical source,
+// applied to new orgs by addOrganizationByHandle) and the migration-069
+// backfill that seeds existing rows. SQL can't import the TS constant, so
+// this test reads both from disk and asserts they agree.
 //
 // Compared as files (no module import) so it runs without building
 // @doco/shared to dist.
@@ -18,36 +18,43 @@ const constitutionTs = readFileSync(
   "utf8",
 );
 const migrationSql = readFileSync(
-  join(here, "..", "..", "migrations", "068_doco_constitution.sql"),
+  join(here, "..", "..", "migrations", "069_org_constitution.sql"),
   "utf8",
 );
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
-/** Pull the template-literal body of DEFAULT_DOCO_CONSTITUTION from source. */
+/** Pull the template-literal body of DEFAULT_ORG_CONSTITUTION from source. */
 function defaultConstitutionText(): string {
-  const m = constitutionTs.match(/DEFAULT_DOCO_CONSTITUTION\s*=\s*`([\s\S]*?)`;/);
-  if (!m?.[1]) throw new Error("Could not locate DEFAULT_DOCO_CONSTITUTION in constitution.ts");
+  const m = constitutionTs.match(/DEFAULT_ORG_CONSTITUTION\s*=\s*`([\s\S]*?)`;/);
+  if (!m?.[1]) throw new Error("Could not locate DEFAULT_ORG_CONSTITUTION in constitution.ts");
   return m[1];
 }
 
-describe("default constitution text stays in sync", () => {
+describe("default org constitution text stays in sync", () => {
   const text = defaultConstitutionText();
 
-  it("migration 068 backfills with the exact DEFAULT_DOCO_CONSTITUTION text", () => {
+  it("migration 069 backfills with the exact DEFAULT_ORG_CONSTITUTION text", () => {
     // The migration dollar-quotes the same body; substring match is enough.
     expect(migrationSql).toContain(text);
   });
 
-  it("schema.sql declares the docos.constitution column", () => {
-    const block = schemaSql.match(
-      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?docos\s*\(([\s\S]*?)\);/i,
-    )?.[1];
-    expect(block, "docos CREATE TABLE not found in schema.sql").toBeTruthy();
-    expect(block).toMatch(/\bconstitution\s+text\b/);
+  it("migration 069 adds organizations.constitution and drops docos.constitution", () => {
+    expect(migrationSql).toMatch(/ADD COLUMN IF NOT EXISTS constitution text/);
+    expect(migrationSql).toMatch(/ALTER TABLE docos DROP COLUMN IF EXISTS constitution/);
   });
 
-  it("migration 068 adds the column idempotently", () => {
-    expect(migrationSql).toMatch(/ADD COLUMN IF NOT EXISTS constitution text/);
+  it("schema.sql declares organizations.constitution and not docos.constitution", () => {
+    const orgBlock = schemaSql.match(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?organizations\s*\(([\s\S]*?)\);/i,
+    )?.[1];
+    expect(orgBlock, "organizations CREATE TABLE not found in schema.sql").toBeTruthy();
+    expect(orgBlock).toMatch(/\bconstitution\s+text\b/);
+
+    const docoBlock = schemaSql.match(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?docos\s*\(([\s\S]*?)\);/i,
+    )?.[1];
+    expect(docoBlock, "docos CREATE TABLE not found in schema.sql").toBeTruthy();
+    expect(docoBlock).not.toMatch(/\bconstitution\s+text\b/);
   });
 
   it("the default text carries the three intended themes", () => {

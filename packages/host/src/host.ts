@@ -1,5 +1,5 @@
 import {
-  DEFAULT_DOCO_CONSTITUTION,
+  DEFAULT_ORG_CONSTITUTION,
   type EntityId,
   HOST_RESERVED_SLUGS,
   type Organization,
@@ -251,9 +251,9 @@ export async function addOrganizationByHandle(opts: {
       created_at: created,
     };
     await c.query(
-      `INSERT INTO organizations (id, handle, name, data, created_at, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $5)`,
-      [id, finalHandle, finalHandle, JSON.stringify(data), created],
+      `INSERT INTO organizations (id, handle, name, constitution, data, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6)`,
+      [id, finalHandle, finalHandle, DEFAULT_ORG_CONSTITUTION, JSON.stringify(data), created],
     );
     await c.query(
       `INSERT INTO org_users (org_id, user_id, role, joined_at)
@@ -279,20 +279,12 @@ export async function createDocoInOrg(opts: {
    * template default.
    */
   goal?: string;
-  /**
-   * Project-owner-authored governing charter for the Doco. When omitted,
-   * defaults to DEFAULT_DOCO_CONSTITUTION (the standing spec-driven
-   * default). Pass an explicit string — including the empty string — to
-   * override it.
-   */
-  constitution?: string;
 }): Promise<{
   docoId: EntityId<"doco">;
   orgId: string;
   orgHandle: string;
   handle: string;
   goal: string;
-  constitution: string;
 }> {
   const baseHandle = opts.requestedHandle.trim().toLowerCase();
   const handleError = validateRequestedDocoHandle(baseHandle);
@@ -337,10 +329,6 @@ export async function createDocoInOrg(opts: {
     // Goal: explicit caller value wins (including ""), else the
     // template's description, else empty for no-template Docos.
     const goal = opts.goal !== undefined ? opts.goal : (template?.description ?? "");
-    // Constitution: explicit caller value wins (including ""), else the
-    // standing default so every new Doco ships with a charter.
-    const constitution =
-      opts.constitution !== undefined ? opts.constitution : DEFAULT_DOCO_CONSTITUTION;
     const data: Record<string, unknown> = {
       id: docoId,
       handle,
@@ -358,9 +346,9 @@ export async function createDocoInOrg(opts: {
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data,
                           allowed_node_types, default_node_lifecycle,
-                          goal, constitution,
+                          goal,
                           created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $11, $11)`,
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8, $9, $10, $10)`,
       [
         docoId,
         handle,
@@ -371,7 +359,6 @@ export async function createDocoInOrg(opts: {
         allowedNodeTypes,
         defaultNodeLifecycle,
         goal,
-        constitution,
         created,
       ],
     );
@@ -466,7 +453,7 @@ export async function createDocoInOrg(opts: {
       );
     }
 
-    return { docoId, orgId: opts.orgId, orgHandle, handle, goal, constitution };
+    return { docoId, orgId: opts.orgId, orgHandle, handle, goal };
   });
 }
 
@@ -482,11 +469,6 @@ export interface UpdateDocoOptions {
    * value untouched.
    */
   goal?: string;
-  /**
-   * New constitution. Empty string clears it. `undefined` leaves the
-   * current value untouched.
-   */
-  constitution?: string;
 }
 
 export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
@@ -503,16 +485,15 @@ export async function updateDocoMeta(opts: UpdateDocoOptions): Promise<void> {
     if ((cur.rowCount ?? 0) === 0) throw new Error(`Doco "${opts.handle}" not found.`);
     await c.query(
       `UPDATE docos
-          SET visibility   = COALESCE($2, visibility),
-              goal         = COALESCE($3, goal),
-              constitution = COALESCE($4, constitution),
-              data         = CASE
+          SET visibility = COALESCE($2, visibility),
+              goal       = COALESCE($3, goal),
+              data       = CASE
                              WHEN $2::text IS NULL THEN data - 'display_name' - 'name'
                              ELSE jsonb_set(data - 'display_name' - 'name', '{visibility}', to_jsonb($2::text), true)
                            END,
               updated_at = now()
         WHERE handle = $1`,
-      [opts.handle, opts.visibility ?? null, opts.goal ?? null, opts.constitution ?? null],
+      [opts.handle, opts.visibility ?? null, opts.goal ?? null],
     );
   });
 }

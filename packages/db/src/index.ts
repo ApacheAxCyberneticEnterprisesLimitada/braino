@@ -45,7 +45,10 @@ export {
   isOrgAdmin,
   getOrgRole,
   getOrgGrant,
+  getOrgConstitutionsByIds,
+  updateOrgConstitution,
   type OrganizationRow,
+  type OrgConstitution,
   // Doco membership (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62)
   type DocoRole,
   type DocoGrant,
