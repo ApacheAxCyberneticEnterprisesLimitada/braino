@@ -23,20 +23,11 @@
 --   users      — OAuth identities (person/agent), separate from principals
 --                (which are role-personas referenced by actor_id/actors[]).
 
--- Schema version. Tracked separately from app version so DB migrations
--- don't gate code releases.
-CREATE TABLE IF NOT EXISTS doco_meta (
-  key   text PRIMARY KEY,
-  value text NOT NULL
-);
-INSERT INTO doco_meta (key, value) VALUES ('schema_version', '1') ON CONFLICT DO NOTHING;
-
 -- Forward-only migration ledger. Populated by `applyMigrations()` in
 -- packages/db/src/migrations.ts. New schema changes go in
 -- `packages/db/migrations/NNN_short_name.sql`, not into this file.
 CREATE TABLE IF NOT EXISTS applied_migrations (
-  id          text PRIMARY KEY,
-  applied_at  timestamptz NOT NULL DEFAULT now()
+  id          text PRIMARY KEY
 );
 
 -- Host config (singleton row at id='host').

@@ -1,8 +1,9 @@
-// Dead schema objects removed in migration 071 — keep them gone.
+// Dead schema objects removed in migrations 071–072 — keep them gone.
 //
-// tags, entity_fts_{users,docos,organizations}, and doco_templates had no
-// read or write path anywhere in the codebase; perspectives.owner_user_id
-// was an unwired post-055 vestige (owner_handle is the live owner ref).
+// 071: tags, entity_fts_{users,docos,organizations}, doco_templates, and
+//      perspectives.owner_user_id (unwired post-055 vestige).
+// 072: doco_meta (the schema_version table is seeded once and never read) and
+//      the write-only applied_migrations.applied_at timestamp.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ const DROPPED_TABLES = [
   "entity_fts_docos",
   "entity_fts_organizations",
   "doco_templates",
+  "doco_meta",
 ];
 
 function declaresTable(table: string): boolean {
@@ -26,15 +28,15 @@ function declaresTable(table: string): boolean {
   );
 }
 
-function perspectivesBlock(): string {
-  return (
-    schemaSql.match(
-      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?perspectives\s*\(([\s\S]*?)\);/i,
-    )?.[1] ?? ""
+function tableBlock(table: string): string {
+  const re = new RegExp(
+    `CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?${table}\\s*\\(([\\s\\S]*?)\\);`,
+    "i",
   );
+  return schemaSql.match(re)?.[1] ?? "";
 }
 
-describe("dead schema objects stay dropped (migration 071)", () => {
+describe("dead schema objects stay dropped (migrations 071–072)", () => {
   for (const t of DROPPED_TABLES) {
     it(`schema.sql no longer declares ${t}`, () => {
       expect(declaresTable(t)).toBe(false);
@@ -46,6 +48,10 @@ describe("dead schema objects stay dropped (migration 071)", () => {
   });
 
   it("perspectives no longer declares the unused owner_user_id column", () => {
-    expect(/\bowner_user_id\b/.test(perspectivesBlock())).toBe(false);
+    expect(/\bowner_user_id\b/.test(tableBlock("perspectives"))).toBe(false);
+  });
+
+  it("applied_migrations no longer declares the unused applied_at column", () => {
+    expect(/\bapplied_at\b/.test(tableBlock("applied_migrations"))).toBe(false);
   });
 });
