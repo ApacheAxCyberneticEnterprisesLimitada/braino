@@ -150,11 +150,6 @@ export const CONTAINER_TABLES: Record<string, { table: string; body: boolean }> 
   organization: { table: "organizations", body: false },
 };
 
-/** Auxiliary entity (tags): used for organization, not in any of the five categories. */
-export const AUX_TABLES: Record<string, { table: string; body: boolean }> = {
-  tag: { table: "tags", body: false },
-};
-
 /**
  * Single lookup table covering every entity type by discriminator string.
  * Used when callers don't need to distinguish the category (audit log,
@@ -167,7 +162,6 @@ export const ALL_ENTITY_TABLES: Record<
   ...NODE_TABLES,
   ...USER_TABLES,
   ...CONTAINER_TABLES,
-  ...AUX_TABLES,
   // Policies are flattened to their per-Doco table here; org-scope
   // policies are addressed by their separate org table in callers that
   // care.
@@ -181,10 +175,9 @@ export const ALL_ENTITY_TABLES: Record<
  * speak this shape; the read-path materializer rebuilds LoadedDoco
  * from this shape.
  *
- * `entity_type` carries the discriminator string (one of 14 values
- * across all categories: 10 nodes + 2 policies + 1 user +
- * doco + organization, plus the auxiliary "tag"). The field was named
- * `node_type` pre-migration-005.
+ * `entity_type` carries the discriminator string across all categories:
+ * 10 node types + 2 policy kinds + user + doco + organization. The field
+ * was named `node_type` pre-migration-005.
  */
 export interface EntityRecord {
   id: string;

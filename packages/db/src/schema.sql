@@ -200,16 +200,6 @@ CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
 -- fields (`kind`, `invariants`) live in `data`.
 -- states.kind index lives in migration 035.
 
-CREATE TABLE IF NOT EXISTS tags (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  name        text NOT NULL,
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (doco_id, name)
-);
-
-
 -- reference_entities.ref_type index lives in migration 035.
 
 -- ── Unified node table (doco-vnext follow-up: collapse the 10 per-type
@@ -456,39 +446,6 @@ CREATE TABLE IF NOT EXISTS entity_fts_policies (
 );
 CREATE INDEX IF NOT EXISTS entity_fts_policies_doco_idx ON entity_fts_policies (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_policies_tsv_idx  ON entity_fts_policies USING gin (search_tsv);
-
-CREATE TABLE IF NOT EXISTS entity_fts_users (
-  entity_id   text PRIMARY KEY,
-  summary     text,
-  body        text,
-  search_tsv  tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
-    setweight(to_tsvector('english', coalesce(body, '')), 'B')
-  ) STORED
-);
-CREATE INDEX IF NOT EXISTS entity_fts_users_tsv_idx ON entity_fts_users USING gin (search_tsv);
-
-CREATE TABLE IF NOT EXISTS entity_fts_docos (
-  entity_id   text PRIMARY KEY,
-  summary     text,
-  body        text,
-  search_tsv  tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
-    setweight(to_tsvector('english', coalesce(body, '')), 'B')
-  ) STORED
-);
-CREATE INDEX IF NOT EXISTS entity_fts_docos_tsv_idx ON entity_fts_docos USING gin (search_tsv);
-
-CREATE TABLE IF NOT EXISTS entity_fts_organizations (
-  entity_id   text PRIMARY KEY,
-  summary     text,
-  body        text,
-  search_tsv  tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('english', coalesce(summary, '')), 'A') ||
-    setweight(to_tsvector('english', coalesce(body, '')), 'B')
-  ) STORED
-);
-CREATE INDEX IF NOT EXISTS entity_fts_organizations_tsv_idx ON entity_fts_organizations USING gin (search_tsv);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
@@ -756,18 +713,6 @@ CREATE TABLE IF NOT EXISTS doco_project_tokens (
 CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
   ON doco_project_tokens (doco_id) WHERE NOT revoked;
 
-CREATE TABLE IF NOT EXISTS doco_templates (
-  id           text PRIMARY KEY,
-  handle       text NOT NULL UNIQUE,
-  owner_id     text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  label        text NOT NULL,
-  description  text NOT NULL,
-  data         jsonb NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  updated_at   timestamptz NOT NULL DEFAULT now()
-);
-CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id);
-
 -- ──────────────────────────────────────────────────────────────────────────
 -- Tables folded into the baseline from the (now-archived) migration chain by
 -- the doco-vnext squash. Previously created incrementally by migrations; the
@@ -775,7 +720,8 @@ CREATE INDEX IF NOT EXISTS doco_templates_owner_idx ON doco_templates (owner_id)
 -- Column names are the final post-055 (user, not collaborator) form.
 
 -- Visualization perspectives (was migrations 007 + 030/046/051/059) and the
--- per-Doco attachment join. owner_user_id is the post-055 column name.
+-- per-Doco attachment join. Ownership is tracked by `owner_handle`; the
+-- unused `owner_user_id` column was dropped in migration 071.
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
@@ -784,7 +730,6 @@ CREATE TABLE IF NOT EXISTS perspectives (
   description     text,
   icon            text,
   owner_handle    text,
-  owner_user_id   text REFERENCES users(id) ON DELETE SET NULL,
   is_builtin      boolean NOT NULL DEFAULT false,
   config          jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at      timestamptz NOT NULL DEFAULT now(),

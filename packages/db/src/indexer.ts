@@ -6,12 +6,10 @@
 // atomically. Edges are FIRST-CLASS (doco-vnext) — authored via commit()
 // + edge CRUD (see vnext.ts), never derived, wiped, or rebuilt here.
 //
-// Post-migration-005 FTS shape: ONE table per top-level category
-// (nodes, policies, users, docos, organizations). The
-// indexer only ever populates the per-Doco categories: `entity_fts_nodes`
-// and `entity_fts_policies`. Users/docos/organizations are
-// host-level entities; their FTS rows are written by their own upsert
-// paths (or by the migration), not by this builder.
+// FTS shape: one table per Doco-scoped category — `entity_fts_nodes`
+// and `entity_fts_policies` — both populated here. (Users, docos, and
+// organizations are host-level and were never indexed; their unused
+// entity_fts_* tables were dropped in migration 071.)
 
 import { withTransaction } from "./client.js";
 

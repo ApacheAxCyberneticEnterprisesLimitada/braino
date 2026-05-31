@@ -69,7 +69,6 @@ beforeEach(async () => {
         logs,
         evals,
         states,
-        tags,
         ideas,
         reference_entities,
         audit_events,
@@ -77,9 +76,6 @@ beforeEach(async () => {
         embeddings,
         entity_fts_nodes,
         entity_fts_policies,
-        entity_fts_users,
-        entity_fts_docos,
-        entity_fts_organizations,
         doco_users,
         tokens_blob
       RESTART IDENTITY CASCADE`,
