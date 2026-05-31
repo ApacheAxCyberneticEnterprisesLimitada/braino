@@ -273,7 +273,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
-  op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'entity.delete', 'lifecycle.transition', 'edge.add')),
+  op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'lifecycle.transition', 'edge.add')),
   before_json   jsonb,
   after_json    jsonb,
   reason        text
