@@ -1,9 +1,12 @@
-// Dead schema objects removed in migrations 071–072 — keep them gone.
+// Dead schema objects removed in migrations 071–073 — keep them gone.
 //
 // 071: tags, entity_fts_{users,docos,organizations}, doco_templates, and
 //      perspectives.owner_user_id (unwired post-055 vestige).
 // 072: doco_meta (the schema_version table is seeded once and never read) and
 //      the write-only applied_migrations.applied_at timestamp.
+// 073: entity_fts_policies (written by the indexer on every capture but never
+//      read — the only FTS reader, Slack search, queries entity_fts_nodes
+//      only; its write path was removed too).
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -20,6 +23,7 @@ const DROPPED_TABLES = [
   "entity_fts_organizations",
   "doco_templates",
   "doco_meta",
+  "entity_fts_policies",
 ];
 
 function declaresTable(table: string): boolean {
@@ -36,7 +40,7 @@ function tableBlock(table: string): string {
   return schemaSql.match(re)?.[1] ?? "";
 }
 
-describe("dead schema objects stay dropped (migrations 071–072)", () => {
+describe("dead schema objects stay dropped (migrations 071–073)", () => {
   for (const t of DROPPED_TABLES) {
     it(`schema.sql no longer declares ${t}`, () => {
       expect(declaresTable(t)).toBe(false);

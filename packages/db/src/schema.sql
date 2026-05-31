@@ -323,7 +323,7 @@ CREATE TABLE IF NOT EXISTS node_versions (
   tx_id        bigint NOT NULL REFERENCES changesets(tx_id),
   actor        text,
   recorded_at  timestamptz NOT NULL DEFAULT now(),
-  prev_hash    text,                          -- reserved: Merkle track (M)
+  prev_hash    text,                          -- Merkle hash chain (see verifyHistory in vnext.ts)
   this_hash    text,
   PRIMARY KEY (entity_id, version)
 );
@@ -402,11 +402,11 @@ CREATE TABLE IF NOT EXISTS embeddings (
 CREATE INDEX IF NOT EXISTS embeddings_doco_idx  ON embeddings (doco_id);
 CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
 
--- Full-text search. Five tables (one per top-level entity category) so the
--- search filter logic can pick the right shape directly. The indexer
--- populates summary + body; search_tsv is a generated tsvector with English
--- stemming and weighting (A=summary, B=body). A GIN index per table handles
--- `@@` queries efficiently. Cross-category search is a UNION over tables.
+-- Full-text search. Only nodes are indexed (entity_fts_nodes): the indexer
+-- populates summary + body, and Slack search — the lone reader — queries the
+-- generated `search_tsv` tsvector (English stemming, weighted A=summary,
+-- B=body) through a GIN index for `@@` queries. The policy / user / doco /
+-- organization FTS tables were never read and were dropped (migrations 071/073).
 
 CREATE TABLE IF NOT EXISTS entity_fts_nodes (
   entity_id    text PRIMARY KEY,
@@ -422,21 +422,7 @@ CREATE TABLE IF NOT EXISTS entity_fts_nodes (
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_doco_idx ON entity_fts_nodes (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING gin (search_tsv);
 
-CREATE TABLE IF NOT EXISTS entity_fts_policies (
-  entity_id       text PRIMARY KEY,
-  doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  policy_kind     text NOT NULL CHECK (policy_kind IN ('guidance', 'node_authoring')),
-  -- Renamed from `summary` to `policy` by migration 038 to match the
-  -- canonical policies tables. The FTS column tracks the source.
-  policy          text,
-  body            text,
-  search_tsv      tsvector GENERATED ALWAYS AS (
-    setweight(to_tsvector('english', coalesce(policy, '')), 'A') ||
-    setweight(to_tsvector('english', coalesce(body, '')), 'B')
-  ) STORED
-);
-CREATE INDEX IF NOT EXISTS entity_fts_policies_doco_idx ON entity_fts_policies (doco_id);
-CREATE INDEX IF NOT EXISTS entity_fts_policies_tsv_idx  ON entity_fts_policies USING gin (search_tsv);
+-- (entity_fts_policies dropped in migration 073 — written but never read.)
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).

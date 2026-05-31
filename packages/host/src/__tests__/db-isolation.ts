@@ -75,7 +75,6 @@ beforeEach(async () => {
         edges,
         embeddings,
         entity_fts_nodes,
-        entity_fts_policies,
         doco_users,
         tokens_blob
       RESTART IDENTITY CASCADE`,

@@ -6,10 +6,10 @@
 // atomically. Edges are FIRST-CLASS (doco-vnext) — authored via commit()
 // + edge CRUD (see vnext.ts), never derived, wiped, or rebuilt here.
 //
-// FTS shape: one table per Doco-scoped category — `entity_fts_nodes`
-// and `entity_fts_policies` — both populated here. (Users, docos, and
-// organizations are host-level and were never indexed; their unused
-// entity_fts_* tables were dropped in migration 071.)
+// FTS shape: the indexer populates a single table, `entity_fts_nodes`.
+// The policy / user / doco / organization FTS tables were never read and
+// were dropped (migrations 071/073); only node FTS is built and queried
+// (by Slack search).
 
 import { withTransaction } from "./client.js";
 
@@ -25,14 +25,6 @@ const NODE_TYPES = new Set([
   "state",
   "principal",
 ]);
-
-const POLICY_TYPES = new Set(["guidance_policy", "node_authoring_policy"]);
-
-function policyKindFor(entityType: string): "guidance" | "node_authoring" {
-  if (entityType === "guidance_policy") return "guidance";
-  if (entityType === "node_authoring_policy") return "node_authoring";
-  throw new Error(`Not a policy type: ${entityType}`);
-}
 
 export interface FtsRowInput {
   entity_id: string;
@@ -72,9 +64,9 @@ export async function rebuildDocoDerivedData(
 ): Promise<{ ftsRows: number }> {
   const dedupedFts = dedupeFts(fts);
 
-  // Split FTS rows by category — nodes vs policies.
+  // Only nodes are indexed for FTS (entity_fts_nodes); policy FTS was never
+  // read and was dropped in migration 073.
   const nodeFts = dedupedFts.filter((r) => NODE_TYPES.has(r.entity_type));
-  const policyFts = dedupedFts.filter((r) => POLICY_TYPES.has(r.entity_type));
 
   return withTransaction(async (c) => {
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
@@ -83,13 +75,8 @@ export async function rebuildDocoDerivedData(
         "DELETE FROM entity_fts_nodes WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
         [docoId, opts.onlyEntityIds],
       );
-      await c.query(
-        "DELETE FROM entity_fts_policies WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
-        [docoId, opts.onlyEntityIds],
-      );
     } else {
       await c.query("DELETE FROM entity_fts_nodes WHERE doco_id = $1", [docoId]);
-      await c.query("DELETE FROM entity_fts_policies WHERE doco_id = $1", [docoId]);
     }
 
     if (nodeFts.length > 0) {
@@ -113,33 +100,7 @@ export async function rebuildDocoDerivedData(
       );
     }
 
-    if (policyFts.length > 0) {
-      await c.query(
-        // The `policy` column on entity_fts_policies was renamed from
-        // `summary` in migration 038 to match the source policy
-        // tables. The indexer's column-as-text source is still the
-        // FtsRow.summary field — kept as-is to avoid rippling the
-        // rename through every callsite that builds these rows.
-        `INSERT INTO entity_fts_policies (entity_id, doco_id, policy_kind, policy, body)
-         SELECT u.entity_id, $1, u.policy_kind, u.policy_text, u.body
-         FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
-              AS u(entity_id, policy_kind, policy_text, body)
-         ON CONFLICT (entity_id) DO UPDATE SET
-              doco_id     = EXCLUDED.doco_id,
-              policy_kind = EXCLUDED.policy_kind,
-              policy      = EXCLUDED.policy,
-              body        = EXCLUDED.body`,
-        [
-          docoId,
-          policyFts.map((r) => r.entity_id),
-          policyFts.map((r) => policyKindFor(r.entity_type)),
-          policyFts.map((r) => r.summary),
-          policyFts.map((r) => r.body),
-        ],
-      );
-    }
-
-    return { ftsRows: dedupedFts.length };
+    return { ftsRows: nodeFts.length };
   });
 }
 
