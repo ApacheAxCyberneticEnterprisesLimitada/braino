@@ -168,13 +168,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // canonical term, and `decision` holds the definition, scope, and
     // examples. List is the natural authoring surface for terminology.
     //
-    // Term relationships are first-class edges, not promoted FK columns.
-    // `relates_to` links confusable or related terms; `superseded_by` points
-    // a deprecated term at its replacement. The node-table collapse dropped
-    // the `superseded_by` FK column (migration 074), so the capture path now
-    // projects the authored field into a `superseded_by` edge whose target
-    // existence is app-enforced like every other edge — the same model
-    // org-chart (`reports_to`) and business-processes (`sequence_flow`) adopted.
+    // Term relationships use the two flavors the managed-edge architecture
+    // defines, one of each. `relates_to` is a directly-authored edge (origin
+    // "authored") — added and retired through the edges API, with immutable
+    // endpoints, exactly like business-processes' `serves` / `sequence_flow`
+    // — linking confusable, parent/sub, or homograph terms. `superseded_by`
+    // (a deprecated term → its replacement) is authored as a field on the
+    // term and projected by the capture path into a first-class
+    // `superseded_by` edge (origin "field"): the same field→edge model as
+    // business-processes' `actor_id` / `parent_intent_id`, not the
+    // history-less `deriveEdges` projection org-chart uses for `reports_to`.
+    // The node-table collapse dropped the `superseded_by` FK column
+    // (migration 074), so neither relationship carries a database foreign
+    // key — target existence is app-enforced, like every other edge.
     name: "glossaries",
     label: "Glossaries",
     icon: "📚",
@@ -307,7 +313,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Connect related glossary terms in the graph instead of leaving entries isolated — use a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Deprecation links use `superseded_by` (see below).",
+          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. `relates_to` is a directly-authored edge with immutable endpoints (like a process's `sequence_flow`): change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use `superseded_by` instead (see below) — that one is field-authored, not added as an edge.",
       },
       {
         policy:
