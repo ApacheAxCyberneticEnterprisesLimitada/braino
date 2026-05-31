@@ -107,6 +107,22 @@ CREATE TABLE IF NOT EXISTS org_users (
 -- reference user_id on an existing prod org_users (still collaborator_id)
 -- until 055 renames the column.
 
+-- Account-level access grants (migration 075). An account grant from
+-- grantor → grantee gives the grantee `role` (+ optional per-type
+-- write_types) on every org the grantor owns and, via the org→doco
+-- cascade in the access engine, every Doco under those orgs. Live grant:
+-- orgs the grantor creates later are covered automatically.
+CREATE TABLE IF NOT EXISTS account_grants (
+  grantor_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  grantee_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role            text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
+  write_types     text[] NOT NULL DEFAULT ARRAY[]::text[],
+  created_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (grantor_user_id, grantee_user_id)
+);
+CREATE INDEX IF NOT EXISTS account_grants_grantee_idx
+  ON account_grants (grantee_user_id);
+
 -- Every Doco has a single public `handle`. It lives in the same flat
 -- namespace as top-level host routes. The internal ULID `id` stays as
 -- the FK target for entity tables; `handle` is what URLs and public API

@@ -891,6 +891,107 @@ export async function getDocoUserGrant(docoId: string, userId: string): Promise<
   });
 }
 
+/** User ids that hold owner role on this org (the org's account owners). */
+export async function listOrgOwnerUserIds(orgId: string): Promise<string[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ user_id: string }>(
+      "SELECT user_id FROM org_users WHERE org_id = $1 AND role = 'owner'",
+      [orgId],
+    );
+    return r.rows.map((row) => String(row.user_id));
+  });
+}
+
+// ─── account_grants (migration 075) ─────────────────────────────────────────
+
+export interface AccountGrantRow {
+  grantor_user_id: string;
+  grantee_user_id: string;
+  role: DocoRole;
+  write_types: string[];
+}
+
+/**
+ * Every whole-account grant this principal HOLDS (as grantee). Each row's
+ * grantor is a user whose owned orgs/Docos the grantee inherits access to.
+ */
+export async function getAccountGrantsForGrantee(
+  granteeUserId: string,
+): Promise<AccountGrantRow[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{
+      grantor_user_id: string;
+      grantee_user_id: string;
+      role: string;
+      write_types: string[];
+    }>(
+      `SELECT grantor_user_id, grantee_user_id, role, write_types
+         FROM account_grants WHERE grantee_user_id = $1`,
+      [granteeUserId],
+    );
+    return r.rows.flatMap((row) => {
+      const role = toRole(row.role);
+      if (!role) return [];
+      return [
+        {
+          grantor_user_id: String(row.grantor_user_id),
+          grantee_user_id: String(row.grantee_user_id),
+          role,
+          write_types: normalizeWriteTypes(row.write_types),
+        },
+      ];
+    });
+  });
+}
+
+/** The account grant `granteeUserId` holds from `grantorUserId`, or null. */
+export async function getAccountGrant(
+  grantorUserId: string,
+  granteeUserId: string,
+): Promise<DocoGrant | null> {
+  return withClient(async (c) => {
+    const r = await c.query<{ role: string; write_types: string[] }>(
+      `SELECT role, write_types FROM account_grants
+         WHERE grantor_user_id = $1 AND grantee_user_id = $2`,
+      [grantorUserId, granteeUserId],
+    );
+    if (r.rowCount === 0) return null;
+    const role = toRole(r.rows[0]?.role);
+    if (!role) return null;
+    return { role, writeTypes: normalizeWriteTypes(r.rows[0]?.write_types) };
+  });
+}
+
+export async function upsertAccountGrant(opts: {
+  grantor_user_id: string;
+  grantee_user_id: string;
+  role: DocoRole;
+  write_types?: string[];
+}): Promise<void> {
+  const writeTypes = normalizeWriteTypes(opts.write_types ?? (opts.role === "writer" ? ["*"] : []));
+  await withClient(async (c) => {
+    await c.query(
+      `INSERT INTO account_grants (grantor_user_id, grantee_user_id, role, write_types)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (grantor_user_id, grantee_user_id)
+       DO UPDATE SET role = EXCLUDED.role, write_types = EXCLUDED.write_types`,
+      [opts.grantor_user_id, opts.grantee_user_id, opts.role, writeTypes],
+    );
+  });
+}
+
+export async function removeAccountGrant(
+  grantorUserId: string,
+  granteeUserId: string,
+): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      "DELETE FROM account_grants WHERE grantor_user_id = $1 AND grantee_user_id = $2",
+      [grantorUserId, granteeUserId],
+    );
+  });
+}
+
 // ─── doco_users ────────────────────────────────────────────────────────────
 
 export interface DocoUserRow {

@@ -45,6 +45,13 @@ export {
   isOrgAdmin,
   getOrgRole,
   getOrgGrant,
+  listOrgOwnerUserIds,
+  // Account-level grants (migration 075)
+  type AccountGrantRow,
+  getAccountGrantsForGrantee,
+  getAccountGrant,
+  upsertAccountGrant,
+  removeAccountGrant,
   getOrgConstitutionsByIds,
   updateOrgConstitution,
   type OrganizationRow,
