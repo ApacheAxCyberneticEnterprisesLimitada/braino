@@ -4,10 +4,8 @@
  *
  * The framework ships curated templates. `global` is the policies
  * template; the others describe common Doco shapes such as business
- * processes, glossaries, and org charts. Per the successor to
- * decision_01KRFG5BAJ1ATHX0QE0HHX0QEV (which trimmed thirteen
- * templates down to two) — every other previously-shipped template
- * stays project-owner-authored. Template names are plain handles.
+ * processes, glossaries, org charts, and decision-record collections.
+ * Template names are plain handles.
  *
  * Each template ships:
  * - `description` — the description text rendered in the picker and
@@ -123,6 +121,88 @@ export interface DocoTemplate {
   defaultNodeLifecycle?: Lifecycle;
 }
 
+const DECISION_RECORD_ENTITY_TYPES = [
+  "intent",
+  "decision",
+  "eval",
+  "reference",
+  "rule",
+  "principal",
+  "guidance_policy",
+  "node_authoring_policy",
+] as const;
+
+interface DecisionRecordTemplatePolicyOptions {
+  membershipPolicy: string;
+  membershipSpec: string;
+  qualityPolicy: string;
+  qualitySpec: string;
+  guidance: string[];
+}
+
+function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): TemplatePolicy[] {
+  return [
+    {
+      on_violation: "warn",
+      policy: opts.membershipPolicy,
+      predicate: {
+        kind: "probabilistic",
+        spec: opts.membershipSpec,
+        when_node_type: ["intent", "decision", "eval", "reference", "rule", "principal"],
+      },
+    },
+    {
+      policy:
+        "Only Intent, Decision, Eval, Reference, Rule, Principal, and the Doco's own policies belong in a decision-record Doco. Actions, Logs, States, and Ideas belong in sibling Docos unless promoted into an actual decision record.",
+      predicate: {
+        kind: "requires_entity_type",
+        entity_types: [...DECISION_RECORD_ENTITY_TYPES],
+      },
+    },
+    {
+      policy:
+        "Every active decision-record Decision declares `question`, `chosen`, and `alternatives`: the issue being decided, the selected resolution, and the options considered.",
+      predicate: {
+        kind: "requires_field",
+        fields: ["question", "chosen", "alternatives"],
+        when_node_type: ["decision"],
+      },
+      fires_when_node_lifecycle: ["asserted"],
+    },
+    {
+      on_violation: "warn",
+      policy:
+        "Active decision-record Decisions should have unique `question` values. If the same question is revisited, retire or supersede the old record and link it to the successor rather than silently rewriting history.",
+      predicate: {
+        kind: "unique_field",
+        field: "question",
+        case_fold: true,
+        when_node_type: ["decision"],
+      },
+      fires_when_node_lifecycle: ["asserted"],
+    },
+    {
+      on_violation: "warn",
+      policy: opts.qualityPolicy,
+      predicate: {
+        kind: "probabilistic",
+        when_node_type: ["decision"],
+        spec: opts.qualitySpec,
+      },
+      fires_when_node_lifecycle: ["asserted"],
+    },
+    {
+      policy:
+        "Decision records are append-only once asserted: correct or replace them by retiring or superseding the old Decision and creating a successor, not by editing away the original context, rationale, or rejected alternatives.",
+    },
+    {
+      policy:
+        "Use References for source material and implementation evidence, Rules for enduring policy that falls out of a decision, Evals for validation or follow-up checks, and Intents for the goal or outcome the decision serves.",
+    },
+    ...opts.guidance.map((policy) => ({ policy })),
+  ];
+}
+
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
@@ -161,6 +241,98 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Important doco-wide decisions that don't naturally fit a more specific subject area.",
     policies: [],
+  },
+  {
+    name: "architectural-decisions",
+    label: "Architectural decisions",
+    icon: "🏛️",
+    description:
+      "Document architectural decision records — system structure, interfaces, infrastructure, quality attributes, constraints, alternatives, and consequences.",
+    policies: decisionRecordPolicies({
+      membershipPolicy:
+        "A node belongs in architectural-decisions when it records or supports an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
+      membershipSpec:
+        "PASS for ADRs, architecture goals, architecture principles, technology-selection records, security/privacy architecture constraints, References to RFCs/specs/PRs, Evals that validate an architectural claim, and Principals representing accountable technical owners or review bodies. FAIL for product roadmap choices, UI design choices, raw incidents, implementation tasks without architectural consequence, or data-definition decisions better owned by data-decisions.",
+      qualityPolicy:
+        "An active architectural Decision reads like an ADR: it states context and problem, decision drivers or quality attributes, options considered, chosen approach, consequences and trade-offs, implementation/migration impact, and the review or rollback trigger.",
+      qualitySpec:
+        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when the record includes (1) context/problem, (2) decision drivers such as quality attributes, constraints, or forces, (3) realistic alternatives considered, (4) rationale for the chosen architecture, (5) consequences/trade-offs/risks, and (6) implementation, migration, rollback, or revisit implications. FAIL with the missing aspects when it only states a choice without rationale, lacks alternatives, omits consequences, or leaves no path for implementation/review.",
+      guidance: [
+        "Create an architectural Decision for choices that are hard to reverse or broadly consequential: platform/runtime choices, service boundaries, data ownership across systems, API contracts, security controls, reliability targets, deployment topology, build/release architecture, or cross-team technical standards.",
+        "Architectural Decisions that create enduring technical rules should spawn or link Rules, such as API compatibility rules, service ownership rules, dependency constraints, or security requirements.",
+        "Link implementation PRs, migration plans, diagrams, benchmark results, threat models, and incident learnings as References so the ADR remains explainable after the code has moved on.",
+        "Architecture records name the accountable technical owner or review group in `decided_by` or prose, and call out product, design, data, security, or operations stakeholders when the decision crosses those boundaries.",
+      ],
+    }),
+  },
+  {
+    name: "product-decisions",
+    label: "Product decisions",
+    icon: "🧭",
+    description:
+      "Document product decision records — user/customer evidence, scope, positioning, pricing, roadmap choices, success metrics, alternatives, and revisit triggers.",
+    policies: decisionRecordPolicies({
+      membershipPolicy:
+        "A node belongs in product-decisions when it records or supports a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
+      membershipSpec:
+        "PASS for product decision records, product goals, product principles, customer/research References, Evals for experiments or metrics, and Principals representing product decision roles. FAIL for engineering implementation choices, visual/interface design details better owned by design-decisions, pure data-governance choices, one-off support events, or unpromoted feature ideas with no decision yet.",
+      qualityPolicy:
+        "An active product Decision states the user/customer problem, strategic goal, evidence, assumptions, options considered, chosen product direction, explicit trade-offs, success metric, accountable decision role, and revisit trigger.",
+      qualitySpec:
+        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when it includes (1) the user/customer problem and affected segment, (2) strategic or OKR alignment, (3) evidence such as research, feedback, analytics, sales/support signal, or experiment data, (4) assumptions and constraints, (5) realistic alternatives including the status quo or not-building option, (6) trade-offs and expected impact, (7) a success/failure metric or learning goal, and (8) a decision owner/approval role or revisit trigger. FAIL with missing aspects when it reads as a feature wish, ungrounded opinion, or roadmap assertion without evidence and metrics.",
+      guidance: [
+        "Record `we will not do X` product calls when the choice changes scope, user expectations, sales promises, or future roadmap reasoning; negative decisions are often more valuable than shipped-feature notes.",
+        "Use Evals for experiments, A/B tests, metric reviews, or qualitative checks that prove whether the product Decision worked, and link follow-up Decisions when the evidence changes the course.",
+        "Product Decisions separate reversible experiments from committed strategy: two-way-door tests can stay drafting or time-boxed, while one-way-door commitments should be asserted with explicit approval and revisit criteria.",
+        "Use References for customer interviews, tickets, analytics, opportunity assessments, pricing research, launch notes, and competitive evidence rather than burying source material inside the Decision prose.",
+      ],
+    }),
+  },
+  {
+    name: "design-decisions",
+    label: "Design decisions",
+    icon: "🎨",
+    description:
+      "Document design decision records — UX, service, interaction, content, accessibility, design-system, and research-backed trade-offs.",
+    policies: decisionRecordPolicies({
+      membershipPolicy:
+        "A node belongs in design-decisions when it records or supports a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
+      membershipSpec:
+        "PASS for design decision records, design goals, design-system Rules, research or Figma References, usability/accessibility Evals, and Principals representing design reviewers or accountable owners. FAIL for raw engineering architecture, product priority calls without UX implications, data governance decisions, or cosmetic preference notes with no user or system rationale.",
+      qualityPolicy:
+        "An active design Decision states the user journey or service moment, evidence, alternatives considered, chosen pattern, affected states and edge cases, accessibility/content implications, trade-offs, artifacts, and validation plan.",
+      qualitySpec:
+        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when it includes (1) the user journey, service moment, or interface state being decided, (2) evidence from research, support, analytics, accessibility review, or product constraints, (3) alternatives considered, preferably linked to artifacts, (4) chosen design pattern and rationale, (5) affected states including empty/error/loading/permission/responsive states when relevant, (6) accessibility, content, localization, or design-system implications, (7) trade-offs and risks, and (8) validation or rollout plan. FAIL when it only says what the UI looks like without explaining users, evidence, alternatives, states, or validation.",
+      guidance: [
+        "Attach screenshots, prototypes, Figma files, research notes, usability recordings, audits, and content examples as References so later readers can see what the decision actually changed.",
+        "Record significant unshipped design work when it shaped the eventual answer; rejected explorations are part of the rationale, not throwaway history.",
+        "Design-system Decisions that establish reusable behavior should produce Rules for component usage, accessibility expectations, content patterns, or interaction constraints.",
+        "Use Evals for usability tests, accessibility audits, design QA checklists, or content reviews that determine whether the design Decision still holds.",
+      ],
+    }),
+  },
+  {
+    name: "data-decisions",
+    label: "Data decisions",
+    icon: "🗃️",
+    description:
+      "Document data decision records — source-of-truth choices, schemas, contracts, metric definitions, governance, quality, lineage, retention, privacy, and access.",
+    policies: decisionRecordPolicies({
+      membershipPolicy:
+        "A node belongs in data-decisions when it records or supports a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
+      membershipSpec:
+        "PASS for data decision records, data-governance goals, data Rules, data contract References, quality or freshness Evals, and Principals representing data owners, stewards, producers, or consumer groups. FAIL for UI design decisions, generic product roadmap choices, pure application architecture with no data ownership/semantics impact, or raw pipeline run Logs.",
+      qualityPolicy:
+        "An active data Decision states the data asset or definition, accountable owner/steward, producers and consumers, source of truth, schema or semantics, privacy/access/retention stance, quality and freshness expectations, lineage, migration/backfill impact, and monitoring/revisit plan.",
+      qualitySpec:
+        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when it includes (1) the data asset, metric, event, dataset, or contract being decided, (2) accountable owner or steward, (3) producers and consumers or affected systems, (4) canonical source of truth and semantic definition, (5) schema/contract or compatibility implications, (6) classification, privacy, access, and retention considerations when relevant, (7) data quality/freshness/SLA expectations and lineage, (8) migration, backfill, rollback, or downstream impact, and (9) monitoring or revisit trigger. FAIL when it records a data choice without ownership, semantics, consumers, governance, or operational impact.",
+      guidance: [
+        "Prefer machine-readable data contracts where possible, and link them as References; the Decision explains why the contract exists while the contract defines the enforceable schema and expectations.",
+        "Metric and source-of-truth Decisions should define exactly what is included, excluded, and time-bounded so dashboards, experiments, and product claims do not drift into incompatible meanings.",
+        "Breaking data changes require a migration/backfill plan, downstream-consumer notice, compatibility strategy, and rollback or reconciliation path before the Decision is asserted.",
+        "Use Rules for enduring governance constraints such as access tiers, retention limits, PII handling, ownership boundaries, and quality thresholds; use Evals to monitor freshness, completeness, drift, or contract compliance.",
+      ],
+    }),
   },
   {
     // Glossaries define product and domain language. Each active term
@@ -855,7 +1027,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  * Lookup a template by name. Returns undefined for unknown names.
  *
  * Templates are stored under plain handles (`global`, `important`,
- * `glossaries`, `business-processes`, `org-chart`).
+ * `architectural-decisions`, `product-decisions`, `design-decisions`,
+ * `data-decisions`, `glossaries`, `business-processes`, `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);
