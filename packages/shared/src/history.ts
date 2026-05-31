@@ -5,7 +5,7 @@
  * Doco's source of truth is the commit log + immutable version snapshots;
  * the per-type node tables and the `edges` table are a rebuildable
  * projection (the "current state"). Nothing is ever deleted — removal is a
- * `retire` version. See docs/plans/doco-vnext.md.
+ * `retire` version.
  *
  * Git's object model, one-to-one:
  *   Commit      = git commit   (who / when / WHY, atomic changeset)

@@ -68,7 +68,6 @@ async function applySchema(): Promise<void> {
     // tables they expect; the genesis reset (063) drops everything except the
     // migration ledger; pass 2 (idempotent) recreates the new schema empty.
     // In steady state both passes are no-ops (every CREATE uses IF NOT EXISTS).
-    // See docs/plans/doco-vnext.md.
     await c.query(SCHEMA_SQL);
     await applyMigrations(c);
     await c.query(SCHEMA_SQL);

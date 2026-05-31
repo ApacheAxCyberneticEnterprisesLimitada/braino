@@ -8,8 +8,6 @@
 // Nothing is ever deleted: removal is an `op='retire'` version +
 // lifecycle='retired'. Edges are first-class — their own id, lifecycle,
 // provenance, and history, mutated ONLY here (never wiped by the indexer).
-//
-// See docs/plans/doco-vnext.md.
 
 import { createHash } from "node:crypto";
 import { type EntityId, generateUlid, makeEntityId } from "@doco/shared";
