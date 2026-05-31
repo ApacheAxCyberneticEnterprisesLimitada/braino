@@ -7,7 +7,7 @@
 //   * Membership + OAuth tables reference `user_id` (was `principal_id`).
 //   * `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
-import { normalizeWriteTypes } from "@doco/shared";
+import { MANAGED_EDGE_TO_FIELD, MANAGED_FIELDS_BY_TYPE, normalizeWriteTypes } from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
 import {
@@ -207,11 +207,13 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
 }
 
 /**
- * Keys promoted to typed columns that must be stripped from the `data` jsonb
- * so the typed column is the single source of truth (the migration-035
- * scalars + principal.role_principal). Derived from NODE_PROMOTED_COLUMNS;
- * relationship refs are intentionally NOT stripped — the indexer still
- * derives edges from them in `data`.
+ * Keys stripped from the `data` jsonb before storage, so the typed column or
+ * first-class edge is the single source of truth:
+ *   - migration-035 scalars promoted to typed columns (from NODE_PROMOTED_COLUMNS)
+ *   - principal.role_principal (promoted to its own column by the writer)
+ *   - the managed node→node relationship fields (option (i)): authored as
+ *     first-class edges and reconstructed from edges on read
+ *     (hydrateManagedRelations), so they no longer live in stored `data`.
  */
 const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() => {
   const out: Record<string, Set<string>> = {};
@@ -222,6 +224,12 @@ const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() =>
   }
   // Principal's role_principal is promoted to its own column by the writer.
   out.principal = new Set(["role_principal"]);
+  // Managed node→node relationship fields live only as edges now.
+  for (const [type, fields] of Object.entries(MANAGED_FIELDS_BY_TYPE)) {
+    const keys = out[type] ?? new Set<string>();
+    for (const f of fields) keys.add(f);
+    out[type] = keys;
+  }
   return out;
 })();
 
@@ -236,6 +244,48 @@ function stripPromotedKeys(
     if (!promoted.has(k)) out[k] = v;
   }
   return out;
+}
+
+/** Node types that own a managed relationship field (read-side hydration). */
+const MANAGED_OWNER_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(MANAGED_FIELDS_BY_TYPE));
+const MANAGED_EDGE_TYPES: readonly string[] = Object.keys(MANAGED_EDGE_TO_FIELD);
+
+/**
+ * Reconstruct the managed node→node relationship fields from first-class edges
+ * (option (i)). The capture path strips these from stored `data` and authors
+ * them as edges; on read we patch them back onto each record's `data` so the
+ * API / MCP / web / perspectives see the field exactly as before. One batched
+ * edge query per call; a no-op for entity types that own no managed field.
+ */
+export async function hydrateManagedRelations(
+  c: pg.PoolClient,
+  entityType: string,
+  records: EntityRecord[],
+): Promise<void> {
+  if (!MANAGED_OWNER_TYPE_SET.has(entityType) || records.length === 0) return;
+  const ids = records.map((r) => r.id);
+  const { rows } = await c.query<{ from_id: string; edge_type: string; to_id: string }>(
+    `SELECT from_id, edge_type, to_id
+       FROM edges
+      WHERE from_id = ANY($1::text[]) AND edge_type = ANY($2::text[]) AND lifecycle <> 'retired'`,
+    [ids, MANAGED_EDGE_TYPES],
+  );
+  if (rows.length === 0) return;
+  const byFrom = new Map<string, Record<string, unknown>>();
+  for (const e of rows) {
+    const field = (MANAGED_EDGE_TO_FIELD as Record<string, string>)[e.edge_type];
+    if (!field) continue;
+    let patch = byFrom.get(e.from_id);
+    if (!patch) {
+      patch = {};
+      byFrom.set(e.from_id, patch);
+    }
+    patch[field] = e.to_id;
+  }
+  for (const rec of records) {
+    const patch = byFrom.get(rec.id);
+    if (patch) Object.assign(rec.data, patch);
+  }
 }
 
 async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
@@ -317,7 +367,9 @@ export async function getEntity(entityType: string, id: string): Promise<EntityR
       ? await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [id, entityType])
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE id = $1`, [id]);
     if (r.rowCount === 0) return null;
-    return rowToRecord(entityType, r.rows[0]);
+    const record = rowToRecord(entityType, r.rows[0]);
+    await hydrateManagedRelations(c, entityType, [record]);
+    return record;
   });
 }
 
@@ -332,7 +384,9 @@ export async function listEntitiesByDoco(
           entityType,
         ])
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1`, [docoId]);
-    return r.rows.map((row) => rowToRecord(entityType, row));
+    const records = r.rows.map((row) => rowToRecord(entityType, row));
+    await hydrateManagedRelations(c, entityType, records);
+    return records;
   });
 }
 
@@ -357,7 +411,9 @@ export async function listEntitiesByDocoAndIds(
           `SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
           [docoId, ids],
         );
-    return r.rows.map((row) => rowToRecord(entityType, row));
+    const records = r.rows.map((row) => rowToRecord(entityType, row));
+    await hydrateManagedRelations(c, entityType, records);
+    return records;
   });
 }
 

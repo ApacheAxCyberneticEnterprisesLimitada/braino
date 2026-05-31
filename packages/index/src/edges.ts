@@ -1,4 +1,4 @@
-import { type Entity, isEntityId } from "@doco/shared";
+import { type Entity, MANAGED_EDGE_TO_FIELD, isEntityId } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 
 export interface Edge {
@@ -210,13 +210,7 @@ export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
  * columns. Every other relationship `deriveEdges` emits stays a node field for
  * now — those columns are not being dropped.
  */
-export const MANAGED_RELATION_EDGE_TYPES = [
-  "has_parent", // intent.parent_intent_id → intent
-  "performed_by", // action/log.actor_id    → principal
-  "superseded_by", // decision.superseded_by → decision
-  "decided_by", // decision.decided_by      → principal
-  "templated_by", // log.template_id         → action
-] as const;
+export const MANAGED_RELATION_EDGE_TYPES: readonly string[] = Object.keys(MANAGED_EDGE_TO_FIELD);
 
 const MANAGED_EDGE_TYPE_SET: ReadonlySet<string> = new Set(MANAGED_RELATION_EDGE_TYPES);
 
