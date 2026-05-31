@@ -53,13 +53,13 @@ async function main(): Promise<void> {
       [docoId, `doco-${generateUlid().slice(0, 8).toLowerCase()}`, orgId, orgId],
     );
     await c.query(
-      `INSERT INTO decisions (id, doco_id, lifecycle, decision, data, created_by)
-       VALUES ($1,$2,'asserted','Use first-class edges','{}',$3)`,
+      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, data, created_by)
+       VALUES ($1,$2,'decision','asserted','Use first-class edges','{}',$3)`,
       [decisionId, docoId, userId],
     );
     await c.query(
-      `INSERT INTO reference_entities (id, doco_id, lifecycle, reference, data, created_by)
-       VALUES ($1,$2,'asserted','PR #634','{}',$3)`,
+      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, data, created_by)
+       VALUES ($1,$2,'reference','asserted','PR #634','{}',$3)`,
       [refId, docoId, userId],
     );
 

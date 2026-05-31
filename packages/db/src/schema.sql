@@ -84,30 +84,6 @@ CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
 CREATE INDEX IF NOT EXISTS users_kind_idx          ON users (kind);
 CREATE INDEX IF NOT EXISTS users_owner_idx         ON users (owner_id);
 
-CREATE TABLE IF NOT EXISTS principals (
-  id              text PRIMARY KEY,            -- principal_<ulid>
-  -- Principals are Doco-scoped (migration 020). The FK + NOT NULL are
-  -- added by 020 after the docos table exists; declared nullable here
-  -- only so the schema baseline parses before docos is created later in
-  -- this file. Names are descriptive labels, not unique keys.
-  doco_id         text,
-  name            text NOT NULL,                -- display label (e.g. "System",
-                                                -- "Customer service rep")
-  lifecycle       text,
-  -- Prose body. Carries the entire Principal narrative after the
-  -- slim-down — the `summary` one-liner column was dropped by
-  -- migration 037 (per "Principal should not use summary").
-  body_md         text,
-  -- Legacy role-principal flag. Promoted out of `data` jsonb by
-  -- migration 035; new Principal creation no longer sets this from
-  -- reserved names.
-  role_principal  boolean NOT NULL DEFAULT false,
-  data            jsonb NOT NULL,
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  created_by      text,                        -- user_<ulid>
-  updated_at      timestamptz NOT NULL DEFAULT now(),
-  updated_by      text
-);
 
 CREATE TABLE IF NOT EXISTS organizations (
   id          text PRIMARY KEY,
@@ -160,60 +136,8 @@ CREATE TABLE IF NOT EXISTS docos (
 -- `data` (jsonb). Scalar ID refs are promoted to typed FK columns
 -- (e.g. actions.actor_id → principals(id)).
 
-CREATE TABLE IF NOT EXISTS intents (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  -- Type-named prose column (post-rename). Holds all the prose; the
-  -- legacy headline/body/title trio was collapsed by migrations 022
-  -- and 023. Structural data (actors, wanted_by, ...) lives in `data`.
-  intent      text NOT NULL DEFAULT '',
-  parent_intent_id text REFERENCES intents(id),
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS intents_doco_idx ON intents (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS intents_lifecycle_idx ON intents (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS decisions (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  decision    text NOT NULL DEFAULT '',  -- see intents.intent
-  decided_by  text,                      -- principal who decided (promoted from data, migration 025/056)
-  superseded_by_decision_id text REFERENCES decisions(id),
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS decisions_doco_idx ON decisions (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS decisions_lifecycle_idx ON decisions (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS rules (
-  id            text PRIMARY KEY,
-  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle     text,
-  rule          text NOT NULL DEFAULT '',  -- see intents.intent
-  -- Enum-shaped scalars promoted out of data jsonb by migration 035.
-  -- `predicate`, `expected`, `applies_to` stay in `data` (compound).
-  kind          text,
-  modality      text,
-  severity      text,
-  phase         text,
-  on_violation  text,
-  data          jsonb NOT NULL,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  created_by    text,
-  updated_at    timestamptz NOT NULL DEFAULT now(),
-  updated_by    text
-);
-CREATE INDEX IF NOT EXISTS rules_doco_idx ON rules (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS rules_lifecycle_idx ON rules (doco_id, lifecycle);
 -- rules.kind / rules.severity indexes live in migration 035 alongside the
 -- ALTER TABLE that adds the columns — putting them here means schema.sql
 -- (which runs BEFORE migrations) tries to index columns that don't exist
@@ -257,79 +181,16 @@ CREATE INDEX IF NOT EXISTS node_authoring_policies_doco_idx
 CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
   ON node_authoring_policies (doco_id, lifecycle);
 
-CREATE TABLE IF NOT EXISTS actions (
-  id            text PRIMARY KEY,
-  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle     text,
-  action        text NOT NULL DEFAULT '',  -- see intents.intent
-  -- Scalars promoted out of data jsonb by migration 035.
-  verb          text,
-  performed_at  timestamptz,
-  actor_id      text REFERENCES principals(id),
-  data          jsonb NOT NULL,
-  created_at    timestamptz NOT NULL DEFAULT now(),
-  created_by    text,
-  updated_at    timestamptz NOT NULL DEFAULT now(),
-  updated_by    text
-);
-CREATE INDEX IF NOT EXISTS actions_doco_idx ON actions (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS actions_lifecycle_idx ON actions (doco_id, lifecycle);
 -- actions.verb / actions.performed_at indexes live in migration 035 — see
 -- the note above the rules block.
 
-CREATE TABLE IF NOT EXISTS logs (
-  id           text PRIMARY KEY,
-  doco_id      text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle    text,
-  log          text NOT NULL DEFAULT '',  -- see intents.intent
-  -- Scalars promoted out of data jsonb by migration 035.
-  verb         text,
-  happened_at  timestamptz,
-  actor_id     text REFERENCES principals(id),
-  template_id  text REFERENCES actions(id),
-  data         jsonb NOT NULL,
-  created_at   timestamptz NOT NULL DEFAULT now(),
-  created_by   text,
-  updated_at   timestamptz NOT NULL DEFAULT now(),
-  updated_by   text
-);
-CREATE INDEX IF NOT EXISTS logs_doco_idx ON logs (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS logs_lifecycle_idx ON logs (doco_id, lifecycle);
 -- logs.verb / logs.happened_at indexes live in migration 035.
 
-CREATE TABLE IF NOT EXISTS evals (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  eval        text NOT NULL DEFAULT '',  -- see intents.intent (also folded in: name, description)
-  kind        text,                       -- scalar promoted by migration 035
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS evals_doco_idx ON evals (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS evals_lifecycle_idx ON evals (doco_id, lifecycle);
 -- evals.kind index lives in migration 035.
 
 -- State is a node in a
 -- formal state machine. Mirrors the actions table shape; the structured
 -- fields (`kind`, `invariants`) live in `data`.
-CREATE TABLE IF NOT EXISTS states (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  state       text NOT NULL DEFAULT '',  -- see intents.intent
-  kind        text,                       -- scalar promoted by migration 035
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS states_doco_idx ON states (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS states_lifecycle_idx ON states (doco_id, lifecycle);
 -- states.kind index lives in migration 035.
 
 CREATE TABLE IF NOT EXISTS tags (
@@ -341,35 +202,7 @@ CREATE TABLE IF NOT EXISTS tags (
   UNIQUE (doco_id, name)
 );
 
-CREATE TABLE IF NOT EXISTS ideas (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  idea        text NOT NULL DEFAULT '',  -- see intents.intent
-  proposer_id text REFERENCES users(id),
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
 
-CREATE TABLE IF NOT EXISTS reference_entities (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  lifecycle   text,
-  reference   text NOT NULL DEFAULT '',  -- see intents.intent
-  -- Scalars promoted out of data jsonb by migration 035.
-  ref_type    text,
-  locator     text,
-  citation    text,
-  title       text,
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
 -- reference_entities.ref_type index lives in migration 035.
 
 -- ── Unified node table (doco-vnext follow-up: collapse the 10 per-type
@@ -396,7 +229,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   node_type      text NOT NULL,              -- intent|idea|rule|decision|action|log|eval|reference|state|principal
   lifecycle      text,
-  prose          text NOT NULL DEFAULT '',   -- unified type-named column (the 9 prose nodes); '' for principals
+  prose          text NOT NULL DEFAULT '',   -- unified type-named column for the 9 prose node types; empty string for principals
   name           text,                       -- principal display label (NULL for the others)
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
@@ -1137,13 +970,6 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
 -- add them to a DB that already has the table (e.g. a prod that genesis-reset
 -- from an earlier, incomplete baseline), so add them here idempotently — the
 -- same belt-and-suspenders pattern as the oauth_* ADD COLUMN block above.
-ALTER TABLE intents   ADD COLUMN IF NOT EXISTS parent_intent_id text REFERENCES intents(id);
-ALTER TABLE decisions ADD COLUMN IF NOT EXISTS decided_by text;
-ALTER TABLE decisions ADD COLUMN IF NOT EXISTS superseded_by_decision_id text REFERENCES decisions(id);
-ALTER TABLE actions   ADD COLUMN IF NOT EXISTS actor_id text REFERENCES principals(id);
-ALTER TABLE logs      ADD COLUMN IF NOT EXISTS actor_id text REFERENCES principals(id);
-ALTER TABLE logs      ADD COLUMN IF NOT EXISTS template_id text REFERENCES actions(id);
-ALTER TABLE ideas     ADD COLUMN IF NOT EXISTS proposer_id text REFERENCES users(id);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Append-only guardrails (doco-vnext). The commit log + version snapshots are

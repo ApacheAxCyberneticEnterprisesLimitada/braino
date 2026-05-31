@@ -33,11 +33,11 @@ async function main(): Promise<void> {
       [docoId, `d-${generateUlid().slice(0, 8).toLowerCase()}`, orgId, orgId],
     );
     await c.query(
-      `INSERT INTO decisions (id,doco_id,lifecycle,decision,data) VALUES ($1,$2,'asserted','D','{}')`,
+      `INSERT INTO nodes (id,doco_id,node_type,lifecycle,prose,data) VALUES ($1,$2,'decision','asserted','D','{}')`,
       [dId, docoId],
     );
     await c.query(
-      `INSERT INTO reference_entities (id,doco_id,lifecycle,reference,data) VALUES ($1,$2,'asserted','R','{}')`,
+      `INSERT INTO nodes (id,doco_id,node_type,lifecycle,prose,data) VALUES ($1,$2,'reference','asserted','R','{}')`,
       [rId, docoId],
     );
 

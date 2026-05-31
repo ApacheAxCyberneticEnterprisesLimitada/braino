@@ -20,20 +20,22 @@ export const NODE_TABLES: Record<
   string,
   { table: string; body: boolean; typeNamedColumn?: string }
 > = {
-  intent: { table: "intents", body: false, typeNamedColumn: "intent" },
-  idea: { table: "ideas", body: false, typeNamedColumn: "idea" },
-  rule: { table: "rules", body: false, typeNamedColumn: "rule" },
-  decision: { table: "decisions", body: false, typeNamedColumn: "decision" },
-  action: { table: "actions", body: false, typeNamedColumn: "action" },
-  log: { table: "logs", body: false, typeNamedColumn: "log" },
-  eval: { table: "evals", body: false, typeNamedColumn: "eval" },
-  reference: { table: "reference_entities", body: false, typeNamedColumn: "reference" },
-  state: { table: "states", body: false, typeNamedColumn: "state" },
-  // Principal = documented role/persona, referenced by actor_id/actors[].
-  // NOT the OAuth identity layer — that lives in users.
-  // body_md carries prose description of the role. Principal is
-  // intentionally excluded from the type-named-column rename for now.
-  principal: { table: "principals", body: true },
+  // Post-collapse (Proposal B): every node type lives in the unified `nodes`
+  // table, discriminated by node_type. Prose is the `prose` column; `body_md`
+  // exists on `nodes` (carries principals' description). The per-type tables +
+  // type-named columns are gone — these fields now describe `nodes` uniformly.
+  intent: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  idea: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  rule: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  decision: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  action: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  log: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  eval: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  reference: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  state: { table: "nodes", body: true, typeNamedColumn: "prose" },
+  // Principal = role/persona (referenced by actor_id/actors[]), NOT the OAuth
+  // user layer (that lives in `users`).
+  principal: { table: "nodes", body: true, typeNamedColumn: "prose" },
 };
 
 export interface EntityTableSpec {
@@ -44,16 +46,19 @@ export interface EntityTableSpec {
   nameExpr?: string;
 }
 
+// Post-collapse: all 9 prose node types live in `nodes` (discriminated by
+// entityType → node_type). Kept as a list of the graph node types consumers
+// iterate; `table` is uniformly `nodes`.
 export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = [
-  { table: "decisions", entityType: "decision", body: false },
-  { table: "intents", entityType: "intent", body: false },
-  { table: "actions", entityType: "action", body: false },
-  { table: "logs", entityType: "log", body: false },
-  { table: "rules", entityType: "rule", body: false },
-  { table: "evals", entityType: "eval", body: false },
-  { table: "reference_entities", entityType: "reference", body: false },
-  { table: "ideas", entityType: "idea", body: false },
-  { table: "states", entityType: "state", body: false },
+  { table: "nodes", entityType: "decision", body: true },
+  { table: "nodes", entityType: "intent", body: true },
+  { table: "nodes", entityType: "action", body: true },
+  { table: "nodes", entityType: "log", body: true },
+  { table: "nodes", entityType: "rule", body: true },
+  { table: "nodes", entityType: "eval", body: true },
+  { table: "nodes", entityType: "reference", body: true },
+  { table: "nodes", entityType: "idea", body: true },
+  { table: "nodes", entityType: "state", body: true },
 ] as const;
 
 export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
