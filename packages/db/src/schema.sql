@@ -738,6 +738,20 @@ CREATE TABLE IF NOT EXISTS perspectives (
 CREATE INDEX IF NOT EXISTS perspectives_owner_handle_idx ON perspectives (owner_handle);
 CREATE INDEX IF NOT EXISTS perspectives_kind_idx         ON perspectives (kind);
 
+-- Re-assert the kind allow-list on EXISTING tables. `CREATE TABLE IF NOT
+-- EXISTS` above is skipped when perspectives already exists, so its inline
+-- CHECK (auto-named perspectives_kind_check) keeps whatever list it was first
+-- created with — and the seed below would violate it whenever the list grows.
+-- (This is precisely how #717's 'pull-requests' kind took prod down: schema.sql
+-- runs before migrations in the bookend, so the pass-1 seed hit the old CHECK
+-- before migration 076 could widen it.) Drop + re-add idempotently here, ahead
+-- of the seed, so existing databases heal themselves. Keep this list in sync
+-- with the inline CHECK above and the newest perspectives migration.
+ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
+ALTER TABLE perspectives
+  ADD CONSTRAINT perspectives_kind_check
+  CHECK (kind IN ('graph','list','bpmn','org-tree','sla','approval','glossary','pull-requests'));
+
 -- Built-in perspectives. host.ts attaches graph/list/for-approval to every new
 -- Doco, so these rows must exist for doco creation to succeed.
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
