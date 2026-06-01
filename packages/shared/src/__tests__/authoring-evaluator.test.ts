@@ -230,6 +230,63 @@ describe("authoring evaluator — requires_edge", () => {
   });
 });
 
+describe("authoring evaluator — requires_edge_role", () => {
+  it("passes when the required outgoing edge role is present", () => {
+    const v = evaluate(
+      { id: "action_01", node_type: "action" },
+      [
+        P({
+          kind: "requires_edge_role",
+          edge_type: "supports",
+          edge_role: "serves",
+          target_node_type: "intent",
+          when_node_type: ["action"],
+        }),
+      ],
+      {
+        candidateEdges: [
+          {
+            from_id: "action_01",
+            to_id: "intent_42",
+            edge_type: "supports",
+            edge_props_json: { role: "serves" },
+          },
+        ],
+      },
+    );
+    expect(v).toEqual([]);
+  });
+
+  it("fails when the edge family matches but role metadata is missing or different", () => {
+    const v = evaluate(
+      { id: "action_01", node_type: "action" },
+      [
+        P({
+          kind: "requires_edge_role",
+          edge_type: "supports",
+          edge_role: "serves",
+          target_node_type: "intent",
+          when_node_type: ["action"],
+        }),
+      ],
+      {
+        candidateEdges: [
+          {
+            from_id: "action_01",
+            to_id: "intent_42",
+            edge_type: "supports",
+            edge_props_json: { role: "implemented_by" },
+          },
+        ],
+      },
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]?.predicate_kind).toBe("requires_edge_role");
+    expect(v[0]?.reason).toMatch(/supports/);
+    expect(v[0]?.reason).toMatch(/serves/);
+  });
+});
+
 describe("authoring evaluator — requires_node_type", () => {
   it("passes when the candidate's node_type is in the allowlist", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [

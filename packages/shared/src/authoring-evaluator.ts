@@ -12,7 +12,7 @@
  *     just emits them as `pending` violations with the spec attached)
  *
  * Predicate kinds handled:
- *   - requires_edge, forbids_edge
+ *   - requires_edge, requires_edge_role, forbids_edge
  *   - requires_field, forbids_field, unique_field
  *   - requires_node_type, requires_entity_type
  *   - requires_field_resolves_to_principal
@@ -46,6 +46,7 @@ export interface EngineEdge {
   from_id: string;
   to_id: string;
   edge_type: string;
+  edge_props_json?: Record<string, unknown> | null;
 }
 
 /**
@@ -110,6 +111,7 @@ export interface EvaluateOpts {
 
 const NODE_TYPE_PREDICATE_KINDS: ReadonlySet<AuthoringPredicate["kind"]> = new Set([
   "requires_edge",
+  "requires_edge_role",
   "forbids_edge",
   "requires_field",
   "forbids_field",
@@ -139,6 +141,13 @@ function comparableFieldValue(value: unknown, caseFold: boolean): string | null 
   if (!trimmed) return null;
   const normalized = trimmed.normalize("NFKC");
   return caseFold ? normalized.toLowerCase() : normalized;
+}
+
+function edgeRole(edge: EngineEdge): string | null {
+  const role = edge.edge_props_json?.role;
+  if (typeof role !== "string") return null;
+  const trimmed = role.trim();
+  return trimmed.length > 0 ? trimmed : null;
 }
 
 /**
@@ -199,6 +208,21 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       if (wanted) return null;
       const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
       return fail(`missing required \`${pred.edge_type}\` edge${target}`);
+    }
+    case "requires_edge_role": {
+      const wanted = opts.candidateEdges.find((s) => {
+        if (s.edge_type !== pred.edge_type) return false;
+        if (edgeRole(s) !== pred.edge_role) return false;
+        if (pred.target_node_type) {
+          return entityTypeFromId(s.to_id) === pred.target_node_type;
+        }
+        return true;
+      });
+      if (wanted) return null;
+      const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
+      return fail(
+        `missing required \`${pred.edge_type}\` edge with role \`${pred.edge_role}\`${target}`,
+      );
     }
     case "forbids_edge": {
       const offender = opts.candidateEdges.find((s) => {

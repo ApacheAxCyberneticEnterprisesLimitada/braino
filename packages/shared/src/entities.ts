@@ -182,6 +182,13 @@ export type AuthoringPredicate =
       when_node_type?: NodeType[];
     }
   | {
+      kind: "requires_edge_role";
+      edge_type: string;
+      edge_role: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
       kind: "forbids_edge";
       edge_type: string;
       target_node_type?: string;

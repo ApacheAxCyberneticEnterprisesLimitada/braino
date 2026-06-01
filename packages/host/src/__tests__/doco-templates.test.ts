@@ -77,6 +77,14 @@ describe("business-processes template", () => {
       expect(allowlist.entity_types).toContain("node_authoring_policy");
     });
 
+    it("describes policy types separately from business-process nodes", () => {
+      const policy = template.policies.find(
+        (r) => r.predicate?.kind === "requires_entity_type",
+      )?.policy;
+      expect(policy ?? "").toMatch(/Business-process nodes are Intent, Action, Decision/i);
+      expect(policy ?? "").toMatch(/Policies are Doco-scoped authoring metadata/i);
+    });
+
     it("excludes Log and Idea (Logs live in a sibling Doco; Ideas live in their own home)", () => {
       if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
       expect(allowlist.entity_types).not.toContain("log");
@@ -105,57 +113,55 @@ describe("business-processes template", () => {
   });
 
   describe("requires_edge rules", () => {
-    function requiresEdge(edgeType: string, target: string, on: string) {
+    function requiresEdgeRole(edgeType: string, role: string, target: string | null, on: string) {
       return template.policies.find(
         (r) =>
-          r.predicate?.kind === "requires_edge" &&
+          r.predicate?.kind === "requires_edge_role" &&
           r.predicate.edge_type === edgeType &&
-          r.predicate.target_node_type === target &&
+          r.predicate.edge_role === role &&
+          (target === null || r.predicate.target_node_type === target) &&
           r.predicate.when_node_type?.includes(on as never),
       );
     }
 
     it("Action serves Intent", () => {
-      expect(requiresEdge("supports", "intent", "action")).toBeDefined();
+      expect(requiresEdgeRole("supports", "serves", "intent", "action")).toBeDefined();
     });
     it("Decision serves Intent", () => {
-      expect(requiresEdge("supports", "intent", "decision")).toBeDefined();
+      expect(requiresEdgeRole("supports", "serves", "intent", "decision")).toBeDefined();
     });
     it("State serves Intent", () => {
-      expect(requiresEdge("supports", "intent", "state")).toBeDefined();
+      expect(requiresEdgeRole("supports", "serves", "intent", "state")).toBeDefined();
     });
     it("Action performed_by Principal", () => {
-      expect(requiresEdge("attributed_to", "principal", "action")).toBeDefined();
+      expect(
+        requiresEdgeRole("attributed_to", "performed_by", "principal", "action"),
+      ).toBeDefined();
     });
     it("Eval tests a target", () => {
-      const rule = template.policies.find(
-        (r) =>
-          r.predicate?.kind === "requires_edge" &&
-          r.predicate.edge_type === "supports" &&
-          r.predicate.when_node_type?.includes("eval"),
-      );
+      const rule = requiresEdgeRole("supports", "tests", null, "eval");
       expect(rule).toBeDefined();
       expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
     it("fires flow membership checks only when the node is asserted", () => {
-      expect(requiresEdge("supports", "intent", "action")?.fires_when_node_lifecycle).toEqual([
-        "asserted",
-      ]);
-      expect(requiresEdge("supports", "intent", "decision")?.fires_when_node_lifecycle).toEqual([
-        "asserted",
-      ]);
-      expect(requiresEdge("supports", "intent", "state")?.fires_when_node_lifecycle).toEqual([
-        "asserted",
-      ]);
+      expect(
+        requiresEdgeRole("supports", "serves", "intent", "action")?.fires_when_node_lifecycle,
+      ).toEqual(["asserted"]);
+      expect(
+        requiresEdgeRole("supports", "serves", "intent", "decision")?.fires_when_node_lifecycle,
+      ).toEqual(["asserted"]);
+      expect(
+        requiresEdgeRole("supports", "serves", "intent", "state")?.fires_when_node_lifecycle,
+      ).toEqual(["asserted"]);
     });
 
-    it("guides authors to use BPMN role metadata on the simplified edge families", () => {
+    it("keeps the role vocabulary in the business-process guidance", () => {
       const policies = template.policies.map((r) => r.policy).join("\n");
-      expect(policies).toMatch(/`supports` edge with role `serves`/);
-      expect(policies).toMatch(/`attributed_to` edge with role `performed_by`/);
-      expect(policies).toMatch(/`supports` edge with role `tests`/);
-      expect(policies).toMatch(/`constrained_by` edge with role `gated_by`/);
+      expect(policies).toMatch(/`serves`/);
+      expect(policies).toMatch(/`performed_by`/);
+      expect(policies).toMatch(/`tests`/);
+      expect(policies).toMatch(/`gated_by`/);
     });
   });
 
@@ -213,11 +219,13 @@ describe("business-processes template", () => {
       (r) => r.predicate?.kind === "descriptive" && /actor Principal/i.test(r.policy),
     );
 
-    it("documents attributed_to / supports coverage", () => {
+    it("documents performed_by / serves coverage", () => {
       expect(rule?.predicate?.kind).toBe("descriptive");
       if (rule?.predicate?.kind !== "descriptive") return;
       expect(rule.predicate.spec).toMatch(/attributed_to/);
+      expect(rule.predicate.spec).toMatch(/performed_by/);
       expect(rule.predicate.spec).toMatch(/supports/);
+      expect(rule.predicate.spec).toMatch(/serves/);
       expect(rule.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
   });
@@ -294,13 +302,14 @@ describe("business-processes template", () => {
 
   describe("relationships are edge-only", () => {
     const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
-    const edgeGuidance = guidanceSummaries.find((s) => /Every relationship/i.test(s));
+    const edgeGuidance = guidanceSummaries.find((s) => /Relationships in/i.test(s));
 
     it("documents edge-only relationship authoring", () => {
       expect(edgeGuidance).toBeDefined();
       expect(edgeGuidance).toMatch(/attributed_to/);
       expect(edgeGuidance).toMatch(/has_parent/);
       expect(edgeGuidance).toMatch(/retiring the old edge and adding the new one/i);
+      expect(guidanceSummaries.filter((s) => /Relationships in/i.test(s))).toHaveLength(1);
     });
   });
 
