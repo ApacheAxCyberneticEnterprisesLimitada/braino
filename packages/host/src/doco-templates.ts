@@ -351,7 +351,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     label: "Glossaries",
     icon: "📚",
     description:
-      "Document product and domain terminology — canonical terms, definitions, aliases, deprecated wording, sources, and consistency checks.",
+      "Document product and domain terminology — canonical terms, definitions, aliases, replacement links, sources, and consistency checks.",
     // No `defaultNodeLifecycle` override: a glossary term is a
     // definitional, complete-on-creation node, so a captured term lands
     // live (`asserted`) and the term-completeness gates apply right
@@ -370,17 +370,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. Feature work, process flows, org charts, and runtime events belong elsewhere.",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. PASS for term entries, glossary scope, terminology usage rules, references to source glossaries/specs/docs, and evals that scan terminology consistency. FAIL for feature implementation work, process flows, org charts, runtime incidents, or state-machine stages.",
-          when_node_type: ["intent", "decision", "rule", "reference", "eval"],
+          spec: "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. PASS for term entries, terminology usage rules, references to source glossaries/specs/docs, and evals that scan terminology consistency. FAIL for glossary scope statements, feature implementation work, process flows, org charts, runtime incidents, or state-machine stages.",
+          when_node_type: ["decision", "rule", "reference", "eval"],
         },
       },
       {
         policy:
-          "Only Intent, Decision, Rule, Reference, Eval, and policies belong in glossaries. Actions, Logs, States, Ideas, and Principals have their own homes.",
+          "Only Decision, Rule, Reference, and Eval are glossary graph nodes. Policy records are admitted as Doco-scoped metadata for guidance and authoring checks, not glossary graph nodes. Intents, Actions, Logs, States, Ideas, and Principals have their own homes.",
         predicate: {
           kind: "requires_entity_type",
           entity_types: [
-            "intent",
             "decision",
             "rule",
             "reference",
@@ -480,7 +479,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance ───────────────────────────────────────────────
       {
         policy:
-          "When rejected, deprecated, misleading, synonymous, or historical terms exist, record them in `alternatives`; otherwise omit `alternatives` rather than inventing filler.",
+          "When aliases, synonyms, misleading labels, or rejected labels exist for the same concept, record them in `alternatives`; otherwise omit `alternatives` rather than inventing filler.",
       },
       {
         policy:
@@ -496,7 +495,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Retired glossary Decisions point at the replacement term with a `replaces` edge and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. Re-point by retiring the old edge and adding a new one.",
+          "Retired glossary Decisions point at the replacement term with a `replaces` edge when an old term appears in historical docs, UI, tickets, APIs, or code. Keep the deprecated term visible so readers still understand old references. Re-point by retiring the old edge and adding a new one.",
       },
       {
         policy:

@@ -40,6 +40,15 @@ describe("glossaries template", () => {
     const allowlist = template.policies.find(
       (r) => r.predicate?.kind === "requires_entity_type",
     )?.predicate;
+    const allowlistPolicy = template.policies.find(
+      (r) => r.predicate?.kind === "requires_entity_type",
+    )?.policy;
+    const membershipPolicy = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("decision") &&
+        /belongs in glossaries/i.test(r.policy),
+    );
 
     it("allows glossary content plus the two policy entity types", () => {
       expect(allowlist?.kind).toBe("requires_entity_type");
@@ -49,7 +58,6 @@ describe("glossaries template", () => {
           "decision",
           "eval",
           "guidance_policy",
-          "intent",
           "node_authoring_policy",
           "reference",
           "rule",
@@ -57,11 +65,28 @@ describe("glossaries template", () => {
       );
     });
 
-    it("excludes activity, event, structure, and idea entities", () => {
+    it("excludes scope, activity, event, structure, and idea entities", () => {
       if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
-      for (const t of ["action", "log", "principal", "state", "idea"]) {
+      for (const t of ["intent", "action", "log", "principal", "state", "idea"]) {
         expect(allowlist.entity_types).not.toContain(t);
       }
+    });
+
+    it("keeps policies admitted but names them as Doco-scoped metadata, not glossary graph nodes", () => {
+      expect(allowlistPolicy).toMatch(/Policy records/i);
+      expect(allowlistPolicy).toMatch(/Doco-scoped/i);
+      expect(allowlistPolicy).toMatch(/not glossary graph nodes/i);
+    });
+
+    it("does not run the semantic membership judge against Intents", () => {
+      expect(membershipPolicy?.predicate?.kind).toBe("probabilistic");
+      if (membershipPolicy?.predicate?.kind !== "probabilistic") return;
+      expect(membershipPolicy.predicate.when_node_type).toEqual([
+        "decision",
+        "rule",
+        "reference",
+        "eval",
+      ]);
     });
   });
 
@@ -96,15 +121,26 @@ describe("glossaries template", () => {
       expect(uniqueCanonicalTerm.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
-    it("documents that alternatives are optional unless real alternate names exist", () => {
+    it("documents that alternatives are optional unless real aliases or rejected labels exist", () => {
       expect(guidance).toMatch(/alternatives/i);
-      expect(guidance).toMatch(/rejected|deprecated|historical/i);
+      expect(guidance).toMatch(/alias/i);
+      expect(guidance).toMatch(/synonym/i);
+      expect(guidance).toMatch(/rejected labels/i);
       expect(guidance).toMatch(/omit `alternatives` rather than inventing filler/i);
+    });
+
+    it("keeps deprecated and historical terms out of `alternatives` guidance", () => {
+      const alternatives = guidance
+        .split("\n")
+        .find((line) => /`alternatives`/i.test(line) && /inventing filler/i.test(line));
+      expect(alternatives).toBeDefined();
+      expect(alternatives).not.toMatch(/deprecated|historical/i);
     });
 
     it("documents retired-term replacement links", () => {
       expect(guidance).toMatch(/Retired glossary Decisions/i);
       expect(guidance).toMatch(/`replaces` edge/i);
+      expect(guidance).toMatch(/historical docs, UI, tickets, APIs, or code/i);
       expect(guidance).not.toMatch(/superseded_by/i);
     });
 
