@@ -1,3 +1,5 @@
+import { GENERIC_CAPTURE_NODE_TYPES, NODE_CATALOG, NODE_TYPES } from "@doco/shared";
+
 // Per-entity-type table mapping + storage interface.
 //
 // Entities are split across categories. Each category maps to one or more
@@ -17,23 +19,19 @@
 export const NODE_TABLES: Record<
   string,
   { table: string; body: boolean; typeNamedColumn?: string }
-> = {
-  // Every node type lives in the unified `nodes` table, discriminated by
-  // node_type. Prose is the `prose` column; `body_md` carries principals'
-  // descriptions.
-  intent: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  idea: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  rule: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  decision: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  action: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  log: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  eval: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  reference: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  state: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  // Principal = role/persona linked by graph edges, NOT the OAuth user layer
-  // (that lives in `users`).
-  principal: { table: "nodes", body: true, typeNamedColumn: "prose" },
-};
+> = Object.fromEntries(
+  NODE_TYPES.map((type) => {
+    const storage = NODE_CATALOG[type].storage;
+    return [
+      type,
+      {
+        table: storage.table,
+        body: storage.body,
+        typeNamedColumn: storage.typeNamedColumn,
+      },
+    ];
+  }),
+);
 
 export interface EntityTableSpec {
   table: string;
@@ -43,20 +41,22 @@ export interface EntityTableSpec {
   nameExpr?: string;
 }
 
-// All prose node types live in `nodes` (discriminated by entityType →
-// node_type). Kept as a list of the graph node types consumers iterate;
-// `table` is uniformly `nodes`.
-export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = [
-  { table: "nodes", entityType: "decision", body: true },
-  { table: "nodes", entityType: "intent", body: true },
-  { table: "nodes", entityType: "action", body: true },
-  { table: "nodes", entityType: "log", body: true },
-  { table: "nodes", entityType: "rule", body: true },
-  { table: "nodes", entityType: "eval", body: true },
-  { table: "nodes", entityType: "reference", body: true },
-  { table: "nodes", entityType: "idea", body: true },
-  { table: "nodes", entityType: "state", body: true },
-] as const;
+// All node types live in `nodes` (discriminated by entityType →
+// node_type). Principals are included because they are graph nodes.
+export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = NODE_TYPES.map((type) => ({
+  table: NODE_CATALOG[type].storage.table,
+  entityType: type,
+  body: NODE_CATALOG[type].storage.body,
+}));
+
+// Generic capture nodes only. Use this when a surface intentionally wants
+// `/api/<plural>.json` prose captures and not bespoke Principal endpoints.
+export const DOCO_GENERIC_CAPTURE_NODE_TABLE_SPECS: readonly EntityTableSpec[] =
+  GENERIC_CAPTURE_NODE_TYPES.map((type) => ({
+    table: NODE_CATALOG[type].storage.table,
+    entityType: type,
+    body: NODE_CATALOG[type].storage.body,
+  }));
 
 export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
   Object.fromEntries(DOCO_NODE_TABLE_SPECS.map((spec) => [spec.entityType, spec]));

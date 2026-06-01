@@ -1,4 +1,7 @@
 export * from "./branded.js";
+export * from "./entity-catalog.js";
+export * from "./relation-catalog.js";
+export * from "./capture-schema.js";
 export * from "./access-types.js";
 export * from "./node-json-edge-keys.js";
 export * from "./constitution.js";

@@ -1,3 +1,5 @@
+import { CATALOG_NODE_TYPES } from "./entity-catalog.js";
+
 /**
  * Branded ID + discriminator types — nominal-style typing so we can't
  * accidentally pass a raw string where an EntityId is expected.
@@ -31,18 +33,7 @@ export type DocoHandle = Brand<string, "DocoHandle">;
 export type OrgHandle = Brand<string, "OrgHandle">;
 
 /** The 10 node types — graph-knowledge entities. */
-export const NODE_TYPES = [
-  "intent",
-  "idea",
-  "rule",
-  "decision",
-  "action",
-  "log",
-  "eval",
-  "reference",
-  "state",
-  "principal",
-] as const;
+export const NODE_TYPES = CATALOG_NODE_TYPES;
 
 export type NodeType = (typeof NODE_TYPES)[number];
 

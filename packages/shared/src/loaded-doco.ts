@@ -30,7 +30,6 @@ export interface LoadFailure {
 }
 
 export interface LoadedDoco {
-  root: string;
   doco: Doco;
   entities: Map<EntityId, LoadedEntity>;
   byType: Map<EntityType, LoadedEntity[]>;

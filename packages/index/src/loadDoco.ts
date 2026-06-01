@@ -49,15 +49,11 @@ function typeFromId(id: string): string {
 
 /**
  * Build a `LoadedDoco` from Postgres rows for the given doco_id.
- * Mirrors `loadDoco(root)` so the downstream `indexDoco(db, loaded)`
- * pass works without changes.
- *
- * `root` is preserved on the returned object as a passthrough — it's
- * still where the per-clone SQLite cache lives, but all entity content
- * comes from Postgres.
+ * Mirrors the old loader shape so the downstream `indexDoco(db, loaded)`
+ * pass works without filesystem context. Postgres is the only source of
+ * entity content.
  */
 export async function loadDocoFromPostgres(
-  root: string,
   docoId: string,
   opts: LoadDocoOptions = {},
 ): Promise<LoadedDoco> {
@@ -169,5 +165,5 @@ export async function loadDocoFromPostgres(
     }
   }
 
-  return { root, doco: docoData, entities, byType, failures };
+  return { doco: docoData, entities, byType, failures };
 }

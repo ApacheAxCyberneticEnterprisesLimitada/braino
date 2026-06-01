@@ -204,7 +204,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
  * and the embedding pass is scoped to them. Omit for the safe-but-slow
  * full rebuild — first build, bulk import.
  */
-export async function reindex(docoRoot: string, opts: IndexOptions = {}): Promise<BuildReport> {
+export async function reindex(opts: IndexOptions = {}): Promise<BuildReport> {
   const docoId = opts.docoId;
   if (!docoId) {
     throw new Error("reindex requires opts.docoId.");
@@ -214,7 +214,7 @@ export async function reindex(docoRoot: string, opts: IndexOptions = {}): Promis
   // only reads the rows it actually indexes (and skips host-wide
   // principal/organization rows entirely). Full rebuilds omit the
   // option and get the original "load everything" behaviour.
-  const loaded = await loadDocoFromPostgres(docoRoot, docoId, {
+  const loaded = await loadDocoFromPostgres(docoId, {
     ...(opts.changedEntityIds && opts.changedEntityIds.length > 0
       ? { entityIds: opts.changedEntityIds }
       : {}),

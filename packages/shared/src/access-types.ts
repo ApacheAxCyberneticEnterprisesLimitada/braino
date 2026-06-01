@@ -11,30 +11,17 @@
 //     (this is how a pre-per-type "writer" is represented after backfill).
 //
 // The gateable universe is the 10 node types plus the canonical edge/relation
-// families. Both lists are defined here so the access layer has ONE source
-// of truth; the web graph-authoring contract (RELATION_KINDS) is checked
-// against EDGE_TYPES by a consistency test so the two can't drift.
+// families. Node and relation facts live in low-level shared catalogs so
+// storage, access control, and web authoring contracts derive the same tokens.
 
 import { NODE_TYPES, type NodeType } from "./branded.js";
+import { CATALOG_RELATION_KINDS, RELATION_CATALOG } from "./relation-catalog.js";
 
 /** Wildcard write-type token: grants write on every type. */
 export const WRITE_ALL = "*" as const;
 
-/**
- * Edge / relation types that can be independently write-gated. Mirrors
- * the keys of the web layer's RELATION_KINDS registry; a consistency test
- * asserts the two stay identical.
- */
-export const EDGE_TYPES = [
-  "flows_to",
-  "supports",
-  "constrained_by",
-  "attributed_to",
-  "has_parent",
-  "derived_from",
-  "replaces",
-  "relates_to",
-] as const;
+/** Edge / relation types that can be independently write-gated. */
+export const EDGE_TYPES = CATALOG_RELATION_KINDS;
 
 export type EdgeType = (typeof EDGE_TYPES)[number];
 
@@ -48,10 +35,11 @@ export type EdgeType = (typeof EDGE_TYPES)[number];
 export const EDGE_ENDPOINT_TYPES: Record<
   string,
   { from?: readonly NodeType[]; to?: readonly NodeType[] }
-> = {
-  constrained_by: { to: ["rule"] },
-  attributed_to: { to: ["principal"] },
-};
+> = Object.fromEntries(
+  Object.values(RELATION_CATALOG)
+    .filter((entry) => entry.endpointTypes)
+    .map((entry) => [entry.kind, entry.endpointTypes]),
+) as Record<string, { from?: readonly NodeType[]; to?: readonly NodeType[] }>;
 
 /** Every write-gateable type: the 10 node types plus the edge types. */
 export const WRITABLE_TYPES = [...NODE_TYPES, ...EDGE_TYPES] as const;
