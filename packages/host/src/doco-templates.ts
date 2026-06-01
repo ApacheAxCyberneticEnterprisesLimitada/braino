@@ -133,27 +133,40 @@ const DECISION_RECORD_ENTITY_TYPES = [
 ] as const;
 
 interface DecisionRecordTemplatePolicyOptions {
-  membershipPolicy: string;
-  membershipSpec: string;
+  decisionMembershipPolicy: string;
+  decisionMembershipSpec: string;
   qualityPolicy: string;
-  qualitySpec: string;
+  qualityChecklist: string[];
+  qualityFailure: string;
   guidance: string[];
+}
+
+function decisionRecordQualitySpec(opts: {
+  checklist: string[];
+  failure: string;
+}): string {
+  const checklist = opts.checklist.map((item, index) => `(${index + 1}) ${item}`).join(", ");
+  return [
+    "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`.",
+    `PASS when the record includes: ${checklist}.`,
+    `FAIL with missing aspects when ${opts.failure}.`,
+  ].join(" ");
 }
 
 function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): TemplatePolicy[] {
   return [
     {
       on_violation: "warn",
-      policy: opts.membershipPolicy,
+      policy: opts.decisionMembershipPolicy,
       predicate: {
         kind: "probabilistic",
-        spec: opts.membershipSpec,
-        when_node_type: ["intent", "decision", "eval", "reference", "rule", "principal"],
+        spec: opts.decisionMembershipSpec,
+        when_node_type: ["decision"],
       },
     },
     {
       policy:
-        "Only Intent, Decision, Eval, Reference, Rule, Principal, and the Doco's own policies belong in a decision-record Doco. Actions, Logs, States, and Ideas belong in sibling Docos unless promoted into an actual decision record.",
+        "Only Intent, Decision, Eval, Reference, Rule, Principal, Guidance policy, and Node-authoring policy records belong in a decision-record Doco. Guidance policies and Node-authoring policies may be managed here, but they are Doco-scoped metadata, not decision-record nodes. Actions, Logs, States, and Ideas belong in sibling Docos unless promoted into an actual decision record.",
       predicate: {
         kind: "requires_entity_type",
         entity_types: [...DECISION_RECORD_ENTITY_TYPES],
@@ -187,7 +200,10 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
       predicate: {
         kind: "probabilistic",
         when_node_type: ["decision"],
-        spec: opts.qualitySpec,
+        spec: decisionRecordQualitySpec({
+          checklist: opts.qualityChecklist,
+          failure: opts.qualityFailure,
+        }),
       },
       fires_when_node_lifecycle: ["asserted"],
     },
@@ -198,6 +214,10 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
     {
       policy:
         "Use References for source material and implementation evidence, Rules for enduring policy that falls out of a decision, Evals for validation or follow-up checks, and Intents for the goal or outcome the decision serves.",
+    },
+    {
+      policy:
+        "Support nodes are allowed when they clearly support a Decision in this Doco: Intents state goals or outcomes, Rules carry enduring guidance, References preserve source material, and Evals validate decisions or follow-up checks. Principal nodes are optional accountability support for stable owners or review bodies; when a Principal node is unnecessary, name accountability in prose.",
     },
     ...opts.guidance.map((policy) => ({ policy })),
   ];
@@ -250,14 +270,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document architectural decision records — system structure, interfaces, infrastructure, quality attributes, constraints, alternatives, and consequences.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      membershipPolicy:
-        "A node belongs in architectural-decisions when it records or supports an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
-      membershipSpec:
-        "PASS for ADR Decisions, Intents for architecture goals or outcomes, Rules for architecture principles or constraints, technology-selection Decisions, security/privacy architecture Rules, References to RFCs/specs/PRs, Evals that validate an architectural claim, and Principal nodes for accountable technical owners or review bodies. FAIL for product roadmap choices, UI design choices, raw incidents, implementation tasks without architectural consequence, or data-definition decisions better owned by data-decisions.",
+      decisionMembershipPolicy:
+        "A Decision belongs in architectural-decisions when it records an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
+      decisionMembershipSpec:
+        "PASS for ADR Decisions, technology-selection Decisions, and security/privacy architecture Decisions that record system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, compliance architecture, implementation evidence, or architecture validation, including Decisions supported by References and Evals. FAIL for product roadmap choices, UI design choices, raw incidents, implementation tasks without architectural consequence, or data-definition decisions better owned by data-decisions.",
       qualityPolicy:
         "An active architectural Decision reads like an ADR: it states context and problem, decision drivers or quality attributes, options considered, chosen approach, consequences and trade-offs, implementation/migration impact, and the review or rollback trigger.",
-      qualitySpec:
-        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when the record includes (1) context/problem, (2) decision drivers such as quality attributes, constraints, or forces, (3) realistic alternatives considered, (4) rationale for the chosen architecture, (5) consequences/trade-offs/risks, and (6) implementation, migration, rollback, or revisit implications. FAIL with the missing aspects when it only states a choice without rationale, lacks alternatives, omits consequences, or leaves no path for implementation/review.",
+      qualityChecklist: [
+        "context/problem",
+        "decision drivers such as quality attributes, constraints, or forces",
+        "realistic alternatives considered",
+        "rationale for the chosen architecture",
+        "consequences/trade-offs/risks",
+        "implementation, migration, rollback, or revisit implications",
+      ],
+      qualityFailure:
+        "it only states a choice without rationale, lacks alternatives, omits consequences, or leaves no path for implementation/review",
       guidance: [
         "Create an architectural Decision for choices that are hard to reverse or broadly consequential: platform/runtime choices, service boundaries, data ownership across systems, API contracts, security controls, reliability targets, deployment topology, build/release architecture, or cross-team technical standards.",
         "Architectural Decisions that create enduring technical rules should spawn or link Rules, such as API compatibility rules, service ownership rules, dependency constraints, or security requirements.",
@@ -274,14 +302,24 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document product decision records — user/customer evidence, scope, positioning, pricing, roadmap choices, success metrics, alternatives, and revisit triggers.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      membershipPolicy:
-        "A node belongs in product-decisions when it records or supports a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
-      membershipSpec:
-        "PASS for product Decision records, Intents for product goals or outcomes, Rules for product principles or commitments, customer/research References, Evals for experiments or metrics, and Principal nodes for product decision roles. FAIL for engineering implementation choices, visual/interface design details better owned by design-decisions, pure data-governance choices, one-off support events, or unpromoted feature ideas with no decision yet.",
+      decisionMembershipPolicy:
+        "A Decision belongs in product-decisions when it records a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
+      decisionMembershipSpec:
+        "PASS for product Decisions about target users, product goals or outcomes, product principles or commitments, customer/research evidence, experiment or metric interpretation, pricing, packaging, roadmap priority, launch strategy, or deliberate decisions not to build something, including Decisions supported by References and Evals. FAIL for engineering implementation choices, visual/interface design details better owned by design-decisions, pure data-governance choices, one-off support events, or unpromoted feature ideas with no decision yet.",
       qualityPolicy:
         "An active product Decision states the user/customer problem, strategic goal, evidence, assumptions, options considered, chosen product direction, explicit trade-offs, success metric, accountable decision role, and revisit trigger.",
-      qualitySpec:
-        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when it includes (1) the user/customer problem and affected segment, (2) strategic or OKR alignment, (3) evidence such as research, feedback, analytics, sales/support signal, or experiment data, (4) assumptions and constraints, (5) realistic alternatives including the status quo or not-building option, (6) trade-offs and expected impact, (7) a success/failure metric or learning goal, and (8) a decision owner/approval role or revisit trigger. FAIL with missing aspects when it reads as a feature wish, ungrounded opinion, or roadmap assertion without evidence and metrics.",
+      qualityChecklist: [
+        "the user/customer problem and affected segment",
+        "strategic or OKR alignment",
+        "evidence such as research, feedback, analytics, sales/support signal, or experiment data",
+        "assumptions and constraints",
+        "realistic alternatives including the status quo or not-building option",
+        "trade-offs and expected impact",
+        "a success/failure metric or learning goal",
+        "a decision owner/approval role or revisit trigger",
+      ],
+      qualityFailure:
+        "it reads as a feature wish, ungrounded opinion, or roadmap assertion without evidence and metrics",
       guidance: [
         "Record `we will not do X` product calls when the choice changes scope, user expectations, sales promises, or future roadmap reasoning; negative decisions are often more valuable than shipped-feature notes.",
         "Use Evals for experiments, A/B tests, metric reviews, or qualitative checks that prove whether the product Decision worked, and link follow-up Decisions when the evidence changes the course.",
@@ -298,14 +336,24 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document design decision records — UX, service, interaction, content, accessibility, design-system, and research-backed trade-offs.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      membershipPolicy:
-        "A node belongs in design-decisions when it records or supports a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
-      membershipSpec:
-        "PASS for design Decision records, Intents for design goals or target user outcomes, Rules for design-system conventions, research or Figma References, usability/accessibility Evals, and Principal nodes for design reviewers or accountable owners. FAIL for raw engineering architecture, product priority calls without UX implications, data governance decisions, or cosmetic preference notes with no user or system rationale.",
+      decisionMembershipPolicy:
+        "A Decision belongs in design-decisions when it records a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
+      decisionMembershipSpec:
+        "PASS for design Decisions about user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation, including Decisions supported by Figma or research References and usability/accessibility Evals. FAIL for raw engineering architecture, product priority calls without UX implications, data governance decisions, or cosmetic preference notes with no user or system rationale.",
       qualityPolicy:
         "An active design Decision states the user journey or service moment, evidence, alternatives considered, chosen pattern, affected states and edge cases, accessibility/content implications, trade-offs, artifacts, and validation plan.",
-      qualitySpec:
-        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when it includes (1) the user journey, service moment, or interface state being decided, (2) evidence from research, support, analytics, accessibility review, or product constraints, (3) alternatives considered, preferably linked to artifacts, (4) chosen design pattern and rationale, (5) affected states including empty/error/loading/permission/responsive states when relevant, (6) accessibility, content, localization, or design-system implications, (7) trade-offs and risks, and (8) validation or rollout plan. FAIL when it only says what the UI looks like without explaining users, evidence, alternatives, states, or validation.",
+      qualityChecklist: [
+        "the user journey, service moment, or interface state being decided",
+        "evidence from research, support, analytics, accessibility review, or product constraints",
+        "alternatives considered, preferably linked to artifacts",
+        "chosen design pattern and rationale",
+        "affected states including empty/error/loading/permission/responsive states when relevant",
+        "accessibility, content, localization, or design-system implications",
+        "trade-offs and risks",
+        "validation or rollout plan",
+      ],
+      qualityFailure:
+        "it only says what the UI looks like without explaining users, evidence, alternatives, states, or validation",
       guidance: [
         "Attach screenshots, prototypes, Figma files, research notes, usability recordings, audits, and content examples as References so later readers can see what the decision actually changed.",
         "Record significant unshipped design work when it shaped the eventual answer; rejected explorations are part of the rationale, not throwaway history.",
@@ -322,14 +370,25 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document data decision records — source-of-truth choices, schemas, contracts, metric definitions, governance, quality, lineage, retention, privacy, and access.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      membershipPolicy:
-        "A node belongs in data-decisions when it records or supports a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
-      membershipSpec:
-        "PASS for data Decision records, Intents for data-governance goals or target outcomes, Rules for data governance, quality, or contract constraints, data contract References, quality or freshness Evals, and Principal nodes for data owners, stewards, producers, or consumer groups. FAIL for UI design decisions, generic product roadmap choices, pure application architecture with no data ownership/semantics impact, or raw pipeline run Logs.",
+      decisionMembershipPolicy:
+        "A Decision belongs in data-decisions when it records a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
+      decisionMembershipSpec:
+        "PASS for data Decisions about source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation, including Decisions supported by data contract References and quality or freshness Evals. FAIL for UI design decisions, generic product roadmap choices, pure application architecture with no data ownership/semantics impact, or raw pipeline run Logs.",
       qualityPolicy:
         "An active data Decision states the data asset or definition, accountable owner/steward, producers and consumers, source of truth, schema or semantics, privacy/access/retention stance, quality and freshness expectations, lineage, migration/backfill impact, and monitoring/revisit plan.",
-      qualitySpec:
-        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`. PASS when it includes (1) the data asset, metric, event, dataset, or contract being decided, (2) accountable owner or steward, (3) producers and consumers or affected systems, (4) canonical source of truth and semantic definition, (5) schema/contract or compatibility implications, (6) classification, privacy, access, and retention considerations when relevant, (7) data quality/freshness/SLA expectations and lineage, (8) migration, backfill, rollback, or downstream impact, and (9) monitoring or revisit trigger. FAIL when it records a data choice without ownership, semantics, consumers, governance, or operational impact.",
+      qualityChecklist: [
+        "the data asset, metric, event, dataset, or contract being decided",
+        "accountable owner or steward",
+        "producers and consumers or affected systems",
+        "canonical source of truth and semantic definition",
+        "schema/contract or compatibility implications",
+        "classification, privacy, access, and retention considerations when relevant",
+        "data quality/freshness/SLA expectations and lineage",
+        "migration, backfill, rollback, or downstream impact",
+        "monitoring or revisit trigger",
+      ],
+      qualityFailure:
+        "it records a data choice without ownership, semantics, consumers, governance, or operational impact",
       guidance: [
         "Prefer machine-readable data contracts where possible, and link them as References; the Decision explains why the contract exists while the contract defines the enforceable schema and expectations.",
         "Metric and source-of-truth Decisions should define exactly what is included, excluded, and time-bounded so dashboards, experiments, and product claims do not drift into incompatible meanings.",

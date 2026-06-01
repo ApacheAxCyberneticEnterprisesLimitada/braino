@@ -59,6 +59,17 @@ describe("decision-record templates", () => {
     }
   });
 
+  it("describes policy types as Doco-scoped metadata instead of decision-record nodes", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const policy = template(handle).policies.find(
+        (p) => p.predicate?.kind === "requires_entity_type",
+      )?.policy;
+      expect(policy).toMatch(/Guidance policies and Node-authoring policies may be managed here/i);
+      expect(policy).toMatch(/Doco-scoped metadata, not decision-record nodes/i);
+      expect(policy).not.toMatch(/Doco's own policies belong/i);
+    }
+  });
+
   it("requires active Decisions to declare the common decision-record spine", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const required = template(handle).policies.find(
@@ -103,18 +114,48 @@ describe("decision-record templates", () => {
     }
   });
 
-  it("phrases support records using current node types", () => {
+  it("keeps domain membership judgment focused on Decisions", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const membership = template(handle).policies.find(
         (p) =>
           p.predicate?.kind === "probabilistic" && p.predicate.when_node_type?.includes("decision"),
       );
+      expect(membership?.predicate?.kind).toBe("probabilistic");
+      if (membership?.predicate?.kind !== "probabilistic") return;
+      expect(membership.predicate.when_node_type).toEqual(["decision"]);
       const spec = membership?.predicate?.kind === "probabilistic" ? membership.predicate.spec : "";
-      expect(spec).toMatch(/Intents for/i);
-      expect(spec).toMatch(/Rules for/i);
       expect(spec).toMatch(/References/i);
       expect(spec).toMatch(/Evals/i);
-      expect(spec).toMatch(/Principal nodes/i);
+      expect(spec).not.toMatch(/Intents for|Rules for|Principal nodes/i);
+    }
+  });
+
+  it("documents support nodes and optional Principal nodes with shared guidance", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const guidance = template(handle)
+        .policies.filter((p) => !p.predicate)
+        .map((p) => p.policy)
+        .join("\n");
+      expect(guidance).toMatch(/Support nodes are allowed when they clearly support a Decision/i);
+      expect(guidance).toMatch(/Principal nodes are optional/i);
+      expect(guidance).toMatch(/name accountability in prose/i);
+    }
+  });
+
+  it("uses the common quality-spec spine for every domain checklist", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const quality = template(handle).policies.find(
+        (p) =>
+          p.predicate?.kind === "probabilistic" &&
+          p.predicate.when_node_type?.includes("decision") &&
+          /active .* Decision/i.test(p.policy),
+      );
+      const spec = quality?.predicate?.kind === "probabilistic" ? quality.predicate.spec : "";
+      expect(spec).toContain(
+        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`.",
+      );
+      expect(spec).toContain("PASS when the record includes:");
+      expect(spec).toContain("FAIL with missing aspects when");
     }
   });
 
