@@ -156,6 +156,32 @@ describe("business-processes template", () => {
     });
   });
 
+  describe("Intent shape", () => {
+    const intentRule = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("intent") &&
+        /purpose Intent/i.test(r.policy),
+    );
+
+    it("requires a brief BPMN headline on the Intent's first line", () => {
+      expect(intentRule?.predicate?.kind).toBe("probabilistic");
+      if (intentRule?.predicate?.kind !== "probabilistic") return;
+      // First line is a short verb+object process name…
+      expect(intentRule.predicate.spec).toMatch(/first line/i);
+      expect(intentRule.predicate.spec).toMatch(/brief|short|concise/i);
+      // …with trigger / outcome / out-of-scope still discernible from the body.
+      expect(intentRule.predicate.spec).toMatch(/trigger/i);
+      expect(intentRule.predicate.spec).toMatch(/outcome/i);
+      expect(intentRule.predicate.spec).toMatch(/out of scope/i);
+    });
+
+    it("asks for the brief name in the human-readable policy too", () => {
+      expect(intentRule?.policy).toMatch(/first line/i);
+      expect(intentRule?.policy).toMatch(/brief|short|concise/i);
+    });
+  });
+
   describe("Principal lane shape", () => {
     const principalRule = template.policies.find(
       (r) =>

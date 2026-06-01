@@ -68,10 +68,19 @@ function relation(
   entry: Pick<RelationKindCatalogEntry, "kind" | "description"> &
     Partial<Omit<RelationKindCatalogEntry, "kind" | "description">>,
 ): RelationKindCatalogEntry {
+  // A relation that documents role examples MUST also accept a `role` prop.
+  // Otherwise the changeset relate path (relationProps) filters `role` out as
+  // an unknown prop and writes a role-less edge — which fails the role-aware
+  // authoring policies and gets duplicated by a second, role-bearing edge
+  // created through the direct edges route to satisfy the policy.
+  const acceptsProps = entry.roleExamples
+    ? ["role", ...(entry.acceptsProps ?? [])]
+    : entry.acceptsProps;
   return {
     owner: "from",
     value: "to",
     cardinality: "many",
     ...entry,
+    ...(acceptsProps ? { acceptsProps } : {}),
   };
 }
