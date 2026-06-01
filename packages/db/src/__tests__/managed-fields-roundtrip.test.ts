@@ -23,6 +23,9 @@ const ORG = "organization_test000000000000000";
 const DECISION = "decision_test0000000000000000000";
 const PRINCIPAL = "principal_test000000000000000000";
 const ACTION = "action_test00000000000000000000";
+const INTENT = "intent_test000000000000000000000";
+const RULE = "rule_test0000000000000000000000";
+const REFERENCE = "reference_test000000000000000000";
 
 // PGlite's client is duck-compatible with the pg.PoolClient the repo helpers
 // expect (both expose `query(sql, params) -> { rows }`).
@@ -55,6 +58,37 @@ function decisionRecord(decidedBy: string): EntityRecord {
   } as unknown as EntityRecord;
 }
 
+function minimalNodeRecord(entityType: string, id: string, prose: string): EntityRecord {
+  return {
+    id,
+    doco_id: DOCO,
+    entity_type: entityType,
+    data: {
+      id,
+      doco_id: DOCO,
+      node_type: entityType,
+      [entityType]: prose,
+      lifecycle: "asserted",
+    },
+    type_named_value: prose,
+    lifecycle: "asserted",
+  } as unknown as EntityRecord;
+}
+
+function decisionWithRelations(): EntityRecord {
+  return {
+    ...decisionRecord(PRINCIPAL),
+    data: {
+      ...decisionRecord(PRINCIPAL).data,
+      intent_ids: [INTENT],
+      rules_consulted: [RULE],
+      gated_by: [RULE],
+      target_ref: ACTION,
+      implemented_by: [REFERENCE],
+    },
+  } as unknown as EntityRecord;
+}
+
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(schemaSql);
@@ -84,6 +118,14 @@ beforeAll(async () => {
     } as unknown as EntityRecord,
     db as unknown as PgLike,
   );
+  for (const [type, id] of [
+    ["intent", INTENT],
+    ["rule", RULE],
+    ["reference", REFERENCE],
+    ["action", ACTION],
+  ] as const) {
+    await upsertEntity(minimalNodeRecord(type, id, type), db as unknown as PgLike);
+  }
 });
 
 describe("managed relationship fields round-trip through edges", () => {
@@ -97,6 +139,26 @@ describe("managed relationship fields round-trip through edges", () => {
     // The relationship value no longer lives in stored `data`…
     expect("decided_by" in rows[0].data).toBe(false);
     // …but the rest of the authored content is intact.
+    expect(rows[0].data.chosen).toBe("Route to the action.");
+  });
+
+  it("strips every relation field from stored node data on upsert", async () => {
+    await upsertEntity(decisionWithRelations(), db as unknown as PgLike);
+    const { rows } = await db.query<{ data: Record<string, unknown> }>(
+      "SELECT data FROM nodes WHERE id = $1",
+      [DECISION],
+    );
+    expect(rows).toHaveLength(1);
+    for (const field of [
+      "decided_by",
+      "intent_ids",
+      "rules_consulted",
+      "gated_by",
+      "target_ref",
+      "implemented_by",
+    ]) {
+      expect(field in rows[0].data, field).toBe(false);
+    }
     expect(rows[0].data.chosen).toBe("Route to the action.");
   });
 
@@ -122,6 +184,43 @@ describe("managed relationship fields round-trip through edges", () => {
     await hydrateManagedRelations(db as unknown as PgLike, "decision", [record]);
 
     expect(record.data.decided_by).toBe(PRINCIPAL);
+  });
+
+  it("reconstructs scalar and list relation fields from edges on read", async () => {
+    const edgeRows = [
+      ["edge_test_rel_00000000000000001", "serves", INTENT, "intent"],
+      ["edge_test_rel_00000000000000002", "consults", RULE, "rule"],
+      ["edge_test_rel_00000000000000003", "gated_by", RULE, "rule"],
+      ["edge_test_rel_00000000000000004", "tests", ACTION, "action"],
+      ["edge_test_rel_00000000000000005", "implemented_by", REFERENCE, "reference"],
+    ] as const;
+    for (const [edgeId, edgeType, toId, toType] of edgeRows) {
+      await db.query(
+        `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, origin)
+         VALUES ($1,$2,$3,$4,'decision',$5,$6,'field')
+         ON CONFLICT (id) DO NOTHING`,
+        [edgeId, DOCO, edgeType, DECISION, toId, toType],
+      );
+    }
+    const { rows } = await db.query<{ data: Record<string, unknown> }>(
+      "SELECT data FROM nodes WHERE id = $1",
+      [DECISION],
+    );
+    const record = {
+      id: DECISION,
+      doco_id: DOCO,
+      entity_type: "decision",
+      data: rows[0].data,
+    } as unknown as EntityRecord;
+
+    await hydrateManagedRelations(db as unknown as PgLike, "decision", [record]);
+
+    expect(record.data.decided_by).toBe(PRINCIPAL);
+    expect(record.data.intent_ids).toEqual([INTENT]);
+    expect(record.data.rules_consulted).toEqual([RULE]);
+    expect(record.data.gated_by).toEqual([RULE]);
+    expect(record.data.target_ref).toBe(ACTION);
+    expect(record.data.implemented_by).toEqual([REFERENCE]);
   });
 
   it("is a no-op for a node with no managed edge", async () => {

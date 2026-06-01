@@ -2,16 +2,9 @@ import { EDGE_TYPES, type Entity } from "@doco/shared";
 import { describe, expect, it } from "vitest";
 import { MANAGED_RELATION_EDGE_TYPES, managedEdges } from "../edges.js";
 
-// Stage 1 of the "edges as the authored source of truth" refactor (option (i)).
 // `managedEdges` is the set of first-class edges the capture path authors from
-// the five promoted relationship columns that Stage 2 drops:
-//   parent_intent_id → has_parent      (intent → intent)
-//   actor_id         → performed_by    (action/log → principal)
-//   superseded_by    → superseded_by   (decision → decision)
-//   decided_by       → decided_by      (decision → principal)   [new edge type]
-//   template_id      → templated_by    (log → action)           [new edge type]
-// Everything else deriveEdges emits (serves, consults, reports_to, …) stays a
-// field for now — those columns are not being dropped in Stage 2.
+// node relation fields. The invariant now covers every relation kind: relation
+// fields may be accepted as input sugar, but storage is edge-only.
 
 const D = "decision_01KSJ000000000000000000000";
 const PRINCIPAL = "principal_01KSJ000000000000000000001";
@@ -23,6 +16,7 @@ const ACTION = "action_01KSJ000000000000000000005";
 const LOG = "log_01KSJ000000000000000000006";
 const IDEA = "idea_01KSJ000000000000000000007";
 const USER = "user_01KSJ000000000000000000008";
+const REFERENCE = "reference_01KSJ00000000000000000000B";
 
 describe("MANAGED_RELATION_EDGE_TYPES", () => {
   it("are all valid, allow-listed EDGE_TYPES", () => {
@@ -32,15 +26,13 @@ describe("MANAGED_RELATION_EDGE_TYPES", () => {
     }
   });
 
-  it("covers exactly the five promoted-column relations", () => {
-    expect([...MANAGED_RELATION_EDGE_TYPES].sort()).toEqual(
-      ["decided_by", "has_parent", "performed_by", "superseded_by", "templated_by"].sort(),
-    );
+  it("covers every write-gateable relation kind", () => {
+    expect([...MANAGED_RELATION_EDGE_TYPES].sort()).toEqual([...EDGE_TYPES].sort());
   });
 });
 
 describe("managedEdges", () => {
-  it("projects a Decision's decided_by + superseded_by, but NOT its intent_ids/rules_consulted", () => {
+  it("projects every relation-shaped node field as a first-class managed edge", () => {
     const edges = managedEdges({
       id: D,
       doco_id: "doco_01KSJ000000000000000000000",
@@ -48,21 +40,59 @@ describe("managedEdges", () => {
       decision: "Pick the payment path",
       question: "Which path?",
       chosen: "Route to matching action.",
+      sequence_to: [{ target: ACTION, label: "approved" }],
+      preceded_by: [ACTION],
       decided_by: PRINCIPAL,
       decided_at: "2026-05-26T00:00:00.000Z",
       superseded_by: D_OLD,
       intent_ids: [INTENT],
       rules_consulted: [RULE],
+      decision_ids: [D_OLD],
+      gated_by: [RULE],
+      target_ref: ACTION,
+      born_from: D_OLD,
+      implemented_by: [REFERENCE],
+      reports_to: PRINCIPAL,
+      dotted_reports_to: [PRINCIPAL],
+      same_occupant_as: [PRINCIPAL],
+      actor_id: PRINCIPAL,
+      owner_id: PRINCIPAL,
+      parent_intent_id: PARENT_INTENT,
+      stakeholders: [PRINCIPAL],
+      template_id: ACTION,
+      relates_to: [RULE],
     } as unknown as Entity);
 
     expect(edges).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "decided_by" }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: ACTION,
+          edge_type: "sequence_flow",
+          edge_props: { label: "approved" },
+        }),
+        expect.objectContaining({ from_id: D, to_id: ACTION, edge_type: "preceded_by" }),
+        expect.objectContaining({ from_id: D, to_id: INTENT, edge_type: "serves" }),
+        expect.objectContaining({ from_id: D, to_id: D_OLD, edge_type: "enacts" }),
+        expect.objectContaining({ from_id: D, to_id: RULE, edge_type: "gated_by" }),
+        expect.objectContaining({ from_id: D, to_id: RULE, edge_type: "consults" }),
+        expect.objectContaining({ from_id: D, to_id: ACTION, edge_type: "tests" }),
+        expect.objectContaining({ from_id: D, to_id: D_OLD, edge_type: "born_from" }),
         expect.objectContaining({ from_id: D, to_id: D_OLD, edge_type: "superseded_by" }),
+        expect.objectContaining({ from_id: D, to_id: REFERENCE, edge_type: "implemented_by" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "reports_to" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "dotted_reports_to" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "same_occupant_as" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "performed_by" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "owned_by" }),
+        expect.objectContaining({ from_id: D, to_id: PARENT_INTENT, edge_type: "has_parent" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "has_stakeholder" }),
+        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "decided_by" }),
+        expect.objectContaining({ from_id: D, to_id: ACTION, edge_type: "templated_by" }),
+        expect.objectContaining({ from_id: D, to_id: RULE, edge_type: "relates_to" }),
       ]),
     );
-    // intent_ids → serves and rules_consulted → consults are NOT managed here.
-    expect(edges.map((e) => e.edge_type).sort()).toEqual(["decided_by", "superseded_by"]);
+    expect([...new Set(edges.map((e) => e.edge_type))].sort()).toEqual([...EDGE_TYPES].sort());
   });
 
   it("projects a Log's actor_id → performed_by and template_id → templated_by", () => {
@@ -125,8 +155,9 @@ describe("managedEdges", () => {
       triggered_by: ["action_01KSJ00000000000000000000A"],
     } as unknown as Entity);
 
-    // actor_id → performed_by is managed; target → acts_on and triggered_by are
-    // Tier-2 (not among the five columns) so they are NOT authored in Stage 1.
+    // actor_id → performed_by is a relation kind; target → acts_on and
+    // triggered_by are not write-gateable relation kinds and are not persisted
+    // by the managed-edge reconciler.
     expect(edges).toEqual([
       expect.objectContaining({ from_id: ACTION, to_id: PRINCIPAL, edge_type: "performed_by" }),
     ]);

@@ -44,11 +44,10 @@ export const EDGE_TYPES = [
   "has_parent",
   "has_stakeholder",
   // Decision → Principal: who made the call. Projected from a Decision's
-  // `decided_by` field — one of the five promoted columns being retired in
-  // favour of first-class edges (option (i): edges as the authored source).
+  // `decided_by` authoring input and stored as a first-class edge.
   "decided_by",
   // Log → Action: the Action that templates this Log. Projected from a Log's
-  // `template_id` field (likewise a retired promoted column).
+  // `template_id` authoring input and stored as a first-class edge.
   "templated_by",
   // Associative ("see also") relation. The SKOS `related` analogue: a
   // generic, untyped link between two peer nodes with no hierarchy or

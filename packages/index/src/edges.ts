@@ -1,4 +1,9 @@
-import { type Entity, MANAGED_EDGE_TO_FIELD, isEntityId } from "@doco/shared";
+import {
+  type Entity,
+  MANAGED_EDGE_TO_FIELD,
+  MANAGED_FIELD_TO_EDGE,
+  isEntityId,
+} from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 
 export interface Edge {
@@ -68,9 +73,18 @@ function handleObject(
   obj: Record<string, unknown>,
   emit: (field: string, target: unknown, props?: Record<string, unknown>) => void,
 ): void {
-  // `sequence_to` used to author BPMN control flow in node JSON. BPMN
-  // sequence flow is edge-only now, so ignore legacy nested targets here.
-  if (parentField === "sequence_to") return;
+  if (parentField === "sequence_to" && typeof obj.target === "string") {
+    const props = Object.fromEntries(Object.entries(obj).filter(([k]) => k !== "target"));
+    emit("sequence_to", obj.target, Object.keys(props).length > 0 ? props : undefined);
+    return;
+  }
+  if (parentField === "preceded_by") {
+    const target = typeof obj.target === "string" ? obj.target : obj.ref;
+    if (typeof target === "string") {
+      emit("preceded_by", target);
+      return;
+    }
+  }
   // Reasoning.premises[]: { entity_type, ref, as }
   if (typeof obj.ref === "string" && parentField === "premises") {
     emit("premise", obj.ref, { as: obj.as });
@@ -126,10 +140,6 @@ export const SKIP_FIELDS: ReadonlySet<string> = new Set([
   "input",
   "expected",
   "actual",
-  // Process ordering is authored as first-class edges.
-  "preceded_by",
-  // BPMN sequence flow is authored as first-class `sequence_flow` edges.
-  "sequence_to",
 ]);
 
 /**
@@ -140,6 +150,7 @@ export const SKIP_FIELDS: ReadonlySet<string> = new Set([
  * predicate would never match.
  */
 export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
+  ...MANAGED_FIELD_TO_EDGE,
   intent_ids: "serves",
   rules_consulted: "consults",
   decision_ids: "enacts",

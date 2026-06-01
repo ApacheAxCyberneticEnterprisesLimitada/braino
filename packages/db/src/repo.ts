@@ -7,7 +7,12 @@
 //   * Membership + OAuth tables reference `user_id` (was `principal_id`).
 //   * `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
-import { MANAGED_EDGE_TO_FIELD, MANAGED_FIELDS_BY_TYPE, normalizeWriteTypes } from "@doco/shared";
+import {
+  MANAGED_EDGE_CARDINALITY,
+  MANAGED_EDGE_TO_FIELD,
+  MANAGED_RELATION_FIELDS,
+  normalizeWriteTypes,
+} from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
 import {
@@ -224,50 +229,63 @@ const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() =>
   }
   // Principal's role_principal is promoted to its own column by the writer.
   out.principal = new Set(["role_principal"]);
-  // Managed node→node relationship fields live only as edges now.
-  for (const [type, fields] of Object.entries(MANAGED_FIELDS_BY_TYPE)) {
-    const keys = out[type] ?? new Set<string>();
-    for (const f of fields) keys.add(f);
-    out[type] = keys;
-  }
   return out;
 })();
+
+const MANAGED_RELATION_FIELD_SET: ReadonlySet<string> = new Set(MANAGED_RELATION_FIELDS);
+
+function isNodeRef(value: unknown): boolean {
+  if (typeof value !== "string") return false;
+  const m = /^(\w+)_/.exec(value);
+  return Boolean(m && NODE_TYPE_SET.has(m[1]));
+}
+
+function shouldStripManagedRelationField(key: string, value: unknown): boolean {
+  if (!MANAGED_RELATION_FIELD_SET.has(key)) return false;
+  // Some historical `owner_id` / `decided_by` values point at users or
+  // organizations, not graph nodes. Those are not edges, so preserve them.
+  if ((key === "owner_id" || key === "decided_by") && !isNodeRef(value)) return false;
+  return true;
+}
 
 function stripPromotedKeys(
   entityType: string,
   fm: Record<string, unknown>,
 ): Record<string, unknown> {
   const promoted = STRIP_KEYS_BY_TYPE[entityType];
-  if (!promoted) return fm;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(fm)) {
-    if (!promoted.has(k)) out[k] = v;
+    if (promoted?.has(k) || shouldStripManagedRelationField(k, v)) continue;
+    out[k] = v;
   }
   return out;
 }
 
-/** Node types that own a managed relationship field (read-side hydration). */
-const MANAGED_OWNER_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(MANAGED_FIELDS_BY_TYPE));
 const MANAGED_EDGE_TYPES: readonly string[] = Object.keys(MANAGED_EDGE_TO_FIELD);
 
 /**
  * Reconstruct the managed node→node relationship fields from first-class edges
  * (option (i)). The capture path strips these from stored `data` and authors
- * them as edges; on read we patch them back onto each record's `data` so the
- * API / MCP / web / perspectives see the field exactly as before. One batched
- * edge query per call; a no-op for entity types that own no managed field.
+ * them as edges; on read we patch them back onto each record's `data` for
+ * compatibility callers. One batched edge query per call.
  */
 export async function hydrateManagedRelations(
   c: pg.PoolClient,
   entityType: string,
   records: EntityRecord[],
 ): Promise<void> {
-  if (!MANAGED_OWNER_TYPE_SET.has(entityType) || records.length === 0) return;
+  if (!NODE_TYPE_SET.has(entityType) || records.length === 0) return;
   const ids = records.map((r) => r.id);
-  const { rows } = await c.query<{ from_id: string; edge_type: string; to_id: string }>(
-    `SELECT from_id, edge_type, to_id
+  const { rows } = await c.query<{
+    from_id: string;
+    edge_type: string;
+    to_id: string;
+    props: Record<string, unknown> | null;
+  }>(
+    `SELECT from_id, edge_type, to_id, props
        FROM edges
-      WHERE from_id = ANY($1::text[]) AND edge_type = ANY($2::text[]) AND lifecycle <> 'retired'`,
+      WHERE from_id = ANY($1::text[]) AND edge_type = ANY($2::text[]) AND lifecycle <> 'retired'
+      ORDER BY created_at, id`,
     [ids, MANAGED_EDGE_TYPES],
   );
   if (rows.length === 0) return;
@@ -275,12 +293,23 @@ export async function hydrateManagedRelations(
   for (const e of rows) {
     const field = (MANAGED_EDGE_TO_FIELD as Record<string, string>)[e.edge_type];
     if (!field) continue;
+    const cardinality = (MANAGED_EDGE_CARDINALITY as Record<string, "one" | "many">)[e.edge_type];
+    const value =
+      e.edge_type === "sequence_flow"
+        ? ({ target: e.to_id, ...(e.props ?? {}) } as Record<string, unknown>)
+        : e.to_id;
     let patch = byFrom.get(e.from_id);
     if (!patch) {
       patch = {};
       byFrom.set(e.from_id, patch);
     }
-    patch[field] = e.to_id;
+    if (cardinality === "many") {
+      const list = Array.isArray(patch[field]) ? (patch[field] as unknown[]) : [];
+      list.push(value);
+      patch[field] = list;
+    } else {
+      patch[field] = value;
+    }
   }
   for (const rec of records) {
     const patch = byFrom.get(rec.id);
