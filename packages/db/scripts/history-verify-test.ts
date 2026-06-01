@@ -1,6 +1,6 @@
 // Validates the Merkle tamper-evidence chain on edge/node history.
 //   DOCO_DATABASE_URL=postgres://postgres:doco@127.0.0.1:5433/doco \
-//     pnpm exec tsx packages/db/scripts/vnext-verify-test.ts
+//     pnpm exec tsx packages/db/scripts/history-verify-test.ts
 
 import { generateUlid, makeEntityId } from "@doco/shared";
 import pg from "pg";
@@ -27,7 +27,7 @@ async function main(): Promise<void> {
       orgId,
       `o-${generateUlid().slice(0, 8).toLowerCase()}`,
     ]);
-    await c.query(`INSERT INTO users (id,kind,data) VALUES ($1,'person','{}')`, [userId]);
+    await c.query(`INSERT INTO users (id,data) VALUES ($1,'{}')`, [userId]);
     await c.query(
       `INSERT INTO docos (id,handle,owner_id,org_id,visibility,goal,data) VALUES ($1,$2,$3,$4,'private','g','{}')`,
       [docoId, `d-${generateUlid().slice(0, 8).toLowerCase()}`, orgId, orgId],

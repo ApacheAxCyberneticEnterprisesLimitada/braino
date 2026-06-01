@@ -4,12 +4,9 @@
 // of the organization's Docos.
 //
 // This is the SINGLE SOURCE OF TRUTH for the default text. New orgs are
-// seeded with it by `addOrganizationByHandle` (packages/host/src/host.ts),
-// and existing rows are backfilled to it by migration
-// `069_org_constitution.sql`. The SQL copy in that migration is kept
-// byte-for-byte in sync with this constant by a guard test
-// (packages/db/src/__tests__/constitution-default.test.ts), so edit both
-// together.
+// seeded with it by `addOrganizationByHandle` (packages/host/src/host.ts).
+// The schema seed is kept byte-for-byte in sync with this constant by
+// packages/db/src/__tests__/constitution-default.test.ts.
 
 export const DEFAULT_ORG_CONSTITUTION = `This is a spec-driven development project. Capture the intent, decision, and specification behind a change before writing the code that implements it, and let the documented spec lead the work.
 

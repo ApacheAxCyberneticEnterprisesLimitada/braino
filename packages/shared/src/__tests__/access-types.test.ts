@@ -99,7 +99,7 @@ describe("access-types", () => {
       expect(canWriteType("reader", [], "decision")).toBe(false);
       expect(canWriteType("reader", null, "decision")).toBe(false);
     });
-    it("wildcard grant writes every type (legacy writer)", () => {
+    it("wildcard grant writes every type", () => {
       expect(canWriteType("writer", [WRITE_ALL], "decision")).toBe(true);
       expect(canWriteType("reader", [WRITE_ALL], "attributed_to")).toBe(true);
     });

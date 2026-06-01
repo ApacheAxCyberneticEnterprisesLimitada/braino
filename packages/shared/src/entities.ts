@@ -13,7 +13,7 @@
  * Per-category discriminator fields (matches stored data jsonb):
  *   - Nodes   → `node_type: NodeType`
  *   - Policies → `policy_kind: "guidance" | "node_authoring"`
- *   - User → `kind: "person" | "agent"`
+ *   - User → human OAuth identity
  *   - Doco, Organization → no per-row discriminator
  *
  * `created_by` / `updated_by` reference users (the OAuth identity).
@@ -66,13 +66,6 @@ export interface GitHubIdentity {
   email?: string;
 }
 
-export interface AgentMetadata {
-  provider: string;
-  model: string;
-  capabilities?: string[];
-  created_at: string;
-}
-
 /**
  * User — host-scoped human OAuth identity.
  * Authored nodes via `created_by` / `updated_by`. Member of orgs/docos
@@ -84,14 +77,10 @@ export interface AgentMetadata {
  */
 export interface User {
   id: EntityId<"user">;
-  kind: "person" | "agent";
   github_id?: string;
   github_login: string;
   email?: string;
   avatar_url?: string;
-  /** Legacy owner pointer; OAuth tokens are named on token rows, not user rows. */
-  owner_id?: EntityId<"user">;
-  agent_metadata?: AgentMetadata;
   created_at: string;
   deactivated_at?: string;
 }
@@ -103,11 +92,8 @@ export interface User {
  * Related to work through edge rows. Slimmed from the pre-rename Principal
  * which also held OAuth identity; that concern is now `User`.
  */
-// Principal carries `name` (display label) + `body_md` (everything
-// else); the `summary` one-liner was dropped by migration 037 because
-// it duplicated body_md prose without adding signal. Extends
-// CommonFields rather than SummarizedFields for that reason — same
-// pattern the 9 migrated node types (Intent, Decision, …) use.
+// Principal carries `name` (display label) + `body_md` (everything else), so it
+// extends CommonFields rather than SummarizedFields.
 export interface Principal extends CommonFields {
   node_type: "principal";
   /** Markdown body — the canonical narrative for the Principal. */
@@ -115,10 +101,7 @@ export interface Principal extends CommonFields {
   /** Display label for the Principal. Other nodes reference Principals
    *  by id; duplicate names are allowed. */
   name: string;
-  /**
-   * Legacy flag promoted to its own column by migration 035. New
-   * Principal creation no longer derives it from reserved names.
-   */
+  /** Principal role marker used by system-authored templates. */
   role_principal?: boolean;
 }
 
@@ -138,7 +121,7 @@ export interface DocoImport {
   include?: string[];
 }
 
-/** Doco.owner_id is polymorphic: User (user/agent) OR Organization. */
+/** Doco.owner_id is polymorphic: User OR Organization. */
 export type OwnerRef = EntityId<"user"> | EntityId<"organization">;
 
 export interface Doco {
@@ -248,11 +231,7 @@ export interface Rule extends CommonFields {
 
 // ─── Policies ─────────────────────────────────────────────────────────────
 //
-// Policies carry a type-named prose column (`policy`) — the one-line
-// rule statement — instead of the legacy `summary`. Renamed by
-// migration 038 so the surface matches the 9 migrated node types
-// (intent / decision / rule / action / log / eval / state / idea /
-// reference) which each carry their own type-named column.
+// Policies carry a `policy` prose field for the one-line rule statement.
 
 export interface GuidancePolicy extends CommonFields {
   policy_kind: "guidance";
@@ -350,17 +329,9 @@ export interface Reference extends CommonFields {
   reference: string;
   ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
   locator: string;
-  /**
-   * Short citation string — promoted out of `data` jsonb to its own
-   * column by migration 035. Optional; used as the in-prose-mention
-   * shortcut (e.g. "see [ADR-085]").
-   */
+  /** Short citation string used as the in-prose-mention shortcut. */
   citation?: string | null;
-  /**
-   * Display title — promoted out of `data` jsonb to its own column by
-   * migration 035. Distinct from `reference` (the prose label) when a
-   * caller wants the source's own title preserved separately.
-   */
+  /** Display title distinct from `reference` when the source title matters. */
   title?: string | null;
   content_hash?: string | null;
 }

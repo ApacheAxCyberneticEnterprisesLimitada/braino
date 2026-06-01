@@ -1,12 +1,4 @@
-// Dead schema objects removed in migrations 071–073 — keep them gone.
-//
-// 071: tags, entity_fts_{users,docos,organizations}, doco_templates, and
-//      perspectives.owner_user_id (unwired post-055 vestige).
-// 072: doco_meta (the schema_version table is seeded once and never read) and
-//      the write-only applied_migrations.applied_at timestamp.
-// 073: entity_fts_policies (written by the indexer on every capture but never
-//      read — the only FTS reader, Slack search, queries entity_fts_nodes
-//      only; its write path was removed too).
+// Dead schema objects stay out of the current baseline.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,7 +32,7 @@ function tableBlock(table: string): string {
   return schemaSql.match(re)?.[1] ?? "";
 }
 
-describe("dead schema objects stay dropped (migrations 071–073)", () => {
+describe("dead schema objects stay dropped", () => {
   for (const t of DROPPED_TABLES) {
     it(`schema.sql no longer declares ${t}`, () => {
       expect(declaresTable(t)).toBe(false);
@@ -55,7 +47,7 @@ describe("dead schema objects stay dropped (migrations 071–073)", () => {
     expect(/\bowner_user_id\b/.test(tableBlock("perspectives"))).toBe(false);
   });
 
-  it("applied_migrations no longer declares the unused applied_at column", () => {
-    expect(/\bapplied_at\b/.test(tableBlock("applied_migrations"))).toBe(false);
+  it("does not keep a migration ledger table in the baseline", () => {
+    expect(declaresTable("applied_migrations")).toBe(false);
   });
 });

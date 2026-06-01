@@ -51,7 +51,7 @@ describe("ALL_ENTITY_TABLES ↔ schema.sql consistency", () => {
     });
 
     if (spec.typeNamedColumn) {
-      it(`schema.sql ${spec.table} declares migration-022 column "${spec.typeNamedColumn}"`, () => {
+      it(`schema.sql ${spec.table} declares type-named column "${spec.typeNamedColumn}"`, () => {
         expect(hasTypeNamedColumn(spec.table, spec.typeNamedColumn as string)).toBe(true);
       });
     }

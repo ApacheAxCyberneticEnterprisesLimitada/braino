@@ -1,29 +1,26 @@
 // Per-entity-type table mapping + storage interface.
 //
-// Post-rename (migration 005): entities are split across five categories.
-// Each category maps to one or more tables; the type discriminator string
-// (e.g. "intent", "guidance_policy", "user") names the row.
+// Entities are split across categories. Each category maps to one or more
+// tables; the type discriminator string (e.g. "intent", "guidance_policy",
+// "user") names the row.
 
 /**
  * The 10 node types (graph-knowledge entities).
  *
  * `typeNamedColumn`, where present, is the per-table text column that
- * holds the full prose content for that node — the destination of
- * the old `summary` + `body_md` (+ `title` on intents, + `name`/
- * `description` on evals) collapse landed by migrations 022 and 023.
+ * holds the full prose content for that node.
  *
  * `body` reflects whether the table physically has a `body_md`
- * column. For the 9 migrated nodes it is false (prose lives in the
- * type-named column). Principal still carries name + body_md.
+ * column. All node types live in `nodes`, which carries `body_md` for
+ * principal prose.
  */
 export const NODE_TABLES: Record<
   string,
   { table: string; body: boolean; typeNamedColumn?: string }
 > = {
-  // Post-collapse (Proposal B): every node type lives in the unified `nodes`
-  // table, discriminated by node_type. Prose is the `prose` column; `body_md`
-  // exists on `nodes` (carries principals' description). The per-type tables +
-  // type-named columns are gone — these fields now describe `nodes` uniformly.
+  // Every node type lives in the unified `nodes` table, discriminated by
+  // node_type. Prose is the `prose` column; `body_md` carries principals'
+  // descriptions.
   intent: { table: "nodes", body: true, typeNamedColumn: "prose" },
   idea: { table: "nodes", body: true, typeNamedColumn: "prose" },
   rule: { table: "nodes", body: true, typeNamedColumn: "prose" },
@@ -46,9 +43,9 @@ export interface EntityTableSpec {
   nameExpr?: string;
 }
 
-// Post-collapse: all 9 prose node types live in `nodes` (discriminated by
-// entityType → node_type). Kept as a list of the graph node types consumers
-// iterate; `table` is uniformly `nodes`.
+// All prose node types live in `nodes` (discriminated by entityType →
+// node_type). Kept as a list of the graph node types consumers iterate;
+// `table` is uniformly `nodes`.
 export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = [
   { table: "nodes", entityType: "decision", body: true },
   { table: "nodes", entityType: "intent", body: true },
@@ -66,14 +63,12 @@ export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> 
 
 /**
  * Promoted columns on the unified `nodes` table, per node type. Single source
- * of truth for the storage writer (`upsertEntity` → `nodes`). Mirrors the
- * one-time copy map in migration 064.
+ * of truth for the storage writer (`upsertEntity` → `nodes`).
  *
  * These are the per-type graph columns promoted out of the `data` jsonb:
- * relationship refs (each carries a foreign key again — migration 070: five
- * self-reference nodes(id); `proposer_id` → users(id)) and filterable
- * scalars. Principal's identity columns (name / body_md / role_principal)
- * are handled directly by the writer, not here.
+ * `proposer_id` and filterable scalars. Principal's identity columns
+ * (name / body_md / role_principal) are handled directly by the writer,
+ * not here.
  *
  * - `field`        — source key in the entity's `data`/frontmatter.
  * - `requirePrefix`— only persist the value when it has this id prefix
@@ -134,7 +129,7 @@ export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
   },
 };
 
-/** The user category — OAuth identity layer. One table, two kinds. */
+/** The user category — human OAuth identity layer. */
 export const USER_TABLES: Record<string, { table: string; body: boolean }> = {
   user: { table: "users", body: false },
 };
@@ -171,8 +166,7 @@ export const ALL_ENTITY_TABLES: Record<
  * from this shape.
  *
  * `entity_type` carries the discriminator string across all categories:
- * 10 node types + 2 policy kinds + user + doco + organization. The field
- * was named `node_type` pre-migration-005.
+ * 10 node types + 2 policy kinds + user + doco + organization.
  */
 export interface EntityRecord {
   id: string;
@@ -186,13 +180,7 @@ export interface EntityRecord {
   summary?: string | null;
   lifecycle?: string | null;
   name?: string | null;
-  /**
-   * Migration-022 type-named column — `intent` for intent rows,
-   * `decision` for decision rows, etc. Holds the full prose content
-   * for the node once the rename completes. During the additive
-   * window this carries the same content as `summary` (+ optional
-   * `body_md` and type-specific extras, merged at backfill time).
-   */
+  /** Full prose content for node rows. */
   type_named_value?: string | null;
   created_at?: string | null;
   created_by?: string | null;

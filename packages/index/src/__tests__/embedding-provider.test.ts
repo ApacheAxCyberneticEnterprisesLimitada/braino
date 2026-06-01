@@ -120,7 +120,7 @@ describe("getDefaultEmbeddingProvider", () => {
     expect(getDefaultEmbeddingProvider()).toBeInstanceOf(NoopEmbeddingProvider);
   });
 
-  it("prefers OpenAI implicitly (back-compat) even when Voyage is also set", () => {
+  it("prefers OpenAI implicitly when Voyage is also set", () => {
     vi.stubEnv("OPENAI_API_KEY", "sk-test");
     vi.stubEnv("VOYAGE_API_KEY", "va-test");
     expect(getDefaultEmbeddingProvider()).toBeInstanceOf(OpenAIEmbeddingProvider);

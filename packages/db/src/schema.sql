@@ -7,28 +7,18 @@
 -- Doco instances in one database.
 --
 -- Schema rules:
---   - Each entity type gets its own table; common columns live up top
---     in a consistent order (id, doco_id, summary, lifecycle, ...).
---   - Type-specific columns are appended.
---   - `body_md` is on the types that have a markdown narrative body.
+--   - `nodes` stores every graph entity, discriminated by `node_type`.
+--   - Policies, users, organizations, and Docos live in dedicated tables.
 --   - `edges` stores relationships between nodes for graph queries.
---   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
---   - New schema changes belong in packages/db/migrations/.
+--   - `audit_events` stores structured mutation history.
 --
--- Vocabulary (post-migration-005):
+-- Vocabulary:
 --   nodes   — graph entities (10 types: intent/idea/rule/decision/action/
 --               log/eval/reference/state/principal)
 --   policies — Doco-level authoring metadata (2 kinds: guidance / node_authoring)
 --   edges   — relationships between nodes
 --   users      — human OAuth identities, separate from principals
 --                (which are role-personas linked by graph edges).
-
--- Forward-only migration ledger. Populated by `applyMigrations()` in
--- packages/db/src/migrations.ts. New schema changes go in
--- `packages/db/migrations/NNN_short_name.sql`, not into this file.
-CREATE TABLE IF NOT EXISTS applied_migrations (
-  id          text PRIMARY KEY
-);
 
 -- Host config (singleton row at id='host').
 CREATE TABLE IF NOT EXISTS hosts (
@@ -59,20 +49,16 @@ ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS users (
   id              text PRIMARY KEY,            -- user_<ulid>
-  kind            text NOT NULL CHECK (kind IN ('person', 'agent')),
   github_id       text,                        -- GitHub numeric id (immutable)
   github_login    text,                        -- current GitHub login (mutable)
   email           text,
   avatar_url      text,
-  owner_id        text REFERENCES users(id) ON DELETE SET NULL,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   deactivated_at  timestamptz
 );
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
-CREATE INDEX IF NOT EXISTS users_kind_idx          ON users (kind);
-CREATE INDEX IF NOT EXISTS users_owner_idx         ON users (owner_id);
 
 
 CREATE TABLE IF NOT EXISTS organizations (
@@ -81,10 +67,7 @@ CREATE TABLE IF NOT EXISTS organizations (
   name        text NOT NULL,
   -- Free-form governing charter for the org — the standing "how work is
   -- done here" text shared with every agent granted access to the org at
-  -- bootstrap, and shown on the org home page. Column default is ''; the
-  -- real default text (DEFAULT_ORG_CONSTITUTION in @doco/shared) is applied
-  -- by addOrganizationByHandle for new orgs and backfilled onto existing
-  -- rows by migration 069_org_constitution.sql.
+  -- bootstrap, and shown on the org home page.
   constitution text NOT NULL DEFAULT '',
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -96,21 +79,19 @@ CREATE TABLE IF NOT EXISTS org_users (
   org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
-  -- Per-type write grants (migration 062). '*' = write every type;
-  -- owners ignore this and write everything.
+  -- Per-type write grants. '*' = write every type; owners ignore this and
+  -- write everything.
   write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (org_id, user_id)
 );
--- org_users_user_idx lives in migration 055: the baseline must not
--- reference user_id on an existing prod org_users (still collaborator_id)
--- until 055 renames the column.
+CREATE INDEX IF NOT EXISTS org_users_user_idx ON org_users (user_id);
 
--- Account-level access grants (migration 075). An account grant from
--- grantor → grantee gives the grantee `role` (+ optional per-type
--- write_types) on every org the grantor owns and, via the org→doco
--- cascade in the access engine, every Doco under those orgs. Live grant:
--- orgs the grantor creates later are covered automatically.
+-- Account-level access grants. An account grant from grantor to grantee gives
+-- the grantee `role` (+ optional per-type write_types) on every org the
+-- grantor owns and, via the org-to-Doco cascade in the access engine, every
+-- Doco under those orgs. Live grant: orgs the grantor creates later are
+-- covered automatically.
 CREATE TABLE IF NOT EXISTS account_grants (
   grantor_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   grantee_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -144,24 +125,13 @@ CREATE TABLE IF NOT EXISTS docos (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- Per-Doco entity tables. `body_md` carries the markdown narrative
--- on types that have one; the remaining structured fields live in
--- `data` (jsonb). Scalar ID refs are promoted to typed FK columns where
--- they do not represent node-to-node graph relationships.
-
-
-
--- rules.kind / rules.severity indexes live in migration 035 alongside the
--- ALTER TABLE that adds the columns — putting them here means schema.sql
--- (which runs BEFORE migrations) tries to index columns that don't exist
--- on an existing prod table yet, taking the deploy down.
+-- Per-Doco policy tables. Policy prose lives in `policy` + `body_md`; the
+-- remaining structured fields live in `data` (jsonb).
 
 CREATE TABLE IF NOT EXISTS guidance_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  -- One-line rule statement. Renamed from `summary` to `policy` in
-  -- migration 038 to match the migration-023 type-named-prose pattern
-  -- the 9 node types use.
+  -- One-line policy statement.
   policy      text,
   lifecycle   text,
   body_md     text,
@@ -179,7 +149,7 @@ CREATE INDEX IF NOT EXISTS guidance_policies_lifecycle_idx
 CREATE TABLE IF NOT EXISTS node_authoring_policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  -- See guidance_policies.policy — same rename.
+  -- One-line policy statement.
   policy      text,
   lifecycle   text,
   body_md     text,
@@ -194,38 +164,13 @@ CREATE INDEX IF NOT EXISTS node_authoring_policies_doco_idx
 CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
   ON node_authoring_policies (doco_id, lifecycle);
 
--- actions.verb / actions.performed_at indexes live in migration 035 — see
--- the note above the rules block.
-
--- logs.verb / logs.happened_at indexes live in migration 035.
-
--- evals.kind index lives in migration 035.
-
--- State is a node in a
--- formal state machine. Mirrors the actions table shape; the structured
--- fields (`kind`, `invariants`) live in `data`.
--- states.kind index lives in migration 035.
-
--- reference_entities.ref_type index lives in migration 035.
-
--- ── Unified node table (doco-vnext follow-up: collapse the 10 per-type
---    node tables into one) ───────────────────────────────────────────────
--- One row per graph node of ANY type, discriminated by `node_type`. Replaces
--- the 10 per-type tables (intents/decisions/rules/actions/logs/evals/states/
--- ideas/reference_entities/principals) — the sharding was a false split; this
--- mirrors how `edges` is already a single discriminated table.
+-- ── Unified node table ───────────────────────────────────────────────────
+-- One row per graph node of any type, discriminated by `node_type`.
 --
 -- "Wide" by design: per-type promoted SCALAR columns are preserved here as
--- real (nullable) columns so reads keep their existing column names. The
--- promoted node→node relationship columns were DROPPED by migration 074:
--- each graph relationship now lives on the `edges` table (FK'd to nodes(id)).
--- `proposer_id` stays a column: it points at
--- `users(id)` (the OAuth identity that proposed the idea, not a node), so it is
--- not expressible as a node→node edge. The `edges` table likewise FKs from_id /
--- to_id to nodes(id): edges connect nodes only; org/doco containment rides on
--- the doco_id / org_id columns, never on a graph edge. The
--- migration that copies the legacy rows in is 064; the legacy tables are
--- dropped in a later migration once this is production-verified.
+-- real nullable columns so reads keep their existing column names. Node-to-node
+-- relationships live only in `edges`. `proposer_id` points at `users(id)` (the
+-- OAuth identity that proposed the idea, not a graph node).
 --
 -- Policies are deliberately NOT folded in here: guidance_policies /
 -- node_authoring_policies stay their own tables (governance config, not graph
@@ -240,13 +185,8 @@ CREATE TABLE IF NOT EXISTS nodes (
   name           text,                       -- principal display label (NULL for the others)
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
-  -- Former node→node relationship columns were dropped by migration 074.
-  -- Graph relationships are first-class `edges` rows.
-  -- `proposer_id` stays — it points at users(id) (the OAuth identity that
-  -- proposed the idea, not a node), so it is not a node→node edge; ON DELETE
-  -- SET NULL (a deleted user just drops the credit).
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
-  -- Promoted scalar columns (migration 035 lineage).
+  -- Promoted scalar columns.
   verb         text,                          -- action, log
   performed_at timestamptz,                   -- action (matches actions.performed_at)
   happened_at  timestamptz,                   -- log (matches logs.happened_at)
@@ -267,8 +207,6 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
--- nodes_superseded_idx / nodes_actor_idx removed with their columns (migration
--- 074): the relationships are queried via the `edges` table now.
 
 -- Audit events: one row per mutation.
 
@@ -276,7 +214,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
   event_id      text PRIMARY KEY,
   at            timestamptz NOT NULL,
   by_user       text,
-  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  org_id        text REFERENCES organizations(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
   op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'lifecycle.transition', 'edge.add')),
@@ -287,26 +226,17 @@ CREATE TABLE IF NOT EXISTS audit_events (
 CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
--- audit_events_user_idx lives in migration 055 (renamed-column index;
--- baseline must not reference by_user before 055 renames by_collaborator).
-
--- Org-scope audit events. For those rows, `org_id` is set and `doco_id`
--- is NULL.
-ALTER TABLE audit_events
-  ADD COLUMN IF NOT EXISTS org_id text REFERENCES organizations(id) ON DELETE CASCADE;
-ALTER TABLE audit_events ALTER COLUMN doco_id DROP NOT NULL;
+CREATE INDEX IF NOT EXISTS audit_events_user_idx ON audit_events (by_user, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events (org_id, at DESC);
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Append-only history (doco-vnext). The commit log + immutable version
--- snapshots are the SOURCE OF TRUTH; the per-type node tables and `edges`
--- are a rebuildable projection. Nothing is ever deleted — removal is a
--- `retire` version. See docs/plans/doco-vnext.md.
+-- Append-only history. The commit log + immutable version snapshots are the
+-- source of truth; `nodes` and `edges` are the current-state projection.
+-- Nothing is hard-deleted — removal is a `retire` version.
 
 -- Commit log — one row per atomic changeset (Git's commit). Carries
 -- who/when/WHY. tx_id is a global monotonic sequence enabling whole-graph
--- "as-of" reads. Append-only; never updated or deleted (see migration 063
--- which REVOKEs UPDATE/DELETE on the history tables from the app role).
+-- "as-of" reads. Append-only; never updated or deleted.
 CREATE TABLE IF NOT EXISTS changesets (
   tx_id        bigserial PRIMARY KEY,
   doco_id      text REFERENCES docos(id) ON DELETE CASCADE,
@@ -331,7 +261,7 @@ CREATE TABLE IF NOT EXISTS node_versions (
   tx_id        bigint NOT NULL REFERENCES changesets(tx_id),
   actor        text,
   recorded_at  timestamptz NOT NULL DEFAULT now(),
-  prev_hash    text,                          -- Merkle hash chain (see verifyHistory in vnext.ts)
+  prev_hash    text,                          -- Merkle hash chain (see verifyHistory in history.ts)
   this_hash    text,
   PRIMARY KEY (entity_id, version)
 );
@@ -354,16 +284,12 @@ CREATE TABLE IF NOT EXISTS edge_versions (
 CREATE INDEX IF NOT EXISTS edge_versions_tx_idx   ON edge_versions (tx_id);
 CREATE INDEX IF NOT EXISTS edge_versions_asof_idx ON edge_versions (entity_id, tx_id);
 
--- Indexing layer tables. These hold the derived-data the read side
--- consumes — graph edges, vector embeddings, denormalized rule targets,
--- and full-text search rows. Supersedes ADR-023 (tiered architecture)
--- and ADR-024 (SQLite + FTS5) — Postgres is now both source of truth
--- and read-side index.
+-- Indexing layer tables. These hold derived data the read side consumes:
+-- graph edges, vector embeddings, denormalized rule targets, and full-text
+-- search rows. Postgres is both source of truth and read-side index.
 
--- Graph edges — FIRST-CLASS entities (doco-vnext). Each edge is its own
--- row with a surrogate id (edge_<ulid>), lifecycle, and provenance — a
--- peer of nodes, NOT a derived cache. Endpoints can be any node type so
--- we can't FK them; existence + same-doco is enforced in app code.
+-- Graph edges. Each edge is its own row with a surrogate id (edge_<ulid>),
+-- lifecycle, and provenance — a peer of nodes, not a derived cache.
 -- Mutated by edge CRUD via commit(); the indexer never wipes/rebuilds this
 -- table. Removal is lifecycle='retired', never DELETE.
 CREATE TABLE IF NOT EXISTS edges (
@@ -403,11 +329,9 @@ CREATE INDEX IF NOT EXISTS edges_from_idx           ON edges (from_id);
 CREATE INDEX IF NOT EXISTS edges_to_idx             ON edges (to_id);
 CREATE INDEX IF NOT EXISTS edges_lifecycle_idx      ON edges (doco_id, lifecycle);
 
--- Vector embeddings (ADR-052). One row per entity. Storage is bytea
+-- Vector embeddings. One row per entity. Storage is bytea
 -- (Float32Array bytes, little-endian). pgvector + ivfflat/hnsw is an
--- additive optimization for Tier-C scale (currently Tier B per ADR-049,
--- where sequential cosine is microseconds). Switching to vector(N) later
--- is a column-type migration with no data reformat.
+-- additive optimization; the current bytea shape keeps indexing simple.
 -- model_id + content_hash let the reindex hook skip work when nothing
 -- changed; a model swap invalidates rows whose model_id differs.
 CREATE TABLE IF NOT EXISTS embeddings (
@@ -424,8 +348,7 @@ CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
 -- Full-text search. Only nodes are indexed (entity_fts_nodes): the indexer
 -- populates summary + body, and Slack search — the lone reader — queries the
 -- generated `search_tsv` tsvector (English stemming, weighted A=summary,
--- B=body) through a GIN index for `@@` queries. The policy / user / doco /
--- organization FTS tables were never read and were dropped (migrations 071/073).
+-- B=body) through a GIN index for `@@` queries.
 
 CREATE TABLE IF NOT EXISTS entity_fts_nodes (
   entity_id    text PRIMARY KEY,
@@ -440,8 +363,6 @@ CREATE TABLE IF NOT EXISTS entity_fts_nodes (
 );
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_doco_idx ON entity_fts_nodes (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING gin (search_tsv);
-
--- (entity_fts_policies dropped in migration 073 — written but never read.)
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
@@ -460,13 +381,13 @@ CREATE TABLE IF NOT EXISTS doco_users (
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
-  -- Per-type write grants (migration 062). '*' = write every type;
-  -- owners ignore this and write everything.
+  -- Per-type write grants. '*' = write every type; owners ignore this and
+  -- write everything.
   write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (doco_id, user_id)
 );
--- doco_users_user_idx lives in migration 055 (renamed-column index).
+CREATE INDEX IF NOT EXISTS doco_users_user_idx ON doco_users (user_id);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Invite store backing blob.
@@ -533,8 +454,8 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- where they're owner) but never raise it. Missing entries mean
   -- "inherit the principal's actual role" — i.e. no scope-down.
   granted_doco_roles    jsonb NOT NULL DEFAULT '{}'::jsonb,
-  -- Per-type write scope-down (migration 062), keyed by doco_id →
-  -- list of writable-type tokens ('*' = all). Parallels granted_doco_roles.
+  -- Per-type write scope-down, keyed by doco_id to a list of writable-type
+  -- tokens ('*' = all). Parallels granted_doco_roles.
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- Org-level grants. When the user approves access to an org, every
   -- Doco owned by that org becomes reachable through this token —
@@ -573,7 +494,7 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
--- oauth_access_tokens_user_idx lives in migration 055 (renamed-column index).
+CREATE INDEX IF NOT EXISTS oauth_access_tokens_user_idx ON oauth_access_tokens (user_id);
 CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
   ON oauth_access_tokens (expires_at);
 
@@ -600,11 +521,11 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   revoked           boolean NOT NULL DEFAULT false,
   superseded_by     text REFERENCES oauth_refresh_tokens(token) ON DELETE SET NULL,
   -- Non-rotating tokens skip rotation on refresh so they can be pinned
-  -- into a cloud environment's variable config (see migration 058).
+  -- into a cloud environment's variable config.
   non_rotating      boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
--- oauth_refresh_tokens_user_idx lives in migration 055 (renamed-column index).
+CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_user_idx ON oauth_refresh_tokens (user_id);
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
 
@@ -634,6 +555,8 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   granted_org_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  target_doco_handle text,
+  requested_role text CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner')),
   expires_at       timestamptz NOT NULL,
   last_polled_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
@@ -642,65 +565,6 @@ CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
   ON oauth_device_authorizations (user_code);
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
   ON oauth_device_authorizations (expires_at);
-
--- Per-Doco role scope-down. Added after the OAuth tables shipped, so
--- guarded with IF NOT EXISTS to be idempotent on subsequent boots.
--- `CREATE TABLE IF NOT EXISTS` above doesn't ADD COLUMN on an
--- existing table; this block does.
-ALTER TABLE oauth_authorization_codes
-  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_authorization_codes
-  ADD COLUMN IF NOT EXISTS token_name text;
-ALTER TABLE oauth_access_tokens
-  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_access_tokens
-  ADD COLUMN IF NOT EXISTS token_name text;
-ALTER TABLE oauth_refresh_tokens
-  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_refresh_tokens
-  ADD COLUMN IF NOT EXISTS token_name text;
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS token_name text;
-
--- Org-level grants. A token can carry a list of org ids the user
--- approved; access then follows org-owned Docos live (including ones
--- created under the org after the token was minted). Same IF NOT EXISTS
--- guard for idempotent boot against existing deployments.
-ALTER TABLE oauth_authorization_codes
-  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
-ALTER TABLE oauth_authorization_codes
-  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_access_tokens
-  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
-ALTER TABLE oauth_access_tokens
-  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_refresh_tokens
-  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
-ALTER TABLE oauth_refresh_tokens
-  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS granted_org_ids text[] NOT NULL DEFAULT ARRAY[]::text[];
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
-
--- Non-rotating refresh tokens for cloud-environment use (migration 058).
--- Same IF NOT EXISTS guard for idempotent boot against existing deployments.
-ALTER TABLE oauth_refresh_tokens
-  ADD COLUMN IF NOT EXISTS non_rotating boolean NOT NULL DEFAULT false;
-
--- Targeted-grant hints. When the agent already knows which Doco it
--- wants access to (and at what role), it passes these to POST
--- /oauth/device_authorization. The /device approve screen then shows
--- ONLY the target Doco with the requested role pre-filled, instead of
--- the full picker. Both nullable — when omitted, /device falls back
--- to the all-owned-Docos picker.
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS target_doco_handle text;
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS requested_role text
-    CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner'));
 
 -- Committable read-only "project tokens" for Docos. Distinct from
 -- oauth_access_tokens: tied to the Doco (not a user), fixed
@@ -722,14 +586,8 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
   ON doco_project_tokens (doco_id) WHERE NOT revoked;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Tables folded into the baseline from the (now-archived) migration chain by
--- the doco-vnext squash. Previously created incrementally by migrations; the
--- genesis reset rebuilds from this baseline alone, so they must live here.
--- Column names are the final post-055 (user, not collaborator) form.
-
--- Visualization perspectives (was migrations 007 + 030/046/051/059) and the
--- per-Doco attachment join. Ownership is tracked by `owner_handle`; the
--- unused `owner_user_id` column was dropped in migration 071.
+-- Visualization perspectives and the per-Doco attachment join. Ownership is
+-- tracked by `owner_handle`.
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
@@ -745,20 +603,6 @@ CREATE TABLE IF NOT EXISTS perspectives (
 );
 CREATE INDEX IF NOT EXISTS perspectives_owner_handle_idx ON perspectives (owner_handle);
 CREATE INDEX IF NOT EXISTS perspectives_kind_idx         ON perspectives (kind);
-
--- Re-assert the kind allow-list on EXISTING tables. `CREATE TABLE IF NOT
--- EXISTS` above is skipped when perspectives already exists, so its inline
--- CHECK (auto-named perspectives_kind_check) keeps whatever list it was first
--- created with — and the seed below would violate it whenever the list grows.
--- (This is precisely how #717's 'pull-requests' kind took prod down: schema.sql
--- runs before migrations in the bookend, so the pass-1 seed hit the old CHECK
--- before migration 076 could widen it.) Drop + re-add idempotently here, ahead
--- of the seed, so existing databases heal themselves. Keep this list in sync
--- with the inline CHECK above and the newest perspectives migration.
-ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
-ALTER TABLE perspectives
-  ADD CONSTRAINT perspectives_kind_check
-  CHECK (kind IN ('graph','list','bpmn','org-tree','sla','approval','glossary','pull-requests'));
 
 -- Built-in perspectives. host.ts attaches graph/list/for-approval to every new
 -- Doco, so these rows must exist for doco creation to succeed.
@@ -786,7 +630,7 @@ CREATE INDEX IF NOT EXISTS doco_perspectives_doco_idx ON doco_perspectives (doco
 CREATE UNIQUE INDEX IF NOT EXISTS doco_perspectives_one_default
   ON doco_perspectives (doco_id) WHERE is_default;
 
--- In-page assistant chat (was migrations 003/004/008/009/024/031/032).
+-- In-page assistant chat.
 CREATE TABLE IF NOT EXISTS chat_conversations (
   id                       text PRIMARY KEY,
   user_id                  text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -794,7 +638,6 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   active_turn_started_at   timestamptz,
   active_turn_events       jsonb NOT NULL DEFAULT '[]'::jsonb,
   title                    text,
-  attached_doco_handles    text[] NOT NULL DEFAULT '{}',
   attached_org_handles     text[] NOT NULL DEFAULT '{}',
   attached_doco_ids        text[] NOT NULL DEFAULT '{}',
   created_at               timestamptz NOT NULL DEFAULT now(),
@@ -827,7 +670,7 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
 CREATE INDEX IF NOT EXISTS idx_chat_attachments_conversation ON chat_attachments (conversation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_chat_attachments_expires      ON chat_attachments (expires_at);
 
--- Telemetry (was migration 017). user_id / doco_id are plain text (no FK).
+-- Telemetry. user_id / doco_id are plain text (no FK).
 CREATE TABLE IF NOT EXISTS agent_turn_metrics (
   id                       text PRIMARY KEY,
   conversation_id          text NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
@@ -871,7 +714,7 @@ CREATE TABLE IF NOT EXISTS capture_timings (
   error                       text
 );
 
--- OpenAI usage log (was migration 025).
+-- OpenAI usage log.
 CREATE TABLE IF NOT EXISTS openai_usage_log (
   id            text PRIMARY KEY,
   occurred_at   timestamptz NOT NULL DEFAULT now(),
@@ -883,7 +726,7 @@ CREATE TABLE IF NOT EXISTS openai_usage_log (
   error         text
 );
 
--- Group-chat integrations (was migration 047). *_user_id are post-055.
+-- Group-chat integrations.
 CREATE TABLE IF NOT EXISTS group_chat_installations (
   id                          text PRIMARY KEY,
   provider                    text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
@@ -926,7 +769,7 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
   UNIQUE (provider, workspace_id, chat_user_id, user_id)
 );
 
--- Feedback reports (was migration 048).
+-- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id                    text PRIMARY KEY,
   report_type           text NOT NULL CHECK (report_type IN ('bug','idea')),
@@ -950,23 +793,15 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
 );
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Self-heal columns promoted from `data` jsonb by migrations (013/025/035/056)
--- that pre-date this squashed baseline. CREATE TABLE IF NOT EXISTS above won't
--- add them to a DB that already has the table (e.g. a prod that genesis-reset
--- from an earlier, incomplete baseline), so add them here idempotently — the
--- same belt-and-suspenders pattern as the oauth_* ADD COLUMN block above.
-
--- ──────────────────────────────────────────────────────────────────────────
--- Append-only guardrails (doco-vnext). The commit log + version snapshots are
+-- Append-only guardrails. The commit log + version snapshots are
 -- immutable: block UPDATE / DELETE / TRUNCATE on them at the DB level, for
 -- EVERY role including superuser — stronger than REVOKE, which superusers
 -- bypass. Inserts are allowed; "removal" is a retire VERSION, never a delete.
--- The genesis reset uses DROP TABLE (DDL), which these triggers do not block,
--- so the bookend rebuild still works. Idempotent (CREATE OR REPLACE + DROP IF
--- EXISTS), so it re-asserts on every cold start.
+-- Idempotent (CREATE OR REPLACE + DROP IF EXISTS), so it re-asserts on every
+-- cold start.
 CREATE OR REPLACE FUNCTION doco_block_history_mutation() RETURNS trigger AS $$
 BEGIN
-  RAISE EXCEPTION 'doco-vnext: % on % is not allowed — history is append-only', TG_OP, TG_TABLE_NAME;
+  RAISE EXCEPTION 'history append-only: % on % is not allowed', TG_OP, TG_TABLE_NAME;
 END;
 $$ LANGUAGE plpgsql;
 

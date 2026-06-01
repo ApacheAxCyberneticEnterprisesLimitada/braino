@@ -110,16 +110,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       const entityType = entityTypeFromId(le.entity.id) || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
-      // Migration-022/023: 9 node types collapsed `summary` + `body_md`
-      // (+ type-specific extras) into a single type-named prose column
-      // (`intents.intent`, `decisions.decision`, ...). The whole prose
-      // block goes into FTS `body`; there's no separate headline to
-      // surface in `summary` anymore.
-      //
-      // Non-migrated entities still split a one-line headline into the
-      // FTS A-weight column. Post-rename the source field is type-
-      // specific: principals use `name` (display label) and policies use
-      // `policy` (rule statement, renamed from `summary` in 038).
+      // Node prose goes into FTS `body`; policy/principal labels use the
+      // A-weight `summary` column.
       const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
       let summary: string | null;
       let body: string;
@@ -151,11 +143,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      // Migration-022/023: migrated nodes embed the type-named prose
-      // column verbatim. Principals embed `name` + `body_md` (the
-      // post-037 shape — summary was dropped); policies embed
-      // `policy` (one-line rule, renamed from `summary` in 038) +
-      // `body_md`.
+      // Nodes embed their prose verbatim. Principals embed `name` + `body_md`;
+      // policies embed `policy` + `body_md`.
       const entityType = entityTypeFromId(le.entity.id) || "unknown";
       const typeNamedColumn =
         entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;

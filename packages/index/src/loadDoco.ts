@@ -4,8 +4,8 @@
 //
 // Two modes:
 //   - Full load (no `opts.entityIds`): every entity in the Doco (all 10
-//     node types are Doco-scoped post-migration 020), plus the host's
-//     organizations. Used for first-build and bulk rebuilds.
+//     node types), plus the host's organizations. Used for first-build
+//     and bulk rebuilds.
 //   - Scoped load (`opts.entityIds` set): only the named ids are read from
 //     their own tables, and host-wide organization rows are skipped
 //     entirely. The incremental reindex path only consumes the entities
@@ -30,8 +30,7 @@ import type {
 import { ENTITY_TYPES, NODE_TYPES, isEntityId } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 
-// All node types are Doco-scoped (migration 020 finished the job
-// for Principals).
+// All node types are Doco-scoped.
 const DOCO_SCOPED_NODE_TYPES: EntityType[] = [...NODE_TYPES] as EntityType[];
 
 export interface LoadDocoOptions {
@@ -86,7 +85,6 @@ export async function loadDocoFromPostgres(
   // Host-level identity rows are loaded once (no doco_id filter). Only
   // needed by the full-rebuild path; incremental captures don't consume
   // them because the indexer's FTS/embedding writers don't need org text.
-  // Principals moved to the doco-scoped loop below in migration 020.
   if (!scoped) {
     let rows: EntityRecord[] = [];
     try {
@@ -154,12 +152,8 @@ export async function loadDocoFromPostgres(
         continue;
       }
       const entity = fm as unknown as Entity;
-      // Migration-022/023: migrated nodes store their full prose in a
-      // type-named column (intents.intent, decisions.decision, ...);
-      // `rowToRecord` hoists that onto `row.type_named_value`. Carry it
-      // through `parsed` so the indexer can route it to the FTS body /
-      // embedding text without re-reading the row. Principal + other
-      // non-migrated entities leave this null and keep using body_md.
+      // Carry full node prose through `parsed` so the indexer can route it to
+      // the FTS body / embedding text without re-reading the row.
       const loaded: LoadedEntity = {
         entity,
         filePath: `<postgres>:${t}/${row.id}`,

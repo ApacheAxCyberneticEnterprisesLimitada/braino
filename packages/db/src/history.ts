@@ -1,4 +1,4 @@
-// Append-only write runtime (doco-vnext).
+// Append-only write runtime.
 //
 // The single write boundary for the new model. Every mutation:
 //   1. opens a changeset (the commit — who/when/WHY, a monotonic tx_id),
@@ -42,7 +42,7 @@ export async function createChangeset(c: pg.PoolClient, input: CommitInput): Pro
 
 type Op = "create" | "update" | "retire";
 
-// Merkle tamper-evidence (doco-vnext, optional track). Each version's
+// Merkle tamper-evidence. Each version's
 // this_hash = H(prev_hash, entity_id, version, op, payload, tx_id, actor) so
 // the per-entity history forms a hash chain — rewriting any past version
 // breaks every hash after it (detectable via verifyHistory). Append-only by

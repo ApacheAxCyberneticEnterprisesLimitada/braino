@@ -11,11 +11,8 @@ export interface LoadedEntityParsed {
   body: string;
   format?: LoadedEntitySourceFormat;
   /**
-   * Migration-022 type-named column value (e.g. `intents.intent`,
-   * `decisions.decision`). Populated for the 9 migrated node types
-   * whose tables expose a `typeNamedColumn` in `ALL_ENTITY_TABLES`;
-   * null/undefined for principal, policies, and other non-migrated
-   * entities. The indexer reads this for FTS body + embedding text.
+   * Full node prose from the storage row. The indexer reads this for FTS body
+   * + embedding text.
    */
   typeNamedValue?: string | null;
 }

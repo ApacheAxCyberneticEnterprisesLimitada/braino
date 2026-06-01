@@ -3,14 +3,13 @@
 // DATABASE_URL reads from env (or override via opts). Defaults to the
 // Phase 2 dev container at postgres://postgres:doco@127.0.0.1:5433/doco.
 //
-// schema.sql + every migrations/*.sql are bundled into JS strings by
-// scripts/embed-schema.mjs (regenerated at build time into
-// src/schema-embedded.ts). This sidesteps Vercel's serverless function
-// packaging dropping sibling .sql files and avoids static node:fs
-// imports that vite/rollup would drag into browser graphs.
+// schema.sql is bundled into a JS string by scripts/embed-schema.mjs
+// (regenerated at build time into src/schema-embedded.ts). This
+// sidesteps Vercel's serverless function packaging dropping sibling
+// .sql files and avoids static node:fs imports that vite/rollup would
+// drag into browser graphs.
 
 import pg from "pg";
-import { applyMigrations } from "./migrations.js";
 import { SCHEMA_SQL } from "./schema-embedded.js";
 
 const { Pool } = pg;
@@ -64,12 +63,6 @@ export async function withTransaction<T>(fn: (c: pg.PoolClient) => Promise<T>): 
 async function applySchema(): Promise<void> {
   const c = await getPool().connect();
   try {
-    // Bookend: baseline → migrations → baseline. Pass 1 gives migrations the
-    // tables they expect; the genesis reset (063) drops everything except the
-    // migration ledger; pass 2 (idempotent) recreates the new schema empty.
-    // In steady state both passes are no-ops (every CREATE uses IF NOT EXISTS).
-    await c.query(SCHEMA_SQL);
-    await applyMigrations(c);
     await c.query(SCHEMA_SQL);
   } finally {
     c.release();
@@ -77,9 +70,7 @@ async function applySchema(): Promise<void> {
 }
 
 /**
- * Apply baseline schema.sql, then any pending numbered migrations from
- * packages/db/migrations/. Idempotent — schema.sql uses IF NOT EXISTS and
- * `applied_migrations` skips migrations that already ran.
+ * Apply baseline schema.sql. Idempotent — schema.sql uses IF NOT EXISTS.
  */
 export async function ensureSchema(): Promise<void> {
   if (!_schemaReady) {

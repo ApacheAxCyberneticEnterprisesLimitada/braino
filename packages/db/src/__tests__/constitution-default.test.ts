@@ -1,11 +1,4 @@
-// Guard: the default org-constitution text has copies that must stay in
-// sync — the TS constant (DEFAULT_ORG_CONSTITUTION, the canonical source,
-// applied to new orgs by addOrganizationByHandle) and the migration-069
-// backfill that seeds existing rows. SQL can't import the TS constant, so
-// this test reads both from disk and asserts they agree.
-//
-// Compared as files (no module import) so it runs without building
-// @doco/shared to dist.
+// Guard the default org-constitution text and its schema home.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -15,10 +8,6 @@ import { describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const constitutionTs = readFileSync(
   join(here, "..", "..", "..", "shared", "src", "constitution.ts"),
-  "utf8",
-);
-const migrationSql = readFileSync(
-  join(here, "..", "..", "migrations", "069_org_constitution.sql"),
   "utf8",
 );
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
@@ -32,16 +21,6 @@ function defaultConstitutionText(): string {
 
 describe("default org constitution text stays in sync", () => {
   const text = defaultConstitutionText();
-
-  it("migration 069 backfills with the exact DEFAULT_ORG_CONSTITUTION text", () => {
-    // The migration dollar-quotes the same body; substring match is enough.
-    expect(migrationSql).toContain(text);
-  });
-
-  it("migration 069 adds organizations.constitution and drops docos.constitution", () => {
-    expect(migrationSql).toMatch(/ADD COLUMN IF NOT EXISTS constitution text/);
-    expect(migrationSql).toMatch(/ALTER TABLE docos DROP COLUMN IF EXISTS constitution/);
-  });
 
   it("schema.sql declares organizations.constitution and not docos.constitution", () => {
     const orgBlock = schemaSql.match(

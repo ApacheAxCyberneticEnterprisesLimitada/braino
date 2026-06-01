@@ -1,11 +1,9 @@
 // CRUD helpers for entity rows. Generic across categories via the maps
 // in `./types.js`.
 //
-// Post-migration-005:
-//   * `principals` table is SLIMMED — role-personas only, no OAuth fields.
-//   * `users` is a NEW table — OAuth identity (person or agent).
-//   * Membership + OAuth tables reference `user_id` (was `principal_id`).
-//   * `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
+// Principals are role-personas in the graph; users are human OAuth
+// identities. Membership + OAuth tables reference `user_id`.
+// `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
 import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, normalizeWriteTypes } from "@doco/shared";
 import type pg from "pg";
@@ -32,10 +30,9 @@ function tableFor(entityType: string): {
 }
 
 /**
- * Drop the legacy prose keys from a migrated node's `data` jsonb
- * before persisting. The merged content already lives in the
- * type-named column; keeping a stale copy in `data` would diverge on
- * subsequent updates and leak into JSON API responses.
+ * Drop prose aliases from a node's `data` jsonb before persisting. The merged
+ * content already lives in the `prose` column; keeping a stale copy in `data`
+ * would diverge on subsequent updates and leak into JSON API responses.
  */
 const LEGACY_PROSE_KEYS = ["summary", "body_md", "title", "name", "description"] as const;
 
@@ -93,14 +90,11 @@ function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): s
 /**
  * Upsert a graph node (any of the 10 types) into the unified `nodes` table.
  *
- * Prose: the 9 prose nodes carry their content in `prose` (was the per-type
- * intents.intent / decisions.decision / … column); principals carry name +
- * body_md and leave prose = ''. Promoted columns (relationship refs +
- * scalars) come from NODE_PROMOTED_COLUMNS; their keys are stripped from
- * `data` only when the spec says so (the migration-035 scalars), so the typed
- * column is the single source of truth while relationship refs stay in `data`
- * for edge derivation. `data.lifecycle` is the source of truth for the
- * lifecycle column (deriveLifecycleColumn warns on drift).
+ * Prose: the prose nodes carry their content in `prose`; principals carry
+ * name + body_md and leave prose = ''. Promoted scalar columns come from
+ * NODE_PROMOTED_COLUMNS, and their keys are stripped from `data` so the typed
+ * column is the single source of truth. Graph links live in `edges`.
+ * `data.lifecycle` is the source of truth for the lifecycle column.
  */
 async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const t = rec.entity_type;
@@ -209,7 +203,7 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
 /**
  * Keys stripped from the `data` jsonb before storage, so the typed column or
  * first-class edge is the single source of truth:
- *   - migration-035 scalars promoted to typed columns (from NODE_PROMOTED_COLUMNS)
+ *   - scalars promoted to typed columns (from NODE_PROMOTED_COLUMNS)
  *   - principal.role_principal (promoted to its own column by the writer)
  *   - graph-link field names; links live in `edges`.
  */
@@ -243,32 +237,18 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   const run = async (c: pg.PoolClient) => {
     if (rec.entity_type === "user") {
       const dataJson = JSON.stringify(fields);
-      const kind = String(fields.kind ?? "person");
       const github_id = (fields.github_id as string | null) ?? null;
       const github_login = (fields.github_login as string | null) ?? null;
       const email = (fields.email as string | null) ?? null;
       const avatar_url = (fields.avatar_url as string | null) ?? null;
-      const owner_id = (fields.owner_id as string | null) ?? null;
       const deactivated_at = (fields.deactivated_at as string | null) ?? null;
       await c.query(
-        `INSERT INTO users (id, kind, github_id, github_login, email, avatar_url, owner_id, data, deactivated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)
-         ON CONFLICT (id) DO UPDATE SET kind=EXCLUDED.kind,
-           github_id=EXCLUDED.github_id, github_login=EXCLUDED.github_login,
+        `INSERT INTO users (id, github_id, github_login, email, avatar_url, data, deactivated_at)
+         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)
+         ON CONFLICT (id) DO UPDATE SET github_id=EXCLUDED.github_id, github_login=EXCLUDED.github_login,
            email=EXCLUDED.email, avatar_url=EXCLUDED.avatar_url,
-           owner_id=EXCLUDED.owner_id, data=EXCLUDED.data,
-           deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
-        [
-          rec.id,
-          kind,
-          github_id,
-          github_login,
-          email,
-          avatar_url,
-          owner_id,
-          dataJson,
-          deactivated_at,
-        ],
+           data=EXCLUDED.data, deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
+        [rec.id, github_id, github_login, email, avatar_url, dataJson, deactivated_at],
       );
     } else if (rec.entity_type === "organization") {
       const dataJson = JSON.stringify(fields);
@@ -374,10 +354,9 @@ export async function listIdentityRows(
 }
 
 /**
- * Columns promoted out of the `data` jsonb by migration 035 that we
- * merge back INTO `data` on read so downstream code that reads
- * `rec.data.verb`, `rec.data.kind`, etc. continues to work without a
- * per-call-site rewrite.
+ * Columns promoted out of the `data` jsonb that we merge back INTO `data` on
+ * read so downstream code that reads `rec.data.verb`, `rec.data.kind`, etc.
+ * sees the structured values.
  */
 const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
   action: ["verb", "performed_at"],
@@ -390,9 +369,8 @@ const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
 };
 
 function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
-  // Merge promoted typed columns back into the data jsonb so callers
-  // that read structured fields off `rec.data` still find them after
-  // migration 035 stripped the keys from the jsonb bag.
+  // Merge promoted typed columns back into the data jsonb so callers that read
+  // structured fields off `rec.data` still find them.
   const baseData = (row.data && typeof row.data === "object" ? row.data : {}) as Record<
     string,
     unknown
@@ -418,16 +396,10 @@ function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRe
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
-  // Hydrate the prose content. Unified `nodes` rows carry it in `prose`;
-  // legacy per-type rows used the type-named column (intent/decision/…).
-  // Empty string means "not set yet". Prefer `prose` when the row has it.
+  // Hydrate the prose content. Unified `nodes` rows carry it in `prose`.
+  // Empty string means "not set yet".
   if ("prose" in row && row.prose !== null && row.prose !== "") {
     rec.type_named_value = String(row.prose);
-  } else {
-    const tnCol = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
-    if (tnCol && tnCol in row && row[tnCol] !== null && row[tnCol] !== "") {
-      rec.type_named_value = String(row[tnCol]);
-    }
   }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
@@ -489,27 +461,22 @@ export async function upsertHostConfig(opts: {
 
 export interface UserRow {
   id: string;
-  kind: "person" | "agent";
   github_id: string | null;
   github_login: string | null;
   email: string | null;
   avatar_url: string | null;
-  owner_id: string | null;
   data: Record<string, unknown>;
 }
 
 function mapUserRow(row: Record<string, unknown>): UserRow {
-  const kind = row.kind === "agent" ? "agent" : "person";
   return {
     id: String(row.id),
-    kind,
     github_id: row.github_id === null || row.github_id === undefined ? null : String(row.github_id),
     github_login:
       row.github_login === null || row.github_login === undefined ? null : String(row.github_login),
     email: row.email === null || row.email === undefined ? null : String(row.email),
     avatar_url:
       row.avatar_url === null || row.avatar_url === undefined ? null : String(row.avatar_url),
-    owner_id: row.owner_id === null || row.owner_id === undefined ? null : String(row.owner_id),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
 }
@@ -517,7 +484,7 @@ function mapUserRow(row: Record<string, unknown>): UserRow {
 export async function getUserById(id: string): Promise<UserRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, kind, github_id, github_login, email, avatar_url, owner_id, data FROM users WHERE id = $1",
+      "SELECT id, github_id, github_login, email, avatar_url, data FROM users WHERE id = $1",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -528,7 +495,7 @@ export async function getUserById(id: string): Promise<UserRow | null> {
 export async function getUserByGithubLogin(login: string): Promise<UserRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, kind, github_id, github_login, email, avatar_url, owner_id, data FROM users WHERE github_login = $1",
+      "SELECT id, github_id, github_login, email, avatar_url, data FROM users WHERE github_login = $1",
       [login],
     );
     if (r.rowCount === 0) return null;
@@ -552,7 +519,7 @@ export async function patchUserData(
           SET data = data || $2::jsonb,
               updated_at = now()
         WHERE id = $1
-      RETURNING id, kind, github_id, github_login, email, avatar_url, owner_id, data`,
+      RETURNING id, github_id, github_login, email, avatar_url, data`,
       [id, JSON.stringify(patch)],
     );
     if (r.rowCount === 0) return null;
@@ -560,19 +527,11 @@ export async function patchUserData(
   });
 }
 
-export async function listUsers(opts: { kind?: "person" | "agent" } = {}): Promise<UserRow[]> {
+export async function listUsers(): Promise<UserRow[]> {
   return withClient(async (c) => {
-    const conds: string[] = [];
-    const vals: unknown[] = [];
-    if (opts.kind) {
-      vals.push(opts.kind);
-      conds.push(`kind = $${vals.length}`);
-    }
-    const where = conds.length ? `WHERE ${conds.join(" AND ")}` : "";
     const r = await c.query(
-      `SELECT id, kind, github_id, github_login, email, avatar_url, owner_id, data
-       FROM users ${where} ORDER BY github_login NULLS LAST, id`,
-      vals,
+      `SELECT id, github_id, github_login, email, avatar_url, data
+       FROM users ORDER BY github_login NULLS LAST, id`,
     );
     return r.rows.map(mapUserRow);
   });
@@ -580,9 +539,8 @@ export async function listUsers(opts: { kind?: "person" | "agent" } = {}): Promi
 
 // ─── Principals (role-personas, node) ───────────────────────────────────
 //
-// Principals are Doco-scoped (migration 020). Each Doco owns its own
-// role-personas; the same name in two different Docos is two
-// different rows.
+// Each Doco owns its own role-personas; the same name in two different Docos
+// is two different rows.
 
 export interface PrincipalRow {
   id: string;
@@ -713,11 +671,7 @@ export async function isOrgUser(orgId: string, userId: string): Promise<boolean>
   });
 }
 
-/**
- * "Has admin-tier rights on the org." Post-cutover, admin-tier collapses
- * onto the new `owner` role; legacy 'admin'/'member' rows backfill to
- * 'owner' so the behavior is unchanged for existing data.
- */
+/** "Has admin-tier rights on the org." */
 export async function isOrgAdmin(orgId: string, userId: string): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
@@ -846,7 +800,7 @@ export async function listOrgOwnerUserIds(orgId: string): Promise<string[]> {
   });
 }
 
-// ─── account_grants (migration 075) ─────────────────────────────────────────
+// ─── account_grants ────────────────────────────────────────────────────────
 
 export interface AccountGrantRow {
   grantor_user_id: string;

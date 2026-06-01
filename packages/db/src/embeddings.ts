@@ -4,7 +4,7 @@
 //
 // Storage wire format is `bytea` (Float32Array bytes, little-endian) —
 // same on-disk shape as the SQLite BLOB it replaces, so a future swap
-// to pgvector's `vector(N)` type is a column-type migration with no
+// to pgvector's `vector(N)` type is a column-type change with no
 // reformat.
 
 // node:crypto deferred to a dynamic import inside computeContentHash so

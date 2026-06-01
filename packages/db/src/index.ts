@@ -25,7 +25,7 @@ export {
   // Host + identity helpers
   getHostConfig,
   upsertHostConfig,
-  // Users (OAuth identity layer — new in migration 005)
+  // Users (human OAuth identity layer)
   getUserById,
   getUserByGithubLogin,
   listUsers,
@@ -46,7 +46,7 @@ export {
   getOrgRole,
   getOrgGrant,
   listOrgOwnerUserIds,
-  // Account-level grants (migration 075)
+  // Account-level grants
   type AccountGrantRow,
   getAccountGrantsForGrantee,
   getAccountGrant,
@@ -110,8 +110,8 @@ export {
   type FtsRowInput,
 } from "./indexer.js";
 
-// Append-only write runtime (doco-vnext): commit boundary + first-class
-// edge CRUD + immutable version snapshots + as-of reads.
+// Append-only write runtime: commit boundary + first-class edge CRUD +
+// immutable version snapshots + as-of reads.
 export {
   createChangeset,
   recordEntityVersion,
@@ -127,7 +127,6 @@ export {
   type CommitSource,
   type CreateEdgeInput,
   type EdgeRow,
-} from "./vnext.js";
+} from "./history.js";
 
-// Postgres is the only source-of-truth. There is no legacy filesystem
-// fallback (rule_01KRKQDHWNWJAF4YKTMCB2A0D9 — alpha forbids back-compat).
+// Postgres is the only source-of-truth.

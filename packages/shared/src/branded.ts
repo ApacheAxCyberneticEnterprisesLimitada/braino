@@ -2,7 +2,7 @@
  * Branded ID + discriminator types — nominal-style typing so we can't
  * accidentally pass a raw string where an EntityId is expected.
  *
- * Post-rename (migration 005): entities are split across five categories.
+ * Entities are split across five categories.
  *   - Nodes (10):       graph-knowledge entities
  *   - Policies (2):       Doco-level authoring metadata
  *   - User (1):   OAuth identity layer
@@ -51,7 +51,7 @@ export const POLICY_TYPES = ["guidance_policy", "node_authoring_policy"] as cons
 
 export type PolicyType = (typeof POLICY_TYPES)[number];
 
-/** The user type — OAuth identity. One entity, two `kind` values. */
+/** The user type — human OAuth identity. */
 export const USER_TYPE = "user" as const;
 export type UserType = typeof USER_TYPE;
 

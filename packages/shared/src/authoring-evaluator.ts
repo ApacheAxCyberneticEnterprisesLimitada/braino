@@ -55,8 +55,7 @@ export interface EngineEdge {
 export interface LoadedPolicy {
   /** Id of the originating policy — back-pointer for the UI. */
   policy_id: string;
-  /** The one-line rule statement — surfaces in violation messages.
-   *  Renamed from `summary` to `policy` in migration 038. */
+  /** The one-line rule statement — surfaces in violation messages. */
   policy: string;
   predicate: AuthoringPredicate;
   /** Defaults to "block" when undefined. */

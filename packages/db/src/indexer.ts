@@ -3,13 +3,11 @@
 //
 // Pure side-effecting writer: caller supplies the entities' FTS rows and
 // the doco_id; we wipe and rebuild the PG-side FTS rows for that Doco
-// atomically. Edges are FIRST-CLASS (doco-vnext) — authored via commit()
-// + edge CRUD (see vnext.ts), never derived, wiped, or rebuilt here.
+// atomically. Edges are first-class rows authored via commit() + edge CRUD
+// (see history.ts), never derived, wiped, or rebuilt here.
 //
 // FTS shape: the indexer populates a single table, `entity_fts_nodes`.
-// The policy / user / doco / organization FTS tables were never read and
-// were dropped (migrations 071/073); only node FTS is built and queried
-// (by Slack search).
+// Only node FTS is built and queried.
 
 import { withTransaction } from "./client.js";
 
@@ -30,11 +28,8 @@ export interface FtsRowInput {
   entity_id: string;
   entity_type: string;
   /**
-   * Headline text for the FTS A-weight column. Null for migrated
-   * nodes (post-PR-80): their prose lives entirely in the type-named
-   * column and there's no separate headline to extract, so the entire
-   * text goes into `body` instead. Non-migrated entities (principal,
-   * policies) keep the legacy summary/body split.
+   * Headline text for the FTS A-weight column. Null when the full prose
+   * should be indexed as body text.
    */
   summary: string | null;
   body: string;
@@ -62,8 +57,7 @@ export async function rebuildDocoDerivedData(
 ): Promise<{ ftsRows: number }> {
   const dedupedFts = dedupeFts(fts);
 
-  // Only nodes are indexed for FTS (entity_fts_nodes); policy FTS was never
-  // read and was dropped in migration 073.
+  // Only nodes are indexed for FTS.
   const nodeFts = dedupedFts.filter((r) => NODE_TYPES.has(r.entity_type));
 
   return withTransaction(async (c) => {

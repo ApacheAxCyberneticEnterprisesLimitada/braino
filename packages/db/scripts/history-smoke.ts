@@ -1,12 +1,11 @@
-// Smoke test for the doco-vnext append-only edge runtime, run against a
+// Smoke test for the append-only edge runtime, run against a
 // real local Postgres (the schema must already be applied).
 //
 //   LC_ALL=C DOCO_DATABASE_URL=postgres://postgres:doco@127.0.0.1:5433/doco \
-//     pnpm exec tsx packages/db/scripts/vnext-smoke.ts
+//     pnpm exec tsx packages/db/scripts/history-smoke.ts
 //
-// Uses a raw pg Pool (NOT @doco/db's getPool) so ensureSchema()'s old
-// migration chain doesn't run — we validate the runtime against the
-// new schema.sql directly.
+// Uses a raw pg Pool (NOT @doco/db's getPool) so we validate the
+// runtime against the already-applied schema.sql directly.
 
 import { generateUlid, makeEntityId } from "@doco/shared";
 import pg from "pg";
@@ -18,7 +17,7 @@ import {
   getVersions,
   retireEdge,
   updateEdge,
-} from "../src/vnext.js";
+} from "../src/history.js";
 
 const URL = process.env.DOCO_DATABASE_URL ?? "postgres://postgres:doco@127.0.0.1:5433/doco";
 const pool = new pg.Pool({ connectionString: URL, max: 4 });
@@ -46,7 +45,7 @@ async function main(): Promise<void> {
       `org-${generateUlid().slice(0, 8).toLowerCase()}`,
       "Smoke Org",
     ]);
-    await c.query(`INSERT INTO users (id, kind, data) VALUES ($1,'person','{}')`, [userId]);
+    await c.query(`INSERT INTO users (id, data) VALUES ($1,'{}')`, [userId]);
     await c.query(
       `INSERT INTO docos (id, handle, owner_id, org_id, visibility, goal, data)
        VALUES ($1,$2,$3,$4,'private','smoke','{}')`,
@@ -211,7 +210,7 @@ async function main(): Promise<void> {
     check("as-of tx3 reconstructs the retire snapshot", asOfRetire?.op === "retire");
 
     await c.query("ROLLBACK"); // leave the DB clean
-    console.log(`\n✅ vnext smoke: ${passed} checks passed against real Postgres.`);
+    console.log(`\n✅ history smoke: ${passed} checks passed against real Postgres.`);
   } catch (err) {
     await c.query("ROLLBACK").catch(() => {});
     throw err;
