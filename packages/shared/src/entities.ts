@@ -126,7 +126,8 @@ export interface Principal extends CommonFields {
   role_principal?: boolean;
   /**
    * Optional manager Principal. `X.reports_to = Y` ⇒ X reports to Y —
-   * the edge forms the reporting hierarchy in `org-chart` Docos.
+   * projected as a `has_parent` edge with role `reports_to` for the
+   * reporting hierarchy in `org-chart` Docos.
    * Omitted means top-of-chain; the org-chart template asks
    * top-of-chain Principals to explain why in body_md (no manager
    * above, founder, root agent, external authority).
@@ -137,8 +138,8 @@ export interface Principal extends CommonFields {
    * single primary (solid-line) manager that forms the org tree; this
    * list carries additional matrix reporting lines (project lead,
    * functional vs operational manager) that layer on top without
-   * reparenting the node. Each materializes as a `dotted_reports_to`
-   * edge; the org-tree perspective draws them dashed.
+   * reparenting the node. Each materializes as a `has_parent` edge
+   * with role `dotted_reports_to`; the org-tree perspective draws them dashed.
    */
   dotted_reports_to?: EntityId<"principal">[];
   /**
@@ -146,7 +147,8 @@ export interface Principal extends CommonFields {
    * (role + current occupant); when one person/agent holds several
    * seats (the CEO who also acts as VP Eng), link the seats with
    * `same_occupant_as` so the chart can tell it's one occupant rather
-   * than duplicating them. Materializes as a `same_occupant_as` edge.
+   * than duplicating them. Materializes as a `relates_to` edge with role
+   * `same_occupant_as`.
    */
   same_occupant_as?: EntityId<"principal">[];
 }
@@ -339,8 +341,8 @@ export interface Decision extends CommonFields {
   /**
    * Who decided. References the Principal (role-persona) who made the call —
    * matches the capture-API contract (PR #66). Authored on the Decision and
-   * projected by the capture path into a first-class `decided_by` edge
-   * (decision → principal); the value is also retained in `data`. There is no
+   * projected by the capture path into a first-class `attributed_to` edge
+   * with role `decided_by` (decision → principal). There is no
    * longer a promoted `decided_by` column — migration 074 dropped it (option
    * (i): edges are the authored source of truth for node→node relationships).
    */

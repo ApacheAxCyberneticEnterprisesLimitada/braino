@@ -11,14 +11,25 @@ import {
 } from "../access-types.js";
 import { NODE_TYPES } from "../branded.js";
 
+const CANONICAL_EDGE_TYPES = [
+  "flows_to",
+  "supports",
+  "constrained_by",
+  "attributed_to",
+  "has_parent",
+  "derived_from",
+  "replaces",
+  "relates_to",
+] as const;
+
 describe("access-types", () => {
   it("WRITABLE_TYPES is the union of node and edge types, no dupes", () => {
     expect(WRITABLE_TYPES).toEqual([...NODE_TYPES, ...EDGE_TYPES]);
     expect(new Set(WRITABLE_TYPES).size).toBe(WRITABLE_TYPES.length);
   });
 
-  it("includes the associative relates_to edge type", () => {
-    expect(EDGE_TYPES).toContain("relates_to");
+  it("keeps the relation vocabulary to the canonical edge families", () => {
+    expect(EDGE_TYPES).toEqual(CANONICAL_EDGE_TYPES);
   });
 
   describe("EDGE_ENDPOINT_TYPES", () => {
@@ -34,13 +45,20 @@ describe("access-types", () => {
       }
     });
 
-    it("pins the load-bearing endpoint shapes (serves→intent, reports_to principal→principal)", () => {
-      expect(EDGE_ENDPOINT_TYPES.serves?.to).toEqual(["intent"]);
-      expect(EDGE_ENDPOINT_TYPES.reports_to).toEqual({ from: ["principal"], to: ["principal"] });
+    it("pins only the canonical endpoint shapes that remain unambiguous", () => {
+      expect(EDGE_ENDPOINT_TYPES.constrained_by?.to).toEqual(["rule"]);
+      expect(EDGE_ENDPOINT_TYPES.attributed_to?.to).toEqual(["principal"]);
     });
 
-    it("leaves generic associative/provenance edges unconstrained", () => {
-      for (const generic of ["relates_to", "superseded_by", "born_from", "implemented_by"]) {
+    it("leaves broad edge families unconstrained", () => {
+      for (const generic of [
+        "flows_to",
+        "supports",
+        "has_parent",
+        "derived_from",
+        "replaces",
+        "relates_to",
+      ]) {
         expect(EDGE_ENDPOINT_TYPES[generic]).toBeUndefined();
       }
     });
@@ -48,9 +66,22 @@ describe("access-types", () => {
 
   it("isWritableType recognizes known types and rejects the wildcard + junk", () => {
     expect(isWritableType("decision")).toBe(true);
-    expect(isWritableType("sequence_flow")).toBe(true);
+    expect(isWritableType("flows_to")).toBe(true);
     expect(isWritableType(WRITE_ALL)).toBe(false);
     expect(isWritableType("nonsense")).toBe(false);
+  });
+
+  it("does not grant writes to legacy relation aliases as edge types", () => {
+    for (const legacy of [
+      "sequence_flow",
+      "performed_by",
+      "reports_to",
+      "superseded_by",
+      "templated_by",
+      "decided_by",
+    ]) {
+      expect(isWritableType(legacy)).toBe(false);
+    }
   });
 
   describe("normalizeWriteTypes", () => {
@@ -69,7 +100,7 @@ describe("access-types", () => {
   describe("canWriteType", () => {
     it("owner writes everything regardless of write-type set", () => {
       expect(canWriteType("owner", [], "decision")).toBe(true);
-      expect(canWriteType("owner", null, "sequence_flow")).toBe(true);
+      expect(canWriteType("owner", null, "flows_to")).toBe(true);
     });
     it("reader with no grant writes nothing", () => {
       expect(canWriteType("reader", [], "decision")).toBe(false);
@@ -77,7 +108,7 @@ describe("access-types", () => {
     });
     it("wildcard grant writes every type (legacy writer)", () => {
       expect(canWriteType("writer", [WRITE_ALL], "decision")).toBe(true);
-      expect(canWriteType("reader", [WRITE_ALL], "has_stakeholder")).toBe(true);
+      expect(canWriteType("reader", [WRITE_ALL], "attributed_to")).toBe(true);
     });
     it("named grant writes only the named types", () => {
       expect(canWriteType("reader", ["decision", "intent"], "decision")).toBe(true);

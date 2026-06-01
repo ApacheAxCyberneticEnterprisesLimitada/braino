@@ -10,8 +10,8 @@
 //   - the wildcard token "*" in a write-type set → writes every type
 //     (this is how a pre-per-type "writer" is represented after backfill).
 //
-// The gateable universe is the 10 node types plus the edge/relation
-// types. Both lists are defined here so the access layer has ONE source
+// The gateable universe is the 10 node types plus the canonical edge/relation
+// families. Both lists are defined here so the access layer has ONE source
 // of truth; the web graph-authoring contract (RELATION_KINDS) is checked
 // against EDGE_TYPES by a consistency test so the two can't drift.
 
@@ -26,65 +26,31 @@ export const WRITE_ALL = "*" as const;
  * asserts the two stay identical.
  */
 export const EDGE_TYPES = [
-  "sequence_flow",
-  "preceded_by",
-  "serves",
-  "enacts",
-  "gated_by",
-  "consults",
-  "tests",
-  "born_from",
-  "superseded_by",
-  "implemented_by",
-  "reports_to",
-  "dotted_reports_to",
-  "same_occupant_as",
-  "performed_by",
-  "owned_by",
+  "flows_to",
+  "supports",
+  "constrained_by",
+  "attributed_to",
   "has_parent",
-  "has_stakeholder",
-  // Decision → Principal: who made the call. Projected from a Decision's
-  // `decided_by` authoring input and stored as a first-class edge.
-  "decided_by",
-  // Log → Action: the Action that templates this Log. Projected from a Log's
-  // `template_id` authoring input and stored as a first-class edge.
-  "templated_by",
-  // Associative ("see also") relation. The SKOS `related` analogue: a
-  // generic, untyped link between two peer nodes with no hierarchy or
-  // direction implied. Glossaries use it to connect related, confusable,
-  // parent/child, or homograph terms into a navigable vocabulary network.
+  "derived_from",
+  "replaces",
   "relates_to",
 ] as const;
 
 export type EdgeType = (typeof EDGE_TYPES)[number];
 
 /**
- * Endpoint node-type constraints for semantically-typed edges, enforced at
- * the edge-capture boundary so the graph can't accumulate nonsense edges
- * (e.g. a `serves` edge that points at a Decision instead of an Intent).
- * `from` / `to` list the node types each endpoint may be; an absent key
- * means "any node type". Edge types omitted here (sequence_flow,
- * preceded_by, born_from, superseded_by, implemented_by, relates_to) accept
- * any endpoints by design — they're generic associative/provenance links.
+ * Endpoint node-type constraints for edge families whose target shape remains
+ * unambiguous after simplification. `from` / `to` list the node types each
+ * endpoint may be; an absent key means "any node type". Broad families such as
+ * `supports` and `has_parent` intentionally stay unconstrained here because
+ * their former aliases span different node-type pairs.
  */
 export const EDGE_ENDPOINT_TYPES: Record<
   string,
   { from?: readonly NodeType[]; to?: readonly NodeType[] }
 > = {
-  serves: { to: ["intent"] },
-  enacts: { to: ["decision"] },
-  gated_by: { to: ["rule"] },
-  consults: { to: ["rule"] },
-  tests: { from: ["eval", "reference"] },
-  reports_to: { from: ["principal"], to: ["principal"] },
-  dotted_reports_to: { from: ["principal"], to: ["principal"] },
-  same_occupant_as: { from: ["principal"], to: ["principal"] },
-  performed_by: { to: ["principal"] },
-  owned_by: { to: ["principal"] },
-  has_parent: { from: ["intent"], to: ["intent"] },
-  has_stakeholder: { to: ["principal"] },
-  decided_by: { from: ["decision"], to: ["principal"] },
-  templated_by: { from: ["log"], to: ["action"] },
+  constrained_by: { to: ["rule"] },
+  attributed_to: { to: ["principal"] },
 };
 
 /** Every write-gateable type: the 10 node types plus the edge types. */

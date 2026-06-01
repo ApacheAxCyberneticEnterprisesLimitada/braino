@@ -1,8 +1,10 @@
 import {
   type Entity,
-  MANAGED_EDGE_TO_FIELD,
+  MANAGED_EDGE_TYPES,
   MANAGED_FIELD_TO_EDGE,
   isEntityId,
+  managedEdgePropsForField,
+  managedRelationSpecForField,
 } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 
@@ -35,13 +37,15 @@ export function deriveEdges(entity: Entity): Edge[] {
     const m = /^(\w+)_/.exec(target);
     if (!m) return;
     const toType = m[1] as string;
+    const relationSpec = managedRelationSpecForField(field);
+    const edgeProps = relationSpec ? managedEdgePropsForField(field, props) : props;
     edges.push({
       from_id: fromId,
       from_node_type: fromType,
       to_id: target,
       to_node_type: toType,
-      edge_type: FIELD_TO_EDGE_TYPE[field] ?? field,
-      ...(props ? { edge_props: props } : {}),
+      edge_type: relationSpec?.edgeType ?? FIELD_TO_EDGE_TYPE[field] ?? field,
+      ...(edgeProps ? { edge_props: edgeProps } : {}),
     });
   }
 
@@ -151,60 +155,10 @@ export const SKIP_FIELDS: ReadonlySet<string> = new Set([
  */
 export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   ...MANAGED_FIELD_TO_EDGE,
-  intent_ids: "serves",
-  rules_consulted: "consults",
-  decision_ids: "enacts",
-  actor_id: "performed_by",
   target: "acts_on",
   premise: "premise",
   conclusion_ref: "concludes",
-  parent_intent_id: "has_parent",
-  stakeholders: "has_stakeholder",
-  owner_id: "owned_by",
-  born_from: "born_from",
-  superseded_by: "superseded_by",
-  // rule_id / target_id were the Evaluation-specific edges (evaluates_rule,
-  // evaluated_on). The Evaluation node type is dropped — Eval uses
-  // target_ref → tests instead.
   member: "member_of",
-  // EVO points at the entity it tests. The runner uses this edge to walk
-  // from any node to its evals (and vice-versa for the eval page).
-  target_ref: "tests",
-  // Principal→Principal reporting line — `X.reports_to = Y` ⇒ X reports
-  // to Y. Authored as an id field on the Principal and materialized here
-  // as a first-class `reports_to` edge; the org-tree perspective walks
-  // these edges to build the hierarchy. Target existence is app-enforced
-  // (there is no DB foreign key behind it since the node-table collapse).
-  // The org-chart template does NOT gate this with a `requires_edge`
-  // predicate — that deterministic check was retired (migration 041)
-  // because it warned legitimate root Principals (CEO/founder/root
-  // agent); the template uses a probabilistic warn that lets a root
-  // explain the absence in body_md. Field name and edge type match by
-  // design.
-  reports_to: "reports_to",
-  // Secondary / dotted-line (matrix) reporting — `X.dotted_reports_to =
-  // [Y]` ⇒ X also reports to Y, but as a non-primary line that doesn't
-  // reparent X in the org tree. The org-tree perspective renders these
-  // dashed; the primary tree stays driven by `reports_to` alone.
-  dotted_reports_to: "dotted_reports_to",
-  // Two seats filled by the same occupant — `X.same_occupant_as = [Y]`
-  // ⇒ the same person/agent holds both seats X and Y (e.g. CEO who also
-  // acts as VP Eng). Lets the chart avoid double-counting one occupant.
-  same_occupant_as: "same_occupant_as",
-  // A node (typically a Decision) records the PR/commit Reference(s)
-  // that implement it: `X.implemented_by = [reference_…]` ⇒ those
-  // references implement X. Passive voice matches `superseded_by` /
-  // `preceded_by`, so direction reads off the name. Self-mapping (field
-  // name == edge type) is listed explicitly so `requires_edge`
-  // policy predicates and the deployment-status rollup can target this
-  // edge by name. Layer A of deriving deployment state from PR refs.
-  implemented_by: "implemented_by",
-  // Log → Action template. The Log's `template_id` points at the Action it
-  // instantiates; the edge reads "log templated_by action".
-  template_id: "templated_by",
-  // Decision → Principal attribution. `decided_by` already defaults to its
-  // field name, but list it so the managed-edge set is explicit.
-  decided_by: "decided_by",
 };
 
 /**
@@ -214,7 +168,7 @@ export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
  * columns. Every other relationship `deriveEdges` emits stays a node field for
  * now — those columns are not being dropped.
  */
-export const MANAGED_RELATION_EDGE_TYPES: readonly string[] = Object.keys(MANAGED_EDGE_TO_FIELD);
+export const MANAGED_RELATION_EDGE_TYPES: readonly string[] = MANAGED_EDGE_TYPES;
 
 const MANAGED_EDGE_TYPE_SET: ReadonlySet<string> = new Set(MANAGED_RELATION_EDGE_TYPES);
 
@@ -233,6 +187,7 @@ export interface ExistingManagedEdge {
   id: string;
   edge_type: string;
   to_id: string;
+  edge_props?: Record<string, unknown> | null;
   origin: "authored" | "field";
 }
 
@@ -258,13 +213,19 @@ export function reconcileManagedEdges(
   desired: Edge[],
   existing: ExistingManagedEdge[],
 ): ManagedEdgeReconciliation {
-  const key = (edgeType: string, toId: string): string => `${edgeType} ${toId}`;
-  const desiredKeys = new Set(desired.map((e) => key(e.edge_type, e.to_id)));
-  const liveKeys = new Set(existing.map((e) => key(e.edge_type, e.to_id)));
+  const key = (edgeType: string, toId: string, props?: Record<string, unknown> | null): string => {
+    const role = typeof props?.role === "string" ? props.role : "";
+    const sourceField = typeof props?.source_field === "string" ? props.source_field : "";
+    return `${edgeType}\0${toId}\0${sourceField}\0${role}`;
+  };
+  const desiredKeys = new Set(desired.map((e) => key(e.edge_type, e.to_id, e.edge_props)));
+  const liveKeys = new Set(existing.map((e) => key(e.edge_type, e.to_id, e.edge_props)));
   return {
-    toCreate: desired.filter((e) => !liveKeys.has(key(e.edge_type, e.to_id))),
+    toCreate: desired.filter((e) => !liveKeys.has(key(e.edge_type, e.to_id, e.edge_props))),
     toRetireIds: existing
-      .filter((e) => e.origin === "field" && !desiredKeys.has(key(e.edge_type, e.to_id)))
+      .filter(
+        (e) => e.origin === "field" && !desiredKeys.has(key(e.edge_type, e.to_id, e.edge_props)),
+      )
       .map((e) => e.id),
   };
 }

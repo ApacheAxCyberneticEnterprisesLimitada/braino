@@ -129,24 +129,24 @@ describe("business-processes template", () => {
       );
     }
 
-    it("Action serves Intent", () => {
-      expect(requiresEdge("serves", "intent", "action")).toBeDefined();
+    it("Action supports Intent", () => {
+      expect(requiresEdge("supports", "intent", "action")).toBeDefined();
     });
-    it("Decision serves Intent", () => {
-      expect(requiresEdge("serves", "intent", "decision")).toBeDefined();
+    it("Decision supports Intent", () => {
+      expect(requiresEdge("supports", "intent", "decision")).toBeDefined();
     });
-    it("State serves Intent", () => {
-      expect(requiresEdge("serves", "intent", "state")).toBeDefined();
+    it("State supports Intent", () => {
+      expect(requiresEdge("supports", "intent", "state")).toBeDefined();
     });
 
     it("fires flow membership checks only when the node is asserted", () => {
-      expect(requiresEdge("serves", "intent", "action")?.fires_when_node_lifecycle).toEqual([
+      expect(requiresEdge("supports", "intent", "action")?.fires_when_node_lifecycle).toEqual([
         "asserted",
       ]);
-      expect(requiresEdge("serves", "intent", "decision")?.fires_when_node_lifecycle).toEqual([
+      expect(requiresEdge("supports", "intent", "decision")?.fires_when_node_lifecycle).toEqual([
         "asserted",
       ]);
-      expect(requiresEdge("serves", "intent", "state")?.fires_when_node_lifecycle).toEqual([
+      expect(requiresEdge("supports", "intent", "state")?.fires_when_node_lifecycle).toEqual([
         "asserted",
       ]);
     });
@@ -212,29 +212,27 @@ describe("business-processes template", () => {
         true,
       );
     });
-    it("Terminal States have no outgoing sequence flow is documented", () => {
+    it("Terminal States have no outgoing flow is documented", () => {
       expect(
-        guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*sequence_flow/i.test(s)),
+        guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*flows_to/i.test(s)),
       ).toBe(true);
     });
-    it("`sequence_flow` locality is documented", () => {
-      expect(guidanceSummaries.some((s) => /sequence_flow.*same process Intent/i.test(s))).toBe(
-        true,
-      );
+    it("`flows_to` locality is documented", () => {
+      expect(guidanceSummaries.some((s) => /flows_to.*same process Intent/i.test(s))).toBe(true);
     });
     it("forward sequence reachability is documented", () => {
-      expect(guidanceSummaries.some((s) => /forward `sequence_flow`/i.test(s))).toBe(true);
+      expect(guidanceSummaries.some((s) => /forward `flows_to`/i.test(s))).toBe(true);
     });
   });
 
   describe("graph-completeness coverage rule", () => {
     const rule = template.policies.find((r) => r.predicate?.kind === "graph-completeness");
 
-    it("wires Intent.actors → Action.actor_id via `serves`", () => {
+    it("wires Intent.actors to Action.actor_id via `supports`", () => {
       expect(rule?.predicate?.kind).toBe("graph-completeness");
       if (rule?.predicate?.kind !== "graph-completeness") return;
       expect(rule.predicate.list_field).toBe("actors");
-      expect(rule.predicate.edge_type).toBe("serves");
+      expect(rule.predicate.edge_type).toBe("supports");
       expect(rule.predicate.incoming_node_type).toBe("action");
       expect(rule.predicate.incoming_field_must_match).toBe("actor_id");
       expect(rule.predicate.when_node_type).toContain("intent");
@@ -311,9 +309,7 @@ describe("business-processes template", () => {
       ).toBe(true);
     });
     it("BPMN sequence flow is forward-only and rendered without reversal", () => {
-      expect(summaries.some((s) => /sequence_flow/i.test(s) && /source -> target/i.test(s))).toBe(
-        true,
-      );
+      expect(summaries.some((s) => /flows_to/i.test(s) && /source -> target/i.test(s))).toBe(true);
     });
   });
 
@@ -321,7 +317,7 @@ describe("business-processes template", () => {
     // After the node-table collapse dropped the five promoted intra-node FK
     // columns (#694), `actor_id` and `parent_intent_id` are authored as fields
     // but PROJECTED by the capture path into first-class edges
-    // (`performed_by` / `has_parent`) — they are no longer "not edges" with "no
+    // (`attributed_to` / `has_parent`) — they are no longer "not edges" with "no
     // history". The guidance must describe that model, matching the org-chart
     // template, not the pre-drop promoted-column framing.
     const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
@@ -331,6 +327,7 @@ describe("business-processes template", () => {
 
     it("documents that actor_id / parent_intent_id project into first-class edges", () => {
       expect(pointerGuidance).toBeDefined();
+      expect(pointerGuidance).toMatch(/attributed_to/);
       expect(pointerGuidance).toMatch(/performed_by/);
       expect(pointerGuidance).toMatch(/has_parent/);
       expect(pointerGuidance).toMatch(/first-class edge/i);

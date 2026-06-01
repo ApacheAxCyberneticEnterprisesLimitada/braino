@@ -165,9 +165,15 @@ describe("managed relationship fields round-trip through edges", () => {
   it("reconstructs decided_by from the edge on read (hydrateManagedRelations)", async () => {
     // Author the edge the capture path would have created.
     await db.query(
-      `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, origin)
-       VALUES ($1,$2,'decided_by',$3,'decision',$4,'principal','field')`,
-      ["edge_test00000000000000000000000", DOCO, DECISION, PRINCIPAL],
+      `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, props, origin)
+       VALUES ($1,$2,'attributed_to',$3,'decision',$4,'principal',$5::jsonb,'field')`,
+      [
+        "edge_test00000000000000000000000",
+        DOCO,
+        DECISION,
+        PRINCIPAL,
+        JSON.stringify({ role: "decided_by", source_field: "decided_by" }),
+      ],
     );
     const { rows } = await db.query<{ data: Record<string, unknown> }>(
       "SELECT data FROM nodes WHERE id = $1",
@@ -188,18 +194,40 @@ describe("managed relationship fields round-trip through edges", () => {
 
   it("reconstructs scalar and list relation fields from edges on read", async () => {
     const edgeRows = [
-      ["edge_test_rel_00000000000000001", "serves", INTENT, "intent"],
-      ["edge_test_rel_00000000000000002", "consults", RULE, "rule"],
-      ["edge_test_rel_00000000000000003", "gated_by", RULE, "rule"],
-      ["edge_test_rel_00000000000000004", "tests", ACTION, "action"],
-      ["edge_test_rel_00000000000000005", "implemented_by", REFERENCE, "reference"],
+      ["edge_test_rel_00000000000000001", "supports", INTENT, "intent", "serves", "intent_ids"],
+      [
+        "edge_test_rel_00000000000000002",
+        "constrained_by",
+        RULE,
+        "rule",
+        "consults",
+        "rules_consulted",
+      ],
+      ["edge_test_rel_00000000000000003", "constrained_by", RULE, "rule", "gated_by", "gated_by"],
+      ["edge_test_rel_00000000000000004", "supports", ACTION, "action", "tests", "target_ref"],
+      [
+        "edge_test_rel_00000000000000005",
+        "supports",
+        REFERENCE,
+        "reference",
+        "implemented_by",
+        "implemented_by",
+      ],
     ] as const;
-    for (const [edgeId, edgeType, toId, toType] of edgeRows) {
+    for (const [edgeId, edgeType, toId, toType, role, sourceField] of edgeRows) {
       await db.query(
-        `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, origin)
-         VALUES ($1,$2,$3,$4,'decision',$5,$6,'field')
+        `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, props, origin)
+         VALUES ($1,$2,$3,$4,'decision',$5,$6,$7::jsonb,'field')
          ON CONFLICT (id) DO NOTHING`,
-        [edgeId, DOCO, edgeType, DECISION, toId, toType],
+        [
+          edgeId,
+          DOCO,
+          edgeType,
+          DECISION,
+          toId,
+          toType,
+          JSON.stringify({ role, source_field: sourceField }),
+        ],
       );
     }
     const { rows } = await db.query<{ data: Record<string, unknown> }>(

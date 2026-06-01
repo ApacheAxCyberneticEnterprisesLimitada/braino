@@ -61,7 +61,7 @@ export type ContainerType = (typeof CONTAINER_TYPES)[number];
 
 /**
  * The edge entity type. Edges are first-class peers of nodes: their id is
- * `edge_<ulid>`. The relationship kind (implemented_by, serves, …) is a
+ * `edge_<ulid>`. The relationship family (`supports`, `flows_to`, etc.) is a
  * separate `edge_type` sub-classification — see EDGE_TYPES in access-types.
  */
 export const EDGE_ID_TYPE = "edge" as const;

@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { deriveEdges } from "../edges.js";
 
 describe("deriveEdges", () => {
-  it("materializes BPMN sequence_to authoring input as sequence_flow edges", () => {
+  it("materializes BPMN sequence_to authoring input as flows_to edges", () => {
     const edges = deriveEdges({
       id: "decision_01KSJ000000000000000000000",
       doco_id: "doco_01KSJ000000000000000000000",
@@ -31,23 +31,26 @@ describe("deriveEdges", () => {
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
           to_id: "action_01KSJ000000000000000000003",
-          edge_type: "sequence_flow",
+          edge_type: "flows_to",
+          edge_props: expect.objectContaining({ role: "sequence", source_field: "sequence_to" }),
         }),
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
           to_id: "action_01KSJ000000000000000000004",
-          edge_type: "sequence_flow",
-          edge_props: {
+          edge_type: "flows_to",
+          edge_props: expect.objectContaining({
             label: "No credits",
             condition: "credits = 0",
             kind: "conditional",
-          },
+            role: "sequence",
+            source_field: "sequence_to",
+          }),
         }),
       ]),
     );
   });
 
-  it("materializes Decision.implemented_by as implemented_by edges to PR/commit References", () => {
+  it("materializes Decision.implemented_by as supports edges to PR/commit References", () => {
     const edges = deriveEdges({
       id: "decision_01KSJ000000000000000000000",
       doco_id: "doco_01KSJ000000000000000000000",
@@ -68,12 +71,20 @@ describe("deriveEdges", () => {
           from_node_type: "decision",
           to_id: "reference_01KSJ000000000000000000003",
           to_node_type: "reference",
-          edge_type: "implemented_by",
+          edge_type: "supports",
+          edge_props: expect.objectContaining({
+            role: "implemented_by",
+            source_field: "implemented_by",
+          }),
         }),
         expect.objectContaining({
           from_id: "decision_01KSJ000000000000000000000",
           to_id: "reference_01KSJ000000000000000000004",
-          edge_type: "implemented_by",
+          edge_type: "supports",
+          edge_props: expect.objectContaining({
+            role: "implemented_by",
+            source_field: "implemented_by",
+          }),
         }),
       ]),
     );

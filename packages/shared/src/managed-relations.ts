@@ -1,82 +1,137 @@
-// Node→node relationships the capture path projects into first-class edges
-// (option (i): edges as the authored source of truth). Each relation field on a
-// node maps to an edge type. The capture path authors the edge and STRIPS the
-// field from stored `data`; reads may RECONSTRUCT the field from the edge for
-// compatibility callers.
-//
-// Single source of truth, shared by:
-//   - capture authoring + the indexer's deriveEdges (@doco/index)
-//   - the db read layer: strip on write + hydrate on read (@doco/db)
-//   - the bpmn perspective (@doco/web)
+// Node-to-node relationship fields the capture path projects into first-class
+// edges. The public edge vocabulary is intentionally small; field-specific
+// meaning is preserved as edge props (`source_field` + `role`) so old authoring
+// inputs can keep working while writes are gateable by canonical edge family.
 
 import { EDGE_TYPES, type EdgeType } from "./access-types.js";
 import { NODE_TYPES, type NodeType } from "./branded.js";
 
-/** Edge type → the node `data` field it reconstructs on read. */
-export const MANAGED_EDGE_TO_FIELD = {
-  sequence_flow: "sequence_to",
-  preceded_by: "preceded_by",
-  serves: "intent_ids",
-  enacts: "decision_ids",
-  gated_by: "gated_by",
-  consults: "rules_consulted",
-  tests: "target_ref",
-  born_from: "born_from",
-  has_parent: "parent_intent_id",
-  has_stakeholder: "stakeholders",
-  owned_by: "owner_id",
-  decided_by: "decided_by",
-  superseded_by: "superseded_by",
-  implemented_by: "implemented_by",
-  reports_to: "reports_to",
-  dotted_reports_to: "dotted_reports_to",
-  same_occupant_as: "same_occupant_as",
-  performed_by: "actor_id",
-  templated_by: "template_id",
-  relates_to: "relates_to",
-} as const;
+export type RelationCardinality = "one" | "many";
 
-export type ManagedEdgeType = keyof typeof MANAGED_EDGE_TO_FIELD;
+export interface ManagedRelationFieldSpec {
+  edgeType: EdgeType;
+  cardinality: RelationCardinality;
+  role: string;
+  owners?: readonly NodeType[];
+}
 
-const _managedCoversEveryEdgeType: Record<EdgeType, string> = MANAGED_EDGE_TO_FIELD;
+export const MANAGED_RELATION_FIELD_SPECS = {
+  sequence_to: { edgeType: "flows_to", cardinality: "many", role: "sequence" },
+  preceded_by: { edgeType: "flows_to", cardinality: "many", role: "predecessor" },
+
+  intent_ids: { edgeType: "supports", cardinality: "many", role: "serves" },
+  decision_ids: { edgeType: "supports", cardinality: "many", role: "enacts" },
+  target_ref: {
+    edgeType: "supports",
+    cardinality: "one",
+    role: "tests",
+    owners: ["eval", "reference"],
+  },
+  implemented_by: { edgeType: "supports", cardinality: "many", role: "implemented_by" },
+
+  gated_by: { edgeType: "constrained_by", cardinality: "many", role: "gated_by" },
+  rules_consulted: {
+    edgeType: "constrained_by",
+    cardinality: "many",
+    role: "consults",
+  },
+
+  actor_id: { edgeType: "attributed_to", cardinality: "one", role: "performed_by" },
+  owner_id: { edgeType: "attributed_to", cardinality: "one", role: "owned_by" },
+  stakeholders: { edgeType: "attributed_to", cardinality: "many", role: "has_stakeholder" },
+  decided_by: { edgeType: "attributed_to", cardinality: "one", role: "decided_by" },
+
+  parent_intent_id: { edgeType: "has_parent", cardinality: "one", role: "parent_intent" },
+  reports_to: {
+    edgeType: "has_parent",
+    cardinality: "one",
+    role: "reports_to",
+    owners: ["principal"],
+  },
+  dotted_reports_to: {
+    edgeType: "has_parent",
+    cardinality: "many",
+    role: "dotted_reports_to",
+    owners: ["principal"],
+  },
+
+  born_from: { edgeType: "derived_from", cardinality: "one", role: "born_from" },
+  template_id: { edgeType: "derived_from", cardinality: "one", role: "templated_by" },
+
+  superseded_by: { edgeType: "replaces", cardinality: "one", role: "superseded_by" },
+
+  relates_to: { edgeType: "relates_to", cardinality: "many", role: "relates_to" },
+  same_occupant_as: {
+    edgeType: "relates_to",
+    cardinality: "many",
+    role: "same_occupant_as",
+    owners: ["principal"],
+  },
+} as const satisfies Record<string, ManagedRelationFieldSpec>;
+
+export type ManagedRelationField = keyof typeof MANAGED_RELATION_FIELD_SPECS;
+export type ManagedEdgeType = EdgeType;
+
+const MANAGED_EDGE_TYPE_SET = new Set<EdgeType>(
+  Object.values(MANAGED_RELATION_FIELD_SPECS).map((spec) => spec.edgeType),
+);
+
+export const MANAGED_EDGE_TYPES = EDGE_TYPES.filter((edgeType) =>
+  MANAGED_EDGE_TYPE_SET.has(edgeType),
+) as readonly ManagedEdgeType[];
+
+const _managedCoversEveryEdgeType: Record<EdgeType, true> = {
+  flows_to: true,
+  supports: true,
+  constrained_by: true,
+  attributed_to: true,
+  has_parent: true,
+  derived_from: true,
+  replaces: true,
+  relates_to: true,
+};
 void _managedCoversEveryEdgeType;
 
-export const MANAGED_EDGE_CARDINALITY: Readonly<Record<ManagedEdgeType, "one" | "many">> = {
-  sequence_flow: "many",
-  preceded_by: "many",
-  serves: "many",
-  enacts: "many",
-  gated_by: "many",
-  consults: "many",
-  tests: "one",
-  born_from: "one",
-  superseded_by: "one",
-  implemented_by: "many",
-  reports_to: "one",
-  dotted_reports_to: "many",
-  same_occupant_as: "many",
-  performed_by: "one",
-  owned_by: "one",
-  has_parent: "one",
-  has_stakeholder: "many",
-  decided_by: "one",
-  templated_by: "one",
-  relates_to: "many",
-};
+export const MANAGED_FIELD_TO_EDGE: Readonly<Record<ManagedRelationField, EdgeType>> =
+  Object.fromEntries(
+    Object.entries(MANAGED_RELATION_FIELD_SPECS).map(([field, spec]) => [field, spec.edgeType]),
+  ) as Record<ManagedRelationField, EdgeType>;
 
-export const MANAGED_FIELD_TO_EDGE: Readonly<Record<string, ManagedEdgeType>> = Object.fromEntries(
-  Object.entries(MANAGED_EDGE_TO_FIELD).map(([edge, field]) => [field, edge]),
-) as Record<string, ManagedEdgeType>;
-
-export const MANAGED_RELATION_FIELDS = [
-  ...new Set(Object.values(MANAGED_EDGE_TO_FIELD)),
-] as readonly string[];
+export const MANAGED_RELATION_FIELDS = Object.keys(
+  MANAGED_RELATION_FIELD_SPECS,
+) as readonly ManagedRelationField[];
 
 /**
- * Node type → the relationship field(s) it owns. These are stripped from `data`
- * on write (the edge is the source of truth) and reconstructed from edges on
- * read. `proposer_id` is intentionally absent — it points at users(id), an
- * OAuth identity, not a node, so it stays a column and is not an edge.
+ * Compatibility names for older call sites. These are canonical edge family
+ * defaults only; hydrate via field/role helpers when the exact field matters.
+ */
+export const MANAGED_EDGE_TO_FIELD = {
+  flows_to: "sequence_to",
+  supports: "supports",
+  constrained_by: "gated_by",
+  attributed_to: "actor_id",
+  has_parent: "parent_intent_id",
+  derived_from: "born_from",
+  replaces: "superseded_by",
+  relates_to: "relates_to",
+} as const satisfies Record<EdgeType, string>;
+
+export const MANAGED_EDGE_CARDINALITY = {
+  flows_to: "many",
+  supports: "many",
+  constrained_by: "many",
+  attributed_to: "many",
+  has_parent: "many",
+  derived_from: "many",
+  replaces: "one",
+  relates_to: "many",
+} as const satisfies Record<EdgeType, RelationCardinality>;
+
+/**
+ * Node type -> the relationship field(s) it owns. These are stripped from
+ * `data` on write (the edge is the source of truth) and reconstructed from
+ * edges on read. `proposer_id` is intentionally absent: it points at users(id),
+ * an OAuth identity, not a node.
  */
 export const MANAGED_FIELDS_BY_TYPE: Readonly<Record<NodeType, readonly string[]>> =
   Object.fromEntries(NODE_TYPES.map((type) => [type, MANAGED_RELATION_FIELDS])) as Record<
@@ -84,5 +139,54 @@ export const MANAGED_FIELDS_BY_TYPE: Readonly<Record<NodeType, readonly string[]
     readonly string[]
   >;
 
-const _edgeTypeCoverage: readonly ManagedEdgeType[] = EDGE_TYPES;
-void _edgeTypeCoverage;
+export function managedRelationSpecForField(
+  field: string,
+): (ManagedRelationFieldSpec & { field: ManagedRelationField }) | null {
+  if (!isManagedRelationField(field)) return null;
+  return { field, ...MANAGED_RELATION_FIELD_SPECS[field] };
+}
+
+export function isManagedRelationField(field: string): field is ManagedRelationField {
+  return field in MANAGED_RELATION_FIELD_SPECS;
+}
+
+export function managedEdgePropsForField(
+  field: string,
+  props?: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  const spec = managedRelationSpecForField(field);
+  if (!spec) return props;
+  return { ...(props ?? {}), role: spec.role, source_field: field };
+}
+
+export function fieldForManagedEdge(
+  edgeType: string,
+  props: Record<string, unknown> | null | undefined,
+): ManagedRelationField | null {
+  const sourceField = typeof props?.source_field === "string" ? props.source_field : null;
+  if (sourceField && isManagedRelationField(sourceField)) {
+    const spec = MANAGED_RELATION_FIELD_SPECS[sourceField];
+    if (spec.edgeType === edgeType) return sourceField;
+  }
+
+  const role = typeof props?.role === "string" ? props.role : null;
+  if (role) {
+    for (const [field, spec] of Object.entries(MANAGED_RELATION_FIELD_SPECS)) {
+      if (spec.edgeType === edgeType && spec.role === role) return field as ManagedRelationField;
+    }
+  }
+
+  return null;
+}
+
+export function cardinalityForManagedField(field: ManagedRelationField): RelationCardinality {
+  return MANAGED_RELATION_FIELD_SPECS[field].cardinality;
+}
+
+export function stripManagedEdgeProps(
+  props: Record<string, unknown> | null | undefined,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(props ?? {}).filter(([key]) => key !== "role" && key !== "source_field"),
+  );
+}

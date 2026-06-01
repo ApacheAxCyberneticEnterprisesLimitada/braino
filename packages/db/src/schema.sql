@@ -397,9 +397,19 @@ CREATE TABLE IF NOT EXISTS edges (
   updated_by      text,
   retired_at      timestamptz
 );
--- At most one LIVE edge per (doco, from, to, type); retired duplicates ok.
+-- At most one LIVE edge per (doco, from, to, type, role/source field); retired
+-- duplicates ok. Canonical edge families may carry multiple legacy roles
+-- between the same nodes (e.g. actor + owner attribution), so role metadata is
+-- part of the live uniqueness identity.
 CREATE UNIQUE INDEX IF NOT EXISTS edges_live_uniq
-  ON edges (doco_id, from_id, to_id, edge_type) WHERE lifecycle <> 'retired';
+  ON edges (
+    doco_id,
+    from_id,
+    to_id,
+    edge_type,
+    COALESCE(props->>'source_field', ''),
+    COALESCE(props->>'role', '')
+  ) WHERE lifecycle <> 'retired';
 CREATE INDEX IF NOT EXISTS edges_doco_idx           ON edges (doco_id);
 CREATE INDEX IF NOT EXISTS edges_doco_type_from_idx ON edges (doco_id, edge_type, from_id);
 CREATE INDEX IF NOT EXISTS edges_doco_type_to_idx   ON edges (doco_id, edge_type, to_id);
@@ -772,7 +782,7 @@ INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle,
   ('perspective_bpmn','bpmn','bpmn','BPMN','Business process modeling — swim lanes, gateways, and events. Inspired by BPMN.','🏭','torrenegra',true,'{"lane_axis":"principal"}'::jsonb),
   ('perspective_approval','for-approval','approval','Proposed','Queue of proposed nodes waiting for review.',NULL,NULL,true,'{"lifecycle":"drafting","reject_lifecycle":"drafting","approve_lifecycle":"asserted"}'::jsonb),
   ('perspective_glossary','glossary','glossary','Glossary','A dictionary-style reading of the Doco''s terminology — canonical headwords, definitions, senses, and aliases laid out like a printed lexicon.','📖',NULL,true,'{"headword_field":"chosen","primary_entity":"decision","definition_field":"decision"}'::jsonb),
-  ('perspective_org_tree','org-tree','org-tree','Org Tree','Organizational chart — Principals as members, `reports_to` edges as reporting lines, with person vs AI agent shown by icon.','🏢',NULL,true,'{"agent_icon":"🤖","person_icon":"👤","root_edge":"reports_to","icon_by_member_kind":true}'::jsonb),
+  ('perspective_org_tree','org-tree','org-tree','Org Tree','Organizational chart — Principals as members, `has_parent` edges with `reports_to` role as reporting lines, with person vs AI agent shown by icon.','🏢',NULL,true,'{"agent_icon":"🤖","person_icon":"👤","root_edge":"has_parent","root_edge_role":"reports_to","icon_by_member_kind":true}'::jsonb),
   ('perspective_sla','sla','sla','SLAs','Service-level agreement control plane — commitments, owners, evidence links, remedies, and review gaps.','📜',NULL,true,'{"event_logs":false,"primary_entity":"rule","evidence_sources":["eval","reference"]}'::jsonb),
   ('perspective_pull_requests','pull-requests','pull-requests','Pull requests','Imported GitHub pull requests, grouped by lifecycle — merged, open, and closed.','🔀',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;

@@ -8,10 +8,12 @@
 //   * `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
 import {
-  MANAGED_EDGE_CARDINALITY,
-  MANAGED_EDGE_TO_FIELD,
+  MANAGED_EDGE_TYPES,
   MANAGED_RELATION_FIELDS,
+  cardinalityForManagedField,
+  fieldForManagedEdge,
   normalizeWriteTypes,
+  stripManagedEdgeProps,
 } from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
@@ -261,8 +263,6 @@ function stripPromotedKeys(
   return out;
 }
 
-const MANAGED_EDGE_TYPES: readonly string[] = Object.keys(MANAGED_EDGE_TO_FIELD);
-
 /**
  * Reconstruct the managed node→node relationship fields from first-class edges
  * (option (i)). The capture path strips these from stored `data` and authors
@@ -291,13 +291,11 @@ export async function hydrateManagedRelations(
   if (rows.length === 0) return;
   const byFrom = new Map<string, Record<string, unknown>>();
   for (const e of rows) {
-    const field = (MANAGED_EDGE_TO_FIELD as Record<string, string>)[e.edge_type];
+    const field = fieldForManagedEdge(e.edge_type, e.props);
     if (!field) continue;
-    const cardinality = (MANAGED_EDGE_CARDINALITY as Record<string, "one" | "many">)[e.edge_type];
-    const value =
-      e.edge_type === "sequence_flow"
-        ? ({ target: e.to_id, ...(e.props ?? {}) } as Record<string, unknown>)
-        : e.to_id;
+    const cardinality = cardinalityForManagedField(field);
+    const props = stripManagedEdgeProps(e.props);
+    const value = field === "sequence_to" ? { target: e.to_id, ...props } : e.to_id;
     let patch = byFrom.get(e.from_id);
     if (!patch) {
       patch = {};

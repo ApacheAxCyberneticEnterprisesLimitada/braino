@@ -185,13 +185,13 @@ describe("authoring evaluator — requires_edge", () => {
       [
         P({
           kind: "requires_edge",
-          edge_type: "serves",
+          edge_type: "supports",
           target_node_type: "intent",
           when_node_type: ["action"],
         }),
       ],
       {
-        candidateEdges: [{ from_id: "action_01", to_id: "intent_42", edge_type: "serves" }],
+        candidateEdges: [{ from_id: "action_01", to_id: "intent_42", edge_type: "supports" }],
       },
     );
     expect(v).toEqual([]);
@@ -201,13 +201,13 @@ describe("authoring evaluator — requires_edge", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
       P({
         kind: "requires_edge",
-        edge_type: "serves",
+        edge_type: "supports",
         target_node_type: "intent",
         when_node_type: ["action"],
       }),
     ]);
     expect(v).toHaveLength(1);
-    expect(v[0]?.reason).toMatch(/serves/);
+    expect(v[0]?.reason).toMatch(/supports/);
     expect(v[0]?.reason).toMatch(/intent/);
   });
 
@@ -217,13 +217,13 @@ describe("authoring evaluator — requires_edge", () => {
       [
         P({
           kind: "requires_edge",
-          edge_type: "serves",
+          edge_type: "supports",
           target_node_type: "intent",
           when_node_type: ["action"],
         }),
       ],
       {
-        candidateEdges: [{ from_id: "action_01", to_id: "decision_42", edge_type: "serves" }],
+        candidateEdges: [{ from_id: "action_01", to_id: "decision_42", edge_type: "supports" }],
       },
     );
     expect(v).toHaveLength(1);
@@ -311,7 +311,7 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            edge_type: "serves",
+            edge_type: "supports",
             incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
             when_node_type: ["intent"],
@@ -325,8 +325,8 @@ describe("authoring evaluator — graph-completeness", () => {
           { id: "action_02", node_type: "action", actor_id: "principal_bob" },
         ],
         edges: [
-          { from_id: "action_01", to_id: "intent_01", edge_type: "serves" },
-          { from_id: "action_02", to_id: "intent_01", edge_type: "serves" },
+          { from_id: "action_01", to_id: "intent_01", edge_type: "supports" },
+          { from_id: "action_02", to_id: "intent_01", edge_type: "supports" },
         ],
       },
     );
@@ -346,7 +346,7 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            edge_type: "serves",
+            edge_type: "supports",
             incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
             when_node_type: ["intent"],
@@ -359,14 +359,14 @@ describe("authoring evaluator — graph-completeness", () => {
           { id: "action_01", node_type: "action", actor_id: "principal_alice" },
           // No Action for principal_bob.
         ],
-        edges: [{ from_id: "action_01", to_id: "intent_01", edge_type: "serves" }],
+        edges: [{ from_id: "action_01", to_id: "intent_01", edge_type: "supports" }],
       },
     );
     expect(v).toHaveLength(1);
     expect(v[0]?.reason).toMatch(/principal_bob/);
   });
 
-  it("fails when the matching Action exists but lacks the serves edge", () => {
+  it("fails when the matching Action exists but lacks the supports edge", () => {
     const v = evaluate(
       { id: "intent_01", node_type: "intent", actors: ["principal_alice"], lifecycle: "accepted" },
       [
@@ -374,7 +374,7 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            edge_type: "serves",
+            edge_type: "supports",
             incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
             when_node_type: ["intent"],
@@ -403,7 +403,7 @@ describe("authoring evaluator — graph-completeness", () => {
           {
             kind: "graph-completeness",
             list_field: "actors",
-            edge_type: "serves",
+            edge_type: "supports",
             incoming_node_type: "action",
             incoming_field_must_match: "actor_id",
             when_node_type: ["intent"],

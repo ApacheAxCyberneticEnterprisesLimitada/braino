@@ -68,34 +68,157 @@ describe("managedEdges", () => {
         expect.objectContaining({
           from_id: D,
           to_id: ACTION,
-          edge_type: "sequence_flow",
-          edge_props: { label: "approved" },
+          edge_type: "flows_to",
+          edge_props: expect.objectContaining({
+            label: "approved",
+            role: "sequence",
+            source_field: "sequence_to",
+          }),
         }),
-        expect.objectContaining({ from_id: D, to_id: ACTION, edge_type: "preceded_by" }),
-        expect.objectContaining({ from_id: D, to_id: INTENT, edge_type: "serves" }),
-        expect.objectContaining({ from_id: D, to_id: D_OLD, edge_type: "enacts" }),
-        expect.objectContaining({ from_id: D, to_id: RULE, edge_type: "gated_by" }),
-        expect.objectContaining({ from_id: D, to_id: RULE, edge_type: "consults" }),
-        expect.objectContaining({ from_id: D, to_id: ACTION, edge_type: "tests" }),
-        expect.objectContaining({ from_id: D, to_id: D_OLD, edge_type: "born_from" }),
-        expect.objectContaining({ from_id: D, to_id: D_OLD, edge_type: "superseded_by" }),
-        expect.objectContaining({ from_id: D, to_id: REFERENCE, edge_type: "implemented_by" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "reports_to" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "dotted_reports_to" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "same_occupant_as" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "performed_by" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "owned_by" }),
-        expect.objectContaining({ from_id: D, to_id: PARENT_INTENT, edge_type: "has_parent" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "has_stakeholder" }),
-        expect.objectContaining({ from_id: D, to_id: PRINCIPAL, edge_type: "decided_by" }),
-        expect.objectContaining({ from_id: D, to_id: ACTION, edge_type: "templated_by" }),
-        expect.objectContaining({ from_id: D, to_id: RULE, edge_type: "relates_to" }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: ACTION,
+          edge_type: "flows_to",
+          edge_props: expect.objectContaining({ role: "predecessor", source_field: "preceded_by" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: INTENT,
+          edge_type: "supports",
+          edge_props: expect.objectContaining({ role: "serves", source_field: "intent_ids" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: D_OLD,
+          edge_type: "supports",
+          edge_props: expect.objectContaining({ role: "enacts", source_field: "decision_ids" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: RULE,
+          edge_type: "constrained_by",
+          edge_props: expect.objectContaining({ role: "gated_by", source_field: "gated_by" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: RULE,
+          edge_type: "constrained_by",
+          edge_props: expect.objectContaining({
+            role: "consults",
+            source_field: "rules_consulted",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: ACTION,
+          edge_type: "supports",
+          edge_props: expect.objectContaining({ role: "tests", source_field: "target_ref" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: D_OLD,
+          edge_type: "derived_from",
+          edge_props: expect.objectContaining({ role: "born_from", source_field: "born_from" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: D_OLD,
+          edge_type: "replaces",
+          edge_props: expect.objectContaining({
+            role: "superseded_by",
+            source_field: "superseded_by",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: REFERENCE,
+          edge_type: "supports",
+          edge_props: expect.objectContaining({
+            role: "implemented_by",
+            source_field: "implemented_by",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "has_parent",
+          edge_props: expect.objectContaining({ role: "reports_to", source_field: "reports_to" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "has_parent",
+          edge_props: expect.objectContaining({
+            role: "dotted_reports_to",
+            source_field: "dotted_reports_to",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "relates_to",
+          edge_props: expect.objectContaining({
+            role: "same_occupant_as",
+            source_field: "same_occupant_as",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "attributed_to",
+          edge_props: expect.objectContaining({ role: "performed_by", source_field: "actor_id" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "attributed_to",
+          edge_props: expect.objectContaining({ role: "owned_by", source_field: "owner_id" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PARENT_INTENT,
+          edge_type: "has_parent",
+          edge_props: expect.objectContaining({
+            role: "parent_intent",
+            source_field: "parent_intent_id",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "attributed_to",
+          edge_props: expect.objectContaining({
+            role: "has_stakeholder",
+            source_field: "stakeholders",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: PRINCIPAL,
+          edge_type: "attributed_to",
+          edge_props: expect.objectContaining({ role: "decided_by", source_field: "decided_by" }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: ACTION,
+          edge_type: "derived_from",
+          edge_props: expect.objectContaining({
+            role: "templated_by",
+            source_field: "template_id",
+          }),
+        }),
+        expect.objectContaining({
+          from_id: D,
+          to_id: RULE,
+          edge_type: "relates_to",
+          edge_props: expect.objectContaining({ role: "relates_to", source_field: "relates_to" }),
+        }),
       ]),
     );
     expect([...new Set(edges.map((e) => e.edge_type))].sort()).toEqual([...EDGE_TYPES].sort());
   });
 
-  it("projects a Log's actor_id → performed_by and template_id → templated_by", () => {
+  it("projects a Log's actor_id and template_id into canonical edge families", () => {
     const edges = managedEdges({
       id: LOG,
       doco_id: "doco_01KSJ000000000000000000000",
@@ -109,8 +232,21 @@ describe("managedEdges", () => {
 
     expect(edges).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ from_id: LOG, to_id: PRINCIPAL, edge_type: "performed_by" }),
-        expect.objectContaining({ from_id: LOG, to_id: ACTION, edge_type: "templated_by" }),
+        expect.objectContaining({
+          from_id: LOG,
+          to_id: PRINCIPAL,
+          edge_type: "attributed_to",
+          edge_props: expect.objectContaining({ role: "performed_by", source_field: "actor_id" }),
+        }),
+        expect.objectContaining({
+          from_id: LOG,
+          to_id: ACTION,
+          edge_type: "derived_from",
+          edge_props: expect.objectContaining({
+            role: "templated_by",
+            source_field: "template_id",
+          }),
+        }),
       ]),
     );
     expect(edges).toHaveLength(2);
@@ -126,7 +262,15 @@ describe("managedEdges", () => {
     } as unknown as Entity);
 
     expect(edges).toEqual([
-      expect.objectContaining({ from_id: INTENT, to_id: PARENT_INTENT, edge_type: "has_parent" }),
+      expect.objectContaining({
+        from_id: INTENT,
+        to_id: PARENT_INTENT,
+        edge_type: "has_parent",
+        edge_props: expect.objectContaining({
+          role: "parent_intent",
+          source_field: "parent_intent_id",
+        }),
+      }),
     ]);
   });
 
@@ -155,11 +299,16 @@ describe("managedEdges", () => {
       triggered_by: ["action_01KSJ00000000000000000000A"],
     } as unknown as Entity);
 
-    // actor_id → performed_by is a relation kind; target → acts_on and
+    // actor_id → attributed_to is a relation kind; target → acts_on and
     // triggered_by are not write-gateable relation kinds and are not persisted
     // by the managed-edge reconciler.
     expect(edges).toEqual([
-      expect.objectContaining({ from_id: ACTION, to_id: PRINCIPAL, edge_type: "performed_by" }),
+      expect.objectContaining({
+        from_id: ACTION,
+        to_id: PRINCIPAL,
+        edge_type: "attributed_to",
+        edge_props: expect.objectContaining({ role: "performed_by", source_field: "actor_id" }),
+      }),
     ]);
     for (const e of edges) expect(allowed.has(e.edge_type)).toBe(true);
   });

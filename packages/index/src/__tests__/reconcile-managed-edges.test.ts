@@ -10,21 +10,22 @@ import { type Edge, type ExistingManagedEdge, reconcileManagedEdges } from "../e
 //    retired), so a full backfill/reindex doesn't churn edge history.
 //  - 'field' edges no longer projected are retired.
 //  - 'authored' edges (created directly via the edges API) are NEVER auto-
-//    retired, and a desired edge that already exists as 'authored' is not
-//    duplicated (the live-unique index would reject it anyway).
+//    retired; they only satisfy a desired field edge when their role props
+//    match the managed field.
 
 const FROM = "decision_01KSJ000000000000000000000";
 const P1 = "principal_01KSJ000000000000000000001";
 const P2 = "principal_01KSJ000000000000000000002";
 const D_OLD = "decision_01KSJ000000000000000000003";
 
-function desired(edge_type: string, to_id: string): Edge {
+function desired(edge_type: string, to_id: string, source_field: string, role: string): Edge {
   return {
     from_id: FROM,
     from_node_type: "decision",
     to_id,
     to_node_type: to_id.slice(0, to_id.indexOf("_")),
     edge_type,
+    edge_props: { source_field, role },
   };
 }
 
@@ -33,24 +34,27 @@ function existing(
   edge_type: string,
   to_id: string,
   origin: "authored" | "field",
+  edge_props?: Record<string, unknown> | null,
 ): ExistingManagedEdge {
-  return { id, edge_type, to_id, origin };
+  return { id, edge_type, to_id, origin, edge_props };
 }
+
+const decidedBy = (toId: string) => desired("attributed_to", toId, "decided_by", "decided_by");
+const replacedBy = (toId: string) => desired("replaces", toId, "superseded_by", "superseded_by");
+const decidedByProps = { source_field: "decided_by", role: "decided_by" };
+const supersededByProps = { source_field: "superseded_by", role: "superseded_by" };
 
 describe("reconcileManagedEdges", () => {
   it("creates all desired edges when none exist", () => {
-    const plan = reconcileManagedEdges(
-      [desired("decided_by", P1), desired("superseded_by", D_OLD)],
-      [],
-    );
-    expect(plan.toCreate.map((e) => e.edge_type).sort()).toEqual(["decided_by", "superseded_by"]);
+    const plan = reconcileManagedEdges([decidedBy(P1), replacedBy(D_OLD)], []);
+    expect(plan.toCreate.map((e) => e.edge_type).sort()).toEqual(["attributed_to", "replaces"]);
     expect(plan.toRetireIds).toEqual([]);
   });
 
   it("is a no-op when the live field edges already match (idempotent)", () => {
     const plan = reconcileManagedEdges(
-      [desired("decided_by", P1)],
-      [existing("edge_a", "decided_by", P1, "field")],
+      [decidedBy(P1)],
+      [existing("edge_a", "attributed_to", P1, "field", decidedByProps)],
     );
     expect(plan.toCreate).toEqual([]);
     expect(plan.toRetireIds).toEqual([]);
@@ -58,11 +62,11 @@ describe("reconcileManagedEdges", () => {
 
   it("retires a field edge whose target changed and creates the new one", () => {
     const plan = reconcileManagedEdges(
-      [desired("decided_by", P2)],
-      [existing("edge_old", "decided_by", P1, "field")],
+      [decidedBy(P2)],
+      [existing("edge_old", "attributed_to", P1, "field", decidedByProps)],
     );
     expect(plan.toCreate).toEqual([
-      expect.objectContaining({ edge_type: "decided_by", to_id: P2 }),
+      expect.objectContaining({ edge_type: "attributed_to", to_id: P2 }),
     ]);
     expect(plan.toRetireIds).toEqual(["edge_old"]);
   });
@@ -71,34 +75,35 @@ describe("reconcileManagedEdges", () => {
     const plan = reconcileManagedEdges(
       [],
       [
-        existing("edge_a", "decided_by", P1, "field"),
-        existing("edge_b", "superseded_by", D_OLD, "field"),
+        existing("edge_a", "attributed_to", P1, "field", decidedByProps),
+        existing("edge_b", "replaces", D_OLD, "field", supersededByProps),
       ],
     );
     expect(plan.toCreate).toEqual([]);
     expect(plan.toRetireIds.sort()).toEqual(["edge_a", "edge_b"]);
   });
 
-  it("never retires an authored edge, and does not duplicate over one", () => {
+  it("does not duplicate over an authored edge with matching role props", () => {
     const plan = reconcileManagedEdges(
-      [desired("decided_by", P1)],
-      [existing("edge_authored", "decided_by", P1, "authored")],
+      [decidedBy(P1)],
+      [existing("edge_authored", "attributed_to", P1, "authored", decidedByProps)],
     );
-    // already live as authored → don't create a duplicate (unique index), and
-    // never retire an authored edge.
+    // already live as authored with the same role identity.
     expect(plan.toCreate).toEqual([]);
     expect(plan.toRetireIds).toEqual([]);
   });
 
   it("keeps authored edges while reconciling field edges around them", () => {
     const plan = reconcileManagedEdges(
-      [desired("decided_by", P1)],
+      [decidedBy(P1)],
       [
-        existing("edge_authored", "decided_by", P1, "authored"),
-        existing("edge_stale_field", "superseded_by", D_OLD, "field"),
+        existing("edge_authored", "attributed_to", P1, "authored"),
+        existing("edge_stale_field", "replaces", D_OLD, "field", supersededByProps),
       ],
     );
-    expect(plan.toCreate).toEqual([]);
+    expect(plan.toCreate).toEqual([
+      expect.objectContaining({ edge_type: "attributed_to", to_id: P1 }),
+    ]);
     expect(plan.toRetireIds).toEqual(["edge_stale_field"]);
   });
 });

@@ -347,11 +347,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // Term relationships use the two flavors the managed-edge architecture
     // defines, one of each. `relates_to` is a directly-authored edge (origin
     // "authored") — added and retired through the edges API, with immutable
-    // endpoints, exactly like business-processes' `serves` / `sequence_flow`
+    // endpoints, exactly like business-processes' `supports` / `flows_to`
     // — linking confusable, parent/sub, or homograph terms. `superseded_by`
     // (a deprecated term → its replacement) is authored as a field on the
     // term and projected by the capture path into a first-class
-    // `superseded_by` edge (origin "field"): the same field→edge model as
+    // `replaces` edge with role `superseded_by` (origin "field"): the same field→edge model as
     // business-processes' `actor_id` / `parent_intent_id`, not the
     // history-less `deriveEdges` projection org-chart uses for `reports_to`.
     // The node-table collapse dropped the `superseded_by` FK column
@@ -489,7 +489,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. `relates_to` is a directly-authored edge with immutable endpoints (like a process's `sequence_flow`): change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use `superseded_by` instead (see below) — that one is field-authored, not added as an edge.",
+          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. `relates_to` is a directly-authored edge with immutable endpoints (like a process's `flows_to`): change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use the `superseded_by` field, which projects to a `replaces` edge.",
       },
       {
         policy:
@@ -497,7 +497,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Retired glossary Decisions point at the replacement term via `superseded_by`, and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. `superseded_by` is authored on the retiring term and projects into a first-class `superseded_by` edge (term → replacement term) with its own lifecycle and history — the same fields-as-edges model the node-table collapse settled on when it dropped the promoted FK columns. That edge carries no database foreign key, so the replacement's existence is app-enforced, not guaranteed by the DB: point `superseded_by` at a term that already exists, and re-point it by editing the field so the capture path reconciles the edge (retiring the stale one, adding the new) rather than overwriting a pointer in place.",
+          "Retired glossary Decisions point at the replacement term via `superseded_by`, and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. `superseded_by` is authored on the retiring term and projects into a first-class `replaces` edge with role `superseded_by` (term -> replacement term) with its own lifecycle and history. That edge carries no database foreign key, so the replacement's existence is app-enforced, not guaranteed by the DB: point `superseded_by` at a term that already exists, and re-point it by editing the field so the capture path reconciles the edge (retiring the stale one, adding the new) rather than overwriting a pointer in place.",
       },
       {
         policy:
@@ -507,7 +507,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Repeatable business processes modeled on BPMN swimlanes and
-    // gateways. Sequence flow is explicit via first-class `sequence_flow`
+    // gateways. Sequence flow is explicit via first-class `flows_to`
     // edges; flow normally runs forward, but
     // rework loops may route back through a gateway. Generic Doco
     // dependency / rationale edges remain associations and are not
@@ -660,10 +660,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // (be tied to a concrete process/pool) and previously shipped as
         // three near-identical entries.
         policy:
-          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must `serves` an Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
+          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must `support` an Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
         predicate: {
           kind: "requires_edge",
-          edge_type: "serves",
+          edge_type: "supports",
           target_node_type: "intent",
           when_node_type: ["action", "decision", "state"],
         },
@@ -695,10 +695,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
         policy:
-          "Gateway Decisions in business-processes have exhaustive outgoing branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` plus outgoing `sequence_flow` branch labels either include a default/else branch or name every enum value.",
+          "Gateway Decisions in business-processes have exhaustive outgoing branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` plus outgoing `flows_to` branch labels either include a default/else branch or name every enum value.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Decision's `question`, `alternatives`, and any outgoing `sequence_flow` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
+          spec: "Check the Decision's `question`, `alternatives`, and any outgoing `flows_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_node_type: ["decision"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -712,7 +712,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Flow runs forward from the initial State: each active initial State has ≥1 outgoing `sequence_flow` edge, every non-initial flow node is reachable from an earlier flow node through forward `sequence_flow`, and every non-terminal flow node has ≥1 outgoing `sequence_flow` target in the same process Intent. Terminal States have no outgoing `sequence_flow` — they end the process path.",
+          "Flow runs forward from the initial State: each active initial State has ≥1 outgoing `flows_to` edge, every non-initial flow node is reachable from an earlier flow node through forward `flows_to`, and every non-terminal flow node has ≥1 outgoing `flows_to` target in the same process Intent. Terminal States have no outgoing `flows_to` — they end the process path.",
       },
       {
         // State summary as milestone/condition — noun or past-participle
@@ -734,11 +734,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // the Intent moves to `asserted` so drafting Intents can be
         // sketched first and have their Actions filled in later.
         policy:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that `serves` the Intent. Fires when the Intent is asserted — drafting Intents are allowed to be incomplete.",
+          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that supports the Intent. Fires when the Intent is asserted — drafting Intents are allowed to be incomplete.",
         predicate: {
           kind: "graph-completeness",
           list_field: "actors",
-          edge_type: "serves",
+          edge_type: "supports",
           incoming_node_type: "action",
           incoming_field_must_match: "actor_id",
           when_node_type: ["intent"],
@@ -777,7 +777,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`serves` via `intent_ids`, the actor via `actor_principal_id`, `gated_by`) can be set inline in the create `body` with `$alias` references, but `sequence_flow` is authored as an edge relation.",
+          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `flows_to` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`supports` via `intent_ids`, actor attribution via `actor_principal_id`, and `constrained_by` via `gated_by`) can be set inline in the create `body` with `$alias` references, but `flows_to` is authored as an edge relation.",
       },
       {
         policy:
@@ -785,35 +785,35 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "BPMN vocabulary: use first-class `sequence_flow` edges for forward process flow; they render source -> target with no reversal. Use `intent_ids`/`serves` for pool membership, `gated_by` for policy guards, and `decision_ids` only for rationale/provenance associations.",
+          "BPMN vocabulary: use first-class `flows_to` edges for forward process flow; they render source -> target with no reversal. Use `intent_ids`/`supports` for pool membership, `gated_by`/`constrained_by` for policy guards, and `decision_ids`/`supports` only for rationale/provenance associations.",
       },
       {
         policy:
-          "`sequence_flow` edges may carry props like `{ label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
+          "`flows_to` edges may carry props like `{ label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
       },
       {
         policy:
-          "For parallel work, give one flow node multiple unconditional `sequence_flow` outgoing edges — an AND-split needs no gateway Decision. Reserve gateway Decisions for exclusive or conditional (XOR/inclusive) branching, and reconverge parallel branches on a shared downstream node.",
+          "For parallel work, give one flow node multiple unconditional `flows_to` outgoing edges — an AND-split needs no gateway Decision. Reserve gateway Decisions for exclusive or conditional (XOR/inclusive) branching, and reconverge parallel branches on a shared downstream node.",
       },
       {
         policy:
-          "Rework and retry loops are allowed: a `sequence_flow` edge may target an earlier flow node to send work back (revise-and-resubmit, fix-and-recheck). Route the loop back through a gateway Decision so the cycle has an explicit exit and can't spin forever. A single edge still renders source -> target — a loop is about where the edge points, not reversing its direction.",
+          "Rework and retry loops are allowed: a `flows_to` edge may target an earlier flow node to send work back (revise-and-resubmit, fix-and-recheck). Route the loop back through a gateway Decision so the cycle has an explicit exit and can't spin forever. A single edge still renders source -> target — a loop is about where the edge points, not reversing its direction.",
       },
       {
         policy:
-          'Model the unhappy path. Use `sequence_flow` edge props with `kind: "exception"` or `kind: "timer"` to route failures, rejections, and timeouts to a recovery step or an explicitly cancelled terminal State, so the process documents what happens when the happy path does not hold.',
+          'Model the unhappy path. Use `flows_to` edge props with `kind: "exception"` or `kind: "timer"` to route failures, rejections, and timeouts to a recovery step or an explicitly cancelled terminal State, so the process documents what happens when the happy path does not hold.',
       },
       {
         policy:
-          "Edges are first-class: a `serves`, `sequence_flow`, or `gated_by` edge has its own lifecycle and history, and its endpoints are immutable. To reroute the process — send a step to a different next step, or move an Action under another Intent — retire the old edge and add the new one instead of editing endpoints in place. Nothing is deleted; the previous wiring stays recoverable with the reason it changed.",
+          "Edges are first-class: a `supports`, `flows_to`, or `constrained_by` edge has its own lifecycle and history, and its endpoints are immutable. To reroute the process — send a step to a different next step, or move an Action under another Intent — retire the old edge and add the new one instead of editing endpoints in place. Nothing is deleted; the previous wiring stays recoverable with the reason it changed.",
       },
       {
         policy:
-          "Some node-to-node links are authored as fields rather than added directly as edges. An Action's actor (`actor_id`) and a sub-process's `parent_intent_id` are authored on the node, and the capture path projects each into a first-class edge — `performed_by` (Action → Principal) and `has_parent` (Intent → Intent) — so each carries its own lifecycle and history like any other edge. There is no promoted column and no database foreign key behind them: existence is app-enforced (the uniform model the node-table collapse settled on when it dropped the intra-node FK columns), and the `actor_id`-resolves-to-a-Principal rule is what catches a dangling actor at capture time. Point them at ids that already exist. Re-point one by editing the field in place — it versions with the node and the capture path reconciles the projected edge for you — unlike `serves` / `sequence_flow` / `gated_by`, which you author directly as edges and reroute by retiring the old edge and adding a new one.",
+          "Some node-to-node links are authored as fields rather than added directly as edges. An Action's actor (`actor_id`) and a sub-process's `parent_intent_id` are authored on the node, and the capture path projects each into a first-class edge — `attributed_to` with role `performed_by` (Action -> Principal) and `has_parent` with role `parent_intent` (Intent -> Intent) — so each carries its own lifecycle and history like any other edge. There is no promoted column and no database foreign key behind them: existence is app-enforced (the uniform model the node-table collapse settled on when it dropped the intra-node FK columns), and the `actor_id`-resolves-to-a-Principal rule is what catches a dangling actor at capture time. Point them at ids that already exist. Re-point one by editing the field in place — it versions with the node and the capture path reconciles the projected edge for you — unlike directly-authored `supports`, `flows_to`, or `constrained_by` edges, which you reroute by retiring the old edge and adding a new one.",
       },
       {
         policy:
-          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_flow` wiring are coherent.",
+          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `flows_to` wiring are coherent.",
       },
       {
         policy:
@@ -945,8 +945,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Hierarchy: every Principal either reports up or explains root ──
       {
-        // `reports_to` is a Principal→Principal edge that forms the
-        // org tree. This uses a single probabilistic warning rather
+        // `reports_to` projects to a `has_parent` edge with role metadata and
+        // forms the org tree. This uses a single probabilistic warning rather
         // than a deterministic `requires_edge` predicate because a
         // valid root Principal (CEO/founder/root agent/external
         // authority) should not receive an unavoidable "missing
@@ -1009,15 +1009,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "`reports_to` is an id-shaped pointer field in the Principal's `data`, not a separately-lifecycled edge: `deriveEdges` projects it into a `reports_to` graph edge for the org-tree to draw, but it carries no independent history of its own. Re-point a reporting line by editing the field in place (it versions with the node), and capture the *why* of the reorg as a Decision so the rationale survives the edit. Since the inter-node foreign keys were dropped, nothing at the database layer guarantees the manager id resolves — point it at a Principal that already exists.",
+          "`reports_to` is an id-shaped pointer field in the Principal's `data`: the capture path projects it into a `has_parent` graph edge with role `reports_to` for the org-tree to draw. Re-point a reporting line by editing the field in place (it versions with the node and reconciles the edge), and capture the *why* of the reorg as a Decision so the rationale survives the edit. Since the inter-node foreign keys were dropped, nothing at the database layer guarantees the manager id resolves — point it at a Principal that already exists.",
       },
       {
         policy:
-          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids in the Principal's `data` that, like `reports_to`, project graph edges (drawn dashed) without reparenting the node. They are pointer fields, not separately-lifecycled edges: add, drop, or move a dotted line by editing the list in place (it versions with the node), and add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
+          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids in the Principal's `data` that projects `has_parent` edges with role `dotted_reports_to` (drawn dashed) without reparenting the node. Add, drop, or move a dotted line by editing the list in place (it versions with the node and reconciles the edges), and add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
       },
       {
         policy:
-          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — an id-shaped pointer field in the Principal's `data` that projects a `same_occupant_as` graph edge — so the chart knows it's one person, not two. It is a field, not a separately-lifecycled edge: split or re-pair seats by editing the field in place (it versions with the node). Don't collapse two distinct roles into one Principal just because the same person fills them today.",
+          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — an id-shaped pointer field in the Principal's `data` that projects a `relates_to` graph edge with role `same_occupant_as` — so the chart knows it's one person, not two. Split or re-pair seats by editing the field in place (it versions with the node and reconciles the edge). Don't collapse two distinct roles into one Principal just because the same person fills them today.",
       },
       {
         policy:
