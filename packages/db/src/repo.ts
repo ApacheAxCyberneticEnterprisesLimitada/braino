@@ -5,7 +5,7 @@
 // identities. Membership + OAuth tables reference `user_id`.
 // `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
-import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, normalizeWriteTypes } from "@doco/shared";
+import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, WRITE_ALL, normalizeWriteTypes } from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
 import {
@@ -689,7 +689,7 @@ export async function upsertOrgUser(opts: {
   /** Per-type write set; defaults to wildcard for writer, empty otherwise. */
   write_types?: string[];
 }): Promise<void> {
-  const writeTypes = normalizeWriteTypes(opts.write_types ?? (opts.role === "writer" ? ["*"] : []));
+  const writeTypes = normalizeGrantWriteTypes(opts.role, opts.write_types);
   await withClient(async (c) => {
     await c.query(
       `INSERT INTO org_users (org_id, user_id, role, write_types)
@@ -763,6 +763,13 @@ export interface DocoGrant {
   writeTypes: string[];
 }
 
+function normalizeGrantWriteTypes(role: DocoRole, raw: unknown): string[] {
+  const writeTypes = normalizeWriteTypes(raw);
+  if (role === "owner") return [];
+  if (role === "writer" && writeTypes.length === 0) return [WRITE_ALL];
+  return writeTypes;
+}
+
 export async function getOrgGrant(orgId: string, userId: string): Promise<DocoGrant | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string; write_types: string[] }>(
@@ -772,7 +779,7 @@ export async function getOrgGrant(orgId: string, userId: string): Promise<DocoGr
     if (r.rowCount === 0) return null;
     const role = toRole(r.rows[0]?.role);
     if (!role) return null;
-    return { role, writeTypes: normalizeWriteTypes(r.rows[0]?.write_types) };
+    return { role, writeTypes: normalizeGrantWriteTypes(role, r.rows[0]?.write_types) };
   });
 }
 
@@ -785,7 +792,7 @@ export async function getDocoUserGrant(docoId: string, userId: string): Promise<
     if (r.rowCount === 0) return null;
     const role = toRole(r.rows[0]?.role);
     if (!role) return null;
-    return { role, writeTypes: normalizeWriteTypes(r.rows[0]?.write_types) };
+    return { role, writeTypes: normalizeGrantWriteTypes(role, r.rows[0]?.write_types) };
   });
 }
 
@@ -835,7 +842,7 @@ export async function getAccountGrantsForGrantee(
           grantor_user_id: String(row.grantor_user_id),
           grantee_user_id: String(row.grantee_user_id),
           role,
-          write_types: normalizeWriteTypes(row.write_types),
+          write_types: normalizeGrantWriteTypes(role, row.write_types),
         },
       ];
     });
@@ -856,7 +863,7 @@ export async function getAccountGrant(
     if (r.rowCount === 0) return null;
     const role = toRole(r.rows[0]?.role);
     if (!role) return null;
-    return { role, writeTypes: normalizeWriteTypes(r.rows[0]?.write_types) };
+    return { role, writeTypes: normalizeGrantWriteTypes(role, r.rows[0]?.write_types) };
   });
 }
 
@@ -866,7 +873,7 @@ export async function upsertAccountGrant(opts: {
   role: DocoRole;
   write_types?: string[];
 }): Promise<void> {
-  const writeTypes = normalizeWriteTypes(opts.write_types ?? (opts.role === "writer" ? ["*"] : []));
+  const writeTypes = normalizeGrantWriteTypes(opts.role, opts.write_types);
   await withClient(async (c) => {
     await c.query(
       `INSERT INTO account_grants (grantor_user_id, grantee_user_id, role, write_types)
@@ -918,14 +925,17 @@ export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
        WHERE doco_id = $1 ORDER BY joined_at`,
       [docoId],
     );
-    return r.rows.map((row) => ({
-      doco_id: String(row.doco_id),
-      user_id: String(row.user_id),
-      role: (toRole(row.role) ?? "reader") as DocoRole,
-      write_types: normalizeWriteTypes(row.write_types),
-      joined_at:
-        row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
-    }));
+    return r.rows.map((row) => {
+      const role = toRole(row.role) ?? "reader";
+      return {
+        doco_id: String(row.doco_id),
+        user_id: String(row.user_id),
+        role,
+        write_types: normalizeGrantWriteTypes(role, row.write_types),
+        joined_at:
+          row.joined_at instanceof Date ? row.joined_at.toISOString() : String(row.joined_at),
+      };
+    });
   });
 }
 
@@ -946,7 +956,7 @@ export async function upsertDocoUser(opts: {
   /** Per-type write set; defaults to wildcard for writer, empty otherwise. */
   write_types?: string[];
 }): Promise<void> {
-  const writeTypes = normalizeWriteTypes(opts.write_types ?? (opts.role === "writer" ? ["*"] : []));
+  const writeTypes = normalizeGrantWriteTypes(opts.role, opts.write_types);
   await withClient(async (c) => {
     await c.query(
       `INSERT INTO doco_users (doco_id, user_id, role, write_types)
