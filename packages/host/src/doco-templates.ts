@@ -870,12 +870,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // headcount budgets), and Rules (delegation policies).
         // Actions, States, Evals, Logs, and Ideas have their own
         // homes; an org chart describes who reports to whom, not
-        // what they do. The Doco's own policies (guidance_policy /
+        // what they do. The Doco's own policy types (guidance_policy /
         // node_authoring_policy) are admitted too so authors can add
-        // org-specific authoring rules in place — policy candidates
+        // org-specific authoring rules in place, but policies are
+        // Doco-scoped metadata, not org-chart nodes. Policy candidates
         // carry no `node_type`, so a node-only gate would block them.
         policy:
-          "Only Principal, Intent, Decision, Reference, Rule, and the Doco's own policies belong in an org chart. Actions describe activities (use business-processes); States describe stages; Logs describe events; Ideas live in their own home.",
+          "Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes. Policies are Doco-scoped authoring metadata, not org-chart nodes, though this template still admits guidance_policy and node_authoring_policy so org-specific authoring rules can be managed in place. Actions describe activities (use business-processes); States describe stages; Evals describe checks; Logs describe events; Ideas live in their own home.",
         predicate: {
           kind: "requires_entity_type",
           entity_types: [

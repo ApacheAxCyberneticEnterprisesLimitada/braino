@@ -72,6 +72,17 @@ describe("org-chart template", () => {
         expect(allowlist.entity_types).not.toContain(t);
       }
     });
+
+    it("describes only the org-chart node types as org-chart nodes", () => {
+      const policy = template.policies.find(
+        (r) => r.predicate?.kind === "requires_entity_type",
+      )?.policy;
+      expect(policy).toMatch(
+        /Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes/i,
+      );
+      expect(policy).toMatch(/Policies are Doco-scoped authoring metadata, not org-chart nodes/i);
+      expect(policy).toMatch(/Evals/i);
+    });
   });
 
   describe("the unique constraint — person-vs-agent declaration", () => {
