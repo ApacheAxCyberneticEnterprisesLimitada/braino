@@ -630,7 +630,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Action shape ────────────────────────────────────────────
       {
         policy:
-          "Every Action in business-processes must have an `attributed_to` edge to the Principal who performs the activity.",
+          "Every Action in business-processes must have an `attributed_to` edge with role `performed_by` to the Principal who performs the activity.",
         predicate: {
           kind: "requires_edge",
           edge_type: "attributed_to",
@@ -646,7 +646,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // (be tied to a concrete process/pool) and previously shipped as
         // three near-identical entries.
         policy:
-          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must have a `supports` edge to an Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
+          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must have a `supports` edge with role `serves` to an Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
         predicate: {
           kind: "requires_edge",
           edge_type: "supports",
@@ -716,10 +716,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Coverage ────────────────────────────────────────────────
       {
         policy:
-          "Each actor Principal named in process prose should own at least one Action through `attributed_to`, and each asserted Action should also `supports` the process Intent.",
+          "Each actor Principal named in process prose should own at least one Action through an `attributed_to` edge with role `performed_by`, and each asserted Action should also have a `supports` edge with role `serves` to the process Intent.",
         predicate: {
           kind: "descriptive",
-          spec: "Review actor coverage by following `attributed_to` and `supports` edges.",
+          spec: "Review actor coverage by following `attributed_to` role `performed_by` and `supports` role `serves` edges.",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -728,7 +728,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Eval ────────────────────────────────────────────────────
       {
         policy:
-          "Every Eval in business-processes must have a `supports` edge to the node whose claim it pins.",
+          "Every Eval in business-processes must have a `supports` edge with role `tests` to the node whose claim it pins.",
         predicate: {
           kind: "requires_edge",
           edge_type: "supports",
@@ -748,7 +748,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "When a step is itself a whole sub-process, model it as its own child process Intent and link the calling Action to that Intent (the BPMN call-activity pattern) instead of inlining dozens of Actions. The BPMN view collapses the child Intent into its own pool, keeping the parent process readable.",
+          "When a step is itself a whole sub-process, model it as its own child process Intent and link the calling Action to that Intent with a `supports` edge with role `serves` (the BPMN call-activity pattern) instead of inlining dozens of Actions. The BPMN view collapses the child Intent into its own pool, keeping the parent process readable.",
       },
       {
         policy:
@@ -756,7 +756,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes and their relationship edges in the same changeset instead of creating disconnected nodes.",
+          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes and their relationship edges, including `flows_to` and role-tagged `supports`, in the same changeset instead of creating disconnected nodes.",
       },
       {
         policy:
@@ -764,7 +764,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "BPMN vocabulary: use first-class `flows_to` edges for forward process flow; they render source -> target with no reversal. Use `supports` for pool membership, `constrained_by` for policy guards, and `supports` with rationale/provenance role metadata for associations.",
+          "BPMN vocabulary: use first-class `flows_to` edges for forward process flow; they render source -> target with no reversal. Use a `supports` edge with role `serves` for pool membership, a `constrained_by` edge with role `gated_by` for policy guards, an `attributed_to` edge with role `performed_by` for actor lanes, and `supports` edges with roles such as `tests`, `enacts`, or `implemented_by` for validation, rationale, and evidence associations.",
       },
       {
         policy:
@@ -788,11 +788,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Every relationship in a business-processes Doco is an edge: `attributed_to`, `has_parent`, `supports`, `flows_to`, `constrained_by`, `derived_from`, `replaces`, and `relates_to` all carry their own lifecycle and history. Re-point a relationship by retiring the old edge and adding the new one.",
+          "Every relationship in a business-processes Doco is an edge: `attributed_to`, `has_parent`, `supports`, `flows_to`, `constrained_by`, `derived_from`, `replaces`, and `relates_to` all carry their own lifecycle and history. Role metadata carries the former specialized meanings, such as `supports` + `serves`, `supports` + `tests`, `attributed_to` + `performed_by`, and `constrained_by` + `gated_by`. Re-point a relationship by retiring the old edge and adding the new one.",
       },
       {
         policy:
-          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `flows_to` wiring are coherent.",
+          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after `attributed_to` role `performed_by` actor assignments, `supports` role `serves` Intent links, and forward `flows_to` wiring are coherent.",
       },
       {
         policy:

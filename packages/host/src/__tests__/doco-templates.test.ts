@@ -149,6 +149,14 @@ describe("business-processes template", () => {
         "asserted",
       ]);
     });
+
+    it("guides authors to use BPMN role metadata on the simplified edge families", () => {
+      const policies = template.policies.map((r) => r.policy).join("\n");
+      expect(policies).toMatch(/`supports` edge with role `serves`/);
+      expect(policies).toMatch(/`attributed_to` edge with role `performed_by`/);
+      expect(policies).toMatch(/`supports` edge with role `tests`/);
+      expect(policies).toMatch(/`constrained_by` edge with role `gated_by`/);
+    });
   });
 
   describe("Principal lane shape", () => {
