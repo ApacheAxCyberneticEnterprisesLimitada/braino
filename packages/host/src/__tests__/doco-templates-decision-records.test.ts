@@ -35,10 +35,10 @@ describe("decision-record templates", () => {
     }
   });
 
-  it("keeps the templates list/default-lifecycle neutral", () => {
+  it("defaults the templates to the built-in list perspective without lifecycle overrides", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const t = template(handle);
-      expect(t.perspectives).toBeUndefined();
+      expect(t.perspectives).toEqual([{ slug: "list", isDefault: true }]);
       expect(t.defaultNodeLifecycle).toBeUndefined();
       expect(t.allowedNodeTypes).toBeUndefined();
       expect(t.description).toMatch(/decision records/i);

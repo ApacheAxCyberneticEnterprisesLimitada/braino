@@ -248,6 +248,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🏛️",
     description:
       "Document architectural decision records — system structure, interfaces, infrastructure, quality attributes, constraints, alternatives, and consequences.",
+    perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
       membershipPolicy:
         "A node belongs in architectural-decisions when it records or supports an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
@@ -271,6 +272,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🧭",
     description:
       "Document product decision records — user/customer evidence, scope, positioning, pricing, roadmap choices, success metrics, alternatives, and revisit triggers.",
+    perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
       membershipPolicy:
         "A node belongs in product-decisions when it records or supports a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
@@ -294,6 +296,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🎨",
     description:
       "Document design decision records — UX, service, interaction, content, accessibility, design-system, and research-backed trade-offs.",
+    perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
       membershipPolicy:
         "A node belongs in design-decisions when it records or supports a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
@@ -317,6 +320,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🗃️",
     description:
       "Document data decision records — source-of-truth choices, schemas, contracts, metric definitions, governance, quality, lineage, retention, privacy, and access.",
+    perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
       membershipPolicy:
         "A node belongs in data-decisions when it records or supports a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
