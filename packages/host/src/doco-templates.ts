@@ -345,8 +345,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // examples. List is the natural authoring surface for terminology.
     //
     // Term relationships are first-class edges. `relates_to` links
-    // confusable, parent/sub, or homograph terms; `superseded_by` links a
-    // retired term to its replacement.
+    // confusable, parent/sub, or homograph terms; `replaces` links a retired
+    // term to its replacement.
     name: "glossaries",
     label: "Glossaries",
     icon: "📚",
@@ -488,7 +488,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use `superseded_by` instead.",
+          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use `replaces` instead.",
       },
       {
         policy:
@@ -496,7 +496,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Retired glossary Decisions point at the replacement term with a `superseded_by` edge and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. Re-point by retiring the old edge and adding a new one.",
+          "Retired glossary Decisions point at the replacement term with a `replaces` edge and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. Re-point by retiring the old edge and adding a new one.",
       },
       {
         policy:

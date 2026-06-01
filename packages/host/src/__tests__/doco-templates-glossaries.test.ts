@@ -104,16 +104,16 @@ describe("glossaries template", () => {
 
     it("documents retired-term replacement links", () => {
       expect(guidance).toMatch(/Retired glossary Decisions/i);
-      expect(guidance).toMatch(/superseded_by/i);
+      expect(guidance).toMatch(/`replaces` edge/i);
+      expect(guidance).not.toMatch(/superseded_by/i);
     });
 
-    it("aligns the superseded_by replacement link with first-class edges", () => {
-      const supersede = guidance
+    it("aligns the replacement link with the simplified edge vocabulary", () => {
+      const replacement = guidance
         .split("\n")
-        .find((line) => /Retired glossary Decisions/i.test(line) && /superseded_by/.test(line));
-      expect(supersede).toBeDefined();
-      expect(supersede).toMatch(/edge/i);
-      expect(supersede).toMatch(/retiring the old edge and adding a new one/i);
+        .find((line) => /Retired glossary Decisions/i.test(line) && /`replaces` edge/.test(line));
+      expect(replacement).toBeDefined();
+      expect(replacement).toMatch(/retiring the old edge and adding a new one/i);
     });
   });
 
