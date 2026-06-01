@@ -187,6 +187,8 @@ export async function recordEntityVersion(
     payload: Record<string, unknown>;
     actor?: string | null;
     reason?: string | null;
+    source?: CommitSource;
+    metadata?: Record<string, unknown> | null;
   },
 ): Promise<void> {
   const { rows } = await c.query<{ n: number }>(
@@ -198,8 +200,9 @@ export async function recordEntityVersion(
   const txId = await createChangeset(c, {
     docoId: input.docoId,
     actor: input.actor ?? null,
-    source: "api",
+    source: input.source ?? "api",
     reason: input.reason ?? null,
+    metadata: input.metadata ?? null,
   });
   await appendNodeVersion(c, {
     entityId: input.entityId,
@@ -355,6 +358,8 @@ export interface VersionEntry {
   tx_id: number;
   actor: string | null;
   recorded_at: string | null;
+  source: CommitSource | null;
+  metadata: Record<string, unknown> | null;
   /** The rich "why" from the commit log. */
   reason: string | null;
   payload: Record<string, unknown>;
@@ -369,7 +374,8 @@ export async function getVersions(
 ): Promise<VersionEntry[]> {
   const table = kind === "edge" ? "edge_versions" : "node_versions";
   const { rows } = await c.query(
-    `SELECT v.version, v.op, v.tx_id, v.actor, v.recorded_at, cs.reason, v.payload
+    `SELECT v.version, v.op, v.tx_id, v.actor, v.recorded_at,
+            cs.source, cs.metadata, cs.reason, v.payload
        FROM ${table} v
        LEFT JOIN changesets cs ON cs.tx_id = v.tx_id
       WHERE v.entity_id = $1
@@ -382,6 +388,8 @@ export async function getVersions(
     tx_id: Number(r.tx_id),
     actor: (r.actor as string | null) ?? null,
     recorded_at: r.recorded_at ? String(r.recorded_at) : null,
+    source: (r.source as CommitSource | null) ?? null,
+    metadata: (r.metadata as Record<string, unknown> | null) ?? null,
     reason: (r.reason as string | null) ?? null,
     payload: r.payload as Record<string, unknown>,
   }));
