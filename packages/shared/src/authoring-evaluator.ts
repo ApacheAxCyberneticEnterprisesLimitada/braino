@@ -7,8 +7,7 @@
  * Inputs in, violations out. No IO, no LLM. The caller (web layer) is
  * responsible for:
  *   - loading the doco's policies, principals, edges, and population
- *   - deriving the candidate's outgoing edges from its structured fields
- *     (via `deriveEdges` from `@doco/index`)
+ *   - passing the candidate's active outgoing edges
  *   - resolving probabilistic violations via an LLM judge (the engine
  *     just emits them as `pending` violations with the spec attached)
  *
@@ -42,7 +41,7 @@ export type CandidateFields = Record<string, unknown> & {
   lifecycle?: Lifecycle;
 };
 
-/** One edge in the doco. Shape mirrors `Edge` from `@doco/index`. */
+/** One edge in the doco. */
 export interface EngineEdge {
   from_id: string;
   to_id: string;
@@ -92,9 +91,7 @@ export interface EvaluateOpts {
   /** All predicate-bearing policies loaded from the doco. */
   policies: LoadedPolicy[];
   /**
-   * Edges derived from the candidate's fields (via
-   * `deriveEdges`). The candidate hasn't been persisted yet so these
-   * aren't in the edges table — pass them explicitly.
+   * Active outgoing edges for the candidate, loaded from the edge table.
    */
   candidateEdges: EngineEdge[];
   /**

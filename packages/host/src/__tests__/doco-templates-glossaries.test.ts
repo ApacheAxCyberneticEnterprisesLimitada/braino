@@ -107,20 +107,13 @@ describe("glossaries template", () => {
       expect(guidance).toMatch(/superseded_by/i);
     });
 
-    it("aligns the superseded_by replacement link with the first-class-edge, no-FK model", () => {
-      // The node-table collapse dropped `superseded_by` as a promoted FK
-      // column; the capture path now projects it into a first-class edge with
-      // no database foreign key (existence is app-enforced). The glossary
-      // guidance must teach that model so a retired term's replacement link
-      // reads like org-chart's `reports_to` and business-processes'
-      // `sequence_flow` rather than a dangling pointer.
+    it("aligns the superseded_by replacement link with first-class edges", () => {
       const supersede = guidance
         .split("\n")
         .find((line) => /Retired glossary Decisions/i.test(line) && /superseded_by/.test(line));
       expect(supersede).toBeDefined();
-      expect(supersede).toMatch(/first-class/i);
       expect(supersede).toMatch(/edge/i);
-      expect(supersede).toMatch(/foreign key|app-enforced/i);
+      expect(supersede).toMatch(/retiring the old edge and adding a new one/i);
     });
   });
 
@@ -156,11 +149,16 @@ describe("glossaries template", () => {
   });
 
   describe("active terminology Evals", () => {
+    const evalTarget = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.when_node_type?.includes("eval") &&
+        r.predicate.edge_type === "supports",
+    );
     const evalFields = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_field" &&
         r.predicate.when_node_type?.includes("eval") &&
-        r.predicate.fields.includes("target_ref") &&
         r.predicate.fields.includes("how_to_run"),
     );
     const rerunRule = template.policies.find(
@@ -170,10 +168,12 @@ describe("glossaries template", () => {
         /how_to_run/i.test(r.policy),
     );
 
-    it("requires target_ref and how_to_run only when active", () => {
+    it("requires a supports edge and how_to_run only when active", () => {
+      expect(evalTarget?.predicate?.kind).toBe("requires_edge");
+      expect(evalTarget?.fires_when_node_lifecycle).toEqual(["asserted"]);
       expect(evalFields?.predicate?.kind).toBe("requires_field");
       if (evalFields?.predicate?.kind !== "requires_field") return;
-      expect(evalFields.predicate.fields).toEqual(["target_ref", "how_to_run"]);
+      expect(evalFields.predicate.fields).toEqual(["how_to_run"]);
       expect(evalFields.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 

@@ -33,8 +33,8 @@ export const NODE_TABLES: Record<
   eval: { table: "nodes", body: true, typeNamedColumn: "prose" },
   reference: { table: "nodes", body: true, typeNamedColumn: "prose" },
   state: { table: "nodes", body: true, typeNamedColumn: "prose" },
-  // Principal = role/persona (referenced by actor_id/actors[]), NOT the OAuth
-  // user layer (that lives in `users`).
+  // Principal = role/persona linked by graph edges, NOT the OAuth user layer
+  // (that lives in `users`).
   principal: { table: "nodes", body: true, typeNamedColumn: "prose" },
 };
 
@@ -80,9 +80,7 @@ export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> 
  *                    (decisions.superseded_by_decision_id is decision-only;
  *                    the frontmatter `superseded_by` is polymorphic).
  * - `stripFromData`— drop the key from the `data` jsonb after promoting, so
- *                    the typed column is the single source of truth (the
- *                    migration-035 scalars). Relationship refs are NOT
- *                    stripped (the indexer still derives edges from them).
+ *                    the typed column is the single source of truth.
  */
 export interface PromotedColumnSpec {
   column: string;
@@ -92,11 +90,8 @@ export interface PromotedColumnSpec {
 }
 
 export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedColumnSpec[]>> = {
-  // Node→node relationships are no longer promoted to columns — migration 074
-  // dropped those columns and the capture path projects each into a first-class
-  // `edges` row instead (option (i): edges as the authored source of truth).
-  // intent/decision promoted only relationship refs, so they promote nothing
-  // now; the authored values still live in `data`. `proposer_id` stays — it
+  // Node→node relationships are no longer promoted to columns or stored in
+  // node JSON. They are first-class `edges` rows only. `proposer_id` stays: it
   // points at users(id) (an OAuth identity, not a node), not a node→node edge.
   intent: [],
   idea: [{ column: "proposer_id", field: "proposer_id" }],
@@ -172,7 +167,7 @@ export const ALL_ENTITY_TABLES: Record<
 /**
  * The shape we round-trip between filesystem (YAML+MD) and Postgres
  * rows. Importers and exporters speak this shape; storage adapters
- * speak this shape; the read-path materializer rebuilds LoadedDoco
+ * speak this shape; the read path rebuilds LoadedDoco
  * from this shape.
  *
  * `entity_type` carries the discriminator string across all categories:

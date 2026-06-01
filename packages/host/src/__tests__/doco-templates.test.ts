@@ -94,27 +94,13 @@ describe("business-processes template", () => {
       );
     }
 
-    it("`actor_id` on Action", () => {
-      expect(requiresField("actor_id", "action")).toBeDefined();
-    });
-    it("`target_ref` on Eval", () => {
-      expect(requiresField("target_ref", "eval")).toBeDefined();
-    });
-
-    it("does not require duplicated process metadata or handoff fields", () => {
+    it("does not require relationship keys in node JSON", () => {
+      expect(requiresField("actor_id", "action")).toBeUndefined();
+      expect(requiresField("target_ref", "eval")).toBeUndefined();
       expect(requiresField("actors", "intent")).toBeUndefined();
       expect(requiresField("stakeholders", "intent")).toBeUndefined();
       expect(requiresField("inputs", "action")).toBeUndefined();
       expect(requiresField("outputs", "action")).toBeUndefined();
-    });
-
-    it("fires required fields only when the authored node is active", () => {
-      for (const [field, entityType] of [
-        ["actor_id", "action"],
-        ["target_ref", "eval"],
-      ]) {
-        expect(requiresField(field, entityType)?.fires_when_node_lifecycle).toEqual(["asserted"]);
-      }
     });
   });
 
@@ -129,14 +115,27 @@ describe("business-processes template", () => {
       );
     }
 
-    it("Action supports Intent", () => {
+    it("Action serves Intent", () => {
       expect(requiresEdge("supports", "intent", "action")).toBeDefined();
     });
-    it("Decision supports Intent", () => {
+    it("Decision serves Intent", () => {
       expect(requiresEdge("supports", "intent", "decision")).toBeDefined();
     });
-    it("State supports Intent", () => {
+    it("State serves Intent", () => {
       expect(requiresEdge("supports", "intent", "state")).toBeDefined();
+    });
+    it("Action performed_by Principal", () => {
+      expect(requiresEdge("attributed_to", "principal", "action")).toBeDefined();
+    });
+    it("Eval tests a target", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "supports" &&
+          r.predicate.when_node_type?.includes("eval"),
+      );
+      expect(rule).toBeDefined();
+      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
 
     it("fires flow membership checks only when the node is asserted", () => {
@@ -149,30 +148,6 @@ describe("business-processes template", () => {
       expect(requiresEdge("supports", "intent", "state")?.fires_when_node_lifecycle).toEqual([
         "asserted",
       ]);
-    });
-  });
-
-  describe("actor_id principal resolution", () => {
-    const rule = template.policies.find(
-      (r) => r.predicate?.kind === "requires_field_resolves_to_principal",
-    );
-
-    it("constrains `actor_id` on Actions", () => {
-      expect(rule?.predicate?.kind).toBe("requires_field_resolves_to_principal");
-      if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
-      expect(rule.predicate.field).toBe("actor_id");
-      expect(rule.predicate.when_node_type).toContain("action");
-      expect(rule.fires_when_node_lifecycle).toEqual(["asserted"]);
-    });
-
-    // Post-rename: `allowed_principal_types` removed from the predicate.
-    // Principals no longer carry a `type` field (person/agent moved to
-    // User). The predicate simply enforces that the field
-    // resolves to an existing Principal — the test below now asserts the
-    // shape stays minimal.
-    it("predicate carries only field + when_node_type after the rename", () => {
-      if (rule?.predicate?.kind !== "requires_field_resolves_to_principal") return;
-      expect(Object.keys(rule.predicate).sort()).toEqual(["field", "kind", "when_node_type"]);
     });
   });
 
@@ -212,7 +187,7 @@ describe("business-processes template", () => {
         true,
       );
     });
-    it("Terminal States have no outgoing flow is documented", () => {
+    it("Terminal States have no outgoing sequence flow is documented", () => {
       expect(
         guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*flows_to/i.test(s)),
       ).toBe(true);
@@ -225,21 +200,17 @@ describe("business-processes template", () => {
     });
   });
 
-  describe("graph-completeness coverage rule", () => {
-    const rule = template.policies.find((r) => r.predicate?.kind === "graph-completeness");
+  describe("actor coverage guidance", () => {
+    const rule = template.policies.find(
+      (r) => r.predicate?.kind === "descriptive" && /actor Principal/i.test(r.policy),
+    );
 
-    it("wires Intent.actors to Action.actor_id via `supports`", () => {
-      expect(rule?.predicate?.kind).toBe("graph-completeness");
-      if (rule?.predicate?.kind !== "graph-completeness") return;
-      expect(rule.predicate.list_field).toBe("actors");
-      expect(rule.predicate.edge_type).toBe("supports");
-      expect(rule.predicate.incoming_node_type).toBe("action");
-      expect(rule.predicate.incoming_field_must_match).toBe("actor_id");
-      expect(rule.predicate.when_node_type).toContain("intent");
-    });
-
-    it("fires only when the Intent is active (drafting Intents can be incomplete)", () => {
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+    it("documents attributed_to / supports coverage", () => {
+      expect(rule?.predicate?.kind).toBe("descriptive");
+      if (rule?.predicate?.kind !== "descriptive") return;
+      expect(rule.predicate.spec).toMatch(/attributed_to/);
+      expect(rule.predicate.spec).toMatch(/supports/);
+      expect(rule.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
   });
 
@@ -313,37 +284,15 @@ describe("business-processes template", () => {
     });
   });
 
-  describe("field-authored relations stay cohesive with the managed-edge model", () => {
-    // After the node-table collapse dropped the five promoted intra-node FK
-    // columns (#694), `actor_id` and `parent_intent_id` are authored as fields
-    // but PROJECTED by the capture path into first-class edges
-    // (`attributed_to` / `has_parent`) — they are no longer "not edges" with "no
-    // history". The guidance must describe that model, matching the org-chart
-    // template, not the pre-drop promoted-column framing.
+  describe("relationships are edge-only", () => {
     const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
-    const pointerGuidance = guidanceSummaries.find(
-      (s) => /actor_id/.test(s) && /parent_intent_id/.test(s),
-    );
+    const edgeGuidance = guidanceSummaries.find((s) => /Every relationship/i.test(s));
 
-    it("documents that actor_id / parent_intent_id project into first-class edges", () => {
-      expect(pointerGuidance).toBeDefined();
-      expect(pointerGuidance).toMatch(/attributed_to/);
-      expect(pointerGuidance).toMatch(/performed_by/);
-      expect(pointerGuidance).toMatch(/has_parent/);
-      expect(pointerGuidance).toMatch(/first-class edge/i);
-    });
-
-    it("drops the stale pre-FK-drop framing (not edges / no separate history)", () => {
-      expect(pointerGuidance).toBeDefined();
-      expect(pointerGuidance).not.toMatch(/not first-class edges/i);
-      expect(pointerGuidance).not.toMatch(/no separate lifecycle or history/i);
-    });
-
-    it("keeps the still-true facts: no DB foreign key, app-enforced, re-point in place", () => {
-      expect(pointerGuidance).toBeDefined();
-      expect(pointerGuidance).toMatch(/foreign key|\bFK\b/);
-      expect(pointerGuidance).toMatch(/resolves?-to-a-Principal|resolve to an existing Principal/i);
-      expect(pointerGuidance).toMatch(/editing the field in place/i);
+    it("documents edge-only relationship authoring", () => {
+      expect(edgeGuidance).toBeDefined();
+      expect(edgeGuidance).toMatch(/attributed_to/);
+      expect(edgeGuidance).toMatch(/has_parent/);
+      expect(edgeGuidance).toMatch(/retiring the old edge and adding the new one/i);
     });
   });
 

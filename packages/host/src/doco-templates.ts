@@ -344,19 +344,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // canonical term, and `decision` holds the definition, scope, and
     // examples. List is the natural authoring surface for terminology.
     //
-    // Term relationships use the two flavors the managed-edge architecture
-    // defines, one of each. `relates_to` is a directly-authored edge (origin
-    // "authored") — added and retired through the edges API, with immutable
-    // endpoints, exactly like business-processes' `supports` / `flows_to`
-    // — linking confusable, parent/sub, or homograph terms. `superseded_by`
-    // (a deprecated term → its replacement) is authored as a field on the
-    // term and projected by the capture path into a first-class
-    // `replaces` edge with role `superseded_by` (origin "field"): the same field→edge model as
-    // business-processes' `actor_id` / `parent_intent_id`, not the
-    // history-less `deriveEdges` projection org-chart uses for `reports_to`.
-    // The node-table collapse dropped the `superseded_by` FK column
-    // (migration 074), so neither relationship carries a database foreign
-    // key — target existence is app-enforced, like every other edge.
+    // Term relationships are first-class edges. `relates_to` links
+    // confusable, parent/sub, or homograph terms; `superseded_by` links a
+    // retired term to its replacement.
     name: "glossaries",
     label: "Glossaries",
     icon: "📚",
@@ -453,11 +443,20 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Eval shape ─────────────────────────────────────────────
       {
+        policy: "Every active glossary Eval has a `supports` edge to the term it checks.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "supports",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: ["asserted"],
+      },
+      {
         policy:
-          "Every active glossary Eval declares `target_ref` and `how_to_run` so terminology consistency checks can be rerun.",
+          "Every active glossary Eval declares `how_to_run` so terminology consistency checks can be rerun.",
         predicate: {
           kind: "requires_field",
-          fields: ["target_ref", "how_to_run"],
+          fields: ["how_to_run"],
           when_node_type: ["eval"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -489,7 +488,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. `relates_to` is a directly-authored edge with immutable endpoints (like a process's `flows_to`): change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use the `superseded_by` field, which projects to a `replaces` edge.",
+          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use `superseded_by` instead.",
       },
       {
         policy:
@@ -497,7 +496,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Retired glossary Decisions point at the replacement term via `superseded_by`, and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. `superseded_by` is authored on the retiring term and projects into a first-class `replaces` edge with role `superseded_by` (term -> replacement term) with its own lifecycle and history. That edge carries no database foreign key, so the replacement's existence is app-enforced, not guaranteed by the DB: point `superseded_by` at a term that already exists, and re-point it by editing the field so the capture path reconciles the edge (retiring the stale one, adding the new) rather than overwriting a pointer in place.",
+          "Retired glossary Decisions point at the replacement term with a `superseded_by` edge and keep the deprecated term visible so readers still understand old docs, tickets, and UI copy. Re-point by retiring the old edge and adding a new one.",
       },
       {
         policy:
@@ -631,24 +630,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Action shape ────────────────────────────────────────────
       {
         policy:
-          "Every Action in business-processes must declare the principal who performs the activity in the `actor_id` field.",
+          "Every Action in business-processes must have an `attributed_to` edge to the Principal who performs the activity.",
         predicate: {
-          kind: "requires_field",
-          fields: ["actor_id"],
-          when_node_type: ["action"],
-        },
-        fires_when_node_lifecycle: ["asserted"],
-      },
-      {
-        // Team-roles (`kitchen`, `support`, `finance`) are first-class
-        // Principals representing a role rather than an individual.
-        // (Post-rename, person/agent distinction moved to User;
-        // the engine just enforces principal resolution.)
-        policy:
-          "An Action's `actor_id` must resolve to an existing Principal. Team-roles (e.g. `kitchen`, `support`, `finance`) are first-class Principals — model them as Principals representing a role rather than an individual.",
-        predicate: {
-          kind: "requires_field_resolves_to_principal",
-          field: "actor_id",
+          kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
           when_node_type: ["action"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -660,7 +646,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // (be tied to a concrete process/pool) and previously shipped as
         // three near-identical entries.
         policy:
-          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must `support` an Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
+          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must have a `supports` edge to an Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
         predicate: {
           kind: "requires_edge",
           edge_type: "supports",
@@ -729,18 +715,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Coverage ────────────────────────────────────────────────
       {
-        // Each principal listed on an Intent's `actors` must be the
-        // actor_id of ≥1 Action serving the Intent. Fires only when
-        // the Intent moves to `asserted` so drafting Intents can be
-        // sketched first and have their Actions filled in later.
         policy:
-          "Every principal listed in an Intent's `actors` must be the `actor_id` of at least one Action that supports the Intent. Fires when the Intent is asserted — drafting Intents are allowed to be incomplete.",
+          "Each actor Principal named in process prose should own at least one Action through `attributed_to`, and each asserted Action should also `supports` the process Intent.",
         predicate: {
-          kind: "graph-completeness",
-          list_field: "actors",
-          edge_type: "supports",
-          incoming_node_type: "action",
-          incoming_field_must_match: "actor_id",
+          kind: "descriptive",
+          spec: "Review actor coverage by following `attributed_to` and `supports` edges.",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -749,10 +728,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Eval ────────────────────────────────────────────────────
       {
         policy:
-          "Every Eval in business-processes must declare its `target_ref` — the node whose claim the Eval pins.",
+          "Every Eval in business-processes must have a `supports` edge to the node whose claim it pins.",
         predicate: {
-          kind: "requires_field",
-          fields: ["target_ref"],
+          kind: "requires_edge",
+          edge_type: "supports",
           when_node_type: ["eval"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -773,11 +752,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Name the single accountable process owner in the purpose Intent — the Principal answerable for the whole process's outcome. This is the RACI 'Accountable' role, distinct from the per-step 'Responsible' actors named in each Action's `actor_id`.",
+          "Name the single accountable process owner in the purpose Intent and link it with an `attributed_to` edge carrying role `owned_by` — the Principal answerable for the whole process's outcome. This is the RACI 'Accountable' role, distinct from the per-step 'Responsible' actors linked by role `performed_by`.",
       },
       {
         policy:
-          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `flows_to` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`supports` via `intent_ids`, actor attribution via `actor_principal_id`, and `constrained_by` via `gated_by`) can be set inline in the create `body` with `$alias` references, but `flows_to` is authored as an edge relation.",
+          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes and their relationship edges in the same changeset instead of creating disconnected nodes.",
       },
       {
         policy:
@@ -785,7 +764,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "BPMN vocabulary: use first-class `flows_to` edges for forward process flow; they render source -> target with no reversal. Use `intent_ids`/`supports` for pool membership, `gated_by`/`constrained_by` for policy guards, and `decision_ids`/`supports` only for rationale/provenance associations.",
+          "BPMN vocabulary: use first-class `flows_to` edges for forward process flow; they render source -> target with no reversal. Use `supports` for pool membership, `constrained_by` for policy guards, and `supports` with rationale/provenance role metadata for associations.",
       },
       {
         policy:
@@ -809,7 +788,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Some node-to-node links are authored as fields rather than added directly as edges. An Action's actor (`actor_id`) and a sub-process's `parent_intent_id` are authored on the node, and the capture path projects each into a first-class edge — `attributed_to` with role `performed_by` (Action -> Principal) and `has_parent` with role `parent_intent` (Intent -> Intent) — so each carries its own lifecycle and history like any other edge. There is no promoted column and no database foreign key behind them: existence is app-enforced (the uniform model the node-table collapse settled on when it dropped the intra-node FK columns), and the `actor_id`-resolves-to-a-Principal rule is what catches a dangling actor at capture time. Point them at ids that already exist. Re-point one by editing the field in place — it versions with the node and the capture path reconciles the projected edge for you — unlike directly-authored `supports`, `flows_to`, or `constrained_by` edges, which you reroute by retiring the old edge and adding a new one.",
+          "Every relationship in a business-processes Doco is an edge: `attributed_to`, `has_parent`, `supports`, `flows_to`, `constrained_by`, `derived_from`, `replaces`, and `relates_to` all carry their own lifecycle and history. Re-point a relationship by retiring the old edge and adding the new one.",
       },
       {
         policy:
@@ -847,7 +826,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Organizational chart template. Principals are the org *seats*
-    // (a role plus its current occupant), `reports_to` edges form the
+    // (a role plus its current occupant), has_parent/reporting edges form the
     // primary hierarchy, Intents represent teams/units, Decisions
     // record reorgs and appointments. After the Principal slim-down
     // (decision_01KSDR_PRINCIPAL_SLIM_DOWN) a Principal carries no
@@ -856,28 +835,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // prose, enforced by a probabilistic policy rather than a
     // `requires_field` check.
     //
-    // Reporting and occupancy are modeled as *relationship pointer
-    // fields*, not columns: `reports_to`, `dotted_reports_to`, and
-    // `same_occupant_as` are ID-shaped refs in the Principal's `data`
-    // that `deriveEdges` projects into graph edges for the org-tree to
-    // render and traverse. They are neither promoted columns nor
-    // separately-authored edges — none is in MANAGED_RELATION_EDGE_TYPES,
-    // none carries a DB foreign key, so target existence is app-enforced
-    // and you re-point one by editing the field in place (it versions
-    // with the node). That is the uniform model the node-table collapse
-    // settled on when it dropped the five promoted intra-node FK columns:
-    // a node→node relationship stays a pointer field unless it is
-    // deliberately promoted to a first-class authored edge (own
-    // lifecycle, immutable endpoints, rerouted by retire-and-add).
+    // Reporting and occupancy are first-class edges: has_parent edges carry
+    // reports_to / dotted_reports_to roles, and relates_to edges carry the
+    // same_occupant_as role. The org tree renders directly from edge rows.
     //
     // Industry alignment (W3C Organization Ontology + HR practice):
     // a seat that can stand vacant approximates `org:Post`; secondary
     // (dotted-line / matrix) reporting layers on top of the single
-    // primary `reports_to` line as a structured `dotted_reports_to`
-    // list of additional managers — drawn dashed, never reparenting the
-    // node. Those refs live in `data` (not promoted columns), so adding
-    // them needed no migration. A fully structural Post / Membership
-    // split — occupant nodes distinct from the seat, a versioned
+    // primary reporting edge as additional dotted-line manager edges — drawn
+    // dashed, never reparenting the node. A fully
+    // structural Post / Membership split — occupant nodes distinct from the seat, a versioned
     // `member_of` / `held_by` edge, a real vacancy field instead of
     // body_md prose — remains a deliberate follow-up rather than
     // half-modeled here.
@@ -945,42 +912,30 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Hierarchy: every Principal either reports up or explains root ──
       {
-        // `reports_to` projects to a `has_parent` edge with role metadata and
-        // forms the org tree. This uses a single probabilistic warning rather
+        // A has_parent edge with role=reports_to forms the org tree. This uses
+        // a single probabilistic warning rather
         // than a deterministic `requires_edge` predicate because a
         // valid root Principal (CEO/founder/root agent/external
         // authority) should not receive an unavoidable "missing
         // reports_to" warning once its body_md explains the absence.
         on_violation: "warn",
         policy:
-          "Every active Principal in an org chart either declares `reports_to` (the Principal they report to) or explains in `body_md` why it is top-of-chain (founder, board-reporting, root agent, external authority).",
+          "Every active Principal in an org chart either has a `has_parent` reporting edge or explains in `body_md` why it is top-of-chain (founder, board-reporting, root agent, external authority).",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["principal"],
-          spec: "Read the Principal candidate. PASS if `reports_to` is a non-empty Principal id. Otherwise, PASS only if `body_md` explains why this Principal has no manager above it (founder, board-reporting, root agent, external authority, etc.). FAIL with reason when an active Principal has no `reports_to` and `body_md` does not explain the missing reporting edge.",
+          spec: "Read the Principal candidate. PASS if its prose explains why this Principal has no manager above it (founder, board-reporting, root agent, external authority, etc.). Otherwise, expect a has_parent edge with role `reports_to` in the graph; if it is absent, WARN that the reporting edge is missing.",
         },
         fires_when_node_lifecycle: ["asserted"],
       },
 
       // ── Team Intents declare members ───────────────────────────
       {
-        // Team / org-unit Intents (engineering, kitchen, support, etc.)
-        // declare their member Principals in `actors`. This mirrors
-        // the business-processes convention. Stakeholders
-        // (people interested in the unit's outcomes without being on
-        // the team) optionally go in `stakeholders`.
-        //
-        // Gated to `asserted` so a team can be sketched first and have
-        // its roster filled in later — the template defaults new nodes
-        // to `drafting`, and an ungated requires_field would block that
-        // sketch the moment the unit is created. Matches the
-        // asserted-gating glossaries and business-processes use on
-        // their own completeness rules.
         policy:
-          "Every Intent in an org chart must declare `actors` — the Principals who are members of this team or unit.",
+          "Every asserted team/unit Intent in an org chart should be linked to member Principals with `attributed_to` edges.",
         predicate: {
-          kind: "requires_field",
-          fields: ["actors"],
+          kind: "descriptive",
+          spec: "Review team membership through `attributed_to` edges with membership roles.",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -993,7 +948,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "`reports_to` chains must not be circular. A cycle (A reports to B, B reports to C, C reports to A) usually means a refactor in progress; resolve it before activating the affected Principals. The framework evaluator can't check this yet — it's a manual review.",
+          "Reporting chains must not be circular. A cycle (A reports to B, B reports to C, C reports to A) usually means a refactor in progress; resolve it before activating the affected Principals. The framework evaluator can't check this yet — it's a manual review.",
       },
       {
         policy:
@@ -1001,27 +956,27 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Capture reorgs, hires, departures, and role changes as Decisions, and link the affected Principals via `decision_ids`. Org charts churn; without Decisions, the history of WHY a reporting line moved is lost.",
+          "Capture reorgs, hires, departures, and role changes as Decisions, and link the affected Principals with `supports` or provenance edges. Org charts churn; without Decisions, the history of WHY a reporting line moved is lost.",
       },
       {
         policy:
-          "Team membership lives in the Intent's `actors` list, which the org-tree renders but does not version. When someone joins or leaves a team, record it as a Decision linking the affected Principals so the *why* and *when* survive the in-place edit. Once a Doco needs real join/leave history, promote membership to a first-class `member_of` edge — own lifecycle, immutable endpoints, rerouted by retiring the old edge and adding a new one — instead of overwriting the `actors` list, which leaves no trail. (`reports_to` would graduate to a versioned edge the same way; today it is still an in-place pointer field — see below.)",
+          "Team membership lives in edges. When someone joins or leaves a team, retire the old membership edge or add a new one, and record a Decision so the why and when survive the change.",
       },
       {
         policy:
-          "`reports_to` is an id-shaped pointer field in the Principal's `data`: the capture path projects it into a `has_parent` graph edge with role `reports_to` for the org-tree to draw. Re-point a reporting line by editing the field in place (it versions with the node and reconciles the edge), and capture the *why* of the reorg as a Decision so the rationale survives the edit. Since the inter-node foreign keys were dropped, nothing at the database layer guarantees the manager id resolves — point it at a Principal that already exists.",
+          "A reporting line is a first-class has_parent edge with role `reports_to`. Re-point it by retiring the old edge and adding the new one, and capture the why of the reorg as a Decision so the rationale survives the edit.",
       },
       {
         policy:
-          "`reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with `dotted_reports_to` — a list of manager Principal ids in the Principal's `data` that projects `has_parent` edges with role `dotted_reports_to` (drawn dashed) without reparenting the node. Add, drop, or move a dotted line by editing the list in place (it versions with the node and reconciles the edges), and add a Decision when a matrix assignment needs rationale (project lead, functional vs operational manager). Don't overload `reports_to` with a second manager — it breaks the primary tree the perspective draws.",
+          "Role `reports_to` carries exactly one manager — the primary (solid-line) reporting relationship — so the org tree stays a clean hierarchy. Model secondary, dotted-line, or matrix reporting on top of it with has_parent edges carrying role `dotted_reports_to`, drawn dashed without reparenting the node. Don't overload `reports_to` with a second manager.",
       },
       {
         policy:
-          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal (so each keeps its own `reports_to` and team memberships) and link them with `same_occupant_as` — an id-shaped pointer field in the Principal's `data` that projects a `relates_to` graph edge with role `same_occupant_as` — so the chart knows it's one person, not two. Split or re-pair seats by editing the field in place (it versions with the node and reconciles the edge). Don't collapse two distinct roles into one Principal just because the same person fills them today.",
+          "One occupant can hold several seats — the CEO who also acts as VP Eng, a founder covering two roles. Model each seat as its own Principal and link them with `same_occupant_as` edges so the chart knows it's one person, not two. Don't collapse two distinct roles into one Principal just because the same person fills them today.",
       },
       {
         policy:
-          "Use Intents to model teams, departments, and org units. The Intent's `intent` field names the unit's mandate; `actors` lists the member Principals; `stakeholders` lists the people who care about the unit's outcomes without being on the team.",
+          "Use Intents to model teams, departments, and org units. The Intent's `intent` field names the unit's mandate; membership and stakeholder relationships are edges to Principal nodes.",
       },
       {
         policy:
@@ -1029,7 +984,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Treat each Principal as a seat — a role plus its current occupant — not just a person. A budgeted-but-unfilled seat is a valid Principal: declare it `vacant` in `body_md`, name the role it's budgeted for, and keep its `reports_to` line so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure (the same mistake as leaving vacant boxes off a printed chart).",
+          "Treat each Principal as a seat — a role plus its current occupant — not just a person. A budgeted-but-unfilled seat is a valid Principal: declare it `vacant` in `body_md`, name the role it's budgeted for, and keep its reporting edge so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure.",
       },
       {
         policy:
@@ -1037,7 +992,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md`, and record the change as a Decision, so the `reports_to` line and team memberships stay intact and the seat's history reads continuously. Only when the seat's *nature* flips between person and AI agent do you retire the old Principal and create a new one: person-vs-agent is part of the seat's identity in this Doco, and flipping it via a body_md edit erases the prior occupant's history.",
+          "Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md`, and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person and AI agent do you retire the old Principal and create a new one.",
       },
     ],
   },

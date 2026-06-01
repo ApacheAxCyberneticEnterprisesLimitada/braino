@@ -85,9 +85,8 @@ export async function loadDocoFromPostgres(
 
   // Host-level identity rows are loaded once (no doco_id filter). Only
   // needed by the full-rebuild path; incremental captures don't consume
-  // them (deriveEdges works off the entity alone, and the indexer's
-  // FTS/embedding writers don't need org text). Principals moved to
-  // the doco-scoped loop below in migration 020.
+  // them because the indexer's FTS/embedding writers don't need org text.
+  // Principals moved to the doco-scoped loop below in migration 020.
   if (!scoped) {
     let rows: EntityRecord[] = [];
     try {

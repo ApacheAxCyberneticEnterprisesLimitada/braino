@@ -71,16 +71,9 @@ describe("access-types", () => {
     expect(isWritableType("nonsense")).toBe(false);
   });
 
-  it("does not grant writes to legacy relation aliases as edge types", () => {
-    for (const legacy of [
-      "sequence_flow",
-      "performed_by",
-      "reports_to",
-      "superseded_by",
-      "templated_by",
-      "decided_by",
-    ]) {
-      expect(isWritableType(legacy)).toBe(false);
+  it("does not grant writes to role labels as edge types", () => {
+    for (const role of ["performed_by", "reports_to", "templated_by", "decided_by"]) {
+      expect(isWritableType(role)).toBe(false);
     }
   });
 

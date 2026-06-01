@@ -1,11 +1,4 @@
--- 073_edges_origin.sql — mark how each edge came to exist, for the
--- "edges as the authored source of truth" refactor (option (i)).
---
--- 'authored' = created directly via the edges API (captureEdge), with its own
--- provenance/history. 'field' = projected by the capture path from a node
--- relationship field (e.g. a Decision's decided_by) and reconciled on every
--- re-capture of that node. Only 'field' edges are reconciled; 'authored' edges
--- are never auto-retired.
+-- 073_edges_origin.sql — mark edges as authored source-of-truth rows.
 --
 -- Every edge that predates this column was authored directly, so the column
 -- defaults to 'authored'. That default is a constant, so PG 11+ adds the column
@@ -26,7 +19,7 @@ BEGIN
 
     IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'edges_origin_chk') THEN
       ALTER TABLE edges ADD CONSTRAINT edges_origin_chk
-        CHECK (origin IN ('authored','field')) NOT VALID;
+        CHECK (origin IN ('authored')) NOT VALID;
     END IF;
   ELSE
     RAISE NOTICE '073: edges table absent (fresh genesis bootstrap) — schema.sql inline column applies instead';

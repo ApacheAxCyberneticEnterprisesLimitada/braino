@@ -42,8 +42,8 @@ export type EdgeType = (typeof EDGE_TYPES)[number];
  * Endpoint node-type constraints for edge families whose target shape remains
  * unambiguous after simplification. `from` / `to` list the node types each
  * endpoint may be; an absent key means "any node type". Broad families such as
- * `supports` and `has_parent` intentionally stay unconstrained here because
- * their former aliases span different node-type pairs.
+ * `supports` and `has_parent` intentionally stay unconstrained because their
+ * roles span different node-type pairs.
  */
 export const EDGE_ENDPOINT_TYPES: Record<
   string,

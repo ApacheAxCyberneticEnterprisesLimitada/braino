@@ -1,12 +1,11 @@
-// Guards the `edges.origin` column added for the "edges as the authored source
-// of truth" refactor (option (i)): schema.sql inline column for fresh installs
-// + migration 071 for existing DBs.
+// Guards the `edges.origin` column: schema.sql inline column for fresh
+// installs + migration 073 for existing DBs.
 //
 // String/structure assertions over the SQL, not live-DB checks: the package has
 // no Postgres in CI (see node-ref-fks.test.ts). They lock in the things that
 // are easy to get wrong and dangerous to regress:
 //   1. The column exists, is NOT NULL, defaults to 'authored', and is CHECK-
-//      constrained to ('authored','field').
+//      constrained to authored rows.
 //   2. Migration 071 adds it idempotently (ADD COLUMN IF NOT EXISTS) and the
 //      CHECK only NOT VALID — the migration-025 lesson: never scan at boot.
 //   3. The migration is guarded for a fresh-genesis bootstrap (edges absent).
@@ -51,10 +50,8 @@ describe("edges.origin — schema.sql baseline", () => {
     expect(/\borigin\b\s+text\s+NOT\s+NULL\s+DEFAULT\s+'authored'/i.test(edges)).toBe(true);
   });
 
-  it("constrains origin to ('authored','field')", () => {
-    expect(/CHECK\s*\(\s*origin\s+IN\s*\(\s*'authored'\s*,\s*'field'\s*\)\s*\)/i.test(edges)).toBe(
-      true,
-    );
+  it("constrains origin to authored rows", () => {
+    expect(/CHECK\s*\(\s*origin\s+IN\s*\(\s*'authored'\s*\)\s*\)/i.test(edges)).toBe(true);
   });
 });
 

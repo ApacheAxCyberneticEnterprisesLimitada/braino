@@ -223,10 +223,6 @@ export interface CreateEdgeInput {
   toNodeType: string;
   props?: Record<string, unknown> | null;
   lifecycle?: "drafting" | "asserted";
-  /** 'authored' (default) for edges created directly via the edges API;
-   *  'field' for edges the capture path projects from a node relationship
-   *  field and reconciles. */
-  origin?: "authored" | "field";
   actor?: string | null;
 }
 
@@ -274,7 +270,7 @@ export async function createEdge(
       input.toNodeType,
       input.props ? JSON.stringify(input.props) : null,
       input.lifecycle ?? "asserted",
-      input.origin ?? "authored",
+      "authored",
       input.actor ?? null,
     ],
   );

@@ -50,11 +50,12 @@ async function main(): Promise<void> {
       });
       const e = await createEdge(c, tx, {
         docoId,
-        edgeType: "implemented_by",
+        edgeType: "supports",
         fromId: dId,
         fromNodeType: "decision",
         toId: rId,
         toNodeType: "reference",
+        props: { role: "implemented_by" },
         actor: userId,
       });
       const tx2 = await createChangeset(c, {

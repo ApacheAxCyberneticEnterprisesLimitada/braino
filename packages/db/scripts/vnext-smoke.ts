@@ -79,7 +79,7 @@ async function main(): Promise<void> {
       actor: userId,
     });
 
-    // --- Edge create (implemented_by: decision -> reference) ---
+    // --- Edge create (supports/implemented_by: decision -> reference) ---
     const tx1 = await createChangeset(c, {
       docoId,
       actor: userId,
@@ -88,12 +88,12 @@ async function main(): Promise<void> {
     });
     const edge = await createEdge(c, tx1, {
       docoId,
-      edgeType: "implemented_by",
+      edgeType: "supports",
       fromId: decisionId,
       fromNodeType: "decision",
       toId: refId,
       toNodeType: "reference",
-      props: { note: "ships in PR #634" },
+      props: { role: "implemented_by", note: "ships in PR #634" },
       actor: userId,
     });
     check("edge has surrogate id edge_<ulid>", /^edge_[0-9A-HJKMNP-TV-Z]{26}$/.test(edge.id));
@@ -127,11 +127,12 @@ async function main(): Promise<void> {
       await c.query("SAVEPOINT dup");
       await createEdge(c, tx2, {
         docoId,
-        edgeType: "implemented_by",
+        edgeType: "supports",
         fromId: decisionId,
         fromNodeType: "decision",
         toId: refId,
         toNodeType: "reference",
+        props: { role: "implemented_by" },
         actor: userId,
       });
       await c.query("RELEASE SAVEPOINT dup");
@@ -165,11 +166,12 @@ async function main(): Promise<void> {
     });
     const recreated = await createEdge(c, tx4, {
       docoId,
-      edgeType: "implemented_by",
+      edgeType: "supports",
       fromId: decisionId,
       fromNodeType: "decision",
       toId: refId,
       toNodeType: "reference",
+      props: { role: "implemented_by" },
       actor: userId,
     });
     check("recreate after retire succeeds (live slot freed)", recreated.id !== edge.id);

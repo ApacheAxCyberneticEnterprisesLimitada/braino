@@ -11,7 +11,7 @@
 --     in a consistent order (id, doco_id, summary, lifecycle, ...).
 --   - Type-specific columns are appended.
 --   - `body_md` is on the types that have a markdown narrative body.
---   - `edges` materializes relationships between nodes for graph queries.
+--   - `edges` stores relationships between nodes for graph queries.
 --   - `audit_events` is the structured history (decision_01KRKESCBTYG4005VMPKYNYR53).
 --   - New schema changes belong in packages/db/migrations/.
 --
@@ -21,7 +21,7 @@
 --   policies — Doco-level authoring metadata (2 kinds: guidance / node_authoring)
 --   edges   — relationships between nodes
 --   users      — human OAuth identities, separate from principals
---                (which are role-personas referenced by actor_id/actors[]).
+--                (which are role-personas linked by graph edges).
 
 -- Forward-only migration ledger. Populated by `applyMigrations()` in
 -- packages/db/src/migrations.ts. New schema changes go in
@@ -55,8 +55,7 @@ ON CONFLICT (id) DO NOTHING;
 --                  OAuth clients/tokens have names on the token rows;
 --                  they are not represented as user rows.
 --   `principals` — role-personas (the "actor" in a documented business
---                  process). Referenced by Action.actor_id, Log.actor_id,
---                  Intent.actors[], etc. Modeled as a node type.
+--                  process). Linked from work through first-class edges.
 
 CREATE TABLE IF NOT EXISTS users (
   id              text PRIMARY KEY,            -- user_<ulid>
@@ -147,8 +146,8 @@ CREATE TABLE IF NOT EXISTS docos (
 
 -- Per-Doco entity tables. `body_md` carries the markdown narrative
 -- on types that have one; the remaining structured fields live in
--- `data` (jsonb). Scalar ID refs are promoted to typed FK columns
--- (e.g. actions.actor_id → principals(id)).
+-- `data` (jsonb). Scalar ID refs are promoted to typed FK columns where
+-- they do not represent node-to-node graph relationships.
 
 
 
@@ -217,12 +216,10 @@ CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
 -- mirrors how `edges` is already a single discriminated table.
 --
 -- "Wide" by design: per-type promoted SCALAR columns are preserved here as
--- real (nullable) columns so reads keep their existing column names. The five
--- promoted node→node relationship columns (parent_intent_id, decided_by,
--- superseded_by_decision_id, actor_id, template_id) were DROPPED by migration
--- 074 (option (i): edges as the authored source of truth) — each relationship
--- now lives on the `edges` table (FK'd to nodes(id)), with the authored value
--- still carried in `data`. `proposer_id` stays a column: it points at
+-- real (nullable) columns so reads keep their existing column names. The
+-- promoted node→node relationship columns were DROPPED by migration 074:
+-- each graph relationship now lives on the `edges` table (FK'd to nodes(id)).
+-- `proposer_id` stays a column: it points at
 -- `users(id)` (the OAuth identity that proposed the idea, not a node), so it is
 -- not expressible as a node→node edge. The `edges` table likewise FKs from_id /
 -- to_id to nodes(id): edges connect nodes only; org/doco containment rides on
@@ -243,10 +240,8 @@ CREATE TABLE IF NOT EXISTS nodes (
   name           text,                       -- principal display label (NULL for the others)
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
-  -- The five node→node relationship columns were dropped by migration 074:
-  -- each (intent→intent parent, decision→principal decider, decision→decision
-  -- supersession, action/log→principal actor, log→action template) is now a
-  -- first-class `edges` row (origin='field'), authored by the capture path.
+  -- Former node→node relationship columns were dropped by migration 074.
+  -- Graph relationships are first-class `edges` rows.
   -- `proposer_id` stays — it points at users(id) (the OAuth identity that
   -- proposed the idea, not a node), so it is not a node→node edge; ON DELETE
   -- SET NULL (a deleted user just drops the credit).
@@ -369,10 +364,8 @@ CREATE INDEX IF NOT EXISTS edge_versions_asof_idx ON edge_versions (entity_id, t
 -- row with a surrogate id (edge_<ulid>), lifecycle, and provenance — a
 -- peer of nodes, NOT a derived cache. Endpoints can be any node type so
 -- we can't FK them; existence + same-doco is enforced in app code.
--- Mutated by edge CRUD via commit() (origin='authored', carrying provenance)
--- and reconciled by the capture path from node relationship fields
--- (origin='field'); the indexer never wipes/rebuilds this table. Removal is
--- lifecycle='retired', never DELETE.
+-- Mutated by edge CRUD via commit(); the indexer never wipes/rebuilds this
+-- table. Removal is lifecycle='retired', never DELETE.
 CREATE TABLE IF NOT EXISTS edges (
   id              text PRIMARY KEY,           -- edge_<ulid>
   doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -383,31 +376,24 @@ CREATE TABLE IF NOT EXISTS edges (
   to_node_type    text NOT NULL,
   props           jsonb,
   lifecycle       text NOT NULL DEFAULT 'asserted',
-  -- How this edge came to exist (option (i): edges as the authored source of
-  -- truth). 'authored' = created directly via the edges API (captureEdge),
-  -- carrying its own provenance/history. 'field' = projected by the capture
-  -- path from a node relationship field (e.g. a Decision's decided_by) and
-  -- reconciled on every re-capture of that node. Only 'field' edges are
-  -- reconciled; 'authored' edges are never auto-retired.
   origin          text NOT NULL DEFAULT 'authored'
-                    CHECK (origin IN ('authored','field')),
+                    CHECK (origin IN ('authored')),
   created_at      timestamptz NOT NULL DEFAULT now(),
   created_by      text,                       -- user_<ulid>
   updated_at      timestamptz NOT NULL DEFAULT now(),
   updated_by      text,
   retired_at      timestamptz
 );
--- At most one LIVE edge per (doco, from, to, type, role/source field); retired
--- duplicates ok. Canonical edge families may carry multiple legacy roles
--- between the same nodes (e.g. actor + owner attribution), so role metadata is
--- part of the live uniqueness identity.
+-- At most one LIVE edge per (doco, from, to, type, role); retired duplicates
+-- ok. Canonical edge families may carry multiple roles between the same nodes
+-- (e.g. actor + owner attribution), so role metadata is part of the live
+-- uniqueness identity.
 CREATE UNIQUE INDEX IF NOT EXISTS edges_live_uniq
   ON edges (
     doco_id,
     from_id,
     to_id,
     edge_type,
-    COALESCE(props->>'source_field', ''),
     COALESCE(props->>'role', '')
   ) WHERE lifecycle <> 'retired';
 CREATE INDEX IF NOT EXISTS edges_doco_idx           ON edges (doco_id);

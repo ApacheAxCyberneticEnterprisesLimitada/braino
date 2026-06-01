@@ -133,10 +133,10 @@ describe("org-chart template", () => {
       expect(deterministicRule).toBeUndefined();
     });
 
-    it("every active Principal either has `reports_to` or explains why it is top-of-chain", () => {
+    it("every active Principal either has a reporting edge or explains why it is top-of-chain", () => {
       expect(rule).toBeDefined();
       expect(rule?.predicate?.kind).toBe("probabilistic");
-      expect(rule?.policy).toMatch(/either declares `reports_to`/);
+      expect(rule?.policy).toMatch(/either has a `has_parent` reporting edge/);
       expect(rule?.policy).toMatch(/top-of-chain/);
     });
 
@@ -149,23 +149,19 @@ describe("org-chart template", () => {
     });
   });
 
-  describe("team Intents declare members in `actors`", () => {
+  describe("team Intents declare members through edges", () => {
     const rule = template.policies.find(
-      (r) =>
-        r.predicate?.kind === "requires_field" &&
-        r.predicate.fields.includes("actors") &&
-        r.predicate.when_node_type?.includes("intent"),
+      (r) => r.predicate?.kind === "descriptive" && r.predicate.when_node_type?.includes("intent"),
     );
 
     it("exists", () => {
       expect(rule).toBeDefined();
-      expect(rule?.predicate?.kind).toBe("requires_field");
+      expect(rule?.predicate?.kind).toBe("descriptive");
+      if (rule?.predicate?.kind !== "descriptive") return;
+      expect(rule.predicate.spec).toMatch(/attributed_to/);
     });
 
     it("fires only on `asserted` — a team can be drafted before its roster is filled", () => {
-      // Without the gate, the default `drafting` lifecycle would make
-      // this requires_field block the moment a unit is created — the
-      // opposite of letting authors sketch incomplete structure.
       expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
   });
@@ -210,8 +206,8 @@ describe("org-chart template", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
     const summaries = guidance.map((r) => r.policy);
 
-    it("`reports_to` chains must not be circular (engine can't check yet)", () => {
-      expect(summaries.some((s) => /reports_to/i.test(s) && /circular|cycle/i.test(s))).toBe(true);
+    it("reporting chains must not be circular (engine can't check yet)", () => {
+      expect(summaries.some((s) => /reporting/i.test(s) && /circular|cycle/i.test(s))).toBe(true);
     });
 
     it("AI-agent Principals declare their human owner (mirrors User.owner_id)", () => {
@@ -260,7 +256,7 @@ describe("org-chart template", () => {
       ).toBe(true);
     });
 
-    it("team membership changes are captured as Decisions / a versioned `member_of` edge", () => {
+    it("team membership changes are captured as Decisions / edges", () => {
       expect(
         summaries.some((s) => /member(ship|_of)/i.test(s) && /Decision|versioned|edge/i.test(s)),
       ).toBe(true);
@@ -274,7 +270,7 @@ describe("org-chart template", () => {
       ).toBe(true);
     });
 
-    it("dotted-line guidance points at the structured `dotted_reports_to` field", () => {
+    it("dotted-line guidance points at `dotted_reports_to` edges", () => {
       expect(summaries.some((s) => /`dotted_reports_to`/.test(s))).toBe(true);
     });
 
@@ -283,52 +279,30 @@ describe("org-chart template", () => {
     });
   });
 
-  // After the node-table collapse dropped the five promoted node→node FK
-  // columns (#694), the project settled on one uniform model: a node→node
-  // relationship is an id-shaped POINTER FIELD in `data` — re-pointed by
-  // editing the field in place (it versions with the node) — unless it has
-  // been deliberately promoted to a first-class authored edge, which you
-  // reroute by retiring the old edge and adding a new one. `reports_to`,
-  // `dotted_reports_to`, and `same_occupant_as` are pointer fields (none is
-  // in MANAGED_RELATION_EDGE_TYPES; the org-tree reads them straight from
-  // `data`), so the guidance must frame them as edited-in-place, NOT as
-  // authored edges you retire-and-re-add. This mirrors business-processes'
-  // own "promoted pointer fields, not first-class edges" guidance.
-  describe("relationship pointer fields are re-pointed in place (post-FK-drop cohesion)", () => {
+  describe("reporting relationships are first-class edges", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
     const summaries = guidance.map((r) => r.policy);
 
-    it("frames `reports_to` as an in-place pointer field, not an edge you retire-and-re-add", () => {
-      const g = summaries.find((s) => /`reports_to`/.test(s) && /in place/i.test(s));
+    it("frames reporting lines as edges you retire-and-re-add", () => {
+      const g = summaries.find((s) => /reporting line/i.test(s) && /first-class/i.test(s));
       expect(g).toBeDefined();
-      expect(g).toMatch(/versions with the node|in place/i);
-      expect(g).not.toMatch(/retire the old `reports_to` edge/i);
+      expect(g).toMatch(/retiring the old edge and adding the new one/i);
     });
 
-    it("frames `dotted_reports_to` as an in-place pointer field, not an edge you retire to change", () => {
+    it("frames `dotted_reports_to` as edges", () => {
       const g = summaries.find((s) => /`dotted_reports_to`/.test(s));
       expect(g).toBeDefined();
-      expect(g).toMatch(/in place/i);
-      expect(g).not.toMatch(/retire (the|its) [^.]*\bedge\b/i);
+      expect(g).toMatch(/edges/i);
     });
 
-    it("frames `same_occupant_as` as an in-place pointer field, not an edge you retire to change", () => {
+    it("frames `same_occupant_as` as edges", () => {
       const g = summaries.find((s) => /`same_occupant_as`/.test(s));
       expect(g).toBeDefined();
-      expect(g).toMatch(/in place/i);
-      expect(g).not.toMatch(/retire the edge/i);
+      expect(g).toMatch(/edges/i);
     });
 
-    it("never tells authors to retire-and-re-add an edge for these promoted pointer fields", () => {
-      for (const s of summaries) {
-        if (/`reports_to`|`dotted_reports_to`|`same_occupant_as`/.test(s)) {
-          expect(s).not.toMatch(/retire (the|its) (old )?[^.]*\bedge\b.*add (the )?new/i);
-        }
-      }
-    });
-
-    it("ties the in-place model back to the dropped inter-node foreign keys", () => {
-      expect(summaries.join("\n")).toMatch(/foreign key/i);
+    it("does not describe relationship keys in Principal data", () => {
+      expect(summaries.join("\n")).not.toMatch(/Principal's `data`|pointer field/i);
     });
   });
 });

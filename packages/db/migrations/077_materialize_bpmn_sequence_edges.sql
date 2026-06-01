@@ -124,7 +124,7 @@ BEGIN
     INSERT INTO changesets (doco_id, source, reason, metadata)
     SELECT DISTINCT doco_id,
            'system',
-           'materialize BPMN sequence fields as edges',
+           'extract BPMN sequence JSON into edge rows',
            '{"migration":"077_materialize_bpmn_sequence_edges"}'::jsonb
       FROM to_insert
     RETURNING doco_id, tx_id

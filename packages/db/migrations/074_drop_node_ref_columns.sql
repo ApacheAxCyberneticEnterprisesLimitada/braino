@@ -1,8 +1,7 @@
 -- 074_drop_node_ref_columns.sql — drop the five promoted node→node FK columns.
 --
--- Option (i): first-class edges are the authored source of truth for node→node
--- relationships. Each of these columns is now an `edges` row (origin='field')
--- authored by the capture path (#689), with the value still carried in `data`:
+-- First-class edges are the authored source of truth for node→node
+-- relationships:
 --   parent_intent_id          → has_parent     (intent → intent)
 --   decided_by                → decided_by      (decision → principal)
 --   superseded_by_decision_id → superseded_by   (decision → decision)

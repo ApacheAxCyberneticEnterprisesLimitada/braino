@@ -13,6 +13,13 @@ function migration078(): string {
   return readFileSync(join(dir, name), "utf8").replace(/--[^\n]*/g, "");
 }
 
+function migration079(): string {
+  const dir = join(dbRoot, "migrations");
+  const name = readdirSync(dir).find((f) => /^079_edge_only_relation_json\.sql$/.test(f));
+  if (!name) throw new Error("079_edge_only_relation_json.sql not found");
+  return readFileSync(join(dir, name), "utf8").replace(/--[^\n]*/g, "");
+}
+
 describe("migration 078 — node JSON relation fields become edge rows", () => {
   const sql = migration078();
 
@@ -45,7 +52,12 @@ describe("migration 078 — node JSON relation fields become edge rows", () => {
     expect(sql).toMatch(/digest\([\s\S]+'sha256'/i);
   });
 
-  it("removes every managed relation field from node data", () => {
+  it("inserts ordinary authored edge rows", () => {
+    expect(sql).toMatch(/'authored'/i);
+    expect(sql).not.toMatch(/'field'/i);
+  });
+
+  it("removes every relation-shaped field from node data", () => {
     for (const field of [
       "sequence_to",
       "preceded_by",
@@ -65,6 +77,52 @@ describe("migration 078 — node JSON relation fields become edge rows", () => {
       "parent_intent_id",
       "stakeholders",
       "decided_by",
+      "template_id",
+      "relates_to",
+    ] as const) {
+      expect(sql, field).toMatch(new RegExp(`-\\s*'${field}'`, "i"));
+    }
+  });
+});
+
+describe("migration 079 — relation JSON keys are purged", () => {
+  const sql = migration079();
+
+  it("normalizes existing edge rows to authored origin", () => {
+    expect(sql).toMatch(/UPDATE\s+edges[\s\S]+SET\s+origin\s*=\s*'authored'/i);
+    expect(sql).toMatch(/CHECK\s*\(\s*origin\s+IN\s*\(\s*'authored'\s*\)\s*\)/i);
+  });
+
+  it("removes every reserved relation field name from node data", () => {
+    for (const field of [
+      "sequence_to",
+      "preceded_by",
+      "intent_ids",
+      "decision_ids",
+      "gated_by",
+      "rules_consulted",
+      "target_ref",
+      "born_from",
+      "superseded_by",
+      "implemented_by",
+      "reports_to",
+      "dotted_reports_to",
+      "same_occupant_as",
+      "actor_id",
+      "actor_principal_id",
+      "actors",
+      "actors_principal_ids",
+      "wanted_by",
+      "wanted_by_principal_id",
+      "owner_id",
+      "decided_by",
+      "decided_by_principal_id",
+      "authored_by",
+      "authored_by_principal_id",
+      "created_by_principal_id",
+      "parent_intent_id",
+      "stakeholders",
+      "stakeholders_principal_ids",
       "template_id",
       "relates_to",
     ] as const) {

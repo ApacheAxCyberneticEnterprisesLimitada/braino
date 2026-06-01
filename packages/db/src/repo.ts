@@ -7,14 +7,7 @@
 //   * Membership + OAuth tables reference `user_id` (was `principal_id`).
 //   * `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
-import {
-  MANAGED_EDGE_TYPES,
-  MANAGED_RELATION_FIELDS,
-  cardinalityForManagedField,
-  fieldForManagedEdge,
-  normalizeWriteTypes,
-  stripManagedEdgeProps,
-} from "@doco/shared";
+import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, normalizeWriteTypes } from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
 import {
@@ -218,9 +211,7 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
  * first-class edge is the single source of truth:
  *   - migration-035 scalars promoted to typed columns (from NODE_PROMOTED_COLUMNS)
  *   - principal.role_principal (promoted to its own column by the writer)
- *   - the managed node→node relationship fields (option (i)): authored as
- *     first-class edges and reconstructed from edges on read
- *     (hydrateManagedRelations), so they no longer live in stored `data`.
+ *   - graph-link field names; links live in `edges`.
  */
 const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() => {
   const out: Record<string, Set<string>> = {};
@@ -234,22 +225,6 @@ const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() =>
   return out;
 })();
 
-const MANAGED_RELATION_FIELD_SET: ReadonlySet<string> = new Set(MANAGED_RELATION_FIELDS);
-
-function isNodeRef(value: unknown): boolean {
-  if (typeof value !== "string") return false;
-  const m = /^(\w+)_/.exec(value);
-  return Boolean(m && NODE_TYPE_SET.has(m[1]));
-}
-
-function shouldStripManagedRelationField(key: string, value: unknown): boolean {
-  if (!MANAGED_RELATION_FIELD_SET.has(key)) return false;
-  // Some historical `owner_id` / `decided_by` values point at users or
-  // organizations, not graph nodes. Those are not edges, so preserve them.
-  if ((key === "owner_id" || key === "decided_by") && !isNodeRef(value)) return false;
-  return true;
-}
-
 function stripPromotedKeys(
   entityType: string,
   fm: Record<string, unknown>,
@@ -257,62 +232,10 @@ function stripPromotedKeys(
   const promoted = STRIP_KEYS_BY_TYPE[entityType];
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(fm)) {
-    if (promoted?.has(k) || shouldStripManagedRelationField(k, v)) continue;
+    if (promoted?.has(k) || BLOCKED_NODE_JSON_EDGE_FIELD_SET.has(k)) continue;
     out[k] = v;
   }
   return out;
-}
-
-/**
- * Reconstruct the managed node→node relationship fields from first-class edges
- * (option (i)). The capture path strips these from stored `data` and authors
- * them as edges; on read we patch them back onto each record's `data` for
- * compatibility callers. One batched edge query per call.
- */
-export async function hydrateManagedRelations(
-  c: pg.PoolClient,
-  entityType: string,
-  records: EntityRecord[],
-): Promise<void> {
-  if (!NODE_TYPE_SET.has(entityType) || records.length === 0) return;
-  const ids = records.map((r) => r.id);
-  const { rows } = await c.query<{
-    from_id: string;
-    edge_type: string;
-    to_id: string;
-    props: Record<string, unknown> | null;
-  }>(
-    `SELECT from_id, edge_type, to_id, props
-       FROM edges
-      WHERE from_id = ANY($1::text[]) AND edge_type = ANY($2::text[]) AND lifecycle <> 'retired'
-      ORDER BY created_at, id`,
-    [ids, MANAGED_EDGE_TYPES],
-  );
-  if (rows.length === 0) return;
-  const byFrom = new Map<string, Record<string, unknown>>();
-  for (const e of rows) {
-    const field = fieldForManagedEdge(e.edge_type, e.props);
-    if (!field) continue;
-    const cardinality = cardinalityForManagedField(field);
-    const props = stripManagedEdgeProps(e.props);
-    const value = field === "sequence_to" ? { target: e.to_id, ...props } : e.to_id;
-    let patch = byFrom.get(e.from_id);
-    if (!patch) {
-      patch = {};
-      byFrom.set(e.from_id, patch);
-    }
-    if (cardinality === "many") {
-      const list = Array.isArray(patch[field]) ? (patch[field] as unknown[]) : [];
-      list.push(value);
-      patch[field] = list;
-    } else {
-      patch[field] = value;
-    }
-  }
-  for (const rec of records) {
-    const patch = byFrom.get(rec.id);
-    if (patch) Object.assign(rec.data, patch);
-  }
 }
 
 async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
@@ -394,9 +317,7 @@ export async function getEntity(entityType: string, id: string): Promise<EntityR
       ? await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [id, entityType])
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE id = $1`, [id]);
     if (r.rowCount === 0) return null;
-    const record = rowToRecord(entityType, r.rows[0]);
-    await hydrateManagedRelations(c, entityType, [record]);
-    return record;
+    return rowToRecord(entityType, r.rows[0]);
   });
 }
 
@@ -411,9 +332,7 @@ export async function listEntitiesByDoco(
           entityType,
         ])
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1`, [docoId]);
-    const records = r.rows.map((row) => rowToRecord(entityType, row));
-    await hydrateManagedRelations(c, entityType, records);
-    return records;
+    return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
 
@@ -438,9 +357,7 @@ export async function listEntitiesByDocoAndIds(
           `SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
           [docoId, ids],
         );
-    const records = r.rows.map((row) => rowToRecord(entityType, row));
-    await hydrateManagedRelations(c, entityType, records);
-    return records;
+    return r.rows.map((row) => rowToRecord(entityType, row));
   });
 }
 

@@ -42,13 +42,11 @@ export interface FtsRowInput {
 
 export interface RebuildOptions {
   /**
-   * When set, scope the wipe to FTS rows / outgoing edges for these
-   * entity ids only — leaving the rest of the Doco's derived data
-   * untouched. Use this for single-entity captures where rebuilding
-   * the whole Doco would be wasteful.
+   * When set, scope the wipe to FTS rows for these entity ids only —
+   * leaving the rest of the Doco's derived data untouched. Use this for
+   * single-entity captures where rebuilding the whole Doco would be wasteful.
    *
-   * When unset (default), every FTS row and edge for the Doco is
-   * wiped before re-insert.
+   * When unset (default), every FTS row for the Doco is wiped before re-insert.
    */
   onlyEntityIds?: string[];
 }

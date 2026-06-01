@@ -16,9 +16,8 @@
  *   - User → `kind: "person" | "agent"`
  *   - Doco, Organization → no per-row discriminator
  *
- * `created_by` / `updated_by` reference users (the OAuth
- * identity). `actor_id` / `actors[]` / `decided_by` continue to
- * reference principals (the role-personas).
+ * `created_by` / `updated_by` reference users (the OAuth identity).
+ * Graph relationships live in first-class edge rows.
  */
 
 import type { EntityId, EntityType, NodeType } from "./branded.js";
@@ -43,8 +42,6 @@ export interface CommonFields {
   lifecycle?: Lifecycle;
   deprecated?: boolean;
   outcome?: Outcome;
-  born_from?: EntityId;
-  superseded_by?: EntityId | null;
 }
 
 /** Common fields for readable claim entities that carry a one-line summary. */
@@ -103,9 +100,8 @@ export interface User {
 
 /**
  * Principal — documented role/persona that participates in flows.
- * Referenced by `Action.actor_id`, `Log.actor_id`, `Intent.actors[]`,
- * `Intent.stakeholders[]`. Slimmed from the pre-rename Principal which
- * also held OAuth identity; that concern is now `User`.
+ * Related to work through edge rows. Slimmed from the pre-rename Principal
+ * which also held OAuth identity; that concern is now `User`.
  */
 // Principal carries `name` (display label) + `body_md` (everything
 // else); the `summary` one-liner was dropped by migration 037 because
@@ -124,33 +120,6 @@ export interface Principal extends CommonFields {
    * Principal creation no longer derives it from reserved names.
    */
   role_principal?: boolean;
-  /**
-   * Optional manager Principal. `X.reports_to = Y` ⇒ X reports to Y —
-   * projected as a `has_parent` edge with role `reports_to` for the
-   * reporting hierarchy in `org-chart` Docos.
-   * Omitted means top-of-chain; the org-chart template asks
-   * top-of-chain Principals to explain why in body_md (no manager
-   * above, founder, root agent, external authority).
-   */
-  reports_to?: EntityId<"principal">;
-  /**
-   * Secondary / dotted-line (matrix) managers. `reports_to` carries the
-   * single primary (solid-line) manager that forms the org tree; this
-   * list carries additional matrix reporting lines (project lead,
-   * functional vs operational manager) that layer on top without
-   * reparenting the node. Each materializes as a `has_parent` edge
-   * with role `dotted_reports_to`; the org-tree perspective draws them dashed.
-   */
-  dotted_reports_to?: EntityId<"principal">[];
-  /**
-   * Other seats filled by the same occupant. A Principal is a *seat*
-   * (role + current occupant); when one person/agent holds several
-   * seats (the CEO who also acts as VP Eng), link the seats with
-   * `same_occupant_as` so the chart can tell it's one occupant rather
-   * than duplicating them. Materializes as a `relates_to` edge with role
-   * `same_occupant_as`.
-   */
-  same_occupant_as?: EntityId<"principal">[];
 }
 
 // ─── Doco (root entity) ───────────────────────────────────────────────────
@@ -194,14 +163,7 @@ export interface Intent extends CommonFields {
   node_type: "intent";
   /** Full prose: what someone wants, why, success criteria. */
   intent: string;
-  parent_intent_id?: EntityId<"intent"> | null;
   priority?: "p0" | "p1" | "p2" | "p3";
-  stakeholders?: EntityId<"principal">[];
-  /**
-   * Principals expected to act in this flow. Each id should also be
-   * the `actor_id` of at least one Action serving this Intent.
-   */
-  actors?: EntityId<"principal">[];
 }
 
 // ─── Idea ─────────────────────────────────────────────────────────────────
@@ -263,17 +225,7 @@ export type AuthoringPredicate =
       incoming_field_must_match: string;
       when_node_type?: NodeType[];
     }
-  /**
-   * Field-resolution check: `entity[field]` must be the id of an
-   * existing Principal (role-persona). Used to reject e.g. an Action
-   * whose `actor_id` is a free-text string rather than a real
-   * principal id.
-   *
-   * Post-rename: principals no longer carry a `type` field — the
-   * person/agent split moved to User. The predicate no longer
-   * constrains by `allowed_principal_types`; it just enforces that the
-   * field resolves to an existing principal.
-   */
+  /** Field-resolution check: `entity[field]` must be the id of an existing Principal. */
   | {
       kind: "requires_field_resolves_to_principal";
       field: string;
@@ -333,22 +285,10 @@ export interface Decision extends CommonFields {
   node_type: "decision";
   /** Full prose: the decision narrative — context, chosen path, why. */
   decision: string;
-  intent_ids?: EntityId<"intent">[];
   question: string;
   chosen: string | null; // null while lifecycle is "drafting"
   alternatives?: DecisionAlternative[];
-  rules_consulted?: EntityId<"rule">[];
-  /**
-   * Who decided. References the Principal (role-persona) who made the call —
-   * matches the capture-API contract (PR #66). Authored on the Decision and
-   * projected by the capture path into a first-class `attributed_to` edge
-   * with role `decided_by` (decision → principal). There is no
-   * longer a promoted `decided_by` column — migration 074 dropped it (option
-   * (i): edges are the authored source of truth for node→node relationships).
-   */
-  decided_by: EntityId<"principal">;
   decided_at: string;
-  superseded_by?: EntityId<"decision"> | null;
 }
 
 // ─── Action (designed step) ───────────────────────────────────────────────
@@ -358,15 +298,10 @@ export interface Action extends CommonFields {
   /** Full prose: past-tense verb phrase describing what was done + context. */
   action: string;
   verb: string;
-  /** Who performs the step — a role-principal. */
-  actor_id: EntityId<"principal">;
   target?: EntityId;
-  intent_ids?: EntityId<"intent">[];
-  decision_ids?: EntityId<"decision">[];
   inputs?: Record<string, unknown>;
   outputs?: Record<string, unknown>;
   triggered_by?: EntityId<"action">[];
-  gated_by?: EntityId<"rule">[];
 }
 
 // ─── Log (recorded happening) ─────────────────────────────────────────────
@@ -376,15 +311,10 @@ export interface Log extends CommonFields {
   /** Full prose: what happened, when, in what state. */
   log: string;
   verb: string;
-  /** The principal (role) who performed it. */
-  actor_id: EntityId<"principal">;
   happened_at: string;
   target?: EntityId;
-  intent_ids?: EntityId<"intent">[];
-  decision_ids?: EntityId<"decision">[];
   inputs?: Record<string, unknown>;
   outputs?: Record<string, unknown>;
-  template_id?: EntityId<"action">;
 }
 
 // ─── Eval (test/eval) ─────────────────────────────────────────────────────
@@ -407,7 +337,6 @@ export interface Eval extends CommonFields {
   expected?: unknown;
   actual?: unknown;
   criterion: EvalCriterion;
-  target_ref?: EntityId;
   last_run_at?: string;
   last_status?: "pass" | "fail" | "pending";
   last_reason?: string;
@@ -445,7 +374,6 @@ export interface State extends CommonFields {
   /** Full prose: state description, invariants explained. */
   state: string;
   kind: StateKind;
-  intent_ids?: EntityId<"intent">[];
   invariants?: string[];
 }
 

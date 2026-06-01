@@ -1,5 +1,5 @@
--- 078_materialize_json_relation_edges.sql — move every node relationship field
--- out of nodes.data and into first-class edges.
+-- 078_materialize_json_relation_edges.sql — one-time extraction of graph
+-- relations from node JSON into first-class edge rows.
 --
 -- Idempotent: skips any existing live edge with the same (doco, from, to, type)
 -- and then strips the legacy JSON keys from nodes.
@@ -241,7 +241,7 @@ BEGIN
     INSERT INTO changesets (doco_id, source, reason, metadata)
     SELECT DISTINCT doco_id,
            'system',
-           'materialize node relation fields as edges',
+           'extract node JSON relations into edge rows',
            '{"migration":"078_materialize_json_relation_edges"}'::jsonb
       FROM to_insert
     RETURNING doco_id, tx_id
@@ -251,7 +251,7 @@ BEGIN
       (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type,
        props, lifecycle, origin, created_by, updated_by)
     SELECT id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type,
-           props, 'asserted', 'field', actor, actor
+           props, 'asserted', 'authored', actor, actor
       FROM to_insert
     ON CONFLICT (id) DO NOTHING
     RETURNING *
