@@ -103,6 +103,31 @@ describe("decision-record templates", () => {
     }
   });
 
+  it("phrases support records using current node types", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const membership = template(handle).policies.find(
+        (p) =>
+          p.predicate?.kind === "probabilistic" && p.predicate.when_node_type?.includes("decision"),
+      );
+      const spec = membership?.predicate?.kind === "probabilistic" ? membership.predicate.spec : "";
+      expect(spec).toMatch(/Intents for/i);
+      expect(spec).toMatch(/Rules for/i);
+      expect(spec).toMatch(/References/i);
+      expect(spec).toMatch(/Evals/i);
+      expect(spec).toMatch(/Principal nodes/i);
+    }
+  });
+
+  it("describes accountable decision roles with first-class attribution edges", () => {
+    const guidance = template("architectural-decisions")
+      .policies.filter((p) => !p.predicate)
+      .map((p) => p.policy)
+      .join("\n");
+    expect(guidance).toMatch(/`attributed_to` edge/i);
+    expect(guidance).toMatch(/role `decided_by`/i);
+    expect(guidance).not.toMatch(/in `decided_by`/i);
+  });
+
   it("specializes quality gates by decision domain", () => {
     const expectations: Record<(typeof DECISION_RECORD_HANDLES)[number], RegExp[]> = {
       "architectural-decisions": [/ADR/i, /quality attributes/i, /migration/i, /rollback/i],

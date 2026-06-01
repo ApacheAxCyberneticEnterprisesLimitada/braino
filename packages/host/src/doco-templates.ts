@@ -253,7 +253,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       membershipPolicy:
         "A node belongs in architectural-decisions when it records or supports an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
       membershipSpec:
-        "PASS for ADRs, architecture goals, architecture principles, technology-selection records, security/privacy architecture constraints, References to RFCs/specs/PRs, Evals that validate an architectural claim, and Principals representing accountable technical owners or review bodies. FAIL for product roadmap choices, UI design choices, raw incidents, implementation tasks without architectural consequence, or data-definition decisions better owned by data-decisions.",
+        "PASS for ADR Decisions, Intents for architecture goals or outcomes, Rules for architecture principles or constraints, technology-selection Decisions, security/privacy architecture Rules, References to RFCs/specs/PRs, Evals that validate an architectural claim, and Principal nodes for accountable technical owners or review bodies. FAIL for product roadmap choices, UI design choices, raw incidents, implementation tasks without architectural consequence, or data-definition decisions better owned by data-decisions.",
       qualityPolicy:
         "An active architectural Decision reads like an ADR: it states context and problem, decision drivers or quality attributes, options considered, chosen approach, consequences and trade-offs, implementation/migration impact, and the review or rollback trigger.",
       qualitySpec:
@@ -262,7 +262,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         "Create an architectural Decision for choices that are hard to reverse or broadly consequential: platform/runtime choices, service boundaries, data ownership across systems, API contracts, security controls, reliability targets, deployment topology, build/release architecture, or cross-team technical standards.",
         "Architectural Decisions that create enduring technical rules should spawn or link Rules, such as API compatibility rules, service ownership rules, dependency constraints, or security requirements.",
         "Link implementation PRs, migration plans, diagrams, benchmark results, threat models, and incident learnings as References so the ADR remains explainable after the code has moved on.",
-        "Architecture records name the accountable technical owner or review group in `decided_by` or prose, and call out product, design, data, security, or operations stakeholders when the decision crosses those boundaries.",
+        "Architecture records link the accountable technical owner or review group with an `attributed_to` edge carrying role `decided_by`, or name it in prose if no Principal node exists yet, and call out product, design, data, security, or operations stakeholders when the decision crosses those boundaries.",
       ],
     }),
   },
@@ -277,7 +277,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       membershipPolicy:
         "A node belongs in product-decisions when it records or supports a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
       membershipSpec:
-        "PASS for product decision records, product goals, product principles, customer/research References, Evals for experiments or metrics, and Principals representing product decision roles. FAIL for engineering implementation choices, visual/interface design details better owned by design-decisions, pure data-governance choices, one-off support events, or unpromoted feature ideas with no decision yet.",
+        "PASS for product Decision records, Intents for product goals or outcomes, Rules for product principles or commitments, customer/research References, Evals for experiments or metrics, and Principal nodes for product decision roles. FAIL for engineering implementation choices, visual/interface design details better owned by design-decisions, pure data-governance choices, one-off support events, or unpromoted feature ideas with no decision yet.",
       qualityPolicy:
         "An active product Decision states the user/customer problem, strategic goal, evidence, assumptions, options considered, chosen product direction, explicit trade-offs, success metric, accountable decision role, and revisit trigger.",
       qualitySpec:
@@ -301,7 +301,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       membershipPolicy:
         "A node belongs in design-decisions when it records or supports a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
       membershipSpec:
-        "PASS for design decision records, design goals, design-system Rules, research or Figma References, usability/accessibility Evals, and Principals representing design reviewers or accountable owners. FAIL for raw engineering architecture, product priority calls without UX implications, data governance decisions, or cosmetic preference notes with no user or system rationale.",
+        "PASS for design Decision records, Intents for design goals or target user outcomes, Rules for design-system conventions, research or Figma References, usability/accessibility Evals, and Principal nodes for design reviewers or accountable owners. FAIL for raw engineering architecture, product priority calls without UX implications, data governance decisions, or cosmetic preference notes with no user or system rationale.",
       qualityPolicy:
         "An active design Decision states the user journey or service moment, evidence, alternatives considered, chosen pattern, affected states and edge cases, accessibility/content implications, trade-offs, artifacts, and validation plan.",
       qualitySpec:
@@ -325,7 +325,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       membershipPolicy:
         "A node belongs in data-decisions when it records or supports a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
       membershipSpec:
-        "PASS for data decision records, data-governance goals, data Rules, data contract References, quality or freshness Evals, and Principals representing data owners, stewards, producers, or consumer groups. FAIL for UI design decisions, generic product roadmap choices, pure application architecture with no data ownership/semantics impact, or raw pipeline run Logs.",
+        "PASS for data Decision records, Intents for data-governance goals or target outcomes, Rules for data governance, quality, or contract constraints, data contract References, quality or freshness Evals, and Principal nodes for data owners, stewards, producers, or consumer groups. FAIL for UI design decisions, generic product roadmap choices, pure application architecture with no data ownership/semantics impact, or raw pipeline run Logs.",
       qualityPolicy:
         "An active data Decision states the data asset or definition, accountable owner/steward, producers and consumers, source of truth, schema or semantics, privacy/access/retention stance, quality and freshness expectations, lineage, migration/backfill impact, and monitoring/revisit plan.",
       qualitySpec:
