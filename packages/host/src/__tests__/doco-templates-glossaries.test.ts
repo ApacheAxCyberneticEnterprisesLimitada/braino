@@ -36,12 +36,12 @@ describe("glossaries template", () => {
     expect(template.allowedNodeTypes).toBeUndefined();
   });
 
-  describe("entity-type allowlist", () => {
+  describe("node-type allowlist", () => {
     const allowlist = template.policies.find(
-      (r) => r.predicate?.kind === "requires_entity_type",
+      (r) => r.predicate?.kind === "requires_node_type",
     )?.predicate;
     const allowlistPolicy = template.policies.find(
-      (r) => r.predicate?.kind === "requires_entity_type",
+      (r) => r.predicate?.kind === "requires_node_type",
     )?.policy;
     const membershipPolicy = template.policies.find(
       (r) =>
@@ -50,32 +50,30 @@ describe("glossaries template", () => {
         /belongs in glossaries/i.test(r.policy),
     );
 
-    it("allows glossary content plus the two policy entity types", () => {
-      expect(allowlist?.kind).toBe("requires_entity_type");
-      if (allowlist?.kind !== "requires_entity_type") return;
-      expect([...allowlist.entity_types].sort()).toEqual(
-        [
-          "decision",
-          "eval",
-          "guidance_policy",
-          "node_authoring_policy",
-          "reference",
-          "rule",
-        ].sort(),
+    it("allows only glossary content node types", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["decision", "eval", "reference", "rule"].sort(),
       );
     });
 
-    it("excludes scope, activity, event, structure, and idea entities", () => {
-      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
+    it("does not list Doco policy metadata as glossary content", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      expect(allowlist.node_types).not.toContain("guidance_policy" as never);
+      expect(allowlist.node_types).not.toContain("node_authoring_policy" as never);
+    });
+
+    it("excludes activity, event, structure, and idea nodes", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
       for (const t of ["intent", "action", "log", "principal", "state", "idea"]) {
-        expect(allowlist.entity_types).not.toContain(t);
+        expect(allowlist.node_types).not.toContain(t as never);
       }
     });
 
-    it("keeps policies admitted but names them as Doco-scoped metadata, not glossary graph nodes", () => {
-      expect(allowlistPolicy).toMatch(/Policy records/i);
-      expect(allowlistPolicy).toMatch(/Doco-scoped/i);
-      expect(allowlistPolicy).toMatch(/not glossary graph nodes/i);
+    it("describes only glossary graph nodes, not Doco policy metadata", () => {
+      expect(allowlistPolicy).toMatch(/Only Decision, Rule, Reference, and Eval/i);
+      expect(allowlistPolicy).not.toMatch(/guidance_policy|node_authoring_policy|policy records/i);
     });
 
     it("does not run the semantic membership judge against Intents", () => {

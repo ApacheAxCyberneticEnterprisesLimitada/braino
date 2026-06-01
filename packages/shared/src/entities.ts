@@ -168,11 +168,11 @@ export interface Idea extends CommonFields {
  * write time. Stored as `Rule.predicate`.
  *
  * `when_node_type` filters a predicate to candidates of specific node
- * types. The membership gates (`requires_node_type` /
- * `requires_entity_type`) carry no `when_node_type`, so they fire against
- * every candidate — including policy captures. A gate that must admit
- * in-Doco policy authoring therefore uses `requires_entity_type` and
- * lists the policy types (a node-only gate would reject them).
+ * types. Membership gates (`requires_node_type` / `requires_entity_type`)
+ * carry no `when_node_type`, so they fire against every node candidate.
+ * Policy records are Doco-scoped metadata; the evaluator lets them pass
+ * membership gates without forcing each template to list policy entity
+ * types as domain content.
  */
 export type AuthoringPredicate =
   | {
@@ -200,10 +200,8 @@ export type AuthoringPredicate =
   | { kind: "requires_node_type"; node_types: NodeType[] }
   /**
    * Like `requires_node_type` but matches on the candidate's id prefix,
-   * so it accepts any entity type — including the two policy kinds. Used
-   * by every template whose membership gate must admit in-Doco policy
-   * authoring (glossaries, business-processes, org-chart): a node-only
-   * gate blocks policy captures because they carry no `node_type`.
+   * for callers that intentionally allow broader entity categories than
+   * graph nodes.
    */
   | { kind: "requires_entity_type"; entity_types: EntityType[] }
   | { kind: "probabilistic"; spec: string; when_node_type?: NodeType[] }

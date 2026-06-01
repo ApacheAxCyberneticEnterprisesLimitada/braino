@@ -121,15 +121,13 @@ export interface DocoTemplate {
   defaultNodeLifecycle?: Lifecycle;
 }
 
-const DECISION_RECORD_ENTITY_TYPES = [
+const DECISION_RECORD_NODE_TYPES = [
   "intent",
   "decision",
   "eval",
   "reference",
   "rule",
   "principal",
-  "guidance_policy",
-  "node_authoring_policy",
 ] as const;
 
 interface DecisionRecordTemplatePolicyOptions {
@@ -166,10 +164,10 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
     },
     {
       policy:
-        "Only Intent, Decision, Eval, Reference, Rule, Principal, Guidance policy, and Node-authoring policy records belong in a decision-record Doco. Guidance policies and Node-authoring policies may be managed here, but they are Doco-scoped metadata, not decision-record nodes. Actions, Logs, States, and Ideas belong in sibling Docos unless promoted into an actual decision record.",
+        "Only Intent, Decision, Eval, Reference, Rule, and Principal belong in a decision-record Doco. Actions, Logs, States, and Ideas belong in sibling Docos unless promoted into an actual decision record.",
       predicate: {
-        kind: "requires_entity_type",
-        entity_types: [...DECISION_RECORD_ENTITY_TYPES],
+        kind: "requires_node_type",
+        node_types: [...DECISION_RECORD_NODE_TYPES],
       },
     },
     {
@@ -435,17 +433,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Only Decision, Rule, Reference, and Eval are glossary graph nodes. Policy records are admitted as Doco-scoped metadata for guidance and authoring checks, not glossary graph nodes. Intents, Actions, Logs, States, Ideas, and Principals have their own homes.",
+          "Only Decision, Rule, Reference, and Eval are glossary graph nodes. Intents, Actions, Logs, States, Ideas, and Principals have their own homes.",
         predicate: {
-          kind: "requires_entity_type",
-          entity_types: [
-            "decision",
-            "rule",
-            "reference",
-            "eval",
-            "guidance_policy",
-            "node_authoring_policy",
-          ],
+          kind: "requires_node_type",
+          node_types: ["decision", "rule", "reference", "eval"],
         },
       },
 
@@ -599,7 +590,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // bare state-machine stage, so the judge warned on the very
         // initial/terminal States the template REQUIRES — a false-positive
         // on every process. States are structural flow nodes admitted by
-        // the entity-type allowlist; their quality is governed by the
+        // the node-type allowlist; their quality is governed by the
         // milestone-naming probabilistic policy below, not this membership
         // gate.
         on_violation: "warn",
@@ -612,18 +603,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        // Deterministic entity-type allowlist. Logs (recorded executions)
+        // Deterministic node-type allowlist. Logs (recorded executions)
         // live in a sibling Doco and are surfaced here via Reference;
-        // Ideas live in their own home until promoted. The Doco's own
-        // policies (guidance_policy / node_authoring_policy) are admitted
-        // so authors can add process-specific authoring rules in place —
-        // policy candidates carry no `node_type`, so a node-only gate
-        // would block them (this gate fires against every candidate).
+        // Ideas live in their own home until promoted. Policy records are
+        // Doco-scoped metadata and bypass template membership gates in the
+        // authoring evaluator.
         policy:
-          "Business-process nodes are Intent, Action, Decision, State, Eval, Reference, Rule, and Principal. Policies are Doco-scoped authoring metadata, not process nodes, though this template admits guidance_policy and node_authoring_policy so process-specific authoring rules can be managed in place. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
+          "Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
-          kind: "requires_entity_type",
-          entity_types: [
+          kind: "requires_node_type",
+          node_types: [
             "intent",
             "action",
             "decision",
@@ -632,8 +621,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
             "reference",
             "rule",
             "principal",
-            "guidance_policy",
-            "node_authoring_policy",
           ],
         },
       },
@@ -921,30 +908,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     policies: [
       // ── Membership ──────────────────────────────────────────────
       {
-        // Deterministic entity-type allowlist. Org charts are made of
+        // Deterministic node-type allowlist. Org charts are made of
         // Principals (members), Intents (teams/units), Decisions
         // (appointments / reorgs), References (external org diagrams,
         // headcount budgets), and Rules (delegation policies).
         // Actions, States, Evals, Logs, and Ideas have their own
         // homes; an org chart describes who reports to whom, not
-        // what they do. The Doco's own policy types (guidance_policy /
-        // node_authoring_policy) are admitted too so authors can add
-        // org-specific authoring rules in place, but policies are
-        // Doco-scoped metadata, not org-chart nodes. Policy candidates
-        // carry no `node_type`, so a node-only gate would block them.
+        // what they do. Policy records are Doco-scoped metadata and
+        // bypass template membership gates in the authoring evaluator.
         policy:
-          "Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes. Policies are Doco-scoped authoring metadata, not org-chart nodes, though this template still admits guidance_policy and node_authoring_policy so org-specific authoring rules can be managed in place. Actions describe activities (use business-processes); States describe stages; Evals describe checks; Logs describe events; Ideas live in their own home.",
+          "Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes. Actions describe activities (use business-processes); States describe stages; Evals describe checks; Logs describe events; Ideas live in their own home.",
         predicate: {
-          kind: "requires_entity_type",
-          entity_types: [
-            "principal",
-            "intent",
-            "decision",
-            "reference",
-            "rule",
-            "guidance_policy",
-            "node_authoring_policy",
-          ],
+          kind: "requires_node_type",
+          node_types: ["principal", "intent", "decision", "reference", "rule"],
         },
       },
 

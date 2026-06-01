@@ -122,6 +122,8 @@ const NODE_TYPE_PREDICATE_KINDS: ReadonlySet<AuthoringPredicate["kind"]> = new S
   "descriptive",
 ]);
 
+const POLICY_ENTITY_TYPES = new Set(["guidance_policy", "node_authoring_policy"]);
+
 function isNonEmpty(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -133,6 +135,14 @@ function isNonEmpty(value: unknown): boolean {
 function entityTypeFromId(id: string): string {
   const i = id.lastIndexOf("_");
   return i <= 0 ? "" : id.slice(0, i);
+}
+
+function isPolicyMetadataCandidate(candidate: CandidateFields): boolean {
+  return (
+    candidate.policy_kind === "guidance" ||
+    candidate.policy_kind === "node_authoring" ||
+    POLICY_ENTITY_TYPES.has(entityTypeFromId(candidate.id))
+  );
 }
 
 function comparableFieldValue(value: unknown, caseFold: boolean): string | null {
@@ -264,6 +274,7 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       return fail(`\`${pred.field}\`${value} duplicates active ${duplicate.id}`);
     }
     case "requires_node_type": {
+      if (isPolicyMetadataCandidate(candidate)) return null;
       const ct = candidate.node_type;
       if (ct && pred.node_types.includes(ct)) return null;
       return fail(
@@ -271,6 +282,7 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       );
     }
     case "requires_entity_type": {
+      if (isPolicyMetadataCandidate(candidate)) return null;
       const fromId = entityTypeFromId(candidate.id);
       if (fromId && (pred.entity_types as readonly string[]).includes(fromId)) return null;
       return fail(

@@ -302,6 +302,67 @@ describe("authoring evaluator — requires_node_type", () => {
     expect(v).toHaveLength(1);
     expect(v[0]?.reason).toMatch(/log/);
   });
+
+  it("treats Doco policy records as metadata outside template node allowlists", () => {
+    const membershipPolicy = P({
+      kind: "requires_node_type",
+      node_types: ["intent", "decision", "principal"],
+    });
+    const policyCandidates: CandidateFields[] = [
+      {
+        id: "guidance_policy_01",
+        policy_kind: "guidance",
+        policy: "Capture important decisions.",
+      },
+      {
+        id: "node_authoring_policy_01",
+        policy_kind: "node_authoring",
+        policy: "Decisions must explain alternatives.",
+      },
+    ];
+
+    for (const candidate of policyCandidates) {
+      expect(evaluate(candidate, [membershipPolicy])).toEqual([]);
+    }
+  });
+});
+
+describe("authoring evaluator — requires_entity_type", () => {
+  const membershipPolicy = P({
+    kind: "requires_entity_type",
+    entity_types: ["intent", "decision", "principal"],
+  });
+
+  it("passes when the candidate id prefix is in the allowlist", () => {
+    const v = evaluate({ id: "decision_01", node_type: "decision" }, [membershipPolicy]);
+    expect(v).toEqual([]);
+  });
+
+  it("fails when the candidate id prefix is not in the allowlist", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [membershipPolicy]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.predicate_kind).toBe("requires_entity_type");
+    expect(v[0]?.reason).toMatch(/action/);
+  });
+
+  it("treats Doco policy records as metadata outside template membership allowlists", () => {
+    const policyCandidates: CandidateFields[] = [
+      {
+        id: "guidance_policy_01",
+        policy_kind: "guidance",
+        policy: "Capture important decisions.",
+      },
+      {
+        id: "node_authoring_policy_01",
+        policy_kind: "node_authoring",
+        policy: "Decisions must explain alternatives.",
+      },
+    ];
+
+    for (const candidate of policyCandidates) {
+      expect(evaluate(candidate, [membershipPolicy])).toEqual([]);
+    }
+  });
 });
 
 describe("authoring evaluator — requires_field_resolves_to_principal", () => {

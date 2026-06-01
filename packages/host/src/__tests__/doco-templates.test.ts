@@ -47,48 +47,39 @@ describe("business-processes template", () => {
     expect(template.perspectives).toEqual([{ slug: "bpmn", isDefault: true }]);
   });
 
-  describe("entity-type allowlist", () => {
+  describe("node-type allowlist", () => {
     const allowlist = template.policies.find(
-      (r) => r.predicate?.kind === "requires_entity_type",
+      (r) => r.predicate?.kind === "requires_node_type",
     )?.predicate;
 
-    it("includes the eight process node types plus the Doco's own policy types", () => {
-      expect(allowlist?.kind).toBe("requires_entity_type");
-      if (allowlist?.kind !== "requires_entity_type") return;
-      expect([...allowlist.entity_types].sort()).toEqual(
-        [
-          "action",
-          "decision",
-          "eval",
-          "guidance_policy",
-          "intent",
-          "node_authoring_policy",
-          "principal",
-          "reference",
-          "rule",
-          "state",
-        ].sort(),
+    it("includes only process node types", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["action", "decision", "eval", "intent", "principal", "reference", "rule", "state"].sort(),
       );
     });
 
-    it("admits in-Doco policy authoring (guidance_policy / node_authoring_policy)", () => {
-      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
-      expect(allowlist.entity_types).toContain("guidance_policy");
-      expect(allowlist.entity_types).toContain("node_authoring_policy");
+    it("does not list Doco policy metadata as business-process content", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      expect(allowlist.node_types).not.toContain("guidance_policy" as never);
+      expect(allowlist.node_types).not.toContain("node_authoring_policy" as never);
     });
 
-    it("describes policy types separately from business-process nodes", () => {
+    it("describes only business-process nodes, not Doco policy metadata", () => {
       const policy = template.policies.find(
-        (r) => r.predicate?.kind === "requires_entity_type",
+        (r) => r.predicate?.kind === "requires_node_type",
       )?.policy;
-      expect(policy ?? "").toMatch(/Business-process nodes are Intent, Action, Decision/i);
-      expect(policy ?? "").toMatch(/Policies are Doco-scoped authoring metadata/i);
+      expect(policy ?? "").toMatch(
+        /Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal/i,
+      );
+      expect(policy ?? "").not.toMatch(/guidance_policy|node_authoring_policy|policy records/i);
     });
 
     it("excludes Log and Idea (Logs live in a sibling Doco; Ideas live in their own home)", () => {
-      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
-      expect(allowlist.entity_types).not.toContain("log");
-      expect(allowlist.entity_types).not.toContain("idea");
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      expect(allowlist.node_types).not.toContain("log");
+      expect(allowlist.node_types).not.toContain("idea");
     });
   });
 

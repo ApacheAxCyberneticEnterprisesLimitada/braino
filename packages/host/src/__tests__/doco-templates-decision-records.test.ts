@@ -8,12 +8,10 @@ const DECISION_RECORD_HANDLES = [
   "data-decisions",
 ] as const;
 
-const DECISION_RECORD_ENTITY_TYPES = [
+const DECISION_RECORD_NODE_TYPES = [
   "decision",
   "eval",
-  "guidance_policy",
   "intent",
-  "node_authoring_policy",
   "principal",
   "reference",
   "rule",
@@ -45,28 +43,29 @@ describe("decision-record templates", () => {
     }
   });
 
-  it("allows only decision-record support entities and in-Doco policies", () => {
+  it("allows only decision-record support node types", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const allowlist = template(handle).policies.find(
-        (p) => p.predicate?.kind === "requires_entity_type",
+        (p) => p.predicate?.kind === "requires_node_type",
       )?.predicate;
-      expect(allowlist?.kind).toBe("requires_entity_type");
-      if (allowlist?.kind !== "requires_entity_type") return;
-      expect([...allowlist.entity_types].sort()).toEqual(DECISION_RECORD_ENTITY_TYPES);
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(DECISION_RECORD_NODE_TYPES);
       for (const excluded of ["action", "log", "state", "idea"]) {
-        expect(allowlist.entity_types).not.toContain(excluded);
+        expect(allowlist.node_types).not.toContain(excluded as never);
       }
+      expect(allowlist.node_types).not.toContain("guidance_policy" as never);
+      expect(allowlist.node_types).not.toContain("node_authoring_policy" as never);
     }
   });
 
-  it("describes policy types as Doco-scoped metadata instead of decision-record nodes", () => {
+  it("describes only decision-record nodes, not Doco policy metadata", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const policy = template(handle).policies.find(
-        (p) => p.predicate?.kind === "requires_entity_type",
+        (p) => p.predicate?.kind === "requires_node_type",
       )?.policy;
-      expect(policy).toMatch(/Guidance policies and Node-authoring policies may be managed here/i);
-      expect(policy).toMatch(/Doco-scoped metadata, not decision-record nodes/i);
-      expect(policy).not.toMatch(/Doco's own policies belong/i);
+      expect(policy).toMatch(/Only Intent, Decision, Eval, Reference, Rule, and Principal/i);
+      expect(policy).not.toMatch(/guidance_policy|node_authoring_policy|policy records/i);
     }
   });
 

@@ -39,48 +39,40 @@ describe("org-chart template", () => {
     expect(template.allowedNodeTypes).toBeUndefined();
   });
 
-  describe("entity-type allowlist", () => {
+  describe("node-type allowlist", () => {
     const allowlist = template.policies.find(
-      (r) => r.predicate?.kind === "requires_entity_type",
+      (r) => r.predicate?.kind === "requires_node_type",
     )?.predicate;
 
-    it("includes the five org node types plus the Doco's own policy types", () => {
-      expect(allowlist?.kind).toBe("requires_entity_type");
-      if (allowlist?.kind !== "requires_entity_type") return;
-      expect([...allowlist.entity_types].sort()).toEqual(
-        [
-          "decision",
-          "guidance_policy",
-          "intent",
-          "node_authoring_policy",
-          "principal",
-          "reference",
-          "rule",
-        ].sort(),
+    it("includes only the five org node types", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["decision", "intent", "principal", "reference", "rule"].sort(),
       );
     });
 
-    it("admits in-Doco policy authoring (guidance_policy / node_authoring_policy)", () => {
-      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
-      expect(allowlist.entity_types).toContain("guidance_policy");
-      expect(allowlist.entity_types).toContain("node_authoring_policy");
+    it("does not list Doco policy metadata as org-chart nodes", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      expect(allowlist.node_types).not.toContain("guidance_policy" as never);
+      expect(allowlist.node_types).not.toContain("node_authoring_policy" as never);
     });
 
     it("excludes Action, State, Eval, Log, and Idea (those describe activity, not org structure)", () => {
-      if (allowlist?.kind !== "requires_entity_type") throw new Error("allowlist missing");
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
       for (const t of ["action", "state", "eval", "log", "idea"]) {
-        expect(allowlist.entity_types).not.toContain(t);
+        expect(allowlist.node_types).not.toContain(t as never);
       }
     });
 
     it("describes only the org-chart node types as org-chart nodes", () => {
       const policy = template.policies.find(
-        (r) => r.predicate?.kind === "requires_entity_type",
+        (r) => r.predicate?.kind === "requires_node_type",
       )?.policy;
       expect(policy).toMatch(
         /Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes/i,
       );
-      expect(policy).toMatch(/Policies are Doco-scoped authoring metadata, not org-chart nodes/i);
+      expect(policy).not.toMatch(/guidance_policy|node_authoring_policy|polic/i);
       expect(policy).toMatch(/Evals/i);
     });
   });
