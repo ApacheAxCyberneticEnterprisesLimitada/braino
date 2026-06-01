@@ -541,7 +541,7 @@ export async function upsertHostConfig(opts: {
   });
 }
 
-// ─── Users (OAuth identity layer) ─────────────────────────────────
+// ─── Users (human OAuth identity layer) ───────────────────────────
 
 export interface UserRow {
   id: string;

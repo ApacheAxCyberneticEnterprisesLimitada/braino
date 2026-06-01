@@ -20,7 +20,7 @@
 --               log/eval/reference/state/principal)
 --   policies — Doco-level authoring metadata (2 kinds: guidance / node_authoring)
 --   edges   — relationships between nodes
---   users      — OAuth identities (person/agent), separate from principals
+--   users      — human OAuth identities, separate from principals
 --                (which are role-personas referenced by actor_id/actors[]).
 
 -- Forward-only migration ledger. Populated by `applyMigrations()` in
@@ -50,10 +50,10 @@ ON CONFLICT (id) DO NOTHING;
 -- Identity layer.
 --
 -- Two distinct concerns, split into two tables:
---   `users`      — OAuth identity (person or agent runtime that holds
---                  auth tokens). Authored nodes via `created_by` /
---                  `updated_by`. Members of orgs/docos. Agent users are
---                  owned by an organization; person users are unowned.
+--   `users`      — OAuth identity for humans. Authored nodes via
+--                  `created_by` / `updated_by`. Members of orgs/docos.
+--                  OAuth clients/tokens have names on the token rows;
+--                  they are not represented as user rows.
 --   `principals` — role-personas (the "actor" in a documented business
 --                  process). Referenced by Action.actor_id, Log.actor_id,
 --                  Intent.actors[], etc. Modeled as a node type.
@@ -527,6 +527,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   client_id             text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id               text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   redirect_uri          text NOT NULL,
+  token_name            text,
   code_challenge        text NOT NULL,
   code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
   granted_doco_ids      text[] NOT NULL,
@@ -564,6 +565,7 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_name        text,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -590,6 +592,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_name        text,
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -628,6 +631,7 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   status           text NOT NULL DEFAULT 'pending'
                      CHECK (status IN ('pending','approved','denied')),
   user_id             text REFERENCES users(id) ON DELETE CASCADE,
+  token_name          text,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -649,12 +653,20 @@ CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
 -- existing table; this block does.
 ALTER TABLE oauth_authorization_codes
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS token_name text;
 ALTER TABLE oauth_access_tokens
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_access_tokens
+  ADD COLUMN IF NOT EXISTS token_name text;
 ALTER TABLE oauth_refresh_tokens
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_refresh_tokens
+  ADD COLUMN IF NOT EXISTS token_name text;
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS token_name text;
 
 -- Org-level grants. A token can carry a list of org ids the user
 -- approved; access then follows org-owned Docos live (including ones
