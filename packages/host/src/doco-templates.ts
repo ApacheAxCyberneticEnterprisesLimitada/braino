@@ -580,6 +580,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           ],
         },
       },
+      {
+        // Import provenance belongs in structured metadata, References,
+        // or history, not in the labels/prose that BPMN readers scan.
+        // This stays LLM-judged because terms like "source" and
+        // "implementation" can be legitimate business language; the bad
+        // case is raw importer/debug scaffolding leaking into process text.
+        policy:
+          "Business-process nodes must keep imported BPMN/source metadata out of user-facing prose.",
+        on_violation: "block",
+        predicate: {
+          kind: "probabilistic",
+          spec: 'Check the candidate\'s visible user-facing text fields, including name, body_md, intent, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
+          when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
+        },
+        fires_when_node_lifecycle: ["asserted"],
+      },
 
       // ── Principal shape ──────────────────────────────────────────
       {

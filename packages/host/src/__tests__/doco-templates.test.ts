@@ -266,6 +266,24 @@ describe("business-processes template", () => {
       );
       expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
+    it("blocks imported BPMN/source metadata in user-facing process prose", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" && /imported BPMN\/source metadata/i.test(r.policy),
+      );
+      expect(rule?.on_violation).toBe("block");
+      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rule?.predicate?.kind).toBe("probabilistic");
+      if (rule?.predicate?.kind !== "probabilistic") return;
+      expect(rule.predicate.when_node_type).toEqual(
+        expect.arrayContaining(["intent", "action", "decision", "state", "eval", "rule"]),
+      );
+      expect(rule.predicate.when_node_type).not.toContain("reference");
+      expect(rule.predicate.spec).toMatch(/Implementation status/i);
+      expect(rule.predicate.spec).toMatch(/Source type/i);
+      expect(rule.predicate.spec).toMatch(/exclusiveGateway/i);
+      expect(rule.predicate.spec).toMatch(/visible prose/i);
+    });
   });
 
   describe("guidance rules", () => {
