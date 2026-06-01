@@ -507,8 +507,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Repeatable business processes modeled on BPMN swimlanes and
-    // gateways. Sequence flow is explicit via `sequence_to`, which
-    // materializes as `sequence_flow`; flow normally runs forward, but
+    // gateways. Sequence flow is explicit via first-class `sequence_flow`
+    // edges; flow normally runs forward, but
     // rework loops may route back through a gateway. Generic Doco
     // dependency / rationale edges remain associations and are not
     // treated as BPMN arrows.
@@ -695,10 +695,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
         policy:
-          "Gateway Decisions in business-processes have exhaustive outgoing branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` plus `sequence_to` branch labels either include a default/else branch or name every enum value.",
+          "Gateway Decisions in business-processes have exhaustive outgoing branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` plus outgoing `sequence_flow` branch labels either include a default/else branch or name every enum value.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Decision's `question`, `alternatives`, and any `sequence_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
+          spec: "Check the Decision's `question`, `alternatives`, and any outgoing `sequence_flow` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_node_type: ["decision"],
         },
         fires_when_node_lifecycle: ["asserted"],
@@ -712,7 +712,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Flow runs forward from the initial State: each active initial State has ≥1 outgoing `sequence_to`, every non-initial flow node is reachable from an earlier flow node through forward `sequence_to`, and every non-terminal flow node has ≥1 outgoing `sequence_to` target in the same process Intent. Terminal States have no outgoing `sequence_to` — they end the process path.",
+          "Flow runs forward from the initial State: each active initial State has ≥1 outgoing `sequence_flow` edge, every non-initial flow node is reachable from an earlier flow node through forward `sequence_flow`, and every non-terminal flow node has ≥1 outgoing `sequence_flow` target in the same process Intent. Terminal States have no outgoing `sequence_flow` — they end the process path.",
       },
       {
         // State summary as milestone/condition — noun or past-participle
@@ -777,7 +777,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`serves` via `intent_ids`, the actor via `actor_principal_id`, `gated_by`, `sequence_to`) can be set inline in the create `body` with `$alias` references, so a node can be created already `asserted` and fully wired in one op — no draft-then-assert round trip.",
+          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes with their incoming `sequence_flow` edge in the same changeset instead of creating disconnected nodes. A node's own-field relations (`serves` via `intent_ids`, the actor via `actor_principal_id`, `gated_by`) can be set inline in the create `body` with `$alias` references, but `sequence_flow` is authored as an edge relation.",
       },
       {
         policy:
@@ -785,23 +785,23 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "BPMN vocabulary: use `sequence_to` for forward process flow; it materializes as `sequence_flow` and renders source -> target with no reversal. Use `intent_ids`/`serves` for pool membership, `gated_by` for policy guards, and `decision_ids` only for rationale/provenance associations.",
+          "BPMN vocabulary: use first-class `sequence_flow` edges for forward process flow; they render source -> target with no reversal. Use `intent_ids`/`serves` for pool membership, `gated_by` for policy guards, and `decision_ids` only for rationale/provenance associations.",
       },
       {
         policy:
-          "`sequence_to` may be a list of target ids or objects like `{ target, label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
+          "`sequence_flow` edges may carry props like `{ label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
       },
       {
         policy:
-          "For parallel work, give one flow node multiple unconditional `sequence_to` targets — an AND-split needs no gateway Decision. Reserve gateway Decisions for exclusive or conditional (XOR/inclusive) branching, and reconverge parallel branches on a shared downstream node.",
+          "For parallel work, give one flow node multiple unconditional `sequence_flow` outgoing edges — an AND-split needs no gateway Decision. Reserve gateway Decisions for exclusive or conditional (XOR/inclusive) branching, and reconverge parallel branches on a shared downstream node.",
       },
       {
         policy:
-          "Rework and retry loops are allowed: a `sequence_to` may target an earlier flow node to send work back (revise-and-resubmit, fix-and-recheck). Route the loop back through a gateway Decision so the cycle has an explicit exit and can't spin forever. A single edge still renders source -> target — a loop is about where the edge points, not reversing its direction.",
+          "Rework and retry loops are allowed: a `sequence_flow` edge may target an earlier flow node to send work back (revise-and-resubmit, fix-and-recheck). Route the loop back through a gateway Decision so the cycle has an explicit exit and can't spin forever. A single edge still renders source -> target — a loop is about where the edge points, not reversing its direction.",
       },
       {
         policy:
-          'Model the unhappy path. Use `sequence_to` objects with `kind: "exception"` or `kind: "timer"` to route failures, rejections, and timeouts to a recovery step or an explicitly cancelled terminal State, so the process documents what happens when the happy path does not hold.',
+          'Model the unhappy path. Use `sequence_flow` edge props with `kind: "exception"` or `kind: "timer"` to route failures, rejections, and timeouts to a recovery step or an explicitly cancelled terminal State, so the process documents what happens when the happy path does not hold.',
       },
       {
         policy:
@@ -813,7 +813,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_to` wiring are coherent.",
+          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor assignments, Intent links, and forward `sequence_flow` wiring are coherent.",
       },
       {
         policy:

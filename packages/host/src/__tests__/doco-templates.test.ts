@@ -214,14 +214,16 @@ describe("business-processes template", () => {
     });
     it("Terminal States have no outgoing sequence flow is documented", () => {
       expect(
-        guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*sequence_to/i.test(s)),
+        guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*sequence_flow/i.test(s)),
       ).toBe(true);
     });
-    it("`sequence_to` locality is documented", () => {
-      expect(guidanceSummaries.some((s) => /sequence_to.*same process Intent/i.test(s))).toBe(true);
+    it("`sequence_flow` locality is documented", () => {
+      expect(guidanceSummaries.some((s) => /sequence_flow.*same process Intent/i.test(s))).toBe(
+        true,
+      );
     });
     it("forward sequence reachability is documented", () => {
-      expect(guidanceSummaries.some((s) => /forward `sequence_to`/i.test(s))).toBe(true);
+      expect(guidanceSummaries.some((s) => /forward `sequence_flow`/i.test(s))).toBe(true);
     });
   });
 
@@ -309,7 +311,7 @@ describe("business-processes template", () => {
       ).toBe(true);
     });
     it("BPMN sequence flow is forward-only and rendered without reversal", () => {
-      expect(summaries.some((s) => /sequence_to/i.test(s) && /source -> target/i.test(s))).toBe(
+      expect(summaries.some((s) => /sequence_flow/i.test(s) && /source -> target/i.test(s))).toBe(
         true,
       );
     });

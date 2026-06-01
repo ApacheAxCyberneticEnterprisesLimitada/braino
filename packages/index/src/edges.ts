@@ -68,13 +68,9 @@ function handleObject(
   obj: Record<string, unknown>,
   emit: (field: string, target: unknown, props?: Record<string, unknown>) => void,
 ): void {
-  // BPMN sequence flow: { target, label?, condition?, kind? }.
-  // Stored direction is exactly rendered direction: this node -> target.
-  if (parentField === "sequence_to" && typeof obj.target === "string") {
-    const { target, ...props } = obj;
-    emit("sequence_to", target, props);
-    return;
-  }
+  // `sequence_to` used to author BPMN control flow in node JSON. BPMN
+  // sequence flow is edge-only now, so ignore legacy nested targets here.
+  if (parentField === "sequence_to") return;
   // Reasoning.premises[]: { entity_type, ref, as }
   if (typeof obj.ref === "string" && parentField === "premises") {
     emit("premise", obj.ref, { as: obj.as });
@@ -130,6 +126,10 @@ export const SKIP_FIELDS: ReadonlySet<string> = new Set([
   "input",
   "expected",
   "actual",
+  // Process ordering is authored as first-class edges.
+  "preceded_by",
+  // BPMN sequence flow is authored as first-class `sequence_flow` edges.
+  "sequence_to",
 ]);
 
 /**
@@ -156,13 +156,6 @@ export const FIELD_TO_EDGE_TYPE: Record<string, string> = {
   // evaluated_on). The Evaluation node type is dropped — Eval uses
   // target_ref → tests instead.
   member: "member_of",
-  // ADR-077: BPMN sequence-flow ordering / dependency. Field name
-  // matches `triggered_by`'s passive voice so the direction is obvious
-  // from the name: `X.preceded_by = [Y]` ⇒ Y precedes X.
-  preceded_by: "preceded_by",
-  // BPMN-native forward sequence flow. `X.sequence_to = [Y]` means X
-  // flows to Y and renders as X -> Y, with no visual direction flip.
-  sequence_to: "sequence_flow",
   // EVO points at the entity it tests. The runner uses this edge to walk
   // from any node to its evals (and vice-versa for the eval page).
   target_ref: "tests",

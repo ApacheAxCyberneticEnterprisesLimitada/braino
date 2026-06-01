@@ -27,13 +27,6 @@ export type Lifecycle = "drafting" | "asserted" | "retired";
 
 export type Outcome = "succeeded" | "failed";
 
-export interface SequenceFlowTarget {
-  target: EntityId;
-  label?: string;
-  condition?: string;
-  kind?: "default" | "conditional" | "exception" | "timer";
-}
-
 /**
  * Common fields present on every node + policy entity (D-006,
  * D-007). The per-category discriminator (`node_type` /
@@ -52,16 +45,6 @@ export interface CommonFields {
   outcome?: Outcome;
   born_from?: EntityId;
   superseded_by?: EntityId | null;
-  /**
-   * Legacy ordering / dependency. Each listed entity precedes this one.
-   * BPMN processes should use `sequence_to` for forward sequence flow.
-   */
-  preceded_by?: EntityId[];
-  /**
-   * BPMN-native forward sequence flow. Each listed target happens after
-   * this entity; object entries can carry branch labels / conditions.
-   */
-  sequence_to?: (EntityId | SequenceFlowTarget)[];
 }
 
 /** Common fields for readable claim entities that carry a one-line summary. */

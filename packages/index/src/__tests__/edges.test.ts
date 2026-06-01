@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { deriveEdges } from "../edges.js";
 
 describe("deriveEdges", () => {
-  it("materializes BPMN sequence_to as forward sequence_flow edges", () => {
+  it("does not materialize BPMN sequence_to from node JSON", () => {
     const edges = deriveEdges({
       id: "decision_01KSJ000000000000000000000",
       doco_id: "doco_01KSJ000000000000000000000",
@@ -26,25 +26,7 @@ describe("deriveEdges", () => {
       ],
     } as unknown as Entity);
 
-    expect(edges).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          from_id: "decision_01KSJ000000000000000000000",
-          to_id: "action_01KSJ000000000000000000003",
-          edge_type: "sequence_flow",
-        }),
-        expect.objectContaining({
-          from_id: "decision_01KSJ000000000000000000000",
-          to_id: "action_01KSJ000000000000000000004",
-          edge_type: "sequence_flow",
-          edge_props: {
-            label: "No credits",
-            condition: "credits = 0",
-            kind: "conditional",
-          },
-        }),
-      ]),
-    );
+    expect(edges.some((edge) => edge.edge_type === "sequence_flow")).toBe(false);
   });
 
   it("materializes Decision.implemented_by as implemented_by edges to PR/commit References", () => {
