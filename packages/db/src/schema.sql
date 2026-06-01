@@ -258,7 +258,7 @@ CREATE TABLE IF NOT EXISTS node_versions (
   version      int  NOT NULL,
   op           text NOT NULL CHECK (op IN ('create','update','retire')),
   payload      jsonb NOT NULL,
-  tx_id        bigint NOT NULL REFERENCES changesets(tx_id),
+  tx_id        bigint NOT NULL REFERENCES changesets(tx_id) ON DELETE CASCADE,
   actor        text,
   recorded_at  timestamptz NOT NULL DEFAULT now(),
   prev_hash    text,                          -- Merkle hash chain (see verifyHistory in history.ts)
@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS edge_versions (
   version      int  NOT NULL,
   op           text NOT NULL CHECK (op IN ('create','update','retire')),
   payload      jsonb NOT NULL,
-  tx_id        bigint NOT NULL REFERENCES changesets(tx_id),
+  tx_id        bigint NOT NULL REFERENCES changesets(tx_id) ON DELETE CASCADE,
   actor        text,
   recorded_at  timestamptz NOT NULL DEFAULT now(),
   prev_hash    text,
@@ -799,8 +799,56 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
 -- bypass. Inserts are allowed; "removal" is a retire VERSION, never a delete.
 -- Idempotent (CREATE OR REPLACE + DROP IF EXISTS), so it re-asserts on every
 -- cold start.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'node_versions'::regclass
+       AND conname = 'node_versions_tx_id_fkey'
+       AND confdeltype = 'c'
+  ) THEN
+    ALTER TABLE node_versions DROP CONSTRAINT IF EXISTS node_versions_tx_id_fkey;
+    ALTER TABLE node_versions
+      ADD CONSTRAINT node_versions_tx_id_fkey
+      FOREIGN KEY (tx_id) REFERENCES changesets(tx_id) ON DELETE CASCADE;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1
+      FROM pg_constraint
+     WHERE conrelid = 'edge_versions'::regclass
+       AND conname = 'edge_versions_tx_id_fkey'
+       AND confdeltype = 'c'
+  ) THEN
+    ALTER TABLE edge_versions DROP CONSTRAINT IF EXISTS edge_versions_tx_id_fkey;
+    ALTER TABLE edge_versions
+      ADD CONSTRAINT edge_versions_tx_id_fkey
+      FOREIGN KEY (tx_id) REFERENCES changesets(tx_id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+CREATE OR REPLACE FUNCTION doco_allow_history_delete_for_doco() RETURNS trigger AS $$
+BEGIN
+  PERFORM set_config('doco.allow_history_delete', 'on', true);
+  RETURN OLD;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS docos_allow_history_delete ON docos;
+CREATE TRIGGER docos_allow_history_delete
+  BEFORE DELETE ON docos
+  FOR EACH ROW
+  EXECUTE FUNCTION doco_allow_history_delete_for_doco();
+
 CREATE OR REPLACE FUNCTION doco_block_history_mutation() RETURNS trigger AS $$
 BEGIN
+  IF TG_OP = 'DELETE'
+    AND current_setting('doco.allow_history_delete', true) = 'on'
+    AND pg_trigger_depth() > 1
+  THEN
+    RETURN OLD;
+  END IF;
   RAISE EXCEPTION 'history append-only: % on % is not allowed', TG_OP, TG_TABLE_NAME;
 END;
 $$ LANGUAGE plpgsql;
