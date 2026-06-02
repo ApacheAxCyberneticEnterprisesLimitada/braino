@@ -2,7 +2,7 @@ import {
   DEFAULT_ORG_CONSTITUTION,
   type EntityId,
   HOST_RESERVED_SLUGS,
-  type Organization,
+  type Workspace,
   generateUlid,
   makeEntityId,
   nowIso,
@@ -59,7 +59,7 @@ export function buildTemplatePerspectiveSeeds(
   return seeds;
 }
 
-function assertPublicHandleAllowed(handle: string, kind: "user" | "organization"): void {
+function assertPublicHandleAllowed(handle: string, kind: "user" | "workspace"): void {
   if (!HANDLE_PATTERN.test(handle)) {
     throw new Error(`Invalid ${kind} handle "${handle}" — expected lowercase [a-z0-9][a-z0-9_-]*.`);
   }
@@ -119,7 +119,7 @@ export async function addUser(opts: AddUserOptions): Promise<EntityId<"user">> {
     const dup = await c.query(
       `SELECT 1 FROM users WHERE LOWER(github_login) = LOWER($1)
        UNION
-       SELECT 1 FROM organizations WHERE handle = $1
+       SELECT 1 FROM workspaces WHERE handle = $1
        LIMIT 1`,
       [opts.username],
     );
@@ -140,31 +140,31 @@ export async function addUser(opts: AddUserOptions): Promise<EntityId<"user">> {
       ],
     );
   });
-  await ensurePersonalOrganization(id, opts.username);
+  await ensurePersonalWorkspace(id, opts.username);
   return id;
 }
 
-export async function ensurePersonalOrganization(
+export async function ensurePersonalWorkspace(
   userId: string,
   username: string,
-): Promise<EntityId<"organization">> {
+): Promise<EntityId<"workspace">> {
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
     const existing = await c.query<{ id: string }>(
-      "SELECT id FROM organizations WHERE handle = $1 LIMIT 1",
+      "SELECT id FROM workspaces WHERE handle = $1 LIMIT 1",
       [username],
     );
     if (existing.rows[0]) {
       await c.query(
-        `INSERT INTO org_users (org_id, user_id, role)
+        `INSERT INTO workspace_users (workspace_id, user_id, role)
          VALUES ($1, $2, 'owner')
-         ON CONFLICT (org_id, user_id) DO NOTHING`,
+         ON CONFLICT (workspace_id, user_id) DO NOTHING`,
         [existing.rows[0].id, userId],
       );
-      return existing.rows[0].id as EntityId<"organization">;
+      return existing.rows[0].id as EntityId<"workspace">;
     }
 
-    const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
+    const id = makeEntityId("workspace", generateUlid()) as EntityId<"workspace">;
     const created = nowIso();
     const data = {
       id,
@@ -173,12 +173,12 @@ export async function ensurePersonalOrganization(
       created_at: created,
     };
     await c.query(
-      `INSERT INTO organizations (id, handle, name, data, created_at, updated_at)
+      `INSERT INTO workspaces (id, handle, name, data, created_at, updated_at)
        VALUES ($1, $2, $3, $4::jsonb, $5, $5)`,
       [id, username, username, JSON.stringify(data), created],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, user_id, role, joined_at)
+      `INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
       [id, userId, created],
     );
@@ -186,16 +186,16 @@ export async function ensurePersonalOrganization(
   });
 }
 
-export async function findAvailableOrgHandle(requested: string): Promise<string> {
+export async function findAvailableWorkspaceHandle(requested: string): Promise<string> {
   const base = requested.trim().toLowerCase();
-  if (!base) throw new Error("Organization handle is required.");
-  assertPublicHandleAllowed(base, "organization");
+  if (!base) throw new Error("Workspace handle is required.");
+  assertPublicHandleAllowed(base, "workspace");
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
     let candidate = base;
     let n = 2;
     while (true) {
-      const taken = await c.query("SELECT 1 FROM organizations WHERE handle = $1 LIMIT 1", [
+      const taken = await c.query("SELECT 1 FROM workspaces WHERE handle = $1 LIMIT 1", [
         candidate,
       ]);
       if (taken.rows.length === 0) return candidate;
@@ -224,24 +224,26 @@ export async function findAvailableDocoHandle(requestedHandle: string): Promise<
   });
 }
 
-export async function addOrganizationByHandle(opts: {
+export async function addWorkspaceByHandle(opts: {
   handle: string;
   ownerUserId: string;
   autoSuffix?: boolean;
-}): Promise<{ id: EntityId<"organization">; handle: string }> {
-  assertPublicHandleAllowed(opts.handle, "organization");
+}): Promise<{ id: EntityId<"workspace">; handle: string }> {
+  assertPublicHandleAllowed(opts.handle, "workspace");
   const { withClient } = await import("@doco/db");
-  const finalHandle = opts.autoSuffix ? await findAvailableOrgHandle(opts.handle) : opts.handle;
+  const finalHandle = opts.autoSuffix
+    ? await findAvailableWorkspaceHandle(opts.handle)
+    : opts.handle;
   return withClient(async (c) => {
     if (!opts.autoSuffix) {
-      const taken = await c.query("SELECT 1 FROM organizations WHERE handle = $1 LIMIT 1", [
+      const taken = await c.query("SELECT 1 FROM workspaces WHERE handle = $1 LIMIT 1", [
         finalHandle,
       ]);
       if (taken.rows.length > 0) {
         throw new Error(`Handle "${finalHandle}" is already taken.`);
       }
     }
-    const id = makeEntityId("organization", generateUlid()) as EntityId<"organization">;
+    const id = makeEntityId("workspace", generateUlid()) as EntityId<"workspace">;
     const created = nowIso();
     const data = {
       id,
@@ -250,12 +252,12 @@ export async function addOrganizationByHandle(opts: {
       created_at: created,
     };
     await c.query(
-      `INSERT INTO organizations (id, handle, name, constitution, data, created_at, updated_at)
+      `INSERT INTO workspaces (id, handle, name, constitution, data, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6)`,
       [id, finalHandle, finalHandle, DEFAULT_ORG_CONSTITUTION, JSON.stringify(data), created],
     );
     await c.query(
-      `INSERT INTO org_users (org_id, user_id, role, joined_at)
+      `INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)
        VALUES ($1, $2, 'owner', $3)`,
       [id, opts.ownerUserId, created],
     );
@@ -263,8 +265,8 @@ export async function addOrganizationByHandle(opts: {
   });
 }
 
-export async function createDocoInOrg(opts: {
-  orgId: string;
+export async function createDocoInWorkspace(opts: {
+  workspaceId: string;
   requestedHandle: string;
   createdByUserId: string;
   visibility?: "private" | "public";
@@ -280,8 +282,8 @@ export async function createDocoInOrg(opts: {
   goal?: string;
 }): Promise<{
   docoId: EntityId<"doco">;
-  orgId: string;
-  orgHandle: string;
+  workspaceId: string;
+  workspaceHandle: string;
   handle: string;
   goal: string;
 }> {
@@ -291,16 +293,16 @@ export async function createDocoInOrg(opts: {
 
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
-    const orgRow = await c.query<{ id: string; handle: string }>(
-      "SELECT id, handle FROM organizations WHERE id = $1",
-      [opts.orgId],
+    const workspaceRow = await c.query<{ id: string; handle: string }>(
+      "SELECT id, handle FROM workspaces WHERE id = $1",
+      [opts.workspaceId],
     );
-    if (orgRow.rowCount === 0) {
-      throw new Error(`Organization "${opts.orgId}" not found.`);
+    if (workspaceRow.rowCount === 0) {
+      throw new Error(`Workspace "${opts.workspaceId}" not found.`);
     }
-    const orgHandle = String(orgRow.rows[0]?.handle ?? "");
-    if (!orgHandle) {
-      throw new Error(`Organization "${opts.orgId}" has no handle.`);
+    const workspaceHandle = String(workspaceRow.rows[0]?.handle ?? "");
+    if (!workspaceHandle) {
+      throw new Error(`Workspace "${opts.workspaceId}" has no handle.`);
     }
 
     let handle = baseHandle;
@@ -332,8 +334,8 @@ export async function createDocoInOrg(opts: {
       id: docoId,
       handle,
       visibility,
-      owner_id: opts.orgId,
-      org_id: opts.orgId,
+      owner_id: opts.workspaceId,
+      workspace_id: opts.workspaceId,
       template_handle: opts.templateHandle ?? null,
       created_at: created,
       created_by: opts.createdByUserId,
@@ -343,7 +345,7 @@ export async function createDocoInOrg(opts: {
     };
 
     await c.query(
-      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data,
+      `INSERT INTO docos (id, handle, owner_id, workspace_id, visibility, data,
                           allowed_node_types, default_node_lifecycle,
                           goal,
                           created_at, updated_at)
@@ -351,8 +353,8 @@ export async function createDocoInOrg(opts: {
       [
         docoId,
         handle,
-        opts.orgId,
-        opts.orgId,
+        opts.workspaceId,
+        opts.workspaceId,
         visibility,
         JSON.stringify(data),
         allowedNodeTypes,
@@ -362,16 +364,16 @@ export async function createDocoInOrg(opts: {
       ],
     );
     // Skip the doco_users insert when the creator is already `owner`
-    // on the owning org — they'd inherit owner role via getDocoLevelRole
+    // on the owning workspace — they'd inherit owner role via getDocoLevelRole
     // and the explicit row would just be redundant. We only carry the
-    // doco_users grant for creators whose org role is below owner; in
+    // doco_users grant for creators whose workspace role is below owner; in
     // that case they need an explicit owner row on what they created.
-    const orgRoleRow = await c.query<{ role: string }>(
-      "SELECT role FROM org_users WHERE org_id = $1 AND user_id = $2",
-      [opts.orgId, opts.createdByUserId],
+    const workspaceRoleRow = await c.query<{ role: string }>(
+      "SELECT role FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
+      [opts.workspaceId, opts.createdByUserId],
     );
-    const orgRole = orgRoleRow.rows[0]?.role;
-    if (orgRole !== "owner") {
+    const workspaceRole = workspaceRoleRow.rows[0]?.role;
+    if (workspaceRole !== "owner") {
       await c.query(
         `INSERT INTO doco_users (doco_id, user_id, role, joined_at)
          VALUES ($1, $2, 'owner', $3)
@@ -452,7 +454,7 @@ export async function createDocoInOrg(opts: {
       );
     }
 
-    return { docoId, orgId: opts.orgId, orgHandle, handle, goal };
+    return { docoId, workspaceId: opts.workspaceId, workspaceHandle, handle, goal };
   });
 }
 
@@ -567,4 +569,4 @@ export async function softDeleteDoco(opts: {
   return { deletedPath: `postgres:docos/${deleted.handle}` };
 }
 
-export type { Organization };
+export type { Workspace };

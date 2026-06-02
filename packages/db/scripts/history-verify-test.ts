@@ -18,19 +18,19 @@ function check(label: string, cond: boolean): void {
 async function main(): Promise<void> {
   const c = await pool.connect();
   try {
-    const orgId = makeEntityId("organization", generateUlid());
+    const workspaceId = makeEntityId("workspace", generateUlid());
     const userId = makeEntityId("user", generateUlid());
     const docoId = makeEntityId("doco", generateUlid());
     const dId = makeEntityId("decision", generateUlid());
     const rId = makeEntityId("reference", generateUlid());
-    await c.query(`INSERT INTO organizations (id,handle,name,data) VALUES ($1,$2,'O','{}')`, [
-      orgId,
+    await c.query(`INSERT INTO workspaces (id,handle,name,data) VALUES ($1,$2,'O','{}')`, [
+      workspaceId,
       `o-${generateUlid().slice(0, 8).toLowerCase()}`,
     ]);
     await c.query(`INSERT INTO users (id,data) VALUES ($1,'{}')`, [userId]);
     await c.query(
-      `INSERT INTO docos (id,handle,owner_id,org_id,visibility,goal,data) VALUES ($1,$2,$3,$4,'private','g','{}')`,
-      [docoId, `d-${generateUlid().slice(0, 8).toLowerCase()}`, orgId, orgId],
+      `INSERT INTO docos (id,handle,owner_id,workspace_id,visibility,goal,data) VALUES ($1,$2,$3,$4,'private','g','{}')`,
+      [docoId, `d-${generateUlid().slice(0, 8).toLowerCase()}`, workspaceId, workspaceId],
     );
     await c.query(
       `INSERT INTO nodes (id,doco_id,node_type,lifecycle,prose,data) VALUES ($1,$2,'decision','asserted','D','{}')`,

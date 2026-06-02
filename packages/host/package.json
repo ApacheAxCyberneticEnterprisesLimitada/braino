@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-  "description": "Postgres-backed organization, Doco, user, and template services.",
+  "description": "Postgres-backed workspace, Doco, user, and template services.",
   "license": "Apache-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

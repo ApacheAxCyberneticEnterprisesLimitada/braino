@@ -9,7 +9,7 @@ import { CATALOG_NODE_TYPES } from "./entity-catalog.js";
  *   - Policies (2):       Doco-level authoring metadata
  *   - User (1):   OAuth identity layer
  *   - Doco (1):           workspace container
- *   - Organization (1):   org container
+ *   - Workspace (1):   workspace container
  *
  * `EntityType` is the union of all 14 discriminator strings; `NodeType`
  * and `PolicyType` are the narrower types for code that wants to
@@ -29,8 +29,8 @@ export type Ulid = Brand<string, "Ulid">;
  */
 export type DocoHandle = Brand<string, "DocoHandle">;
 
-/** URL handle for an Organization — the segment after `/orgs/`. */
-export type OrgHandle = Brand<string, "OrgHandle">;
+/** URL handle for an Workspace — the segment after `/workspaces/`. */
+export type WorkspaceHandle = Brand<string, "WorkspaceHandle">;
 
 /** The 10 node types — graph-knowledge entities. */
 export const NODE_TYPES = CATALOG_NODE_TYPES;
@@ -46,8 +46,8 @@ export type PolicyType = (typeof POLICY_TYPES)[number];
 export const USER_TYPE = "user" as const;
 export type UserType = typeof USER_TYPE;
 
-/** The container types — docos and organizations. */
-export const CONTAINER_TYPES = ["doco", "organization"] as const;
+/** The container types — docos and workspaces. */
+export const CONTAINER_TYPES = ["doco", "workspace"] as const;
 export type ContainerType = (typeof CONTAINER_TYPES)[number];
 
 /**
@@ -85,8 +85,8 @@ export function isUlid(value: unknown): value is Ulid {
 
 const HANDLE_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
-/** Validate the shape of a handle (Doco or Org). Does not check uniqueness. */
-export function isHandle(value: unknown): value is DocoHandle | OrgHandle {
+/** Validate the shape of a handle (Doco or Workspace). Does not check uniqueness. */
+export function isHandle(value: unknown): value is DocoHandle | WorkspaceHandle {
   return typeof value === "string" && HANDLE_REGEX.test(value);
 }
 
@@ -99,9 +99,9 @@ export function asDocoHandle(value: string): DocoHandle | null {
   return isHandle(value) ? (value as DocoHandle) : null;
 }
 
-/** Coerce a string to an OrgHandle after validating shape. */
-export function asOrgHandle(value: string): OrgHandle | null {
-  return isHandle(value) ? (value as OrgHandle) : null;
+/** Coerce a string to an WorkspaceHandle after validating shape. */
+export function asWorkspaceHandle(value: string): WorkspaceHandle | null {
+  return isHandle(value) ? (value as WorkspaceHandle) : null;
 }
 
 export function isEntityId(value: unknown): value is EntityId {

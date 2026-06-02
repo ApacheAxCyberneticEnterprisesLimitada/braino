@@ -8,7 +8,7 @@
 --
 -- Schema rules:
 --   - `nodes` stores every graph entity, discriminated by `node_type`.
---   - Policies, users, organizations, and Docos live in dedicated tables.
+--   - Policies, users, workspaces, and Docos live in dedicated tables.
 --   - `edges` stores relationships between nodes for graph queries.
 --   - `audit_events` stores structured mutation history.
 --
@@ -19,6 +19,130 @@
 --   edges   — relationships between nodes
 --   users      — human OAuth identities, separate from principals
 --                (which are role-personas linked by graph edges).
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Heal: the "organization" container was renamed to "workspace" — table,
+-- columns, and the `organization_<ulid>` id prefix. schema.sql is additive and
+-- re-applied on every boot, so a database provisioned under the old names is
+-- migrated in place here, BEFORE the CREATE TABLEs below would otherwise mint a
+-- second, empty `workspaces` table. Guarded on the old `organizations` table
+-- still existing, so it runs once per database and is a no-op on fresh installs
+-- and on every boot thereafter. The org-CHART perspective (perspective_org_tree)
+-- is a different concept and is deliberately untouched.
+DO $$
+DECLARE
+  fk   record;
+  tbl  text;
+BEGIN
+  -- Serialize across concurrent boots: only one instance runs the rename, the
+  -- rest wait and then see `organizations` already gone and return. The lock is
+  -- transaction-scoped (this DO block), so it releases as soon as we finish.
+  PERFORM pg_advisory_xact_lock(704932185);
+
+  IF NOT EXISTS (
+    SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'organizations'
+  ) THEN
+    RETURN;
+  END IF;
+
+  -- 1. Rename the tables.
+  ALTER TABLE organizations RENAME TO workspaces;
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'org_users') THEN
+    ALTER TABLE org_users RENAME TO workspace_users;
+  END IF;
+
+  -- 2. Rename org-prefixed columns to their workspace names.
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'workspace_users' AND column_name = 'org_id') THEN
+    ALTER TABLE workspace_users RENAME COLUMN org_id TO workspace_id;
+  END IF;
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'docos' AND column_name = 'org_id') THEN
+    ALTER TABLE docos RENAME COLUMN org_id TO workspace_id;
+  END IF;
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'audit_events' AND column_name = 'org_id') THEN
+    ALTER TABLE audit_events RENAME COLUMN org_id TO workspace_id;
+  END IF;
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'chat_conversations' AND column_name = 'attached_org_handles') THEN
+    ALTER TABLE chat_conversations RENAME COLUMN attached_org_handles TO attached_workspace_handles;
+  END IF;
+  FOREACH tbl IN ARRAY ARRAY['oauth_authorization_codes','oauth_access_tokens','oauth_refresh_tokens','oauth_device_authorizations'] LOOP
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = tbl AND column_name = 'granted_org_ids') THEN
+      EXECUTE format('ALTER TABLE %I RENAME COLUMN granted_org_ids TO granted_workspace_ids', tbl);
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = tbl AND column_name = 'granted_org_roles') THEN
+      EXECUTE format('ALTER TABLE %I RENAME COLUMN granted_org_roles TO granted_workspace_roles', tbl);
+    END IF;
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_name = tbl AND column_name = 'granted_org_write_types') THEN
+      EXECUTE format('ALTER TABLE %I RENAME COLUMN granted_org_write_types TO granted_workspace_write_types', tbl);
+    END IF;
+  END LOOP;
+
+  -- 3. Drop FKs that reference the renamed table, rewrite organization_<ulid>
+  --    ids to workspace_<ulid>, then re-add the FKs under workspace names.
+  FOR fk IN
+    SELECT conrelid::regclass AS rel, conname
+      FROM pg_constraint
+     WHERE confrelid = 'workspaces'::regclass AND contype = 'f'
+  LOOP
+    EXECUTE format('ALTER TABLE %s DROP CONSTRAINT %I', fk.rel, fk.conname);
+  END LOOP;
+
+  UPDATE workspaces      SET id           = replace(id, 'organization_', 'workspace_')           WHERE id LIKE 'organization_%';
+  UPDATE workspace_users SET workspace_id = replace(workspace_id, 'organization_', 'workspace_') WHERE workspace_id LIKE 'organization_%';
+  UPDATE docos           SET workspace_id = replace(workspace_id, 'organization_', 'workspace_') WHERE workspace_id LIKE 'organization_%';
+  UPDATE docos           SET owner_id     = replace(owner_id, 'organization_', 'workspace_')     WHERE owner_id LIKE 'organization_%';
+  UPDATE audit_events    SET workspace_id = replace(workspace_id, 'organization_', 'workspace_') WHERE workspace_id LIKE 'organization_%';
+  UPDATE audit_events    SET entity_id    = replace(entity_id, 'organization_', 'workspace_')    WHERE entity_id LIKE 'organization_%';
+
+  ALTER TABLE workspace_users ADD CONSTRAINT workspace_users_workspace_id_fkey
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+  ALTER TABLE docos ADD CONSTRAINT docos_workspace_id_fkey
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+  ALTER TABLE audit_events ADD CONSTRAINT audit_events_workspace_id_fkey
+    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+
+  -- 4. Rewrite organization_<ulid> ids embedded in OAuth grant scopes.
+  FOREACH tbl IN ARRAY ARRAY['oauth_authorization_codes','oauth_access_tokens','oauth_refresh_tokens','oauth_device_authorizations'] LOOP
+    CONTINUE WHEN NOT EXISTS (
+      SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = tbl
+    );
+    EXECUTE format($q$
+      UPDATE %I SET granted_workspace_ids =
+        string_to_array(replace(array_to_string(granted_workspace_ids, ','), 'organization_', 'workspace_'), ',')
+       WHERE array_to_string(granted_workspace_ids, ',') LIKE '%%organization_%%'
+    $q$, tbl);
+    EXECUTE format($q$
+      UPDATE %I SET granted_workspace_roles =
+        replace(granted_workspace_roles::text, 'organization_', 'workspace_')::jsonb
+       WHERE granted_workspace_roles::text LIKE '%%organization_%%'
+    $q$, tbl);
+    EXECUTE format($q$
+      UPDATE %I SET granted_workspace_write_types =
+        replace(granted_workspace_write_types::text, 'organization_', 'workspace_')::jsonb
+       WHERE granted_workspace_write_types::text LIKE '%%organization_%%'
+    $q$, tbl);
+  END LOOP;
+
+  -- Invites (opaque jsonb blob) may embed organization_<ulid> ids + grant maps.
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'tokens_blob') THEN
+    UPDATE tokens_blob SET blob = replace(blob::text, 'organization_', 'workspace_')::jsonb
+     WHERE blob::text LIKE '%organization_%';
+  END IF;
+
+  -- Group-chat connections: target_level 'org' -> 'workspace', the workspace
+  -- id they carry, and the CHECK constraint.
+  IF EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename = 'group_chat_channel_connections') THEN
+    ALTER TABLE group_chat_channel_connections DROP CONSTRAINT IF EXISTS group_chat_channel_connections_target_level_check;
+    UPDATE group_chat_channel_connections SET target_level = 'workspace' WHERE target_level = 'org';
+    UPDATE group_chat_channel_connections SET target_id = replace(target_id, 'organization_', 'workspace_')
+     WHERE target_id LIKE 'organization_%';
+    ALTER TABLE group_chat_channel_connections
+      ADD CONSTRAINT group_chat_channel_connections_target_level_check CHECK (target_level IN ('workspace','doco'));
+  END IF;
+
+  -- 5. Drop now-stale org-named indexes; CREATE INDEX below re-mints them.
+  DROP INDEX IF EXISTS org_users_user_idx;
+  DROP INDEX IF EXISTS audit_events_org_idx;
+END $$;
 
 -- Host config (singleton row at id='host').
 CREATE TABLE IF NOT EXISTS hosts (
@@ -41,7 +165,7 @@ ON CONFLICT (id) DO NOTHING;
 --
 -- Two distinct concerns, split into two tables:
 --   `users`      — OAuth identity for humans. Authored nodes via
---                  `created_by` / `updated_by`. Members of orgs/docos.
+--                  `created_by` / `updated_by`. Members of workspaces/docos.
 --                  OAuth clients/tokens have names on the token rows;
 --                  they are not represented as user rows.
 --   `principals` — role-personas (the "actor" in a documented business
@@ -61,36 +185,36 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
 
 
-CREATE TABLE IF NOT EXISTS organizations (
+CREATE TABLE IF NOT EXISTS workspaces (
   id          text PRIMARY KEY,
   handle      text NOT NULL UNIQUE,
   name        text NOT NULL,
-  -- Free-form governing charter for the org — the standing "how work is
-  -- done here" text shared with every agent granted access to the org at
-  -- bootstrap, and shown on the org home page.
+  -- Free-form governing charter for the workspace — the standing "how work is
+  -- done here" text shared with every agent granted access to the workspace at
+  -- bootstrap, and shown on the workspace home page.
   constitution text NOT NULL DEFAULT '',
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
--- Organization users (per-org role grants).
-CREATE TABLE IF NOT EXISTS org_users (
-  org_id        text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+-- Workspace users (per-workspace role grants).
+CREATE TABLE IF NOT EXISTS workspace_users (
+  workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
   -- Per-type write grants. '*' = write every type; owners ignore this and
   -- write everything.
   write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (org_id, user_id)
+  PRIMARY KEY (workspace_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS org_users_user_idx ON org_users (user_id);
+CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
 
 -- Account-level access grants. An account grant from grantor to grantee gives
--- the grantee `role` (+ optional per-type write_types) on every org the
--- grantor owns and, via the org-to-Doco cascade in the access engine, every
--- Doco under those orgs. Live grant: orgs the grantor creates later are
+-- the grantee `role` (+ optional per-type write_types) on every workspace the
+-- grantor owns and, via the workspace-to-Doco cascade in the access engine, every
+-- Doco under those workspaces. Live grant: workspaces the grantor creates later are
 -- covered automatically.
 CREATE TABLE IF NOT EXISTS account_grants (
   grantor_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -110,8 +234,8 @@ CREATE INDEX IF NOT EXISTS account_grants_grantee_idx
 CREATE TABLE IF NOT EXISTS docos (
   id              text PRIMARY KEY,
   handle          text NOT NULL UNIQUE,
-  owner_id        text NOT NULL,    -- organization_<ulid>
-  org_id          text NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  owner_id        text NOT NULL,    -- workspace_<ulid>
+  workspace_id    text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
   allowed_node_types text[],
   default_node_lifecycle text,
@@ -215,7 +339,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
   at            timestamptz NOT NULL,
   by_user       text,
   doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
-  org_id        text REFERENCES organizations(id) ON DELETE CASCADE,
+  workspace_id  text REFERENCES workspaces(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
   op            text NOT NULL CHECK (op IN ('entity.create', 'entity.update', 'lifecycle.transition', 'edge.add')),
@@ -227,7 +351,7 @@ CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_id, a
 CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_user_idx ON audit_events (by_user, at DESC);
-CREATE INDEX IF NOT EXISTS audit_events_org_idx ON audit_events (org_id, at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_workspace_idx ON audit_events (workspace_id, at DESC);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Append-only history. The commit log + immutable version snapshots are the
@@ -368,7 +492,7 @@ CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING g
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
 -- Three roles (owner / writer / reader) granted at two levels
--- (org / doco). Effective role = max across levels (highest-wins
+-- (workspace / doco). Effective role = max across levels (highest-wins
 -- additive composition). Writers may add, edit, retire, and transition
 -- the lifecycle of any node or edge; what they may or may not do
 -- is governed by the Doco's own policies, not a built-in role ladder.
@@ -457,15 +581,15 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- Per-type write scope-down, keyed by doco_id to a list of writable-type
   -- tokens ('*' = all). Parallels granted_doco_roles.
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
-  -- Org-level grants. When the user approves access to an org, every
-  -- Doco owned by that org becomes reachable through this token —
-  -- including Docos created under the org after the token was minted
-  -- ("live" grant, not a snapshot). `granted_org_roles[org_id]` caps
-  -- the effective role on Docos under that org, same semantics as
+  -- Workspace-level grants. When the user approves access to a workspace, every
+  -- Doco owned by that workspace becomes reachable through this token —
+  -- including Docos created under the workspace after the token was minted
+  -- ("live" grant, not a snapshot). `granted_workspace_roles[workspace_id]` caps
+  -- the effective role on Docos under that workspace, same semantics as
   -- granted_doco_roles.
-  granted_org_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
-  granted_org_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_workspace_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope                 text,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
@@ -486,9 +610,9 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
-  granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -515,9 +639,9 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   granted_doco_ids  text[] NOT NULL,
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
-  granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -554,9 +678,9 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
-  granted_org_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_org_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   target_doco_handle text,
   requested_role text CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner')),
   expires_at       timestamptz NOT NULL,
@@ -671,7 +795,7 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   active_turn_started_at   timestamptz,
   active_turn_events       jsonb NOT NULL DEFAULT '[]'::jsonb,
   title                    text,
-  attached_org_handles     text[] NOT NULL DEFAULT '{}',
+  attached_workspace_handles text[] NOT NULL DEFAULT '{}',
   attached_doco_ids        text[] NOT NULL DEFAULT '{}',
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
@@ -781,7 +905,7 @@ CREATE TABLE IF NOT EXISTS group_chat_channel_connections (
   workspace_id            text NOT NULL,
   channel_id              text NOT NULL,
   channel_name            text NOT NULL DEFAULT '',
-  target_level            text NOT NULL CHECK (target_level IN ('org','doco')),
+  target_level            text NOT NULL CHECK (target_level IN ('workspace','doco')),
   target_id               text NOT NULL,
   role                    text NOT NULL CHECK (role IN ('owner','approver','author','reader')),
   created_by_user_id      text REFERENCES users(id) ON DELETE SET NULL,

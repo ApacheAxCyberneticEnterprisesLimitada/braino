@@ -63,7 +63,7 @@ describe("isEntityType", () => {
     for (const t of [
       "doco",
       "principal",
-      "organization",
+      "workspace",
       "intent",
       "idea",
       "rule",

@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
-const ORG = "organization_test000000000000000";
+const ORG = "workspace_test000000000000000";
 const DOCO = "doco_test0000000000000000000000";
 const DOCO_TWO = "doco_test200000000000000000000";
 const NODE = "decision_test0000000000000000000";
@@ -17,10 +17,10 @@ const EDGE_TWO = "edge_test20000000000000000000";
 
 let db: PGlite;
 
-async function seedOrg(): Promise<void> {
+async function seedWorkspace(): Promise<void> {
   await db.query(
-    "INSERT INTO organizations (id, handle, name, data) VALUES ($1,$2,$3,'{}') ON CONFLICT DO NOTHING",
-    [ORG, "org-test", "Org Test"],
+    "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}') ON CONFLICT DO NOTHING",
+    [ORG, "workspace-test", "Workspace Test"],
   );
 }
 
@@ -30,9 +30,9 @@ async function seedDocoWithHistory(
   nodeId = NODE,
   edgeId = EDGE,
 ): Promise<void> {
-  await seedOrg();
+  await seedWorkspace();
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, org_id, data) VALUES ($1,$2,$3,$4,'{}')",
+    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}')",
     [docoId, handle, ORG, ORG],
   );
   const changeset = await db.query<{ tx_id: string }>(

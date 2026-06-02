@@ -8,13 +8,13 @@
  *     decision, action, log, eval, reference, state, principal)
  *   - Policies (2): Doco-level authoring metadata (guidance, node_authoring)
  *   - User (1): OAuth identity layer (separate from principal)
- *   - Doco, Organization: workspace + org containers
+ *   - Doco, Workspace: workspace + workspace containers
  *
  * Per-category discriminator fields (matches stored data jsonb):
  *   - Nodes   → `node_type: NodeType`
  *   - Policies → `policy_kind: "guidance" | "node_authoring"`
  *   - User → human OAuth identity
- *   - Doco, Organization → no per-row discriminator
+ *   - Doco, Workspace → no per-row discriminator
  *
  * `created_by` / `updated_by` reference users (the OAuth identity).
  * Graph relationships live in first-class edge rows.
@@ -68,7 +68,7 @@ export interface GitHubIdentity {
 
 /**
  * User — host-scoped human OAuth identity.
- * Authored nodes via `created_by` / `updated_by`. Member of orgs/docos
+ * Authored nodes via `created_by` / `updated_by`. Member of workspaces/docos
  * via `member_of` edges.
  *
  * NOT on the graph as a node — users are an identity layer.
@@ -121,8 +121,8 @@ export interface DocoImport {
   include?: string[];
 }
 
-/** Doco.owner_id is polymorphic: User OR Organization. */
-export type OwnerRef = EntityId<"user"> | EntityId<"organization">;
+/** Doco.owner_id is polymorphic: User OR Workspace. */
+export type OwnerRef = EntityId<"user"> | EntityId<"workspace">;
 
 export interface Doco {
   id: EntityId<"doco">;
@@ -353,20 +353,20 @@ export interface State extends CommonFields {
   invariants?: string[];
 }
 
-// ─── Organization ─────────────────────────────────────────────────────────
+// ─── Workspace ─────────────────────────────────────────────────────────
 
-export interface OrganizationMember {
+export interface WorkspaceMember {
   user_id: EntityId<"user">;
   role: "owner" | "admin" | "member" | "viewer";
   permissions?: ("read" | "write" | "execute" | "admin")[];
 }
 
-export interface Organization extends SummarizedFields {
+export interface Workspace extends SummarizedFields {
   handle: string;
   display_name: string;
   description?: string;
   visibility?: "private" | "public";
-  members?: OrganizationMember[];
+  members?: WorkspaceMember[];
 }
 
 // ─── Discriminated unions ─────────────────────────────────────────────────
@@ -388,7 +388,7 @@ export type Node =
 export type Policy = GuidancePolicy | NodeAuthoringPolicy;
 
 /** Every entity across all categories. */
-export type Entity = Node | Policy | User | Doco | Organization;
+export type Entity = Node | Policy | User | Doco | Workspace;
 
 /** Look up a Node interface by its `node_type` literal. */
 export type NodeByType<T extends Node["node_type"]> = Extract<Node, { node_type: T }>;

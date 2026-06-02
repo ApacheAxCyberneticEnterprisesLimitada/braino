@@ -212,7 +212,7 @@ export async function reindex(opts: IndexOptions = {}): Promise<BuildReport> {
   const loadStart = performance.now();
   // Pass changedEntityIds to the loader so the incremental capture path
   // only reads the rows it actually indexes (and skips host-wide
-  // principal/organization rows entirely). Full rebuilds omit the
+  // principal/workspace rows entirely). Full rebuilds omit the
   // option and get the original "load everything" behaviour.
   const loaded = await loadDocoFromPostgres(docoId, {
     ...(opts.changedEntityIds && opts.changedEntityIds.length > 0

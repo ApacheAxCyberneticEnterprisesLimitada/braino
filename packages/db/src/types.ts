@@ -134,10 +134,10 @@ export const USER_TABLES: Record<string, { table: string; body: boolean }> = {
   user: { table: "users", body: false },
 };
 
-/** Containers — docos and organizations are their own top-level categories. */
+/** Containers — docos and workspaces are their own top-level categories. */
 export const CONTAINER_TABLES: Record<string, { table: string; body: boolean }> = {
   doco: { table: "docos", body: false },
-  organization: { table: "organizations", body: false },
+  workspace: { table: "workspaces", body: false },
 };
 
 /**
@@ -152,8 +152,8 @@ export const ALL_ENTITY_TABLES: Record<
   ...NODE_TABLES,
   ...USER_TABLES,
   ...CONTAINER_TABLES,
-  // Policies are flattened to their per-Doco table here; org-scope
-  // policies are addressed by their separate org table in callers that
+  // Policies are flattened to their per-Doco table here; workspace-scope
+  // policies are addressed by their separate workspace table in callers that
   // care.
   guidance_policy: { table: "guidance_policies", body: true },
   node_authoring_policy: { table: "node_authoring_policies", body: true },
@@ -166,7 +166,7 @@ export const ALL_ENTITY_TABLES: Record<
  * from this shape.
  *
  * `entity_type` carries the discriminator string across all categories:
- * 10 node types + 2 policy kinds + user + doco + organization.
+ * 10 node types + 2 policy kinds + user + doco + workspace.
  */
 export interface EntityRecord {
   id: string;

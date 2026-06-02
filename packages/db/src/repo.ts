@@ -3,7 +3,7 @@
 //
 // Principals are role-personas in the graph; users are human OAuth
 // identities. Membership + OAuth tables reference `user_id`.
-// `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
+// `docos.owner_id` is polymorphic: `user_<ulid>` or `workspace_<ulid>`.
 
 import { randomBytes } from "node:crypto";
 import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, WRITE_ALL, normalizeWriteTypes } from "@doco/shared";
@@ -70,11 +70,11 @@ function deriveLifecycleColumn(rec: EntityRecord, data: Record<string, unknown>)
  * Upsert one entity, routing by category:
  *  - the 10 graph node types (incl. principal) → the unified `nodes` table
  *  - the 2 policy types → their per-Doco policy table
- *  - identity (organization / doco / user) → richer per-table writers
+ *  - identity (workspace / doco / user) → richer per-table writers
  */
 export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const t = rec.entity_type;
-  if (t === "organization" || t === "doco" || t === "user") return upsertIdentity(rec, client);
+  if (t === "workspace" || t === "doco" || t === "user") return upsertIdentity(rec, client);
   if (t === "guidance_policy" || t === "node_authoring_policy") return upsertPolicy(rec, client);
   if (NODE_TYPE_SET.has(t)) return upsertNode(rec, client);
   throw new Error(`Unknown entity type for storage: ${t}`);
@@ -251,12 +251,12 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
            data=EXCLUDED.data, deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
         [rec.id, github_id, github_login, email, avatar_url, dataJson, deactivated_at],
       );
-    } else if (rec.entity_type === "organization") {
+    } else if (rec.entity_type === "workspace") {
       const dataJson = JSON.stringify(fields);
       const handle = String(fields.handle ?? rec.id);
       const name = String(fields.name ?? fields.display_name ?? handle);
       await c.query(
-        `INSERT INTO organizations (id, handle, name, data) VALUES ($1,$2,$3,$4::jsonb)
+        `INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,$4::jsonb)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle, name=EXCLUDED.name,
            data=EXCLUDED.data, updated_at=now()`,
         [rec.id, handle, name, dataJson],
@@ -267,7 +267,7 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       );
       const dataJson = JSON.stringify(dataFields);
       const owner_id = String(fields.owner_id ?? "");
-      const org_id = String(fields.org_id ?? owner_id);
+      const workspace_id = String(fields.workspace_id ?? owner_id);
       const handle = String(fields.handle ?? "");
       if (!handle) {
         throw new Error(
@@ -276,12 +276,12 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
       }
       const visibility = String(fields.visibility ?? "private");
       await c.query(
-        `INSERT INTO docos (id, handle, owner_id, org_id, visibility, data)
+        `INSERT INTO docos (id, handle, owner_id, workspace_id, visibility, data)
          VALUES ($1,$2,$3,$4,$5,$6::jsonb)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
-           owner_id=EXCLUDED.owner_id, org_id=EXCLUDED.org_id,
+           owner_id=EXCLUDED.owner_id, workspace_id=EXCLUDED.workspace_id,
            visibility=EXCLUDED.visibility, data=EXCLUDED.data, updated_at=now()`,
-        [rec.id, handle, owner_id, org_id, visibility, dataJson],
+        [rec.id, handle, owner_id, workspace_id, visibility, dataJson],
       );
     }
   };
@@ -343,7 +343,7 @@ export async function listEntitiesByDocoAndIds(
 }
 
 export async function listIdentityRows(
-  entityType: "principal" | "organization" | "doco" | "user",
+  entityType: "principal" | "workspace" | "doco" | "user",
 ): Promise<EntityRecord[]> {
   return withClient(async (c) => {
     const r =
@@ -604,24 +604,24 @@ export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   });
 }
 
-// ─── Organizations ────────────────────────────────────────────────────────
+// ─── Workspaces ────────────────────────────────────────────────────────
 
-export interface OrganizationRow {
+export interface WorkspaceRow {
   id: string;
   handle: string;
   name: string;
   /**
-   * Free-form governing charter for the org — the standing "how work is
-   * done here" text shared with agents granted access to the org at
+   * Free-form governing charter for the workspace — the standing "how work is
+   * done here" text shared with agents granted access to the workspace at
    * bootstrap. Seeded with DEFAULT_ORG_CONSTITUTION on creation; editable
-   * by org owners. Empty string only if an owner has explicitly cleared it.
+   * by workspace owners. Empty string only if an owner has explicitly cleared it.
    */
   constitution: string;
   data: Record<string, unknown>;
   member_count: number;
 }
 
-function mapOrgRow(row: Record<string, unknown>): OrganizationRow {
+function mapWorkspaceRow(row: Record<string, unknown>): WorkspaceRow {
   return {
     id: String(row.id),
     handle: String(row.handle),
@@ -633,58 +633,58 @@ function mapOrgRow(row: Record<string, unknown>): OrganizationRow {
   };
 }
 
-export async function listOrganizations(): Promise<OrganizationRow[]> {
+export async function listWorkspaces(): Promise<WorkspaceRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT o.id, o.handle, o.name, o.constitution, o.data,
-              COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
-       FROM organizations o ORDER BY o.handle`,
+              COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = o.id), 0) AS member_count
+       FROM workspaces o ORDER BY o.handle`,
     );
-    return r.rows.map(mapOrgRow);
+    return r.rows.map(mapWorkspaceRow);
   });
 }
 
-export async function listOrganizationsForUser(
+export async function listWorkspacesForUser(
   userId: string,
   roles: string[] = ["owner", "writer", "reader"],
-): Promise<OrganizationRow[]> {
+): Promise<WorkspaceRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT o.id, o.handle, o.name, o.constitution, o.data,
-              COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = o.id), 0) AS member_count
-       FROM organizations o
-       JOIN org_users m ON m.org_id = o.id
+              COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = o.id), 0) AS member_count
+       FROM workspaces o
+       JOIN workspace_users m ON m.workspace_id = o.id
        WHERE m.user_id = $1 AND m.role = ANY($2)
        ORDER BY o.handle`,
       [userId, roles],
     );
-    return r.rows.map(mapOrgRow);
+    return r.rows.map(mapWorkspaceRow);
   });
 }
 
-export async function isOrgUser(orgId: string, userId: string): Promise<boolean> {
-  return withClient(async (c) => {
-    const r = await c.query("SELECT 1 FROM org_users WHERE org_id = $1 AND user_id = $2", [
-      orgId,
-      userId,
-    ]);
-    return r.rowCount !== null && r.rowCount > 0;
-  });
-}
-
-/** "Has admin-tier rights on the org." */
-export async function isOrgAdmin(orgId: string, userId: string): Promise<boolean> {
+export async function isWorkspaceUser(workspaceId: string, userId: string): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT 1 FROM org_users WHERE org_id = $1 AND user_id = $2 AND role = 'owner'`,
-      [orgId, userId],
+      "SELECT 1 FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
     );
     return r.rowCount !== null && r.rowCount > 0;
   });
 }
 
-export async function upsertOrgUser(opts: {
-  org_id: string;
+/** "Has admin-tier rights on the workspace." */
+export async function isWorkspaceAdmin(workspaceId: string, userId: string): Promise<boolean> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT 1 FROM workspace_users WHERE workspace_id = $1 AND user_id = $2 AND role = 'owner'`,
+      [workspaceId, userId],
+    );
+    return r.rowCount !== null && r.rowCount > 0;
+  });
+}
+
+export async function upsertWorkspaceUser(opts: {
+  workspace_id: string;
   user_id: string;
   role: DocoRole;
   /** Per-type write set; defaults to wildcard for writer, empty otherwise. */
@@ -693,18 +693,21 @@ export async function upsertOrgUser(opts: {
   const writeTypes = normalizeGrantWriteTypes(opts.role, opts.write_types);
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO org_users (org_id, user_id, role, write_types)
+      `INSERT INTO workspace_users (workspace_id, user_id, role, write_types)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (org_id, user_id)
+       ON CONFLICT (workspace_id, user_id)
        DO UPDATE SET role=EXCLUDED.role, write_types=EXCLUDED.write_types`,
-      [opts.org_id, opts.user_id, opts.role, writeTypes],
+      [opts.workspace_id, opts.user_id, opts.role, writeTypes],
     );
   });
 }
 
-export async function removeOrgUser(orgId: string, userId: string): Promise<void> {
+export async function removeWorkspaceUser(workspaceId: string, userId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query("DELETE FROM org_users WHERE org_id = $1 AND user_id = $2", [orgId, userId]);
+    await c.query("DELETE FROM workspace_users WHERE workspace_id = $1 AND user_id = $2", [
+      workspaceId,
+      userId,
+    ]);
   });
 }
 
@@ -742,11 +745,14 @@ export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | n
   return best;
 }
 
-export async function getOrgRole(orgId: string, userId: string): Promise<DocoRole | null> {
+export async function getWorkspaceRole(
+  workspaceId: string,
+  userId: string,
+): Promise<DocoRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      "SELECT role FROM org_users WHERE org_id = $1 AND user_id = $2",
-      [orgId, userId],
+      "SELECT role FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
     );
     if (r.rowCount === 0) return null;
     return toRole(r.rows[0]?.role);
@@ -771,11 +777,14 @@ function normalizeGrantWriteTypes(role: DocoRole, raw: unknown): string[] {
   return writeTypes;
 }
 
-export async function getOrgGrant(orgId: string, userId: string): Promise<DocoGrant | null> {
+export async function getWorkspaceGrant(
+  workspaceId: string,
+  userId: string,
+): Promise<DocoGrant | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string; write_types: string[] }>(
-      "SELECT role, write_types FROM org_users WHERE org_id = $1 AND user_id = $2",
-      [orgId, userId],
+      "SELECT role, write_types FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
     );
     if (r.rowCount === 0) return null;
     const role = toRole(r.rows[0]?.role);
@@ -797,12 +806,12 @@ export async function getDocoUserGrant(docoId: string, userId: string): Promise<
   });
 }
 
-/** User ids that hold owner role on this org (the org's account owners). */
-export async function listOrgOwnerUserIds(orgId: string): Promise<string[]> {
+/** User ids that hold owner role on this workspace (the workspace's account owners). */
+export async function listWorkspaceOwnerUserIds(workspaceId: string): Promise<string[]> {
   return withClient(async (c) => {
     const r = await c.query<{ user_id: string }>(
-      "SELECT user_id FROM org_users WHERE org_id = $1 AND role = 'owner'",
-      [orgId],
+      "SELECT user_id FROM workspace_users WHERE workspace_id = $1 AND role = 'owner'",
+      [workspaceId],
     );
     return r.rows.map((row) => String(row.user_id));
   });
@@ -819,7 +828,7 @@ export interface AccountGrantRow {
 
 /**
  * Every whole-account grant this principal HOLDS (as grantee). Each row's
- * grantor is a user whose owned orgs/Docos the grantee inherits access to.
+ * grantor is a user whose owned workspaces/Docos the grantee inherits access to.
  */
 export async function getAccountGrantsForGrantee(
   granteeUserId: string,
@@ -1095,12 +1104,12 @@ export interface DocoRow {
   handle: string;
   /**
    * Owner label — User.github_login for human/agent owners,
-   * Organization.handle for org owners. Derived via JOIN in `mapDocoRow`
+   * Workspace.handle for workspace owners. Derived via JOIN in `mapDocoRow`
    * from `owner_id`. NOT a doco identifier.
    */
   owner_slug: string;
   owner_id: string;
-  org_id: string;
+  workspace_id: string;
   visibility: "public" | "private";
   goal: string;
   data: Record<string, unknown>;
@@ -1119,7 +1128,7 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
     handle: String(row.handle ?? ""),
     owner_slug: String(row.owner_slug ?? ""),
     owner_id: String(row.owner_id),
-    org_id: String(row.org_id ?? row.owner_id),
+    workspace_id: String(row.workspace_id ?? row.owner_id),
     visibility: row.visibility === "public" ? "public" : "private",
     goal: row.goal === null || row.goal === undefined ? "" : String(row.goal),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
@@ -1130,15 +1139,15 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
 
 /**
  * Resolves `owner_slug` from `users.github_login` /
- * `organizations.handle` keyed by `docos.owner_id`.
+ * `workspaces.handle` keyed by `docos.owner_id`.
  */
 const DOCO_SELECT = `
-  SELECT d.id, d.handle, d.owner_id, d.org_id, d.visibility, d.goal, d.data,
+  SELECT d.id, d.handle, d.owner_id, d.workspace_id, d.visibility, d.goal, d.data,
          d.default_node_lifecycle,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
     FROM docos d
     LEFT JOIN users c ON c.id = d.owner_id
-    LEFT JOIN organizations o ON o.id = d.owner_id`;
+    LEFT JOIN workspaces o ON o.id = d.owner_id`;
 
 export async function listAllDocos(): Promise<DocoRow[]> {
   return withClient(async (c) => {
@@ -1173,72 +1182,77 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
 
 /**
  * Resolve a public owner handle to either a User (by github_login)
- * or an Organization (by handle).
+ * or an Workspace (by handle).
  */
 export async function resolveOwnerSlug(
   handle: string,
 ): Promise<
-  { kind: "user"; user: UserRow } | { kind: "organization"; org: OrganizationRow } | null
+  { kind: "user"; user: UserRow } | { kind: "workspace"; workspace: WorkspaceRow } | null
 > {
   const collab = await getUserByGithubLogin(handle);
   if (collab) return { kind: "user", user: collab };
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT id, handle, name, constitution, data,
-              COALESCE((SELECT count(*) FROM org_users m WHERE m.org_id = organizations.id), 0) AS member_count
-       FROM organizations WHERE handle = $1`,
+              COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = workspaces.id), 0) AS member_count
+       FROM workspaces WHERE handle = $1`,
       [handle],
     );
     if (r.rowCount === 0) return null;
     return {
-      kind: "organization" as const,
-      org: mapOrgRow(r.rows[0]),
+      kind: "workspace" as const,
+      workspace: mapWorkspaceRow(r.rows[0]),
     };
   });
 }
 
 /**
- * A single org's constitution for the agent-bootstrap manifest.
+ * A single workspace's constitution for the agent-bootstrap manifest.
  */
-export interface OrgConstitution {
-  org_id: string;
-  org_handle: string;
+export interface WorkspaceConstitution {
+  workspace_id: string;
+  workspace_handle: string;
   constitution: string;
 }
 
 /**
- * Fetch the constitutions of the given orgs, skipping any with an empty
+ * Fetch the constitutions of the given workspaces, skipping any with an empty
  * constitution. Used by the agent-bootstrap manifest to surface the
- * charter of every org the caller can reach. Deduplicates input ids.
+ * charter of every workspace the caller can reach. Deduplicates input ids.
  */
-export async function getOrgConstitutionsByIds(ids: string[]): Promise<OrgConstitution[]> {
+export async function getWorkspaceConstitutionsByIds(
+  ids: string[],
+): Promise<WorkspaceConstitution[]> {
   const unique = Array.from(new Set(ids));
   if (unique.length === 0) return [];
   return withClient(async (c) => {
     const r = await c.query<{ id: string; handle: string; constitution: string }>(
       `SELECT id, handle, constitution
-         FROM organizations
+         FROM workspaces
         WHERE id = ANY($1::text[]) AND constitution <> ''
         ORDER BY handle`,
       [unique],
     );
     return r.rows.map((row) => ({
-      org_id: String(row.id),
-      org_handle: String(row.handle),
+      workspace_id: String(row.id),
+      workspace_handle: String(row.handle),
       constitution: String(row.constitution),
     }));
   });
 }
 
 /**
- * Update an org's constitution. Empty string clears it. Returns false when
- * no org with that id exists.
+ * Update an workspace's constitution. Empty string clears it. Returns false when
+ * no workspace with that id exists.
  */
-export async function updateOrgConstitution(orgId: string, constitution: string): Promise<boolean> {
+export async function updateWorkspaceConstitution(
+  workspaceId: string,
+  constitution: string,
+): Promise<boolean> {
   return withClient(async (c) => {
     const r = await c.query(
-      "UPDATE organizations SET constitution = $2, updated_at = now() WHERE id = $1",
-      [orgId, constitution],
+      "UPDATE workspaces SET constitution = $2, updated_at = now() WHERE id = $1",
+      [workspaceId, constitution],
     );
     return (r.rowCount ?? 0) > 0;
   });
@@ -1251,7 +1265,7 @@ export interface AuditEventRow {
   at: string;
   by_user: string | null;
   doco_id: string | null;
-  org_id?: string | null;
+  workspace_id?: string | null;
   entity_type: string;
   entity_id: string;
   op: string;
@@ -1263,14 +1277,14 @@ export interface AuditEventRow {
 export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO audit_events (event_id, at, by_user, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason)
+      `INSERT INTO audit_events (event_id, at, by_user, doco_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         evt.event_id,
         evt.at,
         evt.by_user,
         evt.doco_id,
-        evt.org_id ?? null,
+        evt.workspace_id ?? null,
         evt.entity_type,
         evt.entity_id,
         evt.op,
@@ -1284,7 +1298,7 @@ export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
 
 export async function readAuditEventRows(filters: {
   doco_id?: string;
-  org_id?: string;
+  workspace_id?: string;
   entity_id?: string;
   entity_type?: string;
   op?: string[];
@@ -1301,9 +1315,9 @@ export async function readAuditEventRows(filters: {
     where.push(`doco_id = $${idx++}`);
     vals.push(filters.doco_id);
   }
-  if (filters.org_id) {
-    where.push(`org_id = $${idx++}`);
-    vals.push(filters.org_id);
+  if (filters.workspace_id) {
+    where.push(`workspace_id = $${idx++}`);
+    vals.push(filters.workspace_id);
   }
   if (filters.entity_id) {
     where.push(`entity_id = $${idx++}`);
@@ -1334,7 +1348,7 @@ export async function readAuditEventRows(filters: {
     vals.push(filters.until);
   }
   const limit = Math.min(Math.max(filters.limit ?? 200, 1), 1000);
-  const sql = `SELECT event_id, at, by_user, doco_id, org_id, entity_type, entity_id, op, before_json, after_json, reason
+  const sql = `SELECT event_id, at, by_user, doco_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason
                FROM audit_events
                ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
                ORDER BY at DESC
@@ -1347,7 +1361,7 @@ export async function readAuditEventRows(filters: {
       at: row.at instanceof Date ? row.at.toISOString() : String(row.at),
       by_user: row.by_user ? String(row.by_user) : null,
       doco_id: row.doco_id ? String(row.doco_id) : null,
-      org_id: row.org_id ? String(row.org_id) : null,
+      workspace_id: row.workspace_id ? String(row.workspace_id) : null,
       entity_type: String(row.entity_type),
       entity_id: String(row.entity_id),
       op: String(row.op),

@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
-const ORG = "organization_test000000000000000";
+const ORG = "workspace_test000000000000000";
 const DOCO = "doco_test0000000000000000000000";
 
 let db: PGlite;
@@ -44,11 +44,11 @@ describe("the Proposed (approval) perspective is gone", () => {
     // a Doco has the Proposed tab attached.
     await db.exec("ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check");
     await db.query(
-      "INSERT INTO organizations (id, handle, name, data) VALUES ($1,$2,$3,'{}') ON CONFLICT DO NOTHING",
-      [ORG, "org-test", "Org Test"],
+      "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}') ON CONFLICT DO NOTHING",
+      [ORG, "workspace-test", "Workspace Test"],
     );
     await db.query(
-      "INSERT INTO docos (id, handle, owner_id, org_id, data) VALUES ($1,$2,$3,$4,'{}')",
+      "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}')",
       [DOCO, "doco-test", ORG, ORG],
     );
     await db.query(

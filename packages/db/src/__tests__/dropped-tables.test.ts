@@ -12,7 +12,7 @@ const DROPPED_TABLES = [
   "tags",
   "entity_fts_users",
   "entity_fts_docos",
-  "entity_fts_organizations",
+  "entity_fts_workspaces",
   "doco_templates",
   "doco_meta",
   "entity_fts_policies",

@@ -4,10 +4,10 @@
 //
 // Two modes:
 //   - Full load (no `opts.entityIds`): every entity in the Doco (all 10
-//     node types), plus the host's organizations. Used for first-build
+//     node types), plus the host's workspaces. Used for first-build
 //     and bulk rebuilds.
 //   - Scoped load (`opts.entityIds` set): only the named ids are read from
-//     their own tables, and host-wide organization rows are skipped
+//     their own tables, and host-wide workspace rows are skipped
 //     entirely. The incremental reindex path only consumes the entities
 //     whose ids it passed in; loading the rest was pure waste.
 
@@ -36,7 +36,7 @@ const DOCO_SCOPED_NODE_TYPES: EntityType[] = [...NODE_TYPES] as EntityType[];
 export interface LoadDocoOptions {
   /**
    * When set, load only these specific entity ids (and skip host-wide
-   * principal/organization rows). Grouped by id prefix so each entity
+   * principal/workspace rows). Grouped by id prefix so each entity
    * type only does one targeted SQL. Used by the incremental reindex
    * path — every other consumer wants the full load.
    */
@@ -80,15 +80,15 @@ export async function loadDocoFromPostgres(
 
   // Host-level identity rows are loaded once (no doco_id filter). Only
   // needed by the full-rebuild path; incremental captures don't consume
-  // them because the indexer's FTS/embedding writers don't need org text.
+  // them because the indexer's FTS/embedding writers don't need workspace text.
   if (!scoped) {
     let rows: EntityRecord[] = [];
     try {
-      rows = await listIdentityRows("organization");
+      rows = await listIdentityRows("workspace");
     } catch (err) {
       failures.push({
-        filePath: "<postgres>:organization",
-        reason: `listIdentityRows(organization) failed: ${(err as Error).message}`,
+        filePath: "<postgres>:workspace",
+        reason: `listIdentityRows(workspace) failed: ${(err as Error).message}`,
       });
       rows = [];
     }
@@ -98,11 +98,11 @@ export async function loadDocoFromPostgres(
       if (!isEntityId(id)) continue;
       const loaded: LoadedEntity = {
         entity: fm as unknown as Entity,
-        filePath: `<postgres>:organization/${row.id}`,
+        filePath: `<postgres>:workspace/${row.id}`,
         parsed: { data: fm, body: "", format: "postgres" },
       };
       entities.set(id as EntityId, loaded);
-      byType.get("organization" as EntityType)?.push(loaded);
+      byType.get("workspace" as EntityType)?.push(loaded);
     }
   }
 

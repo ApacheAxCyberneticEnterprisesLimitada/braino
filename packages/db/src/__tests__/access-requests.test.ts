@@ -22,7 +22,7 @@ import {
   listPendingAccessRequestsForDocos,
 } from "../repo.js";
 
-const ORG = "organization_test000000000000000";
+const ORG = "workspace_test000000000000000";
 const DOCO = "doco_test0000000000000000000000";
 const DOCO2 = "doco_test200000000000000000000";
 const OWNER = "user_owner00000000000000000000";
@@ -32,11 +32,11 @@ async function seed(): Promise<void> {
   const db = mocks.db;
   await db.query("INSERT INTO users (id, data) VALUES ($1,'{}'),($2,'{}')", [OWNER, REQ]);
   await db.query(
-    "INSERT INTO organizations (id, handle, name, data) VALUES ($1,'org','Org','{}')",
+    "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,'workspace','Workspace','{}')",
     [ORG],
   );
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, org_id, data) VALUES ($1,'d1',$2,$2,'{}'),($3,'d2',$2,$2,'{}')",
+    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'d1',$2,$2,'{}'),($3,'d2',$2,$2,'{}')",
     [DOCO, ORG, DOCO2],
   );
 }

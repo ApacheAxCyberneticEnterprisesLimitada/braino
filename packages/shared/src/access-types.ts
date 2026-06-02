@@ -3,7 +3,7 @@
 // The access model is "grant up from reader": every collaborator (human
 // or agent) reads the whole Doco, and WRITE is granted per type. A grant
 // is a set of writable-type tokens stored on the membership row
-// (doco_users / org_users) or the OAuth token's granted scope.
+// (doco_users / workspace_users) or the OAuth token's granted scope.
 //
 //   - role "owner"  → administers the Doco; writes every type implicitly.
 //   - role "reader" → reads everything; writes nothing unless granted.

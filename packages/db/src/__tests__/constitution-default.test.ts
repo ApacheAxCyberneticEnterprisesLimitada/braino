@@ -1,4 +1,4 @@
-// Guard the default org-constitution text and its schema home.
+// Guard the default workspace-constitution text and its schema home.
 
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -19,15 +19,15 @@ function defaultConstitutionText(): string {
   return m[1];
 }
 
-describe("default org constitution text stays in sync", () => {
+describe("default workspace constitution text stays in sync", () => {
   const text = defaultConstitutionText();
 
-  it("schema.sql declares organizations.constitution and not docos.constitution", () => {
-    const orgBlock = schemaSql.match(
-      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?organizations\s*\(([\s\S]*?)\);/i,
+  it("schema.sql declares workspaces.constitution and not docos.constitution", () => {
+    const workspaceBlock = schemaSql.match(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?workspaces\s*\(([\s\S]*?)\);/i,
     )?.[1];
-    expect(orgBlock, "organizations CREATE TABLE not found in schema.sql").toBeTruthy();
-    expect(orgBlock).toMatch(/\bconstitution\s+text\b/);
+    expect(workspaceBlock, "workspaces CREATE TABLE not found in schema.sql").toBeTruthy();
+    expect(workspaceBlock).toMatch(/\bconstitution\s+text\b/);
 
     const docoBlock = schemaSql.match(
       /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?docos\s*\(([\s\S]*?)\);/i,

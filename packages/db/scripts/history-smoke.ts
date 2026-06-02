@@ -34,22 +34,22 @@ async function main(): Promise<void> {
   try {
     // Clean slate for a repeatable run.
     await c.query("BEGIN");
-    const orgId = makeEntityId("organization", generateUlid());
+    const workspaceId = makeEntityId("workspace", generateUlid());
     const userId = makeEntityId("user", generateUlid());
     const docoId = makeEntityId("doco", generateUlid());
     const decisionId = makeEntityId("decision", generateUlid());
     const refId = makeEntityId("reference", generateUlid());
 
-    await c.query(`INSERT INTO organizations (id, handle, name, data) VALUES ($1,$2,$3,'{}')`, [
-      orgId,
-      `org-${generateUlid().slice(0, 8).toLowerCase()}`,
-      "Smoke Org",
+    await c.query(`INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}')`, [
+      workspaceId,
+      `workspace-${generateUlid().slice(0, 8).toLowerCase()}`,
+      "Smoke Workspace",
     ]);
     await c.query(`INSERT INTO users (id, data) VALUES ($1,'{}')`, [userId]);
     await c.query(
-      `INSERT INTO docos (id, handle, owner_id, org_id, visibility, goal, data)
+      `INSERT INTO docos (id, handle, owner_id, workspace_id, visibility, goal, data)
        VALUES ($1,$2,$3,$4,'private','smoke','{}')`,
-      [docoId, `doco-${generateUlid().slice(0, 8).toLowerCase()}`, orgId, orgId],
+      [docoId, `doco-${generateUlid().slice(0, 8).toLowerCase()}`, workspaceId, workspaceId],
     );
     await c.query(
       `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, data, created_by)

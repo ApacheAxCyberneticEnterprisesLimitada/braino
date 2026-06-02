@@ -10,7 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
 const DOCO = "doco_test0000000000000000000000";
-const ORG = "organization_test000000000000000";
+const ORG = "workspace_test000000000000000";
 const DECISION = "decision_test0000000000000000000";
 const INTENT = "intent_test000000000000000000000";
 const ACTION = "action_test00000000000000000000";
@@ -42,12 +42,13 @@ function decisionRecord(): EntityRecord {
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(schemaSql);
+  await db.query("INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}'::jsonb)", [
+    ORG,
+    "workspace-test",
+    "Workspace Test",
+  ]);
   await db.query(
-    "INSERT INTO organizations (id, handle, name, data) VALUES ($1,$2,$3,'{}'::jsonb)",
-    [ORG, "org-test", "Org Test"],
-  );
-  await db.query(
-    "INSERT INTO docos (id, handle, owner_id, org_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
     [DOCO, "doco-test", ORG, ORG],
   );
 });
