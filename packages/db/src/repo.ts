@@ -5,6 +5,7 @@
 // identities. Membership + OAuth tables reference `user_id`.
 // `docos.owner_id` is polymorphic: `user_<ulid>` or `organization_<ulid>`.
 
+import { randomBytes } from "node:crypto";
 import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, WRITE_ALL, normalizeWriteTypes } from "@doco/shared";
 import type pg from "pg";
 import { withClient } from "./client.js";
@@ -971,6 +972,119 @@ export async function upsertDocoUser(opts: {
 export async function removeDocoUser(docoId: string, userId: string): Promise<void> {
   await withClient(async (c) => {
     await c.query("DELETE FROM doco_users WHERE doco_id = $1 AND user_id = $2", [docoId, userId]);
+  });
+}
+
+// ─── Access requests ────────────────────────────────────────────────────────
+
+export interface AccessRequestRow {
+  id: string;
+  doco_id: string;
+  requester_id: string;
+  requested_role: DocoRole;
+  reason: string | null;
+  status: "pending" | "approved" | "denied" | "cancelled";
+  created_at: string;
+  decided_at: string | null;
+  decided_by: string | null;
+}
+
+function mapAccessRequestRow(r: Record<string, unknown>): AccessRequestRow {
+  return {
+    id: String(r.id),
+    doco_id: String(r.doco_id),
+    requester_id: String(r.requester_id),
+    requested_role: r.requested_role as DocoRole,
+    reason: r.reason == null ? null : String(r.reason),
+    status: r.status as AccessRequestRow["status"],
+    created_at: String(r.created_at),
+    decided_at: r.decided_at == null ? null : String(r.decided_at),
+    decided_by: r.decided_by == null ? null : String(r.decided_by),
+  };
+}
+
+/**
+ * Create (or refresh) the caller's pending access request for a Doco. The
+ * partial unique index permits one live request per (doco, requester), so a
+ * repeat upserts the role/reason instead of duplicating. Writing the grant on
+ * approval is the caller's job (see `decideAccessRequest` + `upsertDocoUser`).
+ */
+export async function createAccessRequest(opts: {
+  doco_id: string;
+  requester_id: string;
+  requested_role: DocoRole;
+  reason?: string | null;
+}): Promise<AccessRequestRow> {
+  const id = `accreq_${randomBytes(16).toString("base64url")}`;
+  return withClient(async (c) => {
+    const r = await c.query(
+      `INSERT INTO access_requests (id, doco_id, requester_id, requested_role, reason)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (doco_id, requester_id) WHERE status = 'pending'
+       DO UPDATE SET requested_role = EXCLUDED.requested_role,
+                     reason = EXCLUDED.reason,
+                     created_at = now()
+       RETURNING *`,
+      [id, opts.doco_id, opts.requester_id, opts.requested_role, opts.reason ?? null],
+    );
+    return mapAccessRequestRow(r.rows[0] as Record<string, unknown>);
+  });
+}
+
+export async function getAccessRequest(id: string): Promise<AccessRequestRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query("SELECT * FROM access_requests WHERE id = $1", [id]);
+    return r.rows[0] ? mapAccessRequestRow(r.rows[0] as Record<string, unknown>) : null;
+  });
+}
+
+/** Pending requests across a set of Docos (an owner's inbox), oldest first. */
+export async function listPendingAccessRequestsForDocos(
+  docoIds: string[],
+): Promise<AccessRequestRow[]> {
+  if (docoIds.length === 0) return [];
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT * FROM access_requests
+       WHERE status = 'pending' AND doco_id = ANY($1::text[])
+       ORDER BY created_at ASC`,
+      [docoIds],
+    );
+    return r.rows.map((row) => mapAccessRequestRow(row as Record<string, unknown>));
+  });
+}
+
+/**
+ * Flip a pending request to approved/denied. Returns the updated row, or null
+ * if it was not pending (already decided or unknown id) — callers treat null
+ * as "nothing to do". A pure status transition; on approval the caller writes
+ * the grant via `upsertDocoUser`.
+ */
+export async function decideAccessRequest(opts: {
+  id: string;
+  status: "approved" | "denied";
+  decided_by: string;
+}): Promise<AccessRequestRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `UPDATE access_requests
+       SET status = $2, decided_at = now(), decided_by = $3
+       WHERE id = $1 AND status = 'pending'
+       RETURNING *`,
+      [opts.id, opts.status, opts.decided_by],
+    );
+    return r.rows[0] ? mapAccessRequestRow(r.rows[0] as Record<string, unknown>) : null;
+  });
+}
+
+/** The requester withdraws their own pending request. */
+export async function cancelAccessRequest(id: string, requesterId: string): Promise<void> {
+  await withClient(async (c) => {
+    await c.query(
+      `UPDATE access_requests SET status = 'cancelled', decided_at = now()
+       WHERE id = $1 AND requester_id = $2 AND status = 'pending'`,
+      [id, requesterId],
+    );
   });
 }
 

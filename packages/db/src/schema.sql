@@ -566,6 +566,30 @@ CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
   ON oauth_device_authorizations (expires_at);
 
+-- Access requests. Someone who can't (fully) use a Doco asks its owners
+-- for a role; an owner approves (writing a doco_users grant — see the
+-- access engine) or denies. The PUSH counterpart to invites (which are
+-- PULL: an owner mints a link). The partial unique index keeps at most
+-- one live (pending) request per (doco, requester); deciding it frees a
+-- new one. Connector tokens defer to the matrix, so an approved grant
+-- takes effect on the requester's next call with no re-auth.
+CREATE TABLE IF NOT EXISTS access_requests (
+  id             text PRIMARY KEY,                  -- accreq_<opaque>
+  doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  requester_id   text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  requested_role text NOT NULL CHECK (requested_role IN ('reader','writer','owner')),
+  reason         text,
+  status         text NOT NULL DEFAULT 'pending'
+                   CHECK (status IN ('pending','approved','denied','cancelled')),
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  decided_at     timestamptz,
+  decided_by     text REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS access_requests_doco_status_idx
+  ON access_requests (doco_id, status);
+CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_idx
+  ON access_requests (doco_id, requester_id) WHERE status = 'pending';
+
 -- Committable read-only "project tokens" for Docos. Distinct from
 -- oauth_access_tokens: tied to the Doco (not a user), fixed
 -- reader scope on one Doco, no expiry — designed to live in the

@@ -69,6 +69,13 @@ export {
   listDocoIdsForUser,
   upsertDocoUser,
   removeDocoUser,
+  // Access requests (decision_01KS… request/grant loop)
+  type AccessRequestRow,
+  createAccessRequest,
+  getAccessRequest,
+  listPendingAccessRequestsForDocos,
+  decideAccessRequest,
+  cancelAccessRequest,
   // Docos
   listAllDocos,
   getDocoById,
