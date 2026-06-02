@@ -65,9 +65,10 @@ describe("organization -> workspace migration", () => {
     db = new PGlite();
     await db.exec(LEGACY_SCHEMA);
     await db.query("INSERT INTO users (id) VALUES ('user_1')");
-    await db.query("INSERT INTO organizations (id, handle, name) VALUES ($1,'acme','Acme')", [
-      OLD_ID,
-    ]);
+    await db.query(
+      "INSERT INTO organizations (id, handle, name, constitution) VALUES ($1,'acme','Acme',$2)",
+      [OLD_ID, "Follow the policies of every Doco in this organization. They are binding."],
+    );
     await db.query("INSERT INTO org_users (org_id, user_id, role) VALUES ($1,'user_1','owner')", [
       OLD_ID,
     ]);
@@ -167,6 +168,16 @@ describe("organization -> workspace migration", () => {
       "SELECT count(*)::int AS n FROM workspaces WHERE id LIKE 'organization_%'",
     );
     expect(ws.rows[0].n).toBe(0);
+  });
+
+  it("rewrites the seeded 'in this organization' wording in stored constitutions", async () => {
+    const { rows } = await db.query<{ constitution: string }>(
+      "SELECT constitution FROM workspaces WHERE id=$1",
+      [NEW_ID],
+    );
+    expect(rows[0].constitution).toBe(
+      "Follow the policies of every Doco in this workspace. They are binding.",
+    );
   });
 
   it("keeps the org-CHART perspective (perspective_org_tree) intact", async () => {

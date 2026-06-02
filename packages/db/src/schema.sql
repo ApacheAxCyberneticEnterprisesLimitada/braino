@@ -198,6 +198,14 @@ CREATE TABLE IF NOT EXISTS workspaces (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Heal: workspaces seeded with the pre-rename default constitution still carry
+-- the old "in this organization" wording. The default now reads "in this
+-- workspace", so rewrite the seeded phrase in any stored constitution. Targeted
+-- + idempotent (only the exact phrase), so it leaves hand-written prose alone.
+UPDATE workspaces
+   SET constitution = replace(constitution, 'every Doco in this organization', 'every Doco in this workspace')
+ WHERE constitution LIKE '%every Doco in this organization%';
+
 -- Workspace users (per-workspace role grants).
 CREATE TABLE IF NOT EXISTS workspace_users (
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,

@@ -8,7 +8,7 @@
 // The schema seed is kept byte-for-byte in sync with this constant by
 // packages/db/src/__tests__/constitution-default.test.ts.
 
-export const DEFAULT_ORG_CONSTITUTION = `This is a spec-driven development project. Capture the intent, decision, and specification behind a change before writing the code that implements it, and let the documented spec lead the work.
+export const DEFAULT_WORKSPACE_CONSTITUTION = `This is a spec-driven development project. Capture the intent, decision, and specification behind a change before writing the code that implements it, and let the documented spec lead the work.
 
 Follow the policies of every Doco in this workspace. They are binding, not advisory: when two policies appear to conflict, surface the conflict rather than silently choosing one.
 

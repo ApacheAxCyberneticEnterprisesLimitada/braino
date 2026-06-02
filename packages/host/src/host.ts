@@ -1,5 +1,5 @@
 import {
-  DEFAULT_ORG_CONSTITUTION,
+  DEFAULT_WORKSPACE_CONSTITUTION,
   type EntityId,
   HOST_RESERVED_SLUGS,
   type Workspace,
@@ -254,7 +254,7 @@ export async function addWorkspaceByHandle(opts: {
     await c.query(
       `INSERT INTO workspaces (id, handle, name, constitution, data, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6)`,
-      [id, finalHandle, finalHandle, DEFAULT_ORG_CONSTITUTION, JSON.stringify(data), created],
+      [id, finalHandle, finalHandle, DEFAULT_WORKSPACE_CONSTITUTION, JSON.stringify(data), created],
     );
     await c.query(
       `INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)

@@ -613,7 +613,7 @@ export interface WorkspaceRow {
   /**
    * Free-form governing charter for the workspace — the standing "how work is
    * done here" text shared with agents granted access to the workspace at
-   * bootstrap. Seeded with DEFAULT_ORG_CONSTITUTION on creation; editable
+   * bootstrap. Seeded with DEFAULT_WORKSPACE_CONSTITUTION on creation; editable
    * by workspace owners. Empty string only if an owner has explicitly cleared it.
    */
   constitution: string;

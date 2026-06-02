@@ -12,10 +12,11 @@ const constitutionTs = readFileSync(
 );
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
-/** Pull the template-literal body of DEFAULT_ORG_CONSTITUTION from source. */
+/** Pull the template-literal body of DEFAULT_WORKSPACE_CONSTITUTION from source. */
 function defaultConstitutionText(): string {
-  const m = constitutionTs.match(/DEFAULT_ORG_CONSTITUTION\s*=\s*`([\s\S]*?)`;/);
-  if (!m?.[1]) throw new Error("Could not locate DEFAULT_ORG_CONSTITUTION in constitution.ts");
+  const m = constitutionTs.match(/DEFAULT_WORKSPACE_CONSTITUTION\s*=\s*`([\s\S]*?)`;/);
+  if (!m?.[1])
+    throw new Error("Could not locate DEFAULT_WORKSPACE_CONSTITUTION in constitution.ts");
   return m[1];
 }
 
