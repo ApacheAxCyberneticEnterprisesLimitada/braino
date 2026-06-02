@@ -503,8 +503,10 @@ CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
 -- grant_type=refresh_token mints a fresh access token without
 -- re-prompting the user.
 --
--- Rotated on every refresh (the old token is marked revoked when a
--- new one is issued) to limit blast radius if a refresh token leaks.
+-- Non-rotating: a refresh reissues only the access token and keeps the
+-- same refresh token (expiry slid forward), so DOCO_REFRESH can be pinned
+-- anywhere — a repo .env, cloud env vars, CI secrets — without going stale.
+-- Revocation (from /api-keys) is how a token is cut off.
 CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
@@ -519,15 +521,15 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
-  superseded_by     text REFERENCES oauth_refresh_tokens(token) ON DELETE SET NULL,
-  -- Non-rotating tokens skip rotation on refresh so they can be pinned
-  -- into a cloud environment's variable config.
-  non_rotating      boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_user_idx ON oauth_refresh_tokens (user_id);
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
+-- Self-heal: refresh tokens are always non-rotating, so the rotation
+-- columns are dead. Idempotent — drops them where present, no-op on fresh.
+ALTER TABLE oauth_refresh_tokens DROP COLUMN IF EXISTS non_rotating;
+ALTER TABLE oauth_refresh_tokens DROP COLUMN IF EXISTS superseded_by;
 
 -- Device Authorization Grant (RFC 8628). Designed for agents that
 -- cannot drive a localhost-redirect OAuth flow (no port-binding,

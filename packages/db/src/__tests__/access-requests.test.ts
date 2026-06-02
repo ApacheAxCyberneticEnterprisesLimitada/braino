@@ -83,7 +83,18 @@ describe("access requests", () => {
   });
 
   it("lists pending requests across an owner's docos, oldest first", async () => {
-    await createAccessRequest({ doco_id: DOCO2, requester_id: REQ, requested_role: "reader" });
+    const first = await createAccessRequest({
+      doco_id: DOCO2,
+      requester_id: REQ,
+      requested_role: "reader",
+    });
+    // Force a deterministic created_at gap: two same-instant now() inserts
+    // would make the ASC order ambiguous (there's no serial column to
+    // tiebreak on), so back-date the first request a second.
+    await mocks.db.query(
+      "UPDATE access_requests SET created_at = now() - interval '1 second' WHERE id = $1",
+      [first.id],
+    );
     await createAccessRequest({ doco_id: DOCO, requester_id: REQ, requested_role: "writer" });
     const pending = await listPendingAccessRequestsForDocos([DOCO, DOCO2]);
     expect(pending.map((p) => p.doco_id)).toEqual([DOCO2, DOCO]);
