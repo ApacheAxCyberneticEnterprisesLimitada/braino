@@ -644,6 +644,20 @@ export async function listWorkspaces(): Promise<WorkspaceRow[]> {
   });
 }
 
+export async function getWorkspaceById(workspaceId: string): Promise<WorkspaceRow | null> {
+  if (!workspaceId.startsWith("workspace_")) return null;
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT o.id, o.handle, o.name, o.constitution, o.data,
+              COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = o.id), 0) AS member_count
+       FROM workspaces o WHERE o.id = $1`,
+      [workspaceId],
+    );
+    if (r.rowCount === 0) return null;
+    return mapWorkspaceRow(r.rows[0]);
+  });
+}
+
 export async function listWorkspacesForUser(
   userId: string,
   roles: string[] = ["owner", "writer", "reader"],

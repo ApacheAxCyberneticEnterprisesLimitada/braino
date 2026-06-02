@@ -38,6 +38,7 @@ export {
   type PrincipalRow,
   // Workspaces
   listWorkspaces,
+  getWorkspaceById,
   listWorkspacesForUser,
   upsertWorkspaceUser,
   removeWorkspaceUser,
