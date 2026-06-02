@@ -591,7 +591,7 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
-  kind            text NOT NULL CHECK (kind IN ('graph','list','bpmn','org-tree','sla','approval','glossary','pull-requests')),
+  kind            text NOT NULL CHECK (kind IN ('graph','list','bpmn','org-tree','sla','glossary','pull-requests')),
   name            text NOT NULL,
   description     text,
   icon            text,
@@ -604,13 +604,12 @@ CREATE TABLE IF NOT EXISTS perspectives (
 CREATE INDEX IF NOT EXISTS perspectives_owner_handle_idx ON perspectives (owner_handle);
 CREATE INDEX IF NOT EXISTS perspectives_kind_idx         ON perspectives (kind);
 
--- Built-in perspectives. host.ts attaches graph/list/for-approval to every new
+-- Built-in perspectives. host.ts attaches graph/list to every new
 -- Doco, so these rows must exist for doco creation to succeed.
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
   ('perspective_graph','graph','graph','Graph','Force-directed overview of nodes and edges — the original view.','🕸️',NULL,true,'{}'::jsonb),
   ('perspective_list','list','list','List','Sortable list of nodes, with type-aware tiebreakers.','📋',NULL,true,'{"default_sort":"recent_desc"}'::jsonb),
   ('perspective_bpmn','bpmn','bpmn','BPMN','Business process modeling — swim lanes, gateways, and events. Inspired by BPMN.','🏭','torrenegra',true,'{"lane_axis":"principal"}'::jsonb),
-  ('perspective_approval','for-approval','approval','Proposed','Queue of proposed nodes waiting for review.',NULL,NULL,true,'{"lifecycle":"drafting","reject_lifecycle":"drafting","approve_lifecycle":"asserted"}'::jsonb),
   ('perspective_glossary','glossary','glossary','Glossary','A dictionary-style reading of the Doco''s terminology — canonical headwords, definitions, senses, and aliases laid out like a printed lexicon.','📖',NULL,true,'{"headword_field":"chosen","primary_entity":"decision","definition_field":"decision"}'::jsonb),
   ('perspective_org_tree','org-tree','org-tree','Org Tree','Organizational chart — Principals as members, `has_parent` edges with `reports_to` role as reporting lines, with person vs AI agent shown by icon.','🏢',NULL,true,'{"agent_icon":"🤖","person_icon":"👤","root_edge":"has_parent","root_edge_role":"reports_to","icon_by_member_kind":true}'::jsonb),
   ('perspective_sla','sla','sla','SLAs','Service-level agreement control plane — commitments, owners, evidence links, remedies, and review gaps.','📜',NULL,true,'{"event_logs":false,"primary_entity":"rule","evidence_sources":["eval","reference"]}'::jsonb),
@@ -629,6 +628,14 @@ CREATE TABLE IF NOT EXISTS doco_perspectives (
 CREATE INDEX IF NOT EXISTS doco_perspectives_doco_idx ON doco_perspectives (doco_id, position);
 CREATE UNIQUE INDEX IF NOT EXISTS doco_perspectives_one_default
   ON doco_perspectives (doco_id) WHERE is_default;
+
+-- Heal: the "Proposed"/approval perspective was removed. schema.sql is additive
+-- (CREATE IF NOT EXISTS / INSERT ON CONFLICT) and re-applied on every boot, so
+-- dropping the seed row above does not by itself clear it from databases
+-- provisioned earlier. Delete the leftover row here — the ON DELETE CASCADE on
+-- doco_perspectives.perspective_id removes any Doco's attachment of it too.
+-- Safe to remove once every environment has been re-provisioned without it.
+DELETE FROM perspectives WHERE id = 'perspective_approval';
 
 -- In-page assistant chat.
 CREATE TABLE IF NOT EXISTS chat_conversations (

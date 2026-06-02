@@ -17,7 +17,6 @@ export const RESERVED_HANDLES = HOST_RESERVED_SLUGS;
 const BUILTIN_PERSPECTIVE_ATTACHMENTS = [
   { slug: "graph", perspectiveId: "perspective_graph", position: 0 },
   { slug: "list", perspectiveId: "perspective_list", position: 1 },
-  { slug: "for-approval", perspectiveId: "perspective_approval", position: 2 },
 ] as const;
 
 export interface TemplatePerspectiveSeed {
