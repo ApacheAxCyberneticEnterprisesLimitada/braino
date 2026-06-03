@@ -742,6 +742,29 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
+      {
+        // A gateway routes the flow; strict BPMN leaves the diamond itself
+        // unowned and lets the surrounding activities carry accountability.
+        // We make that accountability explicit instead: every committed
+        // gateway names the Principal — a role, team, or system actor —
+        // answerable for the call, via a `decided_by` attributed_to edge.
+        // Mirrors the Action `performed_by` gate and fires on the same
+        // committed stages, so a gateway may be sketched unowned in
+        // `drafting` but cannot be queued or activated without a decider
+        // (which would also strand it in the BPMN "Unassigned" lane). The
+        // perspective still renders a decider supplied via `performed_by`,
+        // but `decided_by` is the role this template requires.
+        policy:
+          "Every gateway Decision in business-processes must have a `decided_by` relationship to the Principal answerable for the call — the role, team, or system that owns how the gateway is decided (stored as an `attributed_to` edge). A gateway with no decider floats into the Unassigned lane.",
+        predicate: {
+          kind: "requires_edge_role",
+          edge_type: "attributed_to",
+          edge_role: "decided_by",
+          target_node_type: "principal",
+          when_node_type: ["decision"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
 
       // ── State shape & sequence wiring (graph invariants kept as
       //    guidance until the evaluator can express subgraph shape) ──
@@ -818,7 +841,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "BPMN vocabulary: `flows_to` is process order and renders source -> target with no reversal; `serves` (stored as `supports`) places nodes in Intent pools; `performed_by` and `owned_by` (stored as `attributed_to`) drive actor lanes and ownership; `gated_by` (stored as `constrained_by`) links policy guards; `tests`, `enacts`, and `implemented_by` use `supports` with role metadata for validation, rationale, and evidence.",
+          "BPMN vocabulary: `flows_to` is process order and renders source -> target with no reversal; `serves` (stored as `supports`) places nodes in Intent pools; `performed_by`, `decided_by`, and `owned_by` (stored as `attributed_to`) drive actor lanes, gateway deciders, and process ownership; `gated_by` (stored as `constrained_by`) links policy guards; `tests`, `enacts`, and `implemented_by` use `supports` with role metadata for validation, rationale, and evidence.",
       },
       {
         policy:
@@ -842,7 +865,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. Sketch it in `drafting`, where it may be incomplete — completeness and shape rules are suspended. `queue` it (changeset op `queue`) once its actor (`performed_by`), Intent (`serves`), and forward `flows_to` wiring are coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; only a `drafting` sketch is exempt. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
+          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. Sketch it in `drafting`, where it may be incomplete — completeness and shape rules are suspended. `queue` it (changeset op `queue`) once its actor (`performed_by`, or `decided_by` for a gateway Decision), Intent (`serves`), and forward `flows_to` wiring are coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; only a `drafting` sketch is exempt. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
       },
       {
         policy:

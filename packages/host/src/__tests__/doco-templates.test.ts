@@ -140,6 +140,20 @@ describe("business-processes template", () => {
         requiresEdgeRole("attributed_to", "performed_by", "principal", "action"),
       ).toBeDefined();
     });
+    it("Decision decided_by Principal", () => {
+      // A gateway routes the flow, but a role, team, or system is
+      // accountable for how it is decided. Require that decider explicitly,
+      // mirroring the Action performed_by gate.
+      expect(
+        requiresEdgeRole("attributed_to", "decided_by", "principal", "decision"),
+      ).toBeDefined();
+    });
+    it("Decision decided_by fires on both committed stages (queued + active)", () => {
+      expect(
+        requiresEdgeRole("attributed_to", "decided_by", "principal", "decision")
+          ?.fires_when_node_lifecycle,
+      ).toEqual(["queued", "active"]);
+    });
     it("Eval tests a target", () => {
       const rule = requiresEdgeRole("supports", "tests", null, "eval");
       expect(rule).toBeDefined();
@@ -392,6 +406,27 @@ describe("business-processes template", () => {
         (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
       );
       expect(atomic?.on_violation).toBe("warn");
+    });
+  });
+
+  describe("queued and active are held to identical rules", () => {
+    // A `queued` node asserts readiness, so promotion to `queued` is gated by
+    // exactly the same policies as activation: no business-process policy may
+    // fire on one committed stage without the other. Policies with no
+    // lifecycle filter fire on every stage and satisfy this trivially. This
+    // locks in BUSINESS_PROCESS_COMMITTED_LIFECYCLES and guards against a
+    // future `["active"]`-only (or `["queued"]`-only) policy slipping in.
+    it("no policy gates one committed stage without the other", () => {
+      for (const p of template.policies) {
+        const lifecycles = p.fires_when_node_lifecycle;
+        if (!lifecycles) continue;
+        const firesQueued = lifecycles.includes("queued");
+        const firesActive = lifecycles.includes("active");
+        expect(
+          firesQueued,
+          `policy "${p.policy.slice(0, 72)}…" fires on queued=${firesQueued} / active=${firesActive}; the two committed stages must be gated identically`,
+        ).toBe(firesActive);
+      }
     });
   });
 });
