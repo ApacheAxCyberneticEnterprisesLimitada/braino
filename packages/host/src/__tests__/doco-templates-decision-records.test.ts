@@ -69,7 +69,7 @@ describe("decision-record templates", () => {
     }
   });
 
-  it("requires active Decisions to declare the common decision-record spine", () => {
+  it("requires proposed and active Decisions to declare the common decision-record spine", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const required = template(handle).policies.find(
         (p) =>
@@ -79,22 +79,76 @@ describe("decision-record templates", () => {
       expect(required?.predicate?.kind).toBe("requires_field");
       if (required?.predicate?.kind !== "requires_field") return;
       expect(required.predicate.fields).toEqual(["question", "chosen", "alternatives"]);
-      expect(required.fires_when_node_lifecycle).toEqual(["active"]);
+      // The spine fires the moment a record is *proposed* (queued) and keeps
+      // firing once *accepted* (active); a `drafting` sketch is exempt.
+      expect(required.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     }
   });
 
-  it("warns on duplicate active questions instead of blocking successor records", () => {
+  it("warns on duplicate proposed-or-active questions instead of blocking successor records", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const uniqueQuestion = template(handle).policies.find(
         (p) => p.predicate?.kind === "unique_field",
       );
       expect(uniqueQuestion?.on_violation).toBe("warn");
-      expect(uniqueQuestion?.fires_when_node_lifecycle).toEqual(["active"]);
+      expect(uniqueQuestion?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
       expect(uniqueQuestion?.predicate?.kind).toBe("unique_field");
       if (uniqueQuestion?.predicate?.kind !== "unique_field") return;
       expect(uniqueQuestion.predicate.field).toBe("question");
       expect(uniqueQuestion.predicate.case_fold).toBe(true);
       expect(uniqueQuestion.predicate.when_node_type).toEqual(["decision"]);
+    }
+  });
+
+  it("gates membership and quality judgments at the proposed and active stages", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const probabilistic = template(handle).policies.filter(
+        (p) =>
+          p.predicate?.kind === "probabilistic" && p.predicate.when_node_type?.includes("decision"),
+      );
+      // Both the domain-membership judge and the quality judge are gated:
+      // a `drafting` sketch is never LLM-judged, but a proposed (queued) or
+      // accepted (active) record is.
+      expect(probabilistic.length).toBe(2);
+      for (const p of probabilistic) {
+        expect(p.on_violation).toBe("warn");
+        expect(p.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+      }
+    }
+  });
+
+  it("keeps the node-type allowlist a structural invariant that fires at every stage", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const allowlist = template(handle).policies.find(
+        (p) => p.predicate?.kind === "requires_node_type",
+      );
+      // The membership allowlist describes what may exist in the Doco at all,
+      // so unlike the completeness/quality gates it carries no lifecycle
+      // filter — it fires on drafts and retirements alike.
+      expect(allowlist?.fires_when_node_lifecycle).toBeUndefined();
+    }
+  });
+
+  it("teaches the draft → propose → accept → supersede lifecycle as the decision's status", () => {
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const guidance = template(handle)
+        .policies.filter((p) => !p.predicate)
+        .map((p) => p.policy)
+        .join("\n");
+      const lifecycle = template(handle)
+        .policies.filter((p) => !p.predicate)
+        .map((p) => p.policy)
+        .find((s) => /Lifecycle is the decision's status/i.test(s));
+      expect(lifecycle).toBeDefined();
+      expect(lifecycle).toMatch(/drafting/);
+      expect(lifecycle).toMatch(/queued/);
+      expect(lifecycle).toMatch(/\bactive\b/);
+      expect(lifecycle).toMatch(/retired/);
+      expect(lifecycle).toMatch(/propose/i);
+      expect(lifecycle).toMatch(/accept|in force/i);
+      // The append-only guidance now anchors immutability to *acceptance*,
+      // leaving drafts and proposals freely revisable.
+      expect(guidance).toMatch(/append-only once accepted/i);
     }
   });
 
@@ -110,6 +164,27 @@ describe("decision-record templates", () => {
       expect(guidance).toMatch(/Rules/i);
       expect(guidance).toMatch(/Evals/i);
       expect(guidance).toMatch(/Intents/i);
+    }
+  });
+
+  it("routes off-domain decisions to the sibling decision template that should own them", () => {
+    // Every membership judge should not just reject a misfiled decision — it
+    // should tell the author where it belongs. Each spec's FAIL clause names at
+    // least two of the other three decision-record templates.
+    const siblings: Record<(typeof DECISION_RECORD_HANDLES)[number], string[]> = {
+      "architectural-decisions": ["product-decisions", "design-decisions", "data-decisions"],
+      "product-decisions": ["architectural-decisions", "design-decisions", "data-decisions"],
+      "design-decisions": ["architectural-decisions", "product-decisions", "data-decisions"],
+      "data-decisions": ["architectural-decisions", "product-decisions", "design-decisions"],
+    };
+    for (const handle of DECISION_RECORD_HANDLES) {
+      const membership = template(handle).policies.find(
+        (p) =>
+          p.predicate?.kind === "probabilistic" && p.predicate.when_node_type?.includes("decision"),
+      );
+      const spec = membership?.predicate?.kind === "probabilistic" ? membership.predicate.spec : "";
+      const named = siblings[handle].filter((s) => spec.includes(s));
+      expect(named.length).toBeGreaterThanOrEqual(2);
     }
   });
 

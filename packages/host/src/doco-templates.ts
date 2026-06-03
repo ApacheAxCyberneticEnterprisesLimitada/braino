@@ -45,9 +45,10 @@ export interface TemplatePolicy {
    */
   predicate?: AuthoringPredicate;
   /**
-   * v7: when set, the engine only fires this policy against
-   * candidates whose `lifecycle` is in the list. Used by completeness
-   * rules that skip drafting nodes during mid-construction.
+   * When set, the engine only fires this policy against candidates whose
+   * `lifecycle` is in the list. Completeness and quality gates use this to
+   * hold a node to the bar once it is proposed (`queued`) and accepted
+   * (`active`) while leaving a `drafting` sketch unjudged.
    */
   fires_when_node_lifecycle?: Lifecycle[];
   /**
@@ -157,6 +158,19 @@ function decisionRecordQualitySpec(opts: {
   ].join(" ");
 }
 
+// Completeness, uniqueness, quality, and domain-membership judgments hold a
+// decision record to the decision-record bar from the moment it is *proposed*
+// (`queued`) and keep holding it once it is *accepted* (`active`). A
+// `drafting` record is an unjudged sketch — its `chosen` resolution may still
+// be blank — so these gates skip it: an author sketches freely in `drafting`
+// and queues (proposes) the record once it states a question, a choice, and
+// the alternatives. Membership stays gated too, because a half-formed sketch
+// is hard to classify by domain; once a record is complete enough to propose,
+// it is complete enough to place. The node-type allowlist is the deliberate
+// exception — it is a structural invariant about what may exist in the Doco at
+// all, not a property of an in-force record, so it fires at every stage.
+const PROPOSED_OR_ACCEPTED: Lifecycle[] = ["queued", "active"];
+
 function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): TemplatePolicy[] {
   return [
     {
@@ -167,6 +181,7 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
         spec: opts.decisionMembershipSpec,
         when_node_type: ["decision"],
       },
+      fires_when_node_lifecycle: PROPOSED_OR_ACCEPTED,
     },
     {
       policy:
@@ -178,25 +193,25 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
     },
     {
       policy:
-        "Every active decision-record Decision declares `question`, `chosen`, and `alternatives`: the issue being decided, the selected resolution, and the options considered.",
+        "Every proposed or active decision-record Decision declares `question`, `chosen`, and `alternatives`: the issue being decided, the selected resolution, and the options considered. A `drafting` sketch is exempt — its `chosen` may stay blank while the author is still thinking.",
       predicate: {
         kind: "requires_field",
         fields: ["question", "chosen", "alternatives"],
         when_node_type: ["decision"],
       },
-      fires_when_node_lifecycle: ["active"],
+      fires_when_node_lifecycle: PROPOSED_OR_ACCEPTED,
     },
     {
       on_violation: "warn",
       policy:
-        "Active decision-record Decisions should have unique `question` values. If the same question is revisited, retire or supersede the old record and link it to the successor rather than silently rewriting history.",
+        "Proposed and active decision-record Decisions should have unique `question` values. If the same question is revisited, retire or supersede the old record and link it to the successor rather than silently rewriting history.",
       predicate: {
         kind: "unique_field",
         field: "question",
         case_fold: true,
         when_node_type: ["decision"],
       },
-      fires_when_node_lifecycle: ["active"],
+      fires_when_node_lifecycle: PROPOSED_OR_ACCEPTED,
     },
     {
       on_violation: "warn",
@@ -209,11 +224,15 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
           failure: opts.qualityFailure,
         }),
       },
-      fires_when_node_lifecycle: ["active"],
+      fires_when_node_lifecycle: PROPOSED_OR_ACCEPTED,
     },
     {
       policy:
-        "Decision records are append-only once active: correct or replace them by retiring or superseding the old Decision and creating a successor, not by editing away the original context, rationale, or rejected alternatives.",
+        "Lifecycle is the decision's status. `drafting` is a private sketch — the `chosen` resolution can stay blank while you think. Queue (propose) the record to put it up for review: completeness and quality gates begin at `queued`, so a proposal already reads as a real decision record. `active` marks the decision accepted and in force; `retired` deprecates or supersedes it. Capture rough thinking as `drafting`, propose it as `queued`, accept it by activating, and never edit an accepted record in place — supersede it.",
+    },
+    {
+      policy:
+        "Decision records are append-only once accepted (active): while a record is still `drafting` or `queued` you may revise it freely, but after it goes `active` you correct or replace it by retiring or superseding the old Decision and creating a successor — not by editing away the original context, rationale, or rejected alternatives.",
     },
     {
       policy:
@@ -297,7 +316,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       decisionMembershipPolicy:
         "A Decision belongs in architectural-decisions when it records an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
       decisionMembershipSpec:
-        "PASS for ADR Decisions, technology-selection Decisions, and security/privacy architecture Decisions that record system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, compliance architecture, implementation evidence, or architecture validation, including Decisions supported by References and Evals. FAIL for product roadmap choices, UI design choices, raw incidents, implementation tasks without architectural consequence, or data-definition decisions better owned by data-decisions.",
+        "PASS for ADR Decisions, technology-selection Decisions, and security/privacy architecture Decisions that record system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, compliance architecture, implementation evidence, or architecture validation, including Decisions supported by References and Evals. FAIL for product roadmap or pricing choices (route to product-decisions), UI or interaction design choices (design-decisions), data-definition or governance decisions (data-decisions), raw incidents, or implementation tasks with no architectural consequence.",
       qualityPolicy:
         "An active architectural Decision reads like an ADR: it states context and problem, decision drivers or quality attributes, options considered, chosen approach, consequences and trade-offs, implementation/migration impact, and the review or rollback trigger.",
       qualityChecklist: [
@@ -329,7 +348,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       decisionMembershipPolicy:
         "A Decision belongs in product-decisions when it records a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
       decisionMembershipSpec:
-        "PASS for product Decisions about target users, product goals or outcomes, product principles or commitments, customer/research evidence, experiment or metric interpretation, pricing, packaging, roadmap priority, launch strategy, or deliberate decisions not to build something, including Decisions supported by References and Evals. FAIL for engineering implementation choices, visual/interface design details better owned by design-decisions, pure data-governance choices, one-off support events, or unpromoted feature ideas with no decision yet.",
+        "PASS for product Decisions about target users, product goals or outcomes, product principles or commitments, customer/research evidence, experiment or metric interpretation, pricing, packaging, roadmap priority, launch strategy, or deliberate decisions not to build something, including Decisions supported by References and Evals. FAIL for engineering or infrastructure implementation choices (route to architectural-decisions), visual or interaction design details (design-decisions), data-governance or metric-definition choices (data-decisions), one-off support events, or unpromoted feature ideas with no decision yet.",
       qualityPolicy:
         "An active product Decision states the user/customer problem, strategic goal, evidence, assumptions, options considered, chosen product direction, explicit trade-offs, success metric, accountable decision role, and revisit trigger.",
       qualityChecklist: [
@@ -347,7 +366,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       guidance: [
         "Record `we will not do X` product calls when the choice changes scope, user expectations, sales promises, or future roadmap reasoning; negative decisions are often more valuable than shipped-feature notes.",
         "Use Evals for experiments, A/B tests, metric reviews, or qualitative checks that prove whether the product Decision worked, and link follow-up Decisions when the evidence changes the course.",
-        "Product Decisions separate reversible experiments from committed strategy: two-way-door tests can stay drafting or time-boxed, while one-way-door commitments should be active with explicit approval and revisit criteria.",
+        "Product Decisions separate reversible experiments from committed strategy: a reversible two-way-door test can sit in `queued` (proposed and time-boxed) while you gather evidence, while a one-way-door commitment moves to `active` only with explicit approval and a revisit trigger.",
         "Use References for customer interviews, tickets, analytics, opportunity assessments, pricing research, launch notes, and competitive evidence rather than burying source material inside the Decision prose.",
       ],
     }),
@@ -363,7 +382,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       decisionMembershipPolicy:
         "A Decision belongs in design-decisions when it records a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
       decisionMembershipSpec:
-        "PASS for design Decisions about user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation, including Decisions supported by Figma or research References and usability/accessibility Evals. FAIL for raw engineering architecture, product priority calls without UX implications, data governance decisions, or cosmetic preference notes with no user or system rationale.",
+        "PASS for design Decisions about user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation, including Decisions supported by Figma or research References and usability/accessibility Evals. FAIL for backend or infrastructure architecture (route to architectural-decisions), product scope or roadmap priority without UX implications (product-decisions), data governance or schema decisions (data-decisions), or cosmetic preference notes with no user or system rationale.",
       qualityPolicy:
         "An active design Decision states the user journey or service moment, evidence, alternatives considered, chosen pattern, affected states and edge cases, accessibility/content implications, trade-offs, artifacts, and validation plan.",
       qualityChecklist: [
@@ -397,7 +416,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       decisionMembershipPolicy:
         "A Decision belongs in data-decisions when it records a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
       decisionMembershipSpec:
-        "PASS for data Decisions about source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation, including Decisions supported by data contract References and quality or freshness Evals. FAIL for UI design decisions, generic product roadmap choices, pure application architecture with no data ownership/semantics impact, or raw pipeline run Logs.",
+        "PASS for data Decisions about source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation, including Decisions supported by data contract References and quality or freshness Evals. FAIL for UI or interaction design decisions (route to design-decisions), product roadmap or pricing choices (product-decisions), pure application or infrastructure architecture with no data ownership or semantics impact (architectural-decisions), or raw pipeline run Logs.",
       qualityPolicy:
         "An active data Decision states the data asset or definition, accountable owner/steward, producers and consumers, source of truth, schema or semantics, privacy/access/retention stance, quality and freshness expectations, lineage, migration/backfill impact, and monitoring/revisit plan.",
       qualityChecklist: [
