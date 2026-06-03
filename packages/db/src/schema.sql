@@ -642,7 +642,7 @@ CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
 -- Non-rotating: a refresh reissues only the access token and keeps the
 -- same refresh token (expiry slid forward), so DOCO_REFRESH can be pinned
 -- anywhere — a repo .env, cloud env vars, CI secrets — without going stale.
--- Revocation (from /api-keys) is how a token is cut off.
+-- Revocation (from /tokens) is how a token is cut off.
 CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   token             text PRIMARY KEY,
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
@@ -1040,6 +1040,17 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider, workspace_id, chat_user_id, user_id)
+);
+-- One row per group-chat channel the assistant has already spoken in. The
+-- presence of a row means "already introduced", so Señor Doco leads only its
+-- FIRST message in a channel with the Haiku/MCP intro and never repeats it.
+-- A bare insert with ON CONFLICT DO NOTHING makes the first-time check atomic.
+CREATE TABLE IF NOT EXISTS group_chat_channel_intros (
+  provider      text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
+  workspace_id  text NOT NULL,
+  channel_id    text NOT NULL,
+  introduced_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (provider, workspace_id, channel_id)
 );
 
 -- Heal: chat teams are now bound to a single Doco workspace, so the assistant
