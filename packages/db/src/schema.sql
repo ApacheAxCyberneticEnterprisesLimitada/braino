@@ -957,6 +957,10 @@ CREATE TABLE IF NOT EXISTS agent_turn_metrics (
   error                    text,
   phases                   jsonb NOT NULL DEFAULT '{}'::jsonb
 );
+-- Per-thread usage roll-up (the Thinking panel meter) sums these rows by
+-- conversation on every snapshot load; the FK column isn't auto-indexed.
+CREATE INDEX IF NOT EXISTS agent_turn_metrics_conversation_idx
+  ON agent_turn_metrics (conversation_id);
 
 CREATE TABLE IF NOT EXISTS capture_timings (
   id                          text PRIMARY KEY,
