@@ -902,11 +902,21 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   active_turn_started_at   timestamptz,
   active_turn_events       jsonb NOT NULL DEFAULT '[]'::jsonb,
   title                    text,
+  -- The Workspace this thread is scoped to. Señor Doco hard-scopes a thread's
+  -- context (docos, policies, constitution) to this Workspace — mirroring an
+  -- MCP token bound to one Workspace. Nullable: pre-existing threads (and any
+  -- not yet assigned) stay workspace-less and fall back to the broad,
+  -- all-reachable context. ON DELETE SET NULL so deleting a Workspace
+  -- unassigns its threads rather than destroying chat history.
+  workspace_id             text REFERENCES workspaces(id) ON DELETE SET NULL,
   attached_workspace_handles text[] NOT NULL DEFAULT '{}',
   attached_doco_ids        text[] NOT NULL DEFAULT '{}',
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
+-- Migration for DBs created before workspace scoping existed.
+ALTER TABLE chat_conversations
+  ADD COLUMN IF NOT EXISTS workspace_id text REFERENCES workspaces(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_chat_conversations_user_active
   ON chat_conversations (user_id, updated_at DESC) WHERE archived = false;
 
