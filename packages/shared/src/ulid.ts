@@ -9,6 +9,10 @@ const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const TIMESTAMP_LEN = 10;
 const RANDOMNESS_LEN = 16;
 const RANDOMNESS_BYTES = 10; // 80 bits / 8
+const RANDOMNESS_SPACE = 1n << BigInt(RANDOMNESS_BYTES * 8);
+
+let lastAutoTimestampMs = -1;
+let lastAutoRandom = 0n;
 
 function encodeBigInt(value: bigint, length: number): string {
   let v = value;
@@ -36,8 +40,28 @@ function randomBigInt(byteCount: number): bigint {
  * deterministic-time ULIDs (used by tests and the bootstrap ULID generator).
  */
 export function generateUlid(timestampMs?: number): Ulid {
-  const ts = BigInt(timestampMs ?? Date.now());
-  const rand = randomBigInt(RANDOMNESS_BYTES);
+  let tsNumber = timestampMs ?? Date.now();
+  let rand = randomBigInt(RANDOMNESS_BYTES);
+
+  if (timestampMs === undefined) {
+    if (tsNumber < lastAutoTimestampMs) {
+      tsNumber = lastAutoTimestampMs;
+    }
+    if (tsNumber === lastAutoTimestampMs) {
+      lastAutoRandom += 1n;
+      if (lastAutoRandom >= RANDOMNESS_SPACE) {
+        tsNumber += 1;
+        lastAutoTimestampMs = tsNumber;
+        lastAutoRandom = 0n;
+      }
+      rand = lastAutoRandom;
+    } else {
+      lastAutoTimestampMs = tsNumber;
+      lastAutoRandom = rand;
+    }
+  }
+
+  const ts = BigInt(tsNumber);
   return (encodeBigInt(ts, TIMESTAMP_LEN) + encodeBigInt(rand, RANDOMNESS_LEN)) as Ulid;
 }
 

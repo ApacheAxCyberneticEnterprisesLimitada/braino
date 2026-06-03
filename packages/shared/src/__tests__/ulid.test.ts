@@ -40,6 +40,12 @@ describe("ULID generation", () => {
     expect(a.slice(10)).not.toBe(b.slice(10));
   });
 
+  it("keeps auto-generated ULIDs lexically ordered by generation order", () => {
+    const values = Array.from({ length: 1000 }, () => generateUlid());
+
+    expect([...values].sort()).toEqual(values);
+  });
+
   it("matches the format of the bootstrap ULIDs (e.g. doco_id)", () => {
     // Sanity: a known good bootstrap ULID validates.
     expect(isUlid("01KR441EA0ZDMF0N5DY38GSVS3")).toBe(true);
