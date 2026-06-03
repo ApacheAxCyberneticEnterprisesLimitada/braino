@@ -221,6 +221,26 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
   ];
 }
 
+/**
+ * Business-processes fires its completeness + shape policies on the two
+ * *committed* lifecycle stages — `queued` (ready, awaiting activation) and
+ * `active` (in force) — and exempts only `drafting`.
+ *
+ * Rationale (the `queued` stage): the node lifecycle is now
+ * `drafting → queued → active → retired`. A node an author has explicitly
+ * `queue`d is asserting it is ready to go live, so it must already satisfy
+ * the same actor (`performed_by`), Intent (`serves`), and forward
+ * `flows_to` wiring an `active` node does — otherwise "ready" is a lie the
+ * BPMN renderer can't draw. Only a `drafting` sketch may be incomplete.
+ *
+ * This is scoped to business-processes on purpose: it is the one template
+ * that defaults new nodes to `drafting` and carries a real
+ * draft → queue → activate authoring story. Templates that default new
+ * nodes straight to `active` (decision-records, glossaries, org-chart)
+ * rarely pass through `queued`, so they still fire on `["active"]`.
+ */
+const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
@@ -560,6 +580,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // rework loops may route back through a gateway. Generic Doco
     // dependency / rationale edges remain associations and are not
     // treated as BPMN arrows.
+    //
+    // Lifecycle: nodes default to `drafting` so a process can be sketched
+    // freely; completeness + shape rules fire on the committed stages
+    // (`queued` and `active`) only — see BUSINESS_PROCESS_COMMITTED_LIFECYCLES.
     name: "business-processes",
     label: "business-processes",
     icon: "🏭",
@@ -638,7 +662,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: 'Check the candidate\'s visible user-facing text fields, including name, body_md, intent, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
           when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
       // ── Principal shape ──────────────────────────────────────────
@@ -670,7 +694,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Intent's `intent` field. PASS only when BOTH hold: (a) the FIRST LINE is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name; and (b) the remaining text lets the reader discern (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. FAIL with what is wrong — say `first line is not a brief headline` when line one crams the whole description into one sentence, or name the missing trigger / outcome / out-of-scope element.",
           when_node_type: ["intent"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
       // ── Action shape ────────────────────────────────────────────
@@ -684,7 +708,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "principal",
           when_node_type: ["action"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
         // One rule for all three flow-node types. The role-aware edge
@@ -701,7 +725,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "intent",
           when_node_type: ["action", "decision", "state"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
         // Atomic activity prose — surface umbrella phases and
@@ -721,7 +745,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Action's `action` and `verb`. PASS when the text names a single business activity the named actor performs — an ordinary single-verb step like `review the legal terms`, `approve the invoice`, or `pack the order` PASSES. FAIL with reason only if the text (a) is a vague umbrella phase covering many steps (e.g. `handle request`, `do the thing`, `process order`), (b) bundles two distinct activities joined by `and` (e.g. `examine and treat the patient`), or (c) is an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
           when_node_type: ["action"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       // ── Decision shape ──────────────────────────────────────────
       {
@@ -735,18 +759,18 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Decision's `question`, `alternatives`, and any outgoing `flows_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_node_type: ["decision"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
       // ── State shape & sequence wiring (graph invariants kept as
       //    guidance until the evaluator can express subgraph shape) ──
       {
         policy:
-          "A business process has ≥1 active initial State and ≥1 active terminal State, with each `state` name unique within the process. Every process starts somewhere, ends at a business outcome (or an explicitly cancelled outcome), and names its milestones unambiguously.",
+          "A business process has ≥1 committed (`queued` or `active`) initial State and ≥1 committed terminal State, with each `state` name unique within the process. Every process starts somewhere, ends at a business outcome (or an explicitly cancelled outcome), and names its milestones unambiguously.",
       },
       {
         policy:
-          "Flow runs forward from the initial State: each active initial State has ≥1 outgoing `flows_to` edge, every non-initial flow node is reachable from an earlier flow node through forward `flows_to`, and every non-terminal flow node has ≥1 outgoing `flows_to` target in the same process Intent. Terminal States have no outgoing `flows_to` — they end the process path.",
+          "Flow runs forward from the initial State: each committed (`queued` or `active`) initial State has ≥1 outgoing `flows_to` edge, every non-initial flow node is reachable from an earlier flow node through forward `flows_to`, and every non-terminal flow node has ≥1 outgoing `flows_to` target in the same process Intent. Terminal States have no outgoing `flows_to` — they end the process path.",
       },
       {
         // State summary as milestone/condition — noun or past-participle
@@ -758,7 +782,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_node_type: ["state"],
           spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
       // ── Coverage ────────────────────────────────────────────────
@@ -770,7 +794,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Review actor coverage by following `attributed_to` role `performed_by` and `supports` role `serves` edges.",
           when_node_type: ["intent"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
       // ── Eval ────────────────────────────────────────────────────
@@ -783,7 +807,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           edge_role: "tests",
           when_node_type: ["eval"],
         },
-        fires_when_node_lifecycle: ["active"],
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
       // ── Guidance (prose-only) ───────────────────────────────────
@@ -837,7 +861,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `active` only after actor (`performed_by`), Intent (`serves`), and forward `flows_to` wiring are coherent.",
+          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. Sketch it in `drafting`, where it may be incomplete — completeness and shape rules are suspended. `queue` it (changeset op `queue`) once its actor (`performed_by`), Intent (`serves`), and forward `flows_to` wiring are coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; only a `drafting` sketch is exempt. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
+      },
+      {
+        policy:
+          "Use `queued` for a process — or a single step, gateway, or milestone — that is fully wired and ready but not yet in force: a redesign awaiting sign-off, a step pending a scheduled go-live, or an approved-but-not-yet-rolled-out change. A `queued` node asserts readiness, so it must already satisfy the same actor, `serves`, and forward-flow wiring an `active` node does. If it is still being sketched and that wiring is incomplete, leave it `drafting` instead of queuing it.",
       },
       {
         policy:
