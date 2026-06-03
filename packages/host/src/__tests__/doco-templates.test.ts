@@ -132,19 +132,19 @@ describe("business-processes template", () => {
     it("Eval tests a target", () => {
       const rule = requiresEdgeRole("supports", "tests", null, "eval");
       expect(rule).toBeDefined();
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
     });
 
-    it("fires flow membership checks only when the node is asserted", () => {
+    it("fires flow membership checks only when the node is active", () => {
       expect(
         requiresEdgeRole("supports", "serves", "intent", "action")?.fires_when_node_lifecycle,
-      ).toEqual(["asserted"]);
+      ).toEqual(["active"]);
       expect(
         requiresEdgeRole("supports", "serves", "intent", "decision")?.fires_when_node_lifecycle,
-      ).toEqual(["asserted"]);
+      ).toEqual(["active"]);
       expect(
         requiresEdgeRole("supports", "serves", "intent", "state")?.fires_when_node_lifecycle,
-      ).toEqual(["asserted"]);
+      ).toEqual(["active"]);
     });
 
     it("keeps the role vocabulary in the business-process guidance", () => {
@@ -243,7 +243,7 @@ describe("business-processes template", () => {
       expect(rule.predicate.spec).toMatch(/performed_by/);
       expect(rule.predicate.spec).toMatch(/supports/);
       expect(rule.predicate.spec).toMatch(/serves/);
-      expect(rule.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rule.fires_when_node_lifecycle).toEqual(["active"]);
     });
   });
 
@@ -262,13 +262,13 @@ describe("business-processes template", () => {
         (r) =>
           r.predicate?.kind === "probabilistic" && /exhaustive outgoing branches/i.test(r.policy),
       );
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
     });
     it("keeps Action grain as an assertion-time check", () => {
       const rule = template.policies.find(
         (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
       );
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
     });
     it("blocks imported BPMN/source metadata in user-facing process prose", () => {
       const rule = template.policies.find(
@@ -276,7 +276,7 @@ describe("business-processes template", () => {
           r.predicate?.kind === "probabilistic" && /imported BPMN\/source metadata/i.test(r.policy),
       );
       expect(rule?.on_violation).toBe("block");
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.when_node_type).toEqual(
@@ -302,8 +302,8 @@ describe("business-processes template", () => {
     it("tells agents to use relate_many for gateway siblings", () => {
       expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
     });
-    it("documents draft-first assertion", () => {
-      expect(summaries.some((s) => /Drafting nodes/i.test(s) && /asserted/i.test(s))).toBe(true);
+    it("documents draft-first activation", () => {
+      expect(summaries.some((s) => /Drafting nodes/i.test(s) && /active/i.test(s))).toBe(true);
     });
     it("Log separation (instances live in a sibling Doco)", () => {
       expect(

@@ -79,7 +79,7 @@ describe("decision-record templates", () => {
       expect(required?.predicate?.kind).toBe("requires_field");
       if (required?.predicate?.kind !== "requires_field") return;
       expect(required.predicate.fields).toEqual(["question", "chosen", "alternatives"]);
-      expect(required.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(required.fires_when_node_lifecycle).toEqual(["active"]);
     }
   });
 
@@ -89,7 +89,7 @@ describe("decision-record templates", () => {
         (p) => p.predicate?.kind === "unique_field",
       );
       expect(uniqueQuestion?.on_violation).toBe("warn");
-      expect(uniqueQuestion?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(uniqueQuestion?.fires_when_node_lifecycle).toEqual(["active"]);
       expect(uniqueQuestion?.predicate?.kind).toBe("unique_field");
       if (uniqueQuestion?.predicate?.kind !== "unique_field") return;
       expect(uniqueQuestion.predicate.field).toBe("question");

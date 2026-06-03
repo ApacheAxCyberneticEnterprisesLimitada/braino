@@ -21,7 +21,7 @@ describe("org-chart template", () => {
     expect(template.icon).toBe("🏢");
     expect(template.label).toBe("org-chart");
     // Definitional/live-on-creation Doco: no drafting default, so a
-    // captured seat/team/appointment lands `asserted`. Sketch with an
+    // captured seat/team/appointment lands `active`. Sketch with an
     // explicit `lifecycle: "drafting"`.
     expect(template.defaultNodeLifecycle).toBeUndefined();
     expect(template.description).toMatch(/person/i);
@@ -143,8 +143,8 @@ describe("org-chart template", () => {
       expect(rule?.policy).toMatch(/top-of-chain/);
     });
 
-    it("fires only on `asserted` — drafting members can be captured before their manager exists", () => {
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+    it("fires only on `active` — drafting members can be captured before their manager exists", () => {
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
     });
 
     it("warns rather than blocks while the author is shaping the org", () => {
@@ -164,8 +164,8 @@ describe("org-chart template", () => {
       expect(rule.predicate.spec).toMatch(/attributed_to/);
     });
 
-    it("fires only on `asserted` — a team can be drafted before its roster is filled", () => {
-      expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+    it("fires only on `active` — a team can be drafted before its roster is filled", () => {
+      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
     });
   });
 

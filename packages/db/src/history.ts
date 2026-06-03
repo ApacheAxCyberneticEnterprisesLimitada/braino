@@ -222,7 +222,7 @@ export interface CreateEdgeInput {
   toId: string;
   toNodeType: string;
   props?: Record<string, unknown> | null;
-  lifecycle?: "drafting" | "asserted";
+  lifecycle?: "drafting" | "active";
   actor?: string | null;
 }
 
@@ -269,7 +269,7 @@ export async function createEdge(
       input.toId,
       input.toNodeType,
       input.props ? JSON.stringify(input.props) : null,
-      input.lifecycle ?? "asserted",
+      input.lifecycle ?? "active",
       "authored",
       input.actor ?? null,
     ],
@@ -292,7 +292,7 @@ export async function updateEdge(
   input: {
     id: string;
     props?: Record<string, unknown> | null;
-    lifecycle?: "drafting" | "asserted";
+    lifecycle?: "drafting" | "active";
     actor?: string | null;
   },
 ): Promise<EdgeRow> {

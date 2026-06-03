@@ -178,7 +178,7 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
         fields: ["question", "chosen", "alternatives"],
         when_node_type: ["decision"],
       },
-      fires_when_node_lifecycle: ["asserted"],
+      fires_when_node_lifecycle: ["active"],
     },
     {
       on_violation: "warn",
@@ -190,7 +190,7 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
         case_fold: true,
         when_node_type: ["decision"],
       },
-      fires_when_node_lifecycle: ["asserted"],
+      fires_when_node_lifecycle: ["active"],
     },
     {
       on_violation: "warn",
@@ -203,11 +203,11 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
           failure: opts.qualityFailure,
         }),
       },
-      fires_when_node_lifecycle: ["asserted"],
+      fires_when_node_lifecycle: ["active"],
     },
     {
       policy:
-        "Decision records are append-only once asserted: correct or replace them by retiring or superseding the old Decision and creating a successor, not by editing away the original context, rationale, or rejected alternatives.",
+        "Decision records are append-only once active: correct or replace them by retiring or superseding the old Decision and creating a successor, not by editing away the original context, rationale, or rejected alternatives.",
     },
     {
       policy:
@@ -321,7 +321,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       guidance: [
         "Record `we will not do X` product calls when the choice changes scope, user expectations, sales promises, or future roadmap reasoning; negative decisions are often more valuable than shipped-feature notes.",
         "Use Evals for experiments, A/B tests, metric reviews, or qualitative checks that prove whether the product Decision worked, and link follow-up Decisions when the evidence changes the course.",
-        "Product Decisions separate reversible experiments from committed strategy: two-way-door tests can stay drafting or time-boxed, while one-way-door commitments should be asserted with explicit approval and revisit criteria.",
+        "Product Decisions separate reversible experiments from committed strategy: two-way-door tests can stay drafting or time-boxed, while one-way-door commitments should be active with explicit approval and revisit criteria.",
         "Use References for customer interviews, tickets, analytics, opportunity assessments, pricing research, launch notes, and competitive evidence rather than burying source material inside the Decision prose.",
       ],
     }),
@@ -390,7 +390,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       guidance: [
         "Prefer machine-readable data contracts where possible, and link them as References; the Decision explains why the contract exists while the contract defines the enforceable schema and expectations.",
         "Metric and source-of-truth Decisions should define exactly what is included, excluded, and time-bounded so dashboards, experiments, and product claims do not drift into incompatible meanings.",
-        "Breaking data changes require a migration/backfill plan, downstream-consumer notice, compatibility strategy, and rollback or reconciliation path before the Decision is asserted.",
+        "Breaking data changes require a migration/backfill plan, downstream-consumer notice, compatibility strategy, and rollback or reconciliation path before the Decision is active.",
         "Use Rules for enduring governance constraints such as access tiers, retention limits, PII handling, ownership boundaries, and quality thresholds; use Evals to monitor freshness, completeness, drift, or contract compliance.",
       ],
     }),
@@ -411,7 +411,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document product and domain terminology — canonical terms, definitions, aliases, replacement links, sources, and consistency checks.",
     // No `defaultNodeLifecycle` override: a glossary term is a
     // definitional, complete-on-creation node, so a captured term lands
-    // live (`asserted`) and the term-completeness gates apply right
+    // live (`active`) and the term-completeness gates apply right
     // away. Authors who want to stub a term sketch it explicitly with
     // `lifecycle: "drafting"`. (Contrast business-processes, which
     // defaults to `drafting` so a flow can be wired up incrementally.)
@@ -449,7 +449,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["question", "chosen"],
           when_node_type: ["decision"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       {
         // Warn, not block: a clashing `chosen` is usually a duplicate
@@ -467,7 +467,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           case_fold: true,
           when_node_type: ["decision"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       {
         // One combined quality judge for term-entry Decisions. This used to
@@ -487,7 +487,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_node_type: ["decision"],
           spec: "Judge a glossary term-entry Decision on three aspects; report each failing aspect with a reason, but treat them as warnings, not hard errors. (a) ONE CONCEPT: PASS when the entry defines one concept or one canonical term; FAIL when it defines multiple independent terms, bundles a term with an unrelated policy, or is a catch-all for several concepts. (b) USABLE DEFINITION: PASS when the `decision` prose gives a concise definition AND the product or domain scope where the term applies AND at least one concrete example OR non-example — EITHER an example or a non-example is sufficient, do not require both; FAIL only when one of those three is genuinely absent. (c) ACRONYMS AND ABBREVIATIONS: only inspect the canonical term in `chosen`. If `chosen` is itself an acronym or abbreviation, PASS when the prose expands it at least once and states whether the short form is acceptable in product/docs/UI copy; FAIL when it is left unexpanded. Incidental abbreviations that merely appear in the prose (not the headword) are OUT OF SCOPE — ignore them. If `chosen` is not an acronym, this aspect PASSES.",
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Eval shape ─────────────────────────────────────────────
@@ -498,7 +498,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           edge_type: "supports",
           when_node_type: ["eval"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       {
         policy:
@@ -508,7 +508,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           fields: ["how_to_run"],
           when_node_type: ["eval"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       {
         // Quality nudge, not an integrity constraint: warn rather than block
@@ -523,7 +523,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_node_type: ["eval"],
           spec: "Check the Eval's `how_to_run` field. PASS when it gives a concrete rerun path: an exact command, search query, URL, script, or manual review procedure, plus the doc/code/product scope to inspect. FAIL when it is vague (`review docs`, `check terminology`) or depends on unstated context.",
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Guidance ───────────────────────────────────────────────
@@ -638,7 +638,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: 'Check the candidate\'s visible user-facing text fields, including name, body_md, intent, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
           when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Principal shape ──────────────────────────────────────────
@@ -670,7 +670,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Intent's `intent` field. PASS only when BOTH hold: (a) the FIRST LINE is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name; and (b) the remaining text lets the reader discern (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. FAIL with what is wrong — say `first line is not a brief headline` when line one crams the whole description into one sentence, or name the missing trigger / outcome / out-of-scope element.",
           when_node_type: ["intent"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Action shape ────────────────────────────────────────────
@@ -684,7 +684,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "principal",
           when_node_type: ["action"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       {
         // One rule for all three flow-node types. The role-aware edge
@@ -701,7 +701,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "intent",
           when_node_type: ["action", "decision", "state"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       {
         // Atomic activity prose — surface umbrella phases and
@@ -721,7 +721,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Action's `action` and `verb`. PASS when the text names a single business activity the named actor performs — an ordinary single-verb step like `review the legal terms`, `approve the invoice`, or `pack the order` PASSES. FAIL with reason only if the text (a) is a vague umbrella phase covering many steps (e.g. `handle request`, `do the thing`, `process order`), (b) bundles two distinct activities joined by `and` (e.g. `examine and treat the patient`), or (c) is an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
           when_node_type: ["action"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
       // ── Decision shape ──────────────────────────────────────────
       {
@@ -735,7 +735,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Check the Decision's `question`, `alternatives`, and any outgoing `flows_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
           when_node_type: ["decision"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── State shape & sequence wiring (graph invariants kept as
@@ -758,19 +758,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_node_type: ["state"],
           spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Coverage ────────────────────────────────────────────────
       {
         policy:
-          "Each actor Principal named in process prose should own at least one Action through a `performed_by` relationship, and each asserted Action should `serve` the process Intent.",
+          "Each actor Principal named in process prose should own at least one Action through a `performed_by` relationship, and each active Action should `serve` the process Intent.",
         predicate: {
           kind: "descriptive",
           spec: "Review actor coverage by following `attributed_to` role `performed_by` and `supports` role `serves` edges.",
           when_node_type: ["intent"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Eval ────────────────────────────────────────────────────
@@ -783,7 +783,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           edge_role: "tests",
           when_node_type: ["eval"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Guidance (prose-only) ───────────────────────────────────
@@ -837,7 +837,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `asserted` only after actor (`performed_by`), Intent (`serves`), and forward `flows_to` wiring are coherent.",
+          "Drafting nodes may be incomplete while the process is being sketched. Move flow nodes and the purpose Intent to `active` only after actor (`performed_by`), Intent (`serves`), and forward `flows_to` wiring are coherent.",
       },
       {
         policy:
@@ -862,7 +862,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     label: "GitHub pull requests",
     icon: "🐙",
     description:
-      "Track a GitHub repository's pull requests as References — new PRs sync automatically, and merged PRs settle as asserted.",
+      "Track a GitHub repository's pull requests as References — new PRs sync automatically, and merged PRs settle as active.",
     policies: [],
     // Default the overview to the Pull requests perspective (seeded by
     // migration 076). Resolved by slug at apply time; silently skipped if the
@@ -900,7 +900,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every seat declares in its `body_md` prose whether it's filled by a person, filled by an AI agent, or currently vacant.",
     // No `defaultNodeLifecycle` override: a seat, team, or appointment
     // is live the moment it's created, so a captured node lands
-    // `asserted` (and the asserted-gated completeness rules — e.g. a
+    // `active` (and the active-gated completeness rules — e.g. a
     // team Intent's roster — apply right away). To sketch a tentative
     // seat or a roster-less team, pass `lifecycle: "drafting"`
     // explicitly. (Business-processes keeps a `drafting` default so a
@@ -961,19 +961,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           when_node_type: ["principal"],
           spec: "Read the Principal candidate. PASS if its prose explains why this Principal has no manager above it (founder, board-reporting, root agent, external authority, etc.). Otherwise, expect a has_parent edge with role `reports_to` in the graph; if it is absent, WARN that the reporting edge is missing.",
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Team Intents declare members ───────────────────────────
       {
         policy:
-          "Every asserted team/unit Intent in an org chart should be linked to member Principals with `attributed_to` edges.",
+          "Every active team/unit Intent in an org chart should be linked to member Principals with `attributed_to` edges.",
         predicate: {
           kind: "descriptive",
           spec: "Review team membership through `attributed_to` edges with membership roles.",
           when_node_type: ["intent"],
         },
-        fires_when_node_lifecycle: ["asserted"],
+        fires_when_node_lifecycle: ["active"],
       },
 
       // ── Guidance (prose-only) ───────────────────────────────────

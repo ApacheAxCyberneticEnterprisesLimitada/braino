@@ -10,19 +10,19 @@ export interface CaptureSchema {
   entityType: string;
   label: string;
   collection: string;
-  defaultLifecycle: "drafting" | "asserted" | "retired";
+  defaultLifecycle: "drafting" | "queued" | "active" | "retired";
   fields: readonly CaptureFieldSpec[];
   patchFields: readonly string[];
 }
 
 const COMMON_OPTIONAL_FIELDS: readonly CaptureFieldSpec[] = [
-  field("lifecycle", "optional", 'one of "drafting" | "asserted" | "retired"'),
+  field("lifecycle", "optional", 'one of "drafting" | "queued" | "active" | "retired"'),
   field("deprecated", "optional", "boolean warning label; lifecycle is unchanged"),
   field("outcome", "optional", '"succeeded" | "failed"'),
 ];
 
 export const CAPTURE_SCHEMAS = {
-  decision: schema("decision", "Decision", "decisions", "asserted", [
+  decision: schema("decision", "Decision", "decisions", "active", [
     field("decision", "required", "full prose of the decision; first line is the label"),
     field("question", "required", "the question the Decision answers"),
     field(
@@ -33,7 +33,7 @@ export const CAPTURE_SCHEMAS = {
     field("alternatives", "optional", '[{ "name": "...", "rejected_because": "..." }, ...]'),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  intent: schema("intent", "Intent", "intents", "asserted", [
+  intent: schema("intent", "Intent", "intents", "active", [
     field("intent", "required", "full prose: what someone wants, why, success criteria"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
@@ -52,14 +52,14 @@ export const CAPTURE_SCHEMAS = {
     field("inputs", "optional", "event inputs, any JSON shape"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  rule: schema("rule", "Rule", "rules", "asserted", [
+  rule: schema("rule", "Rule", "rules", "active", [
     field("rule", "required", "full prose: rule statement, rationale, scope, exceptions"),
     field("predicate", "required", "machine-checkable or prose predicate"),
     field("enforced_by", "optional", '"runtime" | "review" | "manual"'),
     field("severity", "optional", '"hard" | "soft"'),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  eval: schema("eval", "Eval", "evals", "asserted", [
+  eval: schema("eval", "Eval", "evals", "active", [
     field("eval", "required", "full prose: what is being checked plus rationale"),
     field("criterion", "required", '{ "kind": "exact" | "shape" | "llm-judge", "spec": "..." }'),
     field("kind", "optional", '"unit" | "integration" | "eval" | "process" | "doc-consistency"'),
@@ -69,14 +69,14 @@ export const CAPTURE_SCHEMAS = {
     field("expected", "optional", "expected outcome, any JSON shape"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  reference: schema("reference", "Reference", "references", "asserted", [
+  reference: schema("reference", "Reference", "references", "active", [
     field("reference", "required", "full prose: human-readable label for the source"),
     field("ref_type", "required", '"file" | "url" | "ticket" | "commit" | "document" | "other"'),
     field("locator", "required", "path, URL, ticket id, commit sha, or other locator"),
     field("content_hash", "optional", "source content hash"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  state: schema("state", "State", "states", "asserted", [
+  state: schema("state", "State", "states", "active", [
     field("state", "required", "full prose: state description, invariants explained"),
     field("kind", "required", '"initial" | "intermediate" | "terminal"'),
     field("invariants", "optional", "array of free-form predicates true while in this State"),

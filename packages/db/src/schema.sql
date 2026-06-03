@@ -265,7 +265,8 @@ CREATE TABLE IF NOT EXISTS guidance_policies (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   -- One-line policy statement.
   policy      text,
-  lifecycle   text,
+  -- Policies only ever occupy two stages: 'active' or 'retired'.
+  lifecycle   text NOT NULL DEFAULT 'active',
   body_md     text,
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -283,7 +284,8 @@ CREATE TABLE IF NOT EXISTS node_authoring_policies (
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   -- One-line policy statement.
   policy      text,
-  lifecycle   text,
+  -- Policies only ever occupy two stages: 'active' or 'retired'.
+  lifecycle   text NOT NULL DEFAULT 'active',
   body_md     text,
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
@@ -312,7 +314,8 @@ CREATE TABLE IF NOT EXISTS nodes (
   id             text PRIMARY KEY,            -- <node_type>_<ulid>
   doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
   node_type      text NOT NULL,              -- intent|idea|rule|decision|action|log|eval|reference|state|principal
-  lifecycle      text,
+  -- Lifecycle is mandatory; canonical stages: drafting|queued|active|retired.
+  lifecycle      text NOT NULL DEFAULT 'active',
   prose          text NOT NULL DEFAULT '',   -- unified type-named column for the 9 prose node types; empty string for principals
   name           text,                       -- principal display label (NULL for the others)
   body_md        text,                       -- principal prose description (NULL for the others)
@@ -433,7 +436,7 @@ CREATE TABLE IF NOT EXISTS edges (
   to_id           text NOT NULL CONSTRAINT edges_to_fk   REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,
   to_node_type    text NOT NULL,
   props           jsonb,
-  lifecycle       text NOT NULL DEFAULT 'asserted',
+  lifecycle       text NOT NULL DEFAULT 'active',
   origin          text NOT NULL DEFAULT 'authored'
                     CHECK (origin IN ('authored')),
   created_at      timestamptz NOT NULL DEFAULT now(),
@@ -1122,4 +1125,55 @@ BEGIN
     EXECUTE format('DROP TRIGGER IF EXISTS %I_append_only_stmt ON %I', t, t);
     EXECUTE format('CREATE TRIGGER %I_append_only_stmt BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION doco_block_history_mutation()', t, t);
   END LOOP;
+END $$;
+
+-- ── Lifecycle vocabulary migration ───────────────────────────────────────
+-- Rename the in-force stage `asserted` → `active`, make node/edge/policy
+-- lifecycle mandatory (NOT NULL, defaulting to `active`), and constrain
+-- policies to the two stages they ever occupy (`active`/`retired`).
+-- Idempotent: the backfill UPDATEs match nothing after the first run, the
+-- SET NOT NULL steps are guarded on is_nullable, and the CHECKs are
+-- drop-then-add. The append-only history tables (node_versions /
+-- edge_versions) are deliberately left untouched — they record what was
+-- true at the time, so historical `asserted` snapshots stay as written.
+DO $$
+BEGIN
+  -- 1. Backfill live rows to the new vocabulary (NULL/asserted → active).
+  UPDATE nodes                   SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle = 'asserted';
+  UPDATE edges                   SET lifecycle = 'active' WHERE lifecycle = 'asserted';
+  UPDATE guidance_policies       SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle = 'asserted';
+  UPDATE node_authoring_policies SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle = 'asserted';
+  -- `default_node_lifecycle` is optional; guard so very old databases that
+  -- predate the column don't error here.
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'docos' AND column_name = 'default_node_lifecycle') THEN
+    UPDATE docos SET default_node_lifecycle = 'active' WHERE default_node_lifecycle = 'asserted';
+  END IF;
+
+  -- 2. Lifecycle is mandatory and defaults to `active`.
+  ALTER TABLE nodes                   ALTER COLUMN lifecycle SET DEFAULT 'active';
+  ALTER TABLE edges                   ALTER COLUMN lifecycle SET DEFAULT 'active';
+  ALTER TABLE guidance_policies       ALTER COLUMN lifecycle SET DEFAULT 'active';
+  ALTER TABLE node_authoring_policies ALTER COLUMN lifecycle SET DEFAULT 'active';
+
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'nodes' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
+    ALTER TABLE nodes ALTER COLUMN lifecycle SET NOT NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'guidance_policies' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
+    ALTER TABLE guidance_policies ALTER COLUMN lifecycle SET NOT NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+             WHERE table_name = 'node_authoring_policies' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
+    ALTER TABLE node_authoring_policies ALTER COLUMN lifecycle SET NOT NULL;
+  END IF;
+
+  -- 3. Policies are constrained to exactly two stages.
+  ALTER TABLE guidance_policies       DROP CONSTRAINT IF EXISTS guidance_policies_lifecycle_check;
+  ALTER TABLE guidance_policies       ADD  CONSTRAINT guidance_policies_lifecycle_check
+                                            CHECK (lifecycle IN ('active','retired'));
+  ALTER TABLE node_authoring_policies DROP CONSTRAINT IF EXISTS node_authoring_policies_lifecycle_check;
+  ALTER TABLE node_authoring_policies ADD  CONSTRAINT node_authoring_policies_lifecycle_check
+                                            CHECK (lifecycle IN ('active','retired'));
 END $$;

@@ -339,7 +339,7 @@ export async function createDocoInWorkspace(opts: {
       template_handle: opts.templateHandle ?? null,
       created_at: created,
       created_by: opts.createdByUserId,
-      lifecycle: "asserted",
+      lifecycle: "active",
       ...(allowedNodeTypes ? { allowed_node_types: allowedNodeTypes } : {}),
       ...(defaultNodeLifecycle ? { default_node_lifecycle: defaultNodeLifecycle } : {}),
     };
@@ -409,14 +409,14 @@ export async function createDocoInWorkspace(opts: {
           template_handle: opts.templateHandle ?? null,
           created_at: created,
           created_by: opts.createdByUserId,
-          lifecycle: "asserted",
+          lifecycle: "active",
         };
         await c.query(
           // policies table column renamed from `summary` to `policy`
           // in migration 038; the seed insert tracks the new name.
           `INSERT INTO ${table} (id, doco_id, policy, data, body_md, lifecycle,
                                 created_at, updated_at, created_by, updated_by)
-           VALUES ($1, $2, $3, $4::jsonb, $5, 'asserted', $6, $6, $7, $7)`,
+           VALUES ($1, $2, $3, $4::jsonb, $5, 'active', $6, $6, $7, $7)`,
           [
             policyId,
             docoId,

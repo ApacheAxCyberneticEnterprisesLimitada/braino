@@ -22,7 +22,21 @@
 
 import type { EntityId, EntityType, NodeType } from "./branded.js";
 
-export type Lifecycle = "drafting" | "asserted" | "retired";
+/**
+ * Node lifecycle stages, in canonical progression order:
+ *   drafting → queued → active → retired
+ * `active` is the in-force stage (formerly `asserted`); `queued` is
+ * provisional-but-ready (e.g. an open GitHub PR awaiting approval).
+ * Policies use a narrower two-stage lifecycle — see `PolicyLifecycle`.
+ */
+export type Lifecycle = "drafting" | "queued" | "active" | "retired";
+
+/**
+ * Policies (guidance + node-authoring) only ever occupy two stages:
+ * `active` (in force) or `retired` (superseded / withdrawn). They never
+ * enter the node-only `drafting`/`queued` stages.
+ */
+export type PolicyLifecycle = "active" | "retired";
 
 export type Outcome = "succeeded" | "failed";
 

@@ -53,12 +53,12 @@ async function main(): Promise<void> {
     );
     await c.query(
       `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, data, created_by)
-       VALUES ($1,$2,'decision','asserted','Use first-class edges','{}',$3)`,
+       VALUES ($1,$2,'decision','active','Use first-class edges','{}',$3)`,
       [decisionId, docoId, userId],
     );
     await c.query(
       `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, data, created_by)
-       VALUES ($1,$2,'reference','asserted','PR #634','{}',$3)`,
+       VALUES ($1,$2,'reference','active','PR #634','{}',$3)`,
       [refId, docoId, userId],
     );
 
@@ -73,7 +73,7 @@ async function main(): Promise<void> {
       entityId: decisionId,
       entityType: "decision",
       op: "create",
-      payload: { id: decisionId, decision: "Use first-class edges", lifecycle: "asserted" },
+      payload: { id: decisionId, decision: "Use first-class edges", lifecycle: "active" },
       txId: tx0,
       actor: userId,
     });
@@ -96,7 +96,7 @@ async function main(): Promise<void> {
       actor: userId,
     });
     check("edge has surrogate id edge_<ulid>", /^edge_[0-9A-HJKMNP-TV-Z]{26}$/.test(edge.id));
-    check("edge created lifecycle=asserted", edge.lifecycle === "asserted");
+    check("edge created lifecycle=asserted", edge.lifecycle === "active");
     check("edge carries provenance created_by", edge.created_by === userId);
 
     // --- Edge update (props mutation) ---

@@ -32,10 +32,10 @@ function decisionRecord(): EntityRecord {
       decided_by: "principal_test000000000000000000",
       intent_ids: [INTENT],
       sequence_to: [{ target: ACTION, label: "next" }],
-      lifecycle: "asserted",
+      lifecycle: "active",
     },
     type_named_value: "Pick the path",
-    lifecycle: "asserted",
+    lifecycle: "active",
   } as unknown as EntityRecord;
 }
 

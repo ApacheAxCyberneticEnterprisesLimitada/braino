@@ -21,7 +21,7 @@ describe("glossaries template", () => {
     expect(template.icon).toBe("📚");
     expect(template.label).toBe("Glossaries");
     // A glossary term is definitional and complete-on-creation, so it
-    // lands `asserted` (no drafting default); the term-completeness
+    // lands `active` (no drafting default); the term-completeness
     // gates apply right away. Stub a term with explicit `drafting`.
     expect(template.defaultNodeLifecycle).toBeUndefined();
     expect(template.description).toMatch(/terminology/i);
@@ -107,7 +107,7 @@ describe("glossaries template", () => {
       if (requiredFields?.predicate?.kind !== "requires_field") return;
       expect(requiredFields.predicate.fields).toEqual(["question", "chosen"]);
       expect(requiredFields.predicate.fields).not.toContain("decided_by");
-      expect(requiredFields.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(requiredFields.fires_when_node_lifecycle).toEqual(["active"]);
     });
 
     it("enforces case-folded uniqueness for the canonical term in `chosen`", () => {
@@ -116,7 +116,7 @@ describe("glossaries template", () => {
       expect(uniqueCanonicalTerm.predicate.field).toBe("chosen");
       expect(uniqueCanonicalTerm.predicate.case_fold).toBe(true);
       expect(uniqueCanonicalTerm.predicate.when_node_type).toEqual(["decision"]);
-      expect(uniqueCanonicalTerm.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(uniqueCanonicalTerm.fires_when_node_lifecycle).toEqual(["active"]);
     });
 
     it("documents that alternatives are optional unless real aliases or rejected labels exist", () => {
@@ -204,16 +204,16 @@ describe("glossaries template", () => {
 
     it("requires a supports edge and how_to_run only when active", () => {
       expect(evalTarget?.predicate?.kind).toBe("requires_edge");
-      expect(evalTarget?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(evalTarget?.fires_when_node_lifecycle).toEqual(["active"]);
       expect(evalFields?.predicate?.kind).toBe("requires_field");
       if (evalFields?.predicate?.kind !== "requires_field") return;
       expect(evalFields.predicate.fields).toEqual(["how_to_run"]);
-      expect(evalFields.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(evalFields.fires_when_node_lifecycle).toEqual(["active"]);
     });
 
     it("requires reproducible terminology checks", () => {
       expect(rerunRule).toBeDefined();
-      expect(rerunRule?.fires_when_node_lifecycle).toEqual(["asserted"]);
+      expect(rerunRule?.fires_when_node_lifecycle).toEqual(["active"]);
       expect(rerunRule?.predicate?.kind).toBe("probabilistic");
       if (rerunRule?.predicate?.kind !== "probabilistic") return;
       expect(rerunRule.predicate.spec).toMatch(/concrete rerun path/i);
