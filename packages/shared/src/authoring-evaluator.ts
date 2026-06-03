@@ -213,30 +213,56 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
 
   switch (pred.sub_kind) {
     case "requires_edge": {
-      const wanted = opts.candidateEdges.find((s) => {
+      const matches = opts.candidateEdges.filter((s) => {
         if (s.edge_type !== pred.edge_type) return false;
         if (pred.target_node_type) {
           return entityTypeFromId(s.to_id) === pred.target_node_type;
         }
         return true;
       });
-      if (wanted) return null;
+      const min = pred.min_count && pred.min_count > 0 ? pred.min_count : 1;
+      if (matches.length >= min) return null;
       const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
-      return fail(`missing required \`${pred.edge_type}\` edge${target}`);
+      const count = min > 1 ? ` (need ≥${min}, have ${matches.length})` : "";
+      return fail(`missing required \`${pred.edge_type}\` edge${target}${count}`);
     }
     case "requires_edge_role": {
-      const wanted = opts.candidateEdges.find((s) => {
+      // Structural exemption: a candidate that already carries the exempt role
+      // (on either side of an `edge_type` edge) is excused from the check — the
+      // accountable `owned_by` owner, say, is exempt from the `performed_by`
+      // coverage gate. Keeps the rule from false-positiving on a legitimate
+      // special case the way the org-tree `reports_to` nudge avoids dinging a
+      // valid root.
+      if (pred.exempt_when_role) {
+        const exempt = opts.edges.some(
+          (s) =>
+            (s.from_id === candidate.id || s.to_id === candidate.id) &&
+            s.edge_type === pred.edge_type &&
+            edgeRole(s) === pred.exempt_when_role,
+        );
+        if (exempt) return null;
+      }
+      const direction = pred.direction ?? "outgoing";
+      const pool =
+        direction === "incoming"
+          ? opts.edges.filter((s) => s.to_id === candidate.id)
+          : opts.candidateEdges;
+      const wanted = pool.find((s) => {
         if (s.edge_type !== pred.edge_type) return false;
         if (edgeRole(s) !== pred.edge_role) return false;
         if (pred.target_node_type) {
-          return entityTypeFromId(s.to_id) === pred.target_node_type;
+          const otherEnd = direction === "incoming" ? s.from_id : s.to_id;
+          return entityTypeFromId(otherEnd) === pred.target_node_type;
         }
         return true;
       });
       if (wanted) return null;
-      const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
+      const dir = direction === "incoming" ? "incoming " : "";
+      const target = pred.target_node_type
+        ? `${direction === "incoming" ? " from" : " to"} a ${pred.target_node_type}`
+        : "";
       return fail(
-        `missing required \`${pred.edge_type}\` edge with role \`${pred.edge_role}\`${target}`,
+        `missing required ${dir}\`${pred.edge_type}\` edge with role \`${pred.edge_role}\`${target}`,
       );
     }
     case "forbids_edge": {
@@ -260,6 +286,68 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       const present = pred.fields.filter((f) => isNonEmpty(candidate[f]));
       if (present.length === 0) return null;
       return fail(`carries forbidden field(s): ${present.map((m) => `\`${m}\``).join(", ")}`);
+    }
+    case "forbids_field_pattern": {
+      let re: RegExp;
+      try {
+        re = new RegExp(pred.pattern, pred.flags ?? "i");
+      } catch {
+        // A malformed pattern is an authoring bug in the policy, not in the
+        // candidate — fail open rather than block every write on a bad regex.
+        return null;
+      }
+      const hit = pred.fields.find((f) => {
+        const v = candidate[f];
+        return typeof v === "string" && re.test(v);
+      });
+      if (!hit) return null;
+      return fail(`field \`${hit}\` contains forbidden pattern /${pred.pattern}/`);
+    }
+    case "field-line-shape": {
+      const value = candidate[pred.field];
+      // Presence is a separate concern (requires_field) — only shape an
+      // actually-present headline.
+      if (typeof value !== "string" || value.trim().length === 0) return null;
+      const firstLine = (value.split("\n")[0] ?? "").trim();
+      const problems: string[] = [];
+      if (pred.max_first_line_chars && firstLine.length > pred.max_first_line_chars) {
+        problems.push(`first line is ${firstLine.length} chars (max ${pred.max_first_line_chars})`);
+      }
+      if (pred.max_first_line_words) {
+        const words = firstLine.split(/\s+/).filter(Boolean).length;
+        if (words > pred.max_first_line_words) {
+          problems.push(`first line is ${words} words (max ${pred.max_first_line_words})`);
+        }
+      }
+      if (problems.length === 0) return null;
+      return fail(`\`${pred.field}\` headline too long: ${problems.join("; ")}`);
+    }
+    case "flow-wiring": {
+      const isInitial =
+        pred.initial_when !== undefined &&
+        candidate[pred.initial_when.field] === pred.initial_when.equals;
+      const isTerminal =
+        pred.terminal_when !== undefined &&
+        candidate[pred.terminal_when.field] === pred.terminal_when.equals;
+      const incoming = opts.edges.filter(
+        (s) => s.to_id === candidate.id && s.edge_type === pred.edge_type,
+      );
+      const outgoing = opts.candidateEdges.filter((s) => s.edge_type === pred.edge_type);
+      const problems: string[] = [];
+      // Reachable: a non-initial flow node needs ≥1 incoming edge.
+      if (!isInitial && incoming.length === 0) {
+        problems.push(`no incoming \`${pred.edge_type}\` (unreachable)`);
+      }
+      // Leads somewhere: a non-terminal flow node needs ≥1 outgoing edge…
+      if (!isTerminal && outgoing.length === 0) {
+        problems.push(`no outgoing \`${pred.edge_type}\` (dead end)`);
+      }
+      // …and a terminal node must NOT carry one — it ends the path.
+      if (isTerminal && outgoing.length > 0) {
+        problems.push(`terminal node must have no outgoing \`${pred.edge_type}\``);
+      }
+      if (problems.length === 0) return null;
+      return fail(`broken sequence flow: ${problems.join("; ")}`);
     }
     case "unique_field": {
       const candidateValue = comparableFieldValue(candidate[pred.field], Boolean(pred.case_fold));

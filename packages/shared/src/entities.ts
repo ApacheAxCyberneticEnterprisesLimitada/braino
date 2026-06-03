@@ -171,6 +171,8 @@ export type AuthoringPredicate =
       kind: "requires_edge";
       edge_type: string;
       target_node_type?: string;
+      /** Minimum number of matching outgoing edges (default 1). A gateway, say, needs ≥2. */
+      min_count?: number;
       when_node_type?: NodeType[];
     }
   | {
@@ -178,6 +180,19 @@ export type AuthoringPredicate =
       edge_type: string;
       edge_role: string;
       target_node_type?: string;
+      /**
+       * Which side of the candidate the edge must sit on. "outgoing" (default)
+       * checks edges the candidate owns; "incoming" checks edges that point AT
+       * the candidate (e.g. a Principal must be the target of a `performed_by`).
+       */
+      direction?: "incoming" | "outgoing";
+      /**
+       * Skip the check when the candidate already participates in an edge of
+       * `edge_type` carrying this role — the structural exemption that keeps a
+       * rule from false-positiving on a legitimate special case (e.g. the
+       * accountable `owned_by` owner is exempt from the `performed_by` gate).
+       */
+      exempt_when_role?: string;
       when_node_type?: NodeType[];
     }
   | {
@@ -188,6 +203,37 @@ export type AuthoringPredicate =
     }
   | { kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
   | { kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
+  | {
+      /** Violation when any listed field's text matches a forbidden regex. */
+      kind: "forbids_field_pattern";
+      fields: string[];
+      pattern: string;
+      flags?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      /** First-line length/shape gate — keeps a headline field scannable. */
+      kind: "field-line-shape";
+      field: string;
+      max_first_line_chars?: number;
+      max_first_line_words?: number;
+      when_node_type?: NodeType[];
+    }
+  | {
+      /**
+       * Sequence-flow completeness for a directed process graph. A flow node
+       * must be wired in: reachable (≥1 incoming `edge_type`) unless it is an
+       * initial node, and leading somewhere (≥1 outgoing) unless it is a
+       * terminal node — which conversely must have NO outgoing edge.
+       * "Initial"/"terminal" are detected structurally via a field match so
+       * the engine can branch without reading prose.
+       */
+      kind: "flow-wiring";
+      edge_type: string;
+      initial_when?: { field: string; equals: string };
+      terminal_when?: { field: string; equals: string };
+      when_node_type?: NodeType[];
+    }
   | { kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
   | { kind: "requires_node_type"; node_types: NodeType[] }
   /**
@@ -252,6 +298,7 @@ export type DeterministicPredicate =
       sub_kind: "requires_edge";
       edge_type: string;
       target_node_type?: string;
+      min_count?: number;
       when_node_type?: NodeType[];
     }
   | {
@@ -259,6 +306,8 @@ export type DeterministicPredicate =
       edge_type: string;
       edge_role: string;
       target_node_type?: string;
+      direction?: "incoming" | "outgoing";
+      exempt_when_role?: string;
       when_node_type?: NodeType[];
     }
   | {
@@ -269,6 +318,27 @@ export type DeterministicPredicate =
     }
   | { sub_kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
   | { sub_kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
+  | {
+      sub_kind: "forbids_field_pattern";
+      fields: string[];
+      pattern: string;
+      flags?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      sub_kind: "field-line-shape";
+      field: string;
+      max_first_line_chars?: number;
+      max_first_line_words?: number;
+      when_node_type?: NodeType[];
+    }
+  | {
+      sub_kind: "flow-wiring";
+      edge_type: string;
+      initial_when?: { field: string; equals: string };
+      terminal_when?: { field: string; equals: string };
+      when_node_type?: NodeType[];
+    }
   | { sub_kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
   | { sub_kind: "requires_node_type"; node_types: NodeType[] }
   | { sub_kind: "requires_entity_type"; entity_types: EntityType[] }

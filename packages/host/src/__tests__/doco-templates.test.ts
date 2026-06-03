@@ -228,50 +228,117 @@ describe("business-processes template", () => {
   });
 
   describe("State wiring", () => {
-    // Aggregate predicates that originally encoded these rules ship as
-    // guidance until the evaluator can express them directly. The tests
-    // below match the guidance summaries' shape rather than predicate kinds.
+    // The per-node sequence-flow + uniqueness invariants are now ENGINE-checked
+    // (deterministic), not prose-only. Doco-level existence ("≥1 initial, ≥1
+    // terminal") can't be a per-candidate predicate, so it stays guidance.
     const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
 
-    it("State uniqueness within the process is documented", () => {
-      expect(guidanceSummaries.some((s) => /\bstate\b.*\bunique\b/i.test(s))).toBe(true);
-    });
-    it("≥1 active initial State is documented", () => {
+    it("≥1 active initial State is documented (doco-level, stays guidance)", () => {
       expect(guidanceSummaries.some((s) => /\binitial\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
         true,
       );
     });
-    it("≥1 active terminal State is documented", () => {
+    it("≥1 active terminal State is documented (doco-level, stays guidance)", () => {
       expect(guidanceSummaries.some((s) => /\bterminal\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
         true,
       );
     });
-    it("Terminal States have no outgoing sequence flow is documented", () => {
-      expect(
-        guidanceSummaries.some((s) => /terminal/i.test(s) && /no outgoing.*flows_to/i.test(s)),
-      ).toBe(true);
+
+    it("State milestone-name uniqueness is ENFORCED via unique_field", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "unique_field" && r.predicate.when_node_type?.includes("state"),
+      );
+      expect(rule?.predicate?.kind).toBe("unique_field");
+      if (rule?.predicate?.kind !== "unique_field") return;
+      expect(rule.predicate.field).toBe("state");
+      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
-    it("`flows_to` locality is documented", () => {
-      expect(guidanceSummaries.some((s) => /flows_to.*same process Intent/i.test(s))).toBe(true);
-    });
-    it("forward sequence reachability is documented", () => {
-      expect(guidanceSummaries.some((s) => /forward `flows_to`/i.test(s))).toBe(true);
+
+    it("sequence-flow completeness is ENFORCED via flow-wiring (the dangling-node fix)", () => {
+      const rule = template.policies.find((r) => r.predicate?.kind === "flow-wiring");
+      expect(rule?.predicate?.kind).toBe("flow-wiring");
+      if (rule?.predicate?.kind !== "flow-wiring") return;
+      expect(rule.predicate.edge_type).toBe("flows_to");
+      expect(rule.predicate.when_node_type).toEqual(["action", "decision", "state"]);
+      expect(rule.predicate.initial_when).toEqual({ field: "kind", equals: "initial" });
+      expect(rule.predicate.terminal_when).toEqual({ field: "kind", equals: "terminal" });
+      // Committed-only: a drafting sketch may dangle.
+      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+      // The summary still spells out the terminal + forward-flow shape for agents.
+      expect(rule.policy).toMatch(/terminal/i);
+      expect(rule.policy).toMatch(/no outgoing.*flows_to/i);
+      expect(rule.policy).toMatch(/forward/i);
     });
   });
 
-  describe("actor coverage guidance", () => {
-    const rule = template.policies.find(
-      (r) => r.predicate?.kind === "descriptive" && /actor Principal/i.test(r.policy),
-    );
-
-    it("documents performed_by / serves coverage", () => {
-      expect(rule?.predicate?.kind).toBe("descriptive");
-      if (rule?.predicate?.kind !== "descriptive") return;
-      expect(rule.predicate.spec).toMatch(/attributed_to/);
-      expect(rule.predicate.spec).toMatch(/performed_by/);
-      expect(rule.predicate.spec).toMatch(/supports/);
-      expect(rule.predicate.spec).toMatch(/serves/);
+  describe("actor coverage (enforced)", () => {
+    it("ENFORCES that each actor Principal performs ≥1 Action, exempting the owner", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge_role" &&
+          r.predicate.edge_role === "performed_by" &&
+          r.predicate.direction === "incoming",
+      );
+      expect(rule?.predicate?.kind).toBe("requires_edge_role");
+      if (rule?.predicate?.kind !== "requires_edge_role") return;
+      expect(rule.predicate.edge_type).toBe("attributed_to");
+      expect(rule.predicate.exempt_when_role).toBe("owned_by");
+      expect(rule.predicate.when_node_type).toEqual(["principal"]);
+      // A nudge, not a hard block — the owner exemption keeps it from false-firing.
+      expect(rule.on_violation).toBe("warn");
       expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("ENFORCES that the process Intent names an accountable owner (owned_by)", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge_role" &&
+          r.predicate.edge_role === "owned_by" &&
+          (r.predicate.when_node_type?.includes("intent") ?? false),
+      );
+      expect(rule?.predicate?.kind).toBe("requires_edge_role");
+      if (rule?.predicate?.kind !== "requires_edge_role") return;
+      expect(rule.predicate.edge_type).toBe("attributed_to");
+      expect(rule.on_violation).toBe("warn");
+      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("deterministic floors under the LLM judges", () => {
+    it("a gateway Decision needs ≥2 outgoing flows_to (structural floor under the exhaustiveness judge)", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "flows_to" &&
+          (r.predicate.when_node_type?.includes("decision") ?? false),
+      );
+      expect(rule?.predicate?.kind).toBe("requires_edge");
+      if (rule?.predicate?.kind !== "requires_edge") return;
+      expect(rule.predicate.min_count).toBe(2);
+      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("a deterministic pattern floor blocks raw BPMN/import scaffolding tokens", () => {
+      const rule = template.policies.find((r) => r.predicate?.kind === "forbids_field_pattern");
+      expect(rule?.predicate?.kind).toBe("forbids_field_pattern");
+      if (rule?.predicate?.kind !== "forbids_field_pattern") return;
+      // Catches camelCase BPMN element types and generated ids.
+      expect("exclusiveGateway").toMatch(new RegExp(rule.predicate.pattern, rule.predicate.flags));
+      expect("Gateway_0x1f").toMatch(new RegExp(rule.predicate.pattern, rule.predicate.flags));
+      // Leaves ordinary business prose alone.
+      expect("approve the invoice").not.toMatch(
+        new RegExp(rule.predicate.pattern, rule.predicate.flags),
+      );
+    });
+
+    it("a headline-length floor warns on a run-on Intent first line", () => {
+      const rule = template.policies.find((r) => r.predicate?.kind === "field-line-shape");
+      expect(rule?.predicate?.kind).toBe("field-line-shape");
+      if (rule?.predicate?.kind !== "field-line-shape") return;
+      expect(rule.predicate.field).toBe("intent");
+      expect(rule.predicate.max_first_line_chars).toBeGreaterThan(0);
+      expect(rule.on_violation).toBe("warn");
     });
   });
 

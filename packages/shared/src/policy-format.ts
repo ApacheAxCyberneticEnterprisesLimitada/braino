@@ -34,6 +34,9 @@ const SUB_KIND_HEADLINE: Record<DeterministicPredicate["sub_kind"], string> = {
   forbids_edge: "Forbids edge",
   requires_field: "Requires field",
   forbids_field: "Forbids field",
+  forbids_field_pattern: "Forbids field pattern",
+  "field-line-shape": "Field line shape",
+  "flow-wiring": "Flow wiring",
   unique_field: "Unique field",
   requires_node_type: "Allowed node types",
   requires_entity_type: "Allowed entity types",
@@ -51,6 +54,11 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
   const parts: PredicatePart[] = [];
   switch (p.sub_kind) {
     case "requires_edge":
+      parts.push({ label: "edge type", value: p.edge_type });
+      if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
+      if (p.min_count && p.min_count > 1)
+        parts.push({ label: "min count", value: String(p.min_count) });
+      break;
     case "forbids_edge":
       parts.push({ label: "edge type", value: p.edge_type });
       if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
@@ -58,11 +66,37 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
     case "requires_edge_role":
       parts.push({ label: "edge type", value: p.edge_type });
       parts.push({ label: "role", value: p.edge_role });
+      if (p.direction) parts.push({ label: "direction", value: p.direction });
       if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
+      if (p.exempt_when_role) parts.push({ label: "exempt role", value: p.exempt_when_role });
       break;
     case "requires_field":
     case "forbids_field":
       parts.push({ label: "fields", value: p.fields.join(", ") });
+      break;
+    case "forbids_field_pattern":
+      parts.push({ label: "fields", value: p.fields.join(", ") });
+      parts.push({ label: "pattern", value: p.pattern });
+      break;
+    case "field-line-shape":
+      parts.push({ label: "field", value: p.field });
+      if (p.max_first_line_chars)
+        parts.push({ label: "max chars", value: String(p.max_first_line_chars) });
+      if (p.max_first_line_words)
+        parts.push({ label: "max words", value: String(p.max_first_line_words) });
+      break;
+    case "flow-wiring":
+      parts.push({ label: "edge type", value: p.edge_type });
+      if (p.initial_when)
+        parts.push({
+          label: "initial when",
+          value: `${p.initial_when.field}=${p.initial_when.equals}`,
+        });
+      if (p.terminal_when)
+        parts.push({
+          label: "terminal when",
+          value: `${p.terminal_when.field}=${p.terminal_when.equals}`,
+        });
       break;
     case "unique_field":
       parts.push({ label: "field", value: p.field });

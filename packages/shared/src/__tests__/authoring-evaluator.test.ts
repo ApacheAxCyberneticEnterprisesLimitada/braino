@@ -562,3 +562,241 @@ describe("authoring evaluator — on_violation propagation", () => {
     expect(v[0]?.on_violation).toBe("warn");
   });
 });
+
+// ─── new deterministic checks ────────────────────────────────────────────────
+
+describe("authoring evaluator — requires_edge min_count", () => {
+  const gatewayRule = () =>
+    P({
+      sub_kind: "requires_edge",
+      edge_type: "flows_to",
+      min_count: 2,
+      when_node_type: ["decision"],
+    });
+  const out = (from: string, to: string) => ({ from_id: from, to_id: to, edge_type: "flows_to" });
+
+  it("passes when at least min_count outgoing edges are present", () => {
+    const v = evaluate({ id: "decision_01", node_type: "decision" }, [gatewayRule()], {
+      candidateEdges: [out("decision_01", "state_a"), out("decision_01", "state_b")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("fails when fewer than min_count outgoing edges are present", () => {
+    const v = evaluate({ id: "decision_01", node_type: "decision" }, [gatewayRule()], {
+      candidateEdges: [out("decision_01", "state_a")],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("requires_edge");
+    expect(v[0]?.reason).toMatch(/2/);
+  });
+});
+
+describe("authoring evaluator — requires_edge_role direction + exemption", () => {
+  const coverage = () =>
+    P({
+      sub_kind: "requires_edge_role",
+      edge_type: "attributed_to",
+      edge_role: "performed_by",
+      direction: "incoming",
+      exempt_when_role: "owned_by",
+      when_node_type: ["principal"],
+    });
+  const inEdge = (from: string, role: string) => ({
+    from_id: from,
+    to_id: "principal_01",
+    edge_type: "attributed_to",
+    edge_props_json: { role },
+  });
+
+  it("passes when an incoming performed_by edge points at the principal", () => {
+    const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
+      edges: [inEdge("action_a", "performed_by")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("fails when no incoming performed_by edge exists", () => {
+    const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
+      edges: [inEdge("action_a", "decided_by")],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("requires_edge_role");
+    expect(v[0]?.reason).toMatch(/incoming/);
+  });
+
+  it("is exempt when the principal carries the exemption role (owned_by owner)", () => {
+    const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
+      edges: [inEdge("intent_a", "owned_by")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("does not count an OUTGOING performed_by as satisfying an incoming requirement", () => {
+    const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
+      candidateEdges: [
+        {
+          from_id: "principal_01",
+          to_id: "action_a",
+          edge_type: "attributed_to",
+          edge_props_json: { role: "performed_by" },
+        },
+      ],
+    });
+    expect(v).toHaveLength(1);
+  });
+});
+
+describe("authoring evaluator — forbids_field_pattern", () => {
+  const scaffolding = () =>
+    P({
+      sub_kind: "forbids_field_pattern",
+      fields: ["action", "decision"],
+      pattern: "(exclusiveGateway|Gateway_[A-Za-z0-9]+|user asks:)",
+      flags: "i",
+      when_node_type: ["action", "decision"],
+    });
+
+  it("passes on clean business prose", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", action: "approve the invoice" }, [
+      scaffolding(),
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  it("fails when a field contains a raw BPMN/import token", () => {
+    const v = evaluate(
+      { id: "decision_01", node_type: "decision", decision: "route via Gateway_0x1f manually" },
+      [scaffolding()],
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("forbids_field_pattern");
+    expect(v[0]?.reason).toMatch(/decision/);
+  });
+
+  it("does not crash on a malformed regex — fails open (no violation)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", action: "anything" }, [
+      P({ sub_kind: "forbids_field_pattern", fields: ["action"], pattern: "(unclosed" }),
+    ]);
+    expect(v).toEqual([]);
+  });
+});
+
+describe("authoring evaluator — field-line-shape", () => {
+  const headline = () =>
+    P({
+      sub_kind: "field-line-shape",
+      field: "intent",
+      max_first_line_chars: 40,
+      when_node_type: ["intent"],
+    });
+
+  it("passes a short first line", () => {
+    const v = evaluate(
+      {
+        id: "intent_01",
+        node_type: "intent",
+        intent: "Publish a job\n\nTrigger: ...; Outcome: ...",
+      },
+      [headline()],
+    );
+    expect(v).toEqual([]);
+  });
+
+  it("fails a run-on first line over the char budget", () => {
+    const v = evaluate(
+      {
+        id: "intent_01",
+        node_type: "intent",
+        intent:
+          "this entire first line is one long run-on sentence that buries the process name completely",
+      },
+      [headline()],
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("field-line-shape");
+  });
+
+  it("ignores an empty field (presence is a separate concern)", () => {
+    const v = evaluate({ id: "intent_01", node_type: "intent", intent: "" }, [headline()]);
+    expect(v).toEqual([]);
+  });
+});
+
+describe("authoring evaluator — flow-wiring", () => {
+  const wiring = () =>
+    P({
+      sub_kind: "flow-wiring",
+      edge_type: "flows_to",
+      initial_when: { field: "kind", equals: "initial" },
+      terminal_when: { field: "kind", equals: "terminal" },
+      when_node_type: ["action", "decision", "state"],
+    });
+  const flow = (from: string, to: string) => ({ from_id: from, to_id: to, edge_type: "flows_to" });
+
+  it("passes an intermediate node with both an incoming and an outgoing flow", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [wiring()], {
+      candidateEdges: [flow("action_01", "state_end")],
+      edges: [flow("state_start", "action_01"), flow("action_01", "state_end")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("fails an intermediate node missing an incoming flow (unreachable)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [wiring()], {
+      candidateEdges: [flow("action_01", "state_end")],
+      edges: [flow("action_01", "state_end")],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("flow-wiring");
+    expect(v[0]?.reason).toMatch(/incoming|unreachable/i);
+  });
+
+  it("fails an intermediate node missing an outgoing flow (dead end)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [wiring()], {
+      edges: [flow("state_start", "action_01")],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.reason).toMatch(/outgoing|dead end/i);
+  });
+
+  it("exempts an initial State from the incoming requirement", () => {
+    const v = evaluate({ id: "state_01", node_type: "state", kind: "initial" }, [wiring()], {
+      candidateEdges: [flow("state_01", "action_a")],
+      edges: [flow("state_01", "action_a")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("requires an initial State to still have an outgoing flow", () => {
+    const v = evaluate({ id: "state_01", node_type: "state", kind: "initial" }, [wiring()], {
+      edges: [],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.reason).toMatch(/outgoing|dead end/i);
+  });
+
+  it("passes a terminal State with an incoming flow and no outgoing", () => {
+    const v = evaluate({ id: "state_99", node_type: "state", kind: "terminal" }, [wiring()], {
+      edges: [flow("decision_a", "state_99")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("fails a terminal State that carries an outgoing flow", () => {
+    const v = evaluate({ id: "state_99", node_type: "state", kind: "terminal" }, [wiring()], {
+      candidateEdges: [flow("state_99", "state_other")],
+      edges: [flow("decision_a", "state_99"), flow("state_99", "state_other")],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.reason).toMatch(/terminal/i);
+  });
+
+  it("fails a terminal State with no incoming flow (unreachable end)", () => {
+    const v = evaluate({ id: "state_99", node_type: "state", kind: "terminal" }, [wiring()], {
+      edges: [],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.reason).toMatch(/incoming|unreachable/i);
+  });
+});

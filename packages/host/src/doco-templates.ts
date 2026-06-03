@@ -630,6 +630,36 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
+        // Deterministic floor under the LLM prose judge below: a handful of
+        // tokens are NEVER legitimate business prose — camelCase BPMN element
+        // types and generated `Gateway_…`/`Task_…`/`SequenceFlow_…` ids, plus
+        // the importer's "user asks:" scaffolding. Catch those cheaply and
+        // deterministically; the ambiguous "is 'source'/'implementation'
+        // business language?" calls stay with the judge.
+        policy:
+          "Business-process prose must not contain raw BPMN/import scaffolding tokens — camelCase BPMN element types or generated element ids leaked from an importer.",
+        predicate: {
+          kind: "forbids_field_pattern",
+          fields: [
+            "intent",
+            "action",
+            "decision",
+            "question",
+            "chosen",
+            "state",
+            "rule",
+            "eval",
+            "name",
+            "body_md",
+          ],
+          pattern:
+            "(exclusiveGateway|parallelGateway|inclusiveGateway|eventBasedGateway|(?:Gateway|Task|UserTask|ServiceTask|SequenceFlow|StartEvent|EndEvent|BoundaryEvent|SubProcess|DataObject)_[A-Za-z0-9]+|user asks:)",
+          flags: "i",
+          when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
         // Import provenance belongs in structured metadata, References,
         // or history, not in the labels/prose that BPMN readers scan.
         // This stays LLM-judged because terms like "source" and
@@ -663,6 +693,25 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
 
       // ── Intent shape ────────────────────────────────────────────
+      {
+        // Deterministic floor under the headline judge below: line one is the
+        // label readers scan, so it must be short enough to BE a headline. A
+        // run-on first line that crams the whole description into one sentence
+        // trips this cheaply; whether the headline reads as a verb+object name
+        // (and the body names trigger/outcome/scope) stays with the judge.
+        // `warn`, not block — a slightly-long-but-legible headline shouldn't
+        // trap the author.
+        on_violation: "warn",
+        policy:
+          "The purpose Intent's first line is a brief headline, not a run-on sentence — keep it short enough to scan as a process name.",
+        predicate: {
+          kind: "field-line-shape",
+          field: "intent",
+          max_first_line_chars: 80,
+          when_node_type: ["intent"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
       {
         // Probabilistic on intent — the FIRST LINE is a brief BPMN process
         // name (the label readers scan and the card summary takes from line
@@ -730,6 +779,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       // ── Decision shape ──────────────────────────────────────────
       {
+        // Structural floor for a gateway: it branches, so it carries ≥2
+        // outgoing `flows_to` edges. A single-exit Decision is a plain step,
+        // not a gateway. Deterministic; the exhaustiveness/enum-coverage of
+        // those branches is the LLM judge's job, below.
+        policy:
+          "A gateway Decision branches: it has at least two outgoing `flows_to` edges. A Decision with a single exit is a step, not a gateway.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "flows_to",
+          min_count: 2,
+          when_node_type: ["decision"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
         // Exhaustive branches: question reads as yes/no or enumerated,
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
@@ -766,15 +830,45 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
 
-      // ── State shape & sequence wiring (graph invariants kept as
-      //    guidance until the evaluator can express subgraph shape) ──
+      // ── State shape & sequence wiring ───────────────────────────
       {
+        // Doco-level existence ("≥1 initial, ≥1 terminal") stays prose: the
+        // per-candidate evaluator can't assert "the graph contains a terminal
+        // State". The per-node shape rules below ARE engine-checked.
         policy:
-          "A business process has ≥1 committed (`queued` or `active`) initial State and ≥1 committed terminal State, with each `state` name unique within the process. Every process starts somewhere, ends at a business outcome (or an explicitly cancelled outcome), and names its milestones unambiguously.",
+          "A business process has ≥1 committed (`queued` or `active`) initial State and ≥1 committed terminal State. Every process starts somewhere and ends at a business outcome (or an explicitly cancelled outcome).",
       },
       {
+        // Milestone names must be unambiguous within the Doco. Deterministic:
+        // `unique_field` compares the candidate's `state` against other active
+        // States.
         policy:
-          "Flow runs forward from the initial State: each committed (`queued` or `active`) initial State has ≥1 outgoing `flows_to` edge, every non-initial flow node is reachable from an earlier flow node through forward `flows_to`, and every non-terminal flow node has ≥1 outgoing `flows_to` target in the same process Intent. Terminal States have no outgoing `flows_to` — they end the process path.",
+          "Each `state` milestone name is unique among the process's committed States, so a reader can name a milestone unambiguously.",
+        predicate: {
+          kind: "unique_field",
+          field: "state",
+          case_fold: true,
+          when_node_type: ["state"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
+        // The sequence-flow completeness invariant — formerly prose-only, now
+        // engine-checked. A committed flow node must be wired into the process:
+        // reachable (≥1 incoming `flows_to`) unless it is an initial State, and
+        // leading somewhere (≥1 outgoing `flows_to`) unless it is a terminal
+        // State — which conversely must carry NO outgoing `flows_to`. This is
+        // what stops an agent from queuing/activating a dangling mid-flow node.
+        policy:
+          "Flow runs forward from the initial State: each committed (`queued` or `active`) initial State has ≥1 outgoing `flows_to` edge, every non-initial flow node is reachable through an incoming `flows_to`, and every non-terminal flow node has ≥1 outgoing `flows_to`. Terminal States have no outgoing `flows_to` — they end the process path.",
+        predicate: {
+          kind: "flow-wiring",
+          edge_type: "flows_to",
+          initial_when: { field: "kind", equals: "initial" },
+          terminal_when: { field: "kind", equals: "terminal" },
+          when_node_type: ["action", "decision", "state"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
         // State summary as milestone/condition — noun or past-participle
@@ -791,11 +885,40 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Coverage ────────────────────────────────────────────────
       {
+        // Every actor Principal earns its swim lane by owning ≥1 Action
+        // (incoming `attributed_to` role `performed_by`). Deterministic, but a
+        // `warn`: the single accountable owner (linked by `owned_by`) performs
+        // no step yet is legitimately present, so it is structurally exempt —
+        // the same "don't ding a valid special case" instinct behind the
+        // org-tree root-Principal nudge. (That each Action `serves` the Intent
+        // is already enforced by the flow-node `serves` gate above.)
+        on_violation: "warn",
         policy:
-          "Each actor Principal named in process prose should own at least one Action through a `performed_by` relationship, and each active Action should `serve` the process Intent.",
+          "Each actor Principal in the process owns at least one Action through a `performed_by` relationship. The single accountable process owner, linked by `owned_by`, is exempt.",
         predicate: {
-          kind: "descriptive",
-          spec: "Review actor coverage by following `attributed_to` role `performed_by` and `supports` role `serves` edges.",
+          kind: "requires_edge_role",
+          edge_type: "attributed_to",
+          edge_role: "performed_by",
+          direction: "incoming",
+          exempt_when_role: "owned_by",
+          when_node_type: ["principal"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
+        // The accountable process owner — formerly prose-only guidance, now a
+        // `warn` gate. A committed process Intent should name its owner via an
+        // `attributed_to` edge with role `owned_by`. Kept as `warn` (not block)
+        // because a sub-process child Intent may inherit ownership rather than
+        // re-declare it, and we don't want to false-positive on those.
+        on_violation: "warn",
+        policy:
+          "Name the single accountable process owner in the purpose Intent and link it with an `attributed_to` edge carrying role `owned_by` — the Principal answerable for the whole process's outcome (the RACI 'Accountable' role, distinct from the per-step `performed_by` actors).",
+        predicate: {
+          kind: "requires_edge_role",
+          edge_type: "attributed_to",
+          edge_role: "owned_by",
+          target_node_type: "principal",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
