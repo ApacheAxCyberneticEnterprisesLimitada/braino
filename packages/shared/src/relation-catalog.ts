@@ -55,8 +55,9 @@ export const RELATION_CATALOG = {
   }),
   relates_to: relation({
     kind: "relates_to",
+    roleExamples: ["same_occupant_as"],
     description:
-      "Associative 'see also' link between two peer nodes (the SKOS `related` analogue). No hierarchy or direction implied. Glossaries use it to connect related, confusable, parent/child, or homograph terms.",
+      "Associative 'see also' link between two peer nodes (the SKOS `related` analogue). No hierarchy or direction implied. Glossaries use it to connect related, confusable, parent/child, or homograph terms; org charts tag it `same_occupant_as` to tie the multiple seats one person holds.",
   }),
 } as const satisfies Record<string, RelationKindCatalogEntry>;
 

@@ -143,8 +143,12 @@ describe("org-chart template", () => {
       expect(rule?.policy).toMatch(/top-of-chain/);
     });
 
-    it("fires only on `active` — drafting members can be captured before their manager exists", () => {
-      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
+    it("fires on `queued` and `active` — a drafting seat can be captured before its manager exists, but a ready (queued) or in-force seat must wire its reporting line", () => {
+      // queued = "committed, ready, not yet in force" (a signed hire, an
+      // announced appointment). A ready seat is as complete as an active one,
+      // so the reporting-completeness nudge applies to both. Only `drafting`
+      // — the still-being-sketched stage — is exempt.
+      expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
     it("warns rather than blocks while the author is shaping the org", () => {
@@ -164,8 +168,8 @@ describe("org-chart template", () => {
       expect(rule.predicate.spec).toMatch(/attributed_to/);
     });
 
-    it("fires only on `active` — a team can be drafted before its roster is filled", () => {
-      expect(rule?.fires_when_node_lifecycle).toEqual(["active"]);
+    it("fires on `queued` and `active` — a team can be drafted before its roster is filled, but a ready or in-force team should name its members", () => {
+      expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
   });
 
@@ -306,6 +310,75 @@ describe("org-chart template", () => {
 
     it("does not describe relationship keys in Principal data", () => {
       expect(summaries.join("\n")).not.toMatch(/Principal's `data`|pointer field/i);
+    });
+  });
+
+  describe("queued — staging a committed-but-not-yet-effective org change", () => {
+    const guidance = template.policies.filter((r) => !r.predicate);
+    const summaries = guidance.map((r) => r.policy);
+
+    it("has dedicated guidance for the `queued` stage (signed hire / future appointment / announced reorg / successor)", () => {
+      const g = summaries.find(
+        (s) =>
+          /`queued`/.test(s) &&
+          /(future-effective|effective date|not (yet )?in force|pending|signed hire|successor|announced)/i.test(
+            s,
+          ),
+      );
+      expect(g).toBeDefined();
+    });
+
+    it("contrasts `queued` (ready, awaiting activation) with `drafting` (still being sketched)", () => {
+      const g = summaries.find((s) => /`queued`/.test(s) && /`drafting`/.test(s));
+      expect(g).toBeDefined();
+      // Points the reader at the activation step on the effective date.
+      expect(g).toMatch(/activat/i);
+    });
+  });
+
+  describe("agent authoring — current changeset ops (post `assert`→`activate` + `queue`)", () => {
+    const guidance = template.policies.filter((r) => !r.predicate);
+    const summaries = guidance.map((r) => r.policy);
+
+    it("points agents at the authoring contract and changesets endpoint", () => {
+      expect(
+        summaries.some((s) => /authoring-contract\.json/i.test(s) && /changesets\.json/i.test(s)),
+      ).toBe(true);
+    });
+
+    it("tells agents to use relate_many for sibling reporting edges that must hold together", () => {
+      expect(summaries.some((s) => /relate_many/i.test(s))).toBe(true);
+    });
+
+    it("names the current `queue` and `activate` lifecycle ops, not the retired `assert`", () => {
+      const g = summaries.find(
+        (s) => /relate_many/i.test(s) || /authoring-contract\.json/i.test(s),
+      );
+      expect(g).toBeDefined();
+      expect(summaries.join("\n")).toMatch(/`queue`|`activate`/);
+    });
+  });
+
+  describe("no stale lifecycle vocabulary (asserted→active rename)", () => {
+    // Build a haystack of every human + machine-facing string the template
+    // ships, so a lingering `assert`/`asserted`/`asserting` anywhere fails.
+    const haystack = template.policies
+      .map((r) => {
+        const spec =
+          r.predicate?.kind === "probabilistic" || r.predicate?.kind === "descriptive"
+            ? r.predicate.spec
+            : "";
+        return `${r.policy}\n${spec}`;
+      })
+      .join("\n");
+
+    it("never uses the retired `assert` lifecycle verb (use `activate`)", () => {
+      expect(haystack).not.toMatch(/\bassert(?:ed|ing|s)?\b/i);
+    });
+
+    it("the circular-reporting guidance says to resolve a cycle before *activating*", () => {
+      const summaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
+      expect(summaries.some((s) => /circular|cycle/i.test(s) && /activating/i.test(s))).toBe(true);
     });
   });
 });

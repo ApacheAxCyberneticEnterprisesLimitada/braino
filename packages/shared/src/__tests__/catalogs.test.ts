@@ -28,6 +28,11 @@ describe("shared catalogs", () => {
     expect(RELATION_CATALOG.attributed_to.acceptsProps).toContain("role");
     expect(RELATION_CATALOG.constrained_by.acceptsProps).toContain("role");
     expect(RELATION_CATALOG.has_parent.acceptsProps).toContain("role");
+    // relates_to carries a role (org charts tag it `same_occupant_as` to tie
+    // the multiple seats one person holds); without it the changeset relate
+    // path would drop the role and write a role-less edge.
+    expect(RELATION_CATALOG.relates_to.acceptsProps).toContain("role");
+    expect(RELATION_CATALOG.relates_to.roleExamples).toContain("same_occupant_as");
     // flows_to carries label/condition metadata, not a role.
     expect(RELATION_CATALOG.flows_to.acceptsProps ?? []).not.toContain("role");
   });
