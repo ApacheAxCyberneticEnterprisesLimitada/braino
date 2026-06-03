@@ -322,7 +322,6 @@ CREATE TABLE IF NOT EXISTS nodes (
   performed_at timestamptz,                   -- action (matches actions.performed_at)
   happened_at  timestamptz,                   -- log (matches logs.happened_at)
   kind         text,                          -- eval, state
-  modality     text,                          -- rule
   severity     text,                          -- rule
   phase        text,                          -- rule
   on_violation text,                          -- rule
@@ -338,6 +337,12 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
+
+-- Self-heal: `modality` was a promoted Rule column that capture always wrote
+-- as the constant "must" and no reader ever consulted (enforcement modality
+-- lives in Policy records, not Rule nodes). Drop it. Idempotent — removed
+-- where present, a no-op on fresh installs (never created above).
+ALTER TABLE nodes DROP COLUMN IF EXISTS modality;
 
 -- Audit events: one row per mutation.
 

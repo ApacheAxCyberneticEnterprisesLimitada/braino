@@ -363,7 +363,7 @@ const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
   action: ["verb", "performed_at"],
   log: ["verb", "happened_at"],
   eval: ["kind"],
-  rule: ["kind", "modality", "severity", "phase", "on_violation"],
+  rule: ["kind", "severity", "phase", "on_violation"],
   state: ["kind"],
   reference: ["ref_type", "locator", "citation", "title"],
   principal: ["role_principal"],
