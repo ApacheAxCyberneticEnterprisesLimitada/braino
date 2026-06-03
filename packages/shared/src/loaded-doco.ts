@@ -1,5 +1,5 @@
-// Types for a loaded Doco — used by both the Postgres loader
-// (@doco/index/loadDoco) and the validator (@doco/shared/validate).
+// Types for a loaded Doco — produced by the Postgres loader
+// (@doco/index/loadDoco).
 
 import type { EntityId, EntityType } from "./branded.js";
 import type { Doco, Entity } from "./entities.js";

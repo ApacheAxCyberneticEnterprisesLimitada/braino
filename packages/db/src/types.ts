@@ -117,14 +117,6 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   // directly by the writer (role_principal is stripped from data there).
 };
 
-/** The policy type. Policies are always Doco-scoped. */
-export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
-  policy: {
-    table: "policies",
-    body: true,
-  },
-};
-
 /** The user category — human OAuth identity layer. */
 export const USER_TABLES: Record<string, { table: string; body: boolean }> = {
   user: { table: "users", body: false },

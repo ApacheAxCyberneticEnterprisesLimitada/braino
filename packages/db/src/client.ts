@@ -81,8 +81,3 @@ export async function ensureSchema(): Promise<void> {
   }
   await _schemaReady;
 }
-
-export async function pingDb(): Promise<{ ok: true; version: string }> {
-  const r = await withClient(async (c) => c.query("SELECT version() AS v"));
-  return { ok: true, version: String(r.rows[0]?.v ?? "") };
-}

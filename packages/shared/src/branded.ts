@@ -12,8 +12,8 @@ import { CATALOG_NODE_TYPES } from "./entity-catalog.js";
  *   - Workspace (1):   workspace container
  *
  * `EntityType` is the union of all 13 discriminator strings; `NodeType`
- * and `PolicyType` are the narrower types for code that wants to
- * statically prohibit cross-category misuse.
+ * is the narrower node-only type for code that wants to statically
+ * prohibit cross-category misuse.
  */
 
 declare const __brand: unique symbol;
@@ -40,15 +40,11 @@ export type NodeType = (typeof NODE_TYPES)[number];
 /** The policy type — Doco-level authoring metadata, not on the graph. */
 export const POLICY_TYPES = ["policy"] as const;
 
-export type PolicyType = (typeof POLICY_TYPES)[number];
-
 /** The user type — human OAuth identity. */
 export const USER_TYPE = "user" as const;
-export type UserType = typeof USER_TYPE;
 
 /** The container types — docos and workspaces. */
 export const CONTAINER_TYPES = ["doco", "workspace"] as const;
-export type ContainerType = (typeof CONTAINER_TYPES)[number];
 
 /**
  * The edge entity type. Edges are first-class peers of nodes: their id is
@@ -56,7 +52,6 @@ export type ContainerType = (typeof CONTAINER_TYPES)[number];
  * separate `edge_type` sub-classification — see EDGE_TYPES in access-types.
  */
 export const EDGE_ID_TYPE = "edge" as const;
-export type EdgeEntityType = typeof EDGE_ID_TYPE;
 
 /**
  * The union of every entity-type discriminator. Surfaces that genuinely
@@ -88,20 +83,6 @@ const HANDLE_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 /** Validate the shape of a handle (Doco or Workspace). Does not check uniqueness. */
 export function isHandle(value: unknown): value is DocoHandle | WorkspaceHandle {
   return typeof value === "string" && HANDLE_REGEX.test(value);
-}
-
-/**
- * Coerce a string to a DocoHandle after validating shape. Returns null
- * on invalid shape — use this at the boundary (URL params, JSON body)
- * before passing into branded-typed helpers.
- */
-export function asDocoHandle(value: string): DocoHandle | null {
-  return isHandle(value) ? (value as DocoHandle) : null;
-}
-
-/** Coerce a string to an WorkspaceHandle after validating shape. */
-export function asWorkspaceHandle(value: string): WorkspaceHandle | null {
-  return isHandle(value) ? (value as WorkspaceHandle) : null;
 }
 
 export function isEntityId(value: unknown): value is EntityId {
@@ -143,10 +124,6 @@ export function normalizeNodeType(value: unknown): NodeType | null {
   if (isNodeType(value)) return value;
   if (typeof value !== "string") return null;
   return NODE_TYPE_URL_ALIASES[value] ?? null;
-}
-
-export function isPolicyType(value: unknown): value is PolicyType {
-  return typeof value === "string" && (POLICY_TYPES as readonly string[]).includes(value);
 }
 
 /** Parse an EntityId into its (type, ulid) parts. Returns null if the string is malformed. */

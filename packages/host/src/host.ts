@@ -16,8 +16,6 @@ import {
 
 const HANDLE_PATTERN = /^[a-z0-9][a-z0-9_-]*$/;
 
-export const RESERVED_HANDLES = HOST_RESERVED_SLUGS;
-
 const BUILTIN_PERSPECTIVE_ATTACHMENTS = [
   { slug: "graph", perspectiveId: "perspective_graph", position: 0 },
   { slug: "list", perspectiveId: "perspective_list", position: 1 },

@@ -34,8 +34,6 @@ export const BLOCKED_NODE_JSON_EDGE_FIELDS = [
   "relates_to",
 ] as const;
 
-export type BlockedNodeJsonEdgeField = (typeof BLOCKED_NODE_JSON_EDGE_FIELDS)[number];
-
 export const BLOCKED_NODE_JSON_EDGE_FIELD_SET: ReadonlySet<string> = new Set(
   BLOCKED_NODE_JSON_EDGE_FIELDS,
 );

@@ -90,8 +90,6 @@ export const CAPTURE_SCHEMAS = {
   ]),
 } as const satisfies Record<string, CaptureSchema>;
 
-export type CaptureSchemaType = keyof typeof CAPTURE_SCHEMAS;
-
 export function captureSchema(type: string): CaptureSchema | null {
   return (CAPTURE_SCHEMAS as Record<string, CaptureSchema>)[type] ?? null;
 }

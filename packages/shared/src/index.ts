@@ -12,7 +12,5 @@ export * from "./entities.js";
 export * from "./public-url.js";
 export * from "./url-conventions.js";
 export * from "./loaded-doco.js";
-export * from "./refs.js";
-export * from "./validate.js";
 export * from "./authoring-evaluator.js";
 export * from "./policy-format.js";

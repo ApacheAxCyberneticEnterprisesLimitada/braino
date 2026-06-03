@@ -187,20 +187,6 @@ async function pruneStaleEmbeddings(docoIds: string[], keep: Set<string>): Promi
 }
 
 /**
- * Bulk-fetch embeddings by entity id. Ids without a row are absent.
- */
-export async function getEmbeddings(entityIds: string[]): Promise<Map<string, Float32Array>> {
-  if (entityIds.length === 0) return new Map();
-  return withClient(async (c) => {
-    const r = await c.query<{ entity_id: string; embedding: Buffer }>(
-      "SELECT entity_id, embedding FROM embeddings WHERE entity_id = ANY($1::text[])",
-      [entityIds],
-    );
-    return new Map(r.rows.map((row) => [row.entity_id, bufferToEmbedding(row.embedding)]));
-  });
-}
-
-/**
  * Every embedding for one Doco. Used by the semantic search endpoints
  * (ADR-052): candidate set is the full Doco, ranked by cosine in
  * application code.

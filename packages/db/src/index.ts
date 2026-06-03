@@ -7,7 +7,6 @@ export {
   withClient,
   withTransaction,
   ensureSchema,
-  pingDb,
 } from "./client.js";
 
 export type { PoolClient } from "pg";
@@ -18,13 +17,11 @@ export {
   listEntitiesByDoco,
   listEntitiesByDocoAndIds,
   listIdentityRows,
-  resolveDocoIdByHandle,
   appendAuditEventRow,
   readAuditEventRows,
   type AuditEventRow,
   // Host + identity helpers
   getHostConfig,
-  upsertHostConfig,
   // Users (human OAuth identity layer)
   getUserById,
   getUserByGithubLogin,
@@ -33,7 +30,6 @@ export {
   type UserRow,
   // Principals (role-personas — node type)
   getPrincipalById,
-  getPrincipalByName,
   listPrincipals,
   type PrincipalRow,
   // Workspaces
@@ -43,13 +39,11 @@ export {
   upsertWorkspaceUser,
   removeWorkspaceUser,
   isWorkspaceUser,
-  isWorkspaceAdmin,
   getWorkspaceRole,
   getWorkspaceGrant,
   listWorkspaceOwnerUserIds,
   // Account-level grants
   type AccountGrantRow,
-  getAccountGrantsForGrantee,
   getAccountGrant,
   upsertAccountGrant,
   removeAccountGrant,
@@ -82,7 +76,6 @@ export {
   getDocoById,
   getDocoByHandle,
   getDocoByIdOrHandle,
-  resolveOwnerSlug,
   type DocoRow,
   type HostConfigRow,
 } from "./repo.js";
@@ -93,7 +86,6 @@ export {
   DOCO_NODE_TABLE_SPECS,
   DOCO_GENERIC_CAPTURE_NODE_TABLE_SPECS,
   NODE_TABLES,
-  POLICY_TABLES,
   USER_TABLES,
   CONTAINER_TABLES,
   type EntityRecord,
@@ -102,7 +94,6 @@ export {
 
 export {
   upsertEmbeddings,
-  getEmbeddings,
   getAllEmbeddingsForDoco,
   computeContentHash,
   cosineSimilarity,

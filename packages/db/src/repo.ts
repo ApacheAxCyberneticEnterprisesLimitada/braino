@@ -409,15 +409,6 @@ function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRe
   return rec;
 }
 
-/** Find a Doco by its `handle` and return its (ULID) id. */
-export async function resolveDocoIdByHandle(handle: string): Promise<string | null> {
-  return withClient(async (c) => {
-    const r = await c.query("SELECT id FROM docos WHERE handle = $1", [handle]);
-    if (r.rowCount === 0) return null;
-    return String(r.rows[0].id);
-  });
-}
-
 // ─── Host config ──────────────────────────────────────────────────────────
 
 export interface HostConfigRow {
@@ -438,23 +429,6 @@ export async function getHostConfig(): Promise<HostConfigRow | null> {
       visibility: row.visibility === "public" ? "public" : "private",
       data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
     };
-  });
-}
-
-export async function upsertHostConfig(opts: {
-  id: string;
-  name: string;
-  visibility: "public" | "private";
-  data: Record<string, unknown>;
-}): Promise<void> {
-  await withClient(async (c) => {
-    await c.query(
-      `INSERT INTO hosts (id, name, visibility, data)
-       VALUES ($1, $2, $3, $4::jsonb)
-       ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, visibility=EXCLUDED.visibility,
-         data=EXCLUDED.data, updated_at=now()`,
-      [opts.id, opts.name, opts.visibility, JSON.stringify(opts.data)],
-    );
   });
 }
 
@@ -570,24 +544,6 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
   });
 }
 
-export async function getPrincipalByName(
-  name: string,
-  docoId: string,
-): Promise<PrincipalRow | null> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, name, doco_id, data
-       FROM nodes
-       WHERE node_type = 'principal' AND name = $1 AND doco_id = $2
-       ORDER BY created_at, id
-       LIMIT 1`,
-      [name, docoId],
-    );
-    if (r.rowCount === 0) return null;
-    return mapPrincipalRow(r.rows[0]);
-  });
-}
-
 /**
  * List Principals (role-personas) in a Doco.
  */
@@ -680,17 +636,6 @@ export async function isWorkspaceUser(workspaceId: string, userId: string): Prom
   return withClient(async (c) => {
     const r = await c.query(
       "SELECT 1 FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
-      [workspaceId, userId],
-    );
-    return r.rowCount !== null && r.rowCount > 0;
-  });
-}
-
-/** "Has admin-tier rights on the workspace." */
-export async function isWorkspaceAdmin(workspaceId: string, userId: string): Promise<boolean> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT 1 FROM workspace_users WHERE workspace_id = $1 AND user_id = $2 AND role = 'owner'`,
       [workspaceId, userId],
     );
     return r.rowCount !== null && r.rowCount > 0;
@@ -838,39 +783,6 @@ export interface AccountGrantRow {
   grantee_user_id: string;
   role: DocoRole;
   write_types: string[];
-}
-
-/**
- * Every whole-account grant this principal HOLDS (as grantee). Each row's
- * grantor is a user whose owned workspaces/Docos the grantee inherits access to.
- */
-export async function getAccountGrantsForGrantee(
-  granteeUserId: string,
-): Promise<AccountGrantRow[]> {
-  return withClient(async (c) => {
-    const r = await c.query<{
-      grantor_user_id: string;
-      grantee_user_id: string;
-      role: string;
-      write_types: string[];
-    }>(
-      `SELECT grantor_user_id, grantee_user_id, role, write_types
-         FROM account_grants WHERE grantee_user_id = $1`,
-      [granteeUserId],
-    );
-    return r.rows.flatMap((row) => {
-      const role = toRole(row.role);
-      if (!role) return [];
-      return [
-        {
-          grantor_user_id: String(row.grantor_user_id),
-          grantee_user_id: String(row.grantee_user_id),
-          role,
-          write_types: normalizeGrantWriteTypes(role, row.write_types),
-        },
-      ];
-    });
-  });
 }
 
 /** The account grant `granteeUserId` holds from `grantorUserId`, or null. */
@@ -1192,32 +1104,6 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
     if (byId) return byId;
   }
   return getDocoByHandle(idOrHandle);
-}
-
-/**
- * Resolve a public owner handle to either a User (by github_login)
- * or an Workspace (by handle).
- */
-export async function resolveOwnerSlug(
-  handle: string,
-): Promise<
-  { kind: "user"; user: UserRow } | { kind: "workspace"; workspace: WorkspaceRow } | null
-> {
-  const collab = await getUserByGithubLogin(handle);
-  if (collab) return { kind: "user", user: collab };
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, handle, name, constitution, data,
-              COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = workspaces.id), 0) AS member_count
-       FROM workspaces WHERE handle = $1`,
-      [handle],
-    );
-    if (r.rowCount === 0) return null;
-    return {
-      kind: "workspace" as const,
-      workspace: mapWorkspaceRow(r.rows[0]),
-    };
-  });
 }
 
 /**
