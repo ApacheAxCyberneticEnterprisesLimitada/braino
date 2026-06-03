@@ -6,13 +6,14 @@
  * Post-rename vocabulary:
  *   - Nodes (10): graph-knowledge entities (intent, idea, rule,
  *     decision, action, log, eval, reference, state, principal)
- *   - Policies (2): Doco-level authoring metadata (guidance, node_authoring)
+ *   - Policies (1): Doco-level authoring metadata — one `policies` table,
+ *     classified by `kind: "suggestion" | "deterministic" | "probabilistic"`
  *   - User (1): OAuth identity layer (separate from principal)
  *   - Doco, Workspace: workspace + workspace containers
  *
  * Per-category discriminator fields (matches stored data jsonb):
  *   - Nodes   → `node_type: NodeType`
- *   - Policies → `policy_kind: "guidance" | "node_authoring"`
+ *   - Policies → `kind: "suggestion" | "deterministic" | "probabilistic"`
  *   - User → human OAuth identity
  *   - Doco, Workspace → no per-row discriminator
  *
@@ -250,26 +251,93 @@ export interface Rule extends CommonFields {
 
 // ─── Policies ─────────────────────────────────────────────────────────────
 //
-// Policies carry a `policy` prose field for the one-line rule statement.
+// Every policy is an authoring policy: one `policies` table, one `policy`
+// entity type. The standalone `kind` classifier drives both evaluation and
+// rendering:
+//   - "suggestion"    — advisory; surfaced to agents, never enforced.
+//   - "probabilistic" — LLM-judged at write time.
+//   - "deterministic" — engine-checked at write time.
+//
+// `suggestion` and `probabilistic` carry a single natural-language
+// `agent_instruction`. `deterministic` carries a structured predicate whose
+// `sub_kind` selects the engine check.
 
-export interface GuidancePolicy extends CommonFields {
-  policy_kind: "guidance";
-  /** The one-line guidance statement. */
-  policy: string;
-  /** Optional long-form rationale. */
-  body_md?: string;
+export type PolicyKind = "suggestion" | "deterministic" | "probabilistic";
+
+/**
+ * Deterministic predicate — the structured, engine-checkable shape evaluated
+ * at write time. `sub_kind` selects the check; the remaining fields are its
+ * parameters. (This is `AuthoringPredicate` with `kind` lifted out to
+ * `sub_kind`, so the policy's own `kind` can stand alone.)
+ */
+export type DeterministicPredicate =
+  | {
+      sub_kind: "requires_edge";
+      edge_type: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      sub_kind: "requires_edge_role";
+      edge_type: string;
+      edge_role: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      sub_kind: "forbids_edge";
+      edge_type: string;
+      target_node_type?: string;
+      when_node_type?: NodeType[];
+    }
+  | { sub_kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
+  | { sub_kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
+  | { sub_kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
+  | { sub_kind: "requires_node_type"; node_types: NodeType[] }
+  | { sub_kind: "requires_entity_type"; entity_types: EntityType[] }
+  | {
+      sub_kind: "graph-completeness";
+      list_field: string;
+      edge_type: string;
+      incoming_node_type: NodeType;
+      incoming_field_must_match: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      sub_kind: "requires_field_resolves_to_principal";
+      field: string;
+      when_node_type?: NodeType[];
+    };
+
+/** The deterministic check selectors — the options a deterministic policy picks from. */
+export type DeterministicSubKind = DeterministicPredicate["sub_kind"];
+
+/**
+ * Suggestion / probabilistic predicate. A single natural-language
+ * instruction: surfaced to agents (suggestion) or fed to the LLM judge
+ * (probabilistic). `when_node_type` optionally scopes a probabilistic check.
+ */
+export interface AgentInstructionPredicate {
+  agent_instruction: string;
+  when_node_type?: NodeType[];
 }
 
-export interface NodeAuthoringPolicy extends CommonFields {
-  policy_kind: "node_authoring";
-  /** The one-line rule statement that describes the check. */
-  policy: string;
+export type PolicyPredicate = AgentInstructionPredicate | DeterministicPredicate;
+
+export interface Policy extends CommonFields {
+  /** Standalone classifier — drives evaluation and rendering. */
+  kind: PolicyKind;
+  /**
+   * suggestion / probabilistic → `{ agent_instruction }`
+   * deterministic              → `{ sub_kind, ...params }`
+   */
+  predicate: PolicyPredicate;
+  /** Skip unless the candidate's lifecycle is in this list. */
+  fires_when_node_lifecycle?: Lifecycle[];
+  /** Defaults to "block". Irrelevant for suggestions (advisory only). */
+  on_violation?: "block" | "warn" | "log";
   /** Optional long-form rationale. */
   body_md?: string;
-  evaluation_kind: "deterministic" | "probabilistic";
-  predicate: AuthoringPredicate;
-  fires_when_node_lifecycle?: Lifecycle[];
-  on_violation?: "block" | "warn" | "log";
 }
 
 // ─── Decision ─────────────────────────────────────────────────────────────
@@ -398,14 +466,8 @@ export type Node =
   | Reference
   | State;
 
-/** The 2 policy types. */
-export type Policy = GuidancePolicy | NodeAuthoringPolicy;
-
-/** Every entity across all categories. */
+/** Every entity across all categories. (`Policy` is a single interface now.) */
 export type Entity = Node | Policy | User | Doco | Workspace;
 
 /** Look up a Node interface by its `node_type` literal. */
 export type NodeByType<T extends Node["node_type"]> = Extract<Node, { node_type: T }>;
-
-/** Look up a Policy interface by its `policy_kind` literal. */
-export type PolicyByKind<T extends Policy["policy_kind"]> = Extract<Policy, { policy_kind: T }>;

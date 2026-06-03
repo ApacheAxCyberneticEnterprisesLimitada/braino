@@ -117,14 +117,10 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   // directly by the writer (role_principal is stripped from data there).
 };
 
-/** The 2 policy types. Policies are always Doco-scoped. */
+/** The policy type. Policies are always Doco-scoped. */
 export const POLICY_TABLES: Record<string, { table: string; body: boolean }> = {
-  guidance_policy: {
-    table: "guidance_policies",
-    body: true,
-  },
-  node_authoring_policy: {
-    table: "node_authoring_policies",
+  policy: {
+    table: "policies",
     body: true,
   },
 };
@@ -152,11 +148,8 @@ export const ALL_ENTITY_TABLES: Record<
   ...NODE_TABLES,
   ...USER_TABLES,
   ...CONTAINER_TABLES,
-  // Policies are flattened to their per-Doco table here; workspace-scope
-  // policies are addressed by their separate workspace table in callers that
-  // care.
-  guidance_policy: { table: "guidance_policies", body: true },
-  node_authoring_policy: { table: "node_authoring_policies", body: true },
+  // Policies all live in the single per-Doco `policies` table.
+  policy: { table: "policies", body: true },
 };
 
 /**
@@ -166,7 +159,7 @@ export const ALL_ENTITY_TABLES: Record<
  * from this shape.
  *
  * `entity_type` carries the discriminator string across all categories:
- * 10 node types + 2 policy kinds + user + doco + workspace.
+ * 10 node types + policy + user + doco + workspace.
  */
 export interface EntityRecord {
   id: string;

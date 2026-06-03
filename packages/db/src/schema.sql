@@ -257,14 +257,16 @@ CREATE TABLE IF NOT EXISTS docos (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
--- Per-Doco policy tables. Policy prose lives in `policy` + `body_md`; the
--- remaining structured fields live in `data` (jsonb).
+-- Per-Doco policies. Every policy is an authoring policy; the standalone
+-- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and
+-- is mirrored to a column for filtering. The full structured record
+-- (predicate, on_violation, fires_when_node_lifecycle, …) lives in `data`.
 
-CREATE TABLE IF NOT EXISTS guidance_policies (
+CREATE TABLE IF NOT EXISTS policies (
   id          text PRIMARY KEY,
   doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  -- One-line policy statement.
-  policy      text,
+  -- 'suggestion' | 'deterministic' | 'probabilistic'.
+  kind        text,
   -- Policies only ever occupy two stages: 'active' or 'retired'.
   lifecycle   text NOT NULL DEFAULT 'active',
   body_md     text,
@@ -274,29 +276,12 @@ CREATE TABLE IF NOT EXISTS guidance_policies (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS guidance_policies_doco_idx
-  ON guidance_policies (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS guidance_policies_lifecycle_idx
-  ON guidance_policies (doco_id, lifecycle);
-
-CREATE TABLE IF NOT EXISTS node_authoring_policies (
-  id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
-  -- One-line policy statement.
-  policy      text,
-  -- Policies only ever occupy two stages: 'active' or 'retired'.
-  lifecycle   text NOT NULL DEFAULT 'active',
-  body_md     text,
-  data        jsonb NOT NULL,
-  created_at  timestamptz NOT NULL DEFAULT now(),
-  created_by  text,
-  updated_at  timestamptz NOT NULL DEFAULT now(),
-  updated_by  text
-);
-CREATE INDEX IF NOT EXISTS node_authoring_policies_doco_idx
-  ON node_authoring_policies (doco_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
-  ON node_authoring_policies (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS policies_doco_idx
+  ON policies (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS policies_kind_idx
+  ON policies (doco_id, kind);
+CREATE INDEX IF NOT EXISTS policies_lifecycle_idx
+  ON policies (doco_id, lifecycle);
 
 -- ── Unified node table ───────────────────────────────────────────────────
 -- One row per graph node of any type, discriminated by `node_type`.
@@ -306,10 +291,10 @@ CREATE INDEX IF NOT EXISTS node_authoring_policies_lifecycle_idx
 -- relationships live only in `edges`. `proposer_id` points at `users(id)` (the
 -- OAuth identity that proposed the idea, not a graph node).
 --
--- Policies are deliberately NOT folded in here: guidance_policies /
--- node_authoring_policies stay their own tables (governance config, not graph
--- knowledge). They share the node_versions spine, so any rebuild-from-spine
--- MUST filter entity_type to the node types below.
+-- Policies are deliberately NOT folded in here: the `policies` table stays
+-- its own table (governance config, not graph knowledge). It shares the
+-- node_versions spine, so any rebuild-from-spine MUST filter entity_type to
+-- the node types below.
 CREATE TABLE IF NOT EXISTS nodes (
   id             text PRIMARY KEY,            -- <node_type>_<ulid>
   doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
@@ -1145,8 +1130,7 @@ BEGIN
   -- validates every existing row. Normalize ANY out-of-range policy lifecycle
   -- (NULL, asserted, or a stale drafting/proposed left by the old capture
   -- path) to `active` first, so ADD CONSTRAINT can never fail on older data.
-  UPDATE guidance_policies       SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle NOT IN ('active', 'retired');
-  UPDATE node_authoring_policies SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle NOT IN ('active', 'retired');
+  UPDATE policies                SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle NOT IN ('active', 'retired');
   -- `default_node_lifecycle` is optional; guard so very old databases that
   -- predate the column don't error here.
   IF EXISTS (SELECT 1 FROM information_schema.columns
@@ -1155,29 +1139,21 @@ BEGIN
   END IF;
 
   -- 2. Lifecycle is mandatory and defaults to `active`.
-  ALTER TABLE nodes                   ALTER COLUMN lifecycle SET DEFAULT 'active';
-  ALTER TABLE edges                   ALTER COLUMN lifecycle SET DEFAULT 'active';
-  ALTER TABLE guidance_policies       ALTER COLUMN lifecycle SET DEFAULT 'active';
-  ALTER TABLE node_authoring_policies ALTER COLUMN lifecycle SET DEFAULT 'active';
+  ALTER TABLE nodes    ALTER COLUMN lifecycle SET DEFAULT 'active';
+  ALTER TABLE edges    ALTER COLUMN lifecycle SET DEFAULT 'active';
+  ALTER TABLE policies ALTER COLUMN lifecycle SET DEFAULT 'active';
 
   IF EXISTS (SELECT 1 FROM information_schema.columns
              WHERE table_name = 'nodes' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
     ALTER TABLE nodes ALTER COLUMN lifecycle SET NOT NULL;
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name = 'guidance_policies' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
-    ALTER TABLE guidance_policies ALTER COLUMN lifecycle SET NOT NULL;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-             WHERE table_name = 'node_authoring_policies' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
-    ALTER TABLE node_authoring_policies ALTER COLUMN lifecycle SET NOT NULL;
+             WHERE table_name = 'policies' AND column_name = 'lifecycle' AND is_nullable = 'YES') THEN
+    ALTER TABLE policies ALTER COLUMN lifecycle SET NOT NULL;
   END IF;
 
   -- 3. Policies are constrained to exactly two stages.
-  ALTER TABLE guidance_policies       DROP CONSTRAINT IF EXISTS guidance_policies_lifecycle_check;
-  ALTER TABLE guidance_policies       ADD  CONSTRAINT guidance_policies_lifecycle_check
-                                            CHECK (lifecycle IN ('active','retired'));
-  ALTER TABLE node_authoring_policies DROP CONSTRAINT IF EXISTS node_authoring_policies_lifecycle_check;
-  ALTER TABLE node_authoring_policies ADD  CONSTRAINT node_authoring_policies_lifecycle_check
-                                            CHECK (lifecycle IN ('active','retired'));
+  ALTER TABLE policies DROP CONSTRAINT IF EXISTS policies_lifecycle_check;
+  ALTER TABLE policies ADD  CONSTRAINT policies_lifecycle_check
+                            CHECK (lifecycle IN ('active','retired'));
 END $$;

@@ -69,13 +69,13 @@ function deriveLifecycleColumn(rec: EntityRecord, data: Record<string, unknown>)
 /**
  * Upsert one entity, routing by category:
  *  - the 10 graph node types (incl. principal) → the unified `nodes` table
- *  - the 2 policy types → their per-Doco policy table
+ *  - the policy type → the per-Doco `policies` table
  *  - identity (workspace / doco / user) → richer per-table writers
  */
 export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const t = rec.entity_type;
   if (t === "workspace" || t === "doco" || t === "user") return upsertIdentity(rec, client);
-  if (t === "guidance_policy" || t === "node_authoring_policy") return upsertPolicy(rec, client);
+  if (t === "policy") return upsertPolicy(rec, client);
   if (NODE_TYPE_SET.has(t)) return upsertNode(rec, client);
   throw new Error(`Unknown entity type for storage: ${t}`);
 }
@@ -157,21 +157,21 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
 }
 
 /**
- * Upsert a policy (guidance / node_authoring) into its per-Doco table.
- * Policies are NOT folded into `nodes` — they are governance config, not
- * graph knowledge. The one-line rule lives in the `policy` column; the rest
- * of the structured fields stay in `data`.
+ * Upsert a policy into the per-Doco `policies` table. Policies are NOT folded
+ * into `nodes` — they are governance config, not graph knowledge. The
+ * standalone `kind` classifier is mirrored to a column for filtering; the rest
+ * of the structured fields (predicate, on_violation, …) stay in `data`.
  */
 async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const spec = tableFor(rec.entity_type);
   const lifecycleCol = deriveLifecycleColumn(rec, rec.data);
-  const cols = ["id", "doco_id", "lifecycle", "data", "policy"];
+  const cols = ["id", "doco_id", "lifecycle", "data", "kind"];
   const vals: unknown[] = [
     rec.id,
     rec.doco_id,
     lifecycleCol,
     JSON.stringify(rec.data),
-    typeof rec.data.policy === "string" ? rec.data.policy : "",
+    typeof rec.data.kind === "string" ? rec.data.kind : "",
   ];
   if (spec.body) {
     cols.push("body_md");

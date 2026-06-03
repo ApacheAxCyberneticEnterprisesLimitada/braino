@@ -9,8 +9,8 @@ import {
 
 function P(predicate: LoadedPolicy["predicate"], extras: Partial<LoadedPolicy> = {}): LoadedPolicy {
   return {
-    policy_id: extras.policy_id ?? "node_authoring_policy_test",
-    policy: extras.policy ?? "test policy",
+    policy_id: extras.policy_id ?? "policy_test",
+    kind: extras.kind ?? "deterministic",
     predicate,
     ...(extras.on_violation ? { on_violation: extras.on_violation } : {}),
     ...(extras.fires_when_node_lifecycle
@@ -42,24 +42,25 @@ function evaluate(
 describe("authoring evaluator — requires_field", () => {
   it("passes when the required field is populated", () => {
     const v = evaluate({ id: "action_01", node_type: "action", actor_id: "principal_alice" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
+      P({ sub_kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v).toEqual([]);
   });
 
   it("fails when the required field is missing", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
+      P({ sub_kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v).toHaveLength(1);
-    expect(v[0]?.predicate_kind).toBe("requires_field");
+    expect(v[0]?.kind).toBe("deterministic");
+    expect(v[0]?.sub_kind).toBe("requires_field");
     expect(v[0]?.reason).toMatch(/actor_id/);
   });
 
   it("treats empty string / empty array as missing", () => {
     const v = evaluate({ id: "action_01", node_type: "action", actor_id: "", intent_ids: [] }, [
       P({
-        kind: "requires_field",
+        sub_kind: "requires_field",
         fields: ["actor_id", "intent_ids"],
         when_node_type: ["action"],
       }),
@@ -71,7 +72,7 @@ describe("authoring evaluator — requires_field", () => {
 
   it("respects when_node_type — skips non-matching candidates", () => {
     const v = evaluate({ id: "intent_01", node_type: "intent" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
+      P({ sub_kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v).toEqual([]);
   });
@@ -80,14 +81,14 @@ describe("authoring evaluator — requires_field", () => {
 describe("authoring evaluator — forbids_field", () => {
   it("passes when the forbidden field is empty", () => {
     const v = evaluate({ id: "intent_01", node_type: "intent" }, [
-      P({ kind: "forbids_field", fields: ["actor_id"], when_node_type: ["intent"] }),
+      P({ sub_kind: "forbids_field", fields: ["actor_id"], when_node_type: ["intent"] }),
     ]);
     expect(v).toEqual([]);
   });
 
   it("fails when the forbidden field is set", () => {
     const v = evaluate({ id: "intent_01", node_type: "intent", actor_id: "principal_x" }, [
-      P({ kind: "forbids_field", fields: ["actor_id"], when_node_type: ["intent"] }),
+      P({ sub_kind: "forbids_field", fields: ["actor_id"], when_node_type: ["intent"] }),
     ]);
     expect(v).toHaveLength(1);
   });
@@ -99,7 +100,7 @@ describe("authoring evaluator — unique_field", () => {
       { id: "decision_02", node_type: "decision", chosen: "Activation key" },
       [
         P({
-          kind: "unique_field",
+          sub_kind: "unique_field",
           field: "chosen",
           case_fold: true,
           when_node_type: ["decision"],
@@ -120,7 +121,7 @@ describe("authoring evaluator — unique_field", () => {
       { id: "decision_02", node_type: "decision", chosen: "Activation Key" },
       [
         P({
-          kind: "unique_field",
+          sub_kind: "unique_field",
           field: "chosen",
           case_fold: true,
           when_node_type: ["decision"],
@@ -131,7 +132,7 @@ describe("authoring evaluator — unique_field", () => {
       },
     );
     expect(v).toHaveLength(1);
-    expect(v[0]?.predicate_kind).toBe("unique_field");
+    expect(v[0]?.sub_kind).toBe("unique_field");
     expect(v[0]?.reason).toMatch(/chosen/);
     expect(v[0]?.reason).toMatch(/decision_01/);
   });
@@ -141,7 +142,7 @@ describe("authoring evaluator — unique_field", () => {
       { id: "decision_02", node_type: "decision", chosen: "Activation Key" },
       [
         P({
-          kind: "unique_field",
+          sub_kind: "unique_field",
           field: "chosen",
           when_node_type: ["decision"],
         }),
@@ -155,7 +156,7 @@ describe("authoring evaluator — unique_field", () => {
 
   it("ignores retired duplicates and empty candidate values", () => {
     const policy = P({
-      kind: "unique_field",
+      sub_kind: "unique_field",
       field: "chosen",
       case_fold: true,
       when_node_type: ["decision"],
@@ -184,7 +185,7 @@ describe("authoring evaluator — requires_edge", () => {
       { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_edge",
+          sub_kind: "requires_edge",
           edge_type: "supports",
           target_node_type: "intent",
           when_node_type: ["action"],
@@ -200,7 +201,7 @@ describe("authoring evaluator — requires_edge", () => {
   it("fails when the candidate carries no matching outgoing edge", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
       P({
-        kind: "requires_edge",
+        sub_kind: "requires_edge",
         edge_type: "supports",
         target_node_type: "intent",
         when_node_type: ["action"],
@@ -216,7 +217,7 @@ describe("authoring evaluator — requires_edge", () => {
       { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_edge",
+          sub_kind: "requires_edge",
           edge_type: "supports",
           target_node_type: "intent",
           when_node_type: ["action"],
@@ -236,7 +237,7 @@ describe("authoring evaluator — requires_edge_role", () => {
       { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_edge_role",
+          sub_kind: "requires_edge_role",
           edge_type: "supports",
           edge_role: "serves",
           target_node_type: "intent",
@@ -262,7 +263,7 @@ describe("authoring evaluator — requires_edge_role", () => {
       { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_edge_role",
+          sub_kind: "requires_edge_role",
           edge_type: "supports",
           edge_role: "serves",
           target_node_type: "intent",
@@ -281,7 +282,7 @@ describe("authoring evaluator — requires_edge_role", () => {
       },
     );
     expect(v).toHaveLength(1);
-    expect(v[0]?.predicate_kind).toBe("requires_edge_role");
+    expect(v[0]?.sub_kind).toBe("requires_edge_role");
     expect(v[0]?.reason).toMatch(/supports/);
     expect(v[0]?.reason).toMatch(/serves/);
   });
@@ -290,14 +291,14 @@ describe("authoring evaluator — requires_edge_role", () => {
 describe("authoring evaluator — requires_node_type", () => {
   it("passes when the candidate's node_type is in the allowlist", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
-      P({ kind: "requires_node_type", node_types: ["action", "intent", "decision"] }),
+      P({ sub_kind: "requires_node_type", node_types: ["action", "intent", "decision"] }),
     ]);
     expect(v).toEqual([]);
   });
 
   it("fails when the candidate's node_type is not in the allowlist", () => {
     const v = evaluate({ id: "log_01", node_type: "log" }, [
-      P({ kind: "requires_node_type", node_types: ["action", "intent", "decision"] }),
+      P({ sub_kind: "requires_node_type", node_types: ["action", "intent", "decision"] }),
     ]);
     expect(v).toHaveLength(1);
     expect(v[0]?.reason).toMatch(/log/);
@@ -305,31 +306,17 @@ describe("authoring evaluator — requires_node_type", () => {
 
   it("treats Doco policy records as metadata outside template node allowlists", () => {
     const membershipPolicy = P({
-      kind: "requires_node_type",
+      sub_kind: "requires_node_type",
       node_types: ["intent", "decision", "principal"],
     });
-    const policyCandidates: CandidateFields[] = [
-      {
-        id: "guidance_policy_01",
-        policy_kind: "guidance",
-        policy: "Capture important decisions.",
-      },
-      {
-        id: "node_authoring_policy_01",
-        policy_kind: "node_authoring",
-        policy: "Decisions must explain alternatives.",
-      },
-    ];
-
-    for (const candidate of policyCandidates) {
-      expect(evaluate(candidate, [membershipPolicy])).toEqual([]);
-    }
+    const policyCandidate: CandidateFields = { id: "policy_01" };
+    expect(evaluate(policyCandidate, [membershipPolicy])).toEqual([]);
   });
 });
 
 describe("authoring evaluator — requires_entity_type", () => {
   const membershipPolicy = P({
-    kind: "requires_entity_type",
+    sub_kind: "requires_entity_type",
     entity_types: ["intent", "decision", "principal"],
   });
 
@@ -341,27 +328,13 @@ describe("authoring evaluator — requires_entity_type", () => {
   it("fails when the candidate id prefix is not in the allowlist", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [membershipPolicy]);
     expect(v).toHaveLength(1);
-    expect(v[0]?.predicate_kind).toBe("requires_entity_type");
+    expect(v[0]?.sub_kind).toBe("requires_entity_type");
     expect(v[0]?.reason).toMatch(/action/);
   });
 
   it("treats Doco policy records as metadata outside template membership allowlists", () => {
-    const policyCandidates: CandidateFields[] = [
-      {
-        id: "guidance_policy_01",
-        policy_kind: "guidance",
-        policy: "Capture important decisions.",
-      },
-      {
-        id: "node_authoring_policy_01",
-        policy_kind: "node_authoring",
-        policy: "Decisions must explain alternatives.",
-      },
-    ];
-
-    for (const candidate of policyCandidates) {
-      expect(evaluate(candidate, [membershipPolicy])).toEqual([]);
-    }
+    const policyCandidate: CandidateFields = { id: "policy_01" };
+    expect(evaluate(policyCandidate, [membershipPolicy])).toEqual([]);
   });
 });
 
@@ -371,7 +344,7 @@ describe("authoring evaluator — requires_field_resolves_to_principal", () => {
       { id: "action_01", node_type: "action", actor_id: "principal_alice" },
       [
         P({
-          kind: "requires_field_resolves_to_principal",
+          sub_kind: "requires_field_resolves_to_principal",
           field: "actor_id",
           when_node_type: ["action"],
         }),
@@ -386,7 +359,7 @@ describe("authoring evaluator — requires_field_resolves_to_principal", () => {
       { id: "action_01", node_type: "action" },
       [
         P({
-          kind: "requires_field_resolves_to_principal",
+          sub_kind: "requires_field_resolves_to_principal",
           field: "actor_id",
           when_node_type: ["action"],
         }),
@@ -402,7 +375,7 @@ describe("authoring evaluator — requires_field_resolves_to_principal", () => {
       { id: "action_01", node_type: "action", actor_id: "principal_ghost" },
       [
         P({
-          kind: "requires_field_resolves_to_principal",
+          sub_kind: "requires_field_resolves_to_principal",
           field: "actor_id",
           when_node_type: ["action"],
         }),
@@ -427,7 +400,7 @@ describe("authoring evaluator — graph-completeness", () => {
       [
         P(
           {
-            kind: "graph-completeness",
+            sub_kind: "graph-completeness",
             list_field: "actors",
             edge_type: "supports",
             incoming_node_type: "action",
@@ -462,7 +435,7 @@ describe("authoring evaluator — graph-completeness", () => {
       [
         P(
           {
-            kind: "graph-completeness",
+            sub_kind: "graph-completeness",
             list_field: "actors",
             edge_type: "supports",
             incoming_node_type: "action",
@@ -490,7 +463,7 @@ describe("authoring evaluator — graph-completeness", () => {
       [
         P(
           {
-            kind: "graph-completeness",
+            sub_kind: "graph-completeness",
             list_field: "actors",
             edge_type: "supports",
             incoming_node_type: "action",
@@ -519,7 +492,7 @@ describe("authoring evaluator — graph-completeness", () => {
       [
         P(
           {
-            kind: "graph-completeness",
+            sub_kind: "graph-completeness",
             list_field: "actors",
             edge_type: "supports",
             incoming_node_type: "action",
@@ -535,24 +508,37 @@ describe("authoring evaluator — graph-completeness", () => {
 });
 
 describe("authoring evaluator — probabilistic", () => {
-  it("emits a pending violation with the spec for the LLM judge", () => {
+  it("emits a pending violation with the agent instruction for the LLM judge", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
-      P({
-        kind: "probabilistic",
-        spec: "Action summary reads as an atomic business activity, not an umbrella phase.",
-        when_node_type: ["action"],
-      }),
+      P(
+        {
+          agent_instruction:
+            "Action summary reads as an atomic business activity, not an umbrella phase.",
+          when_node_type: ["action"],
+        },
+        { kind: "probabilistic" },
+      ),
     ]);
     expect(v).toHaveLength(1);
-    expect(v[0]?.predicate_kind).toBe("probabilistic");
+    expect(v[0]?.kind).toBe("probabilistic");
     expect(v[0]?.pending_spec).toMatch(/atomic business activity/);
+  });
+
+  it("respects when_node_type for probabilistic policies", () => {
+    const v = evaluate({ id: "intent_01", node_type: "intent" }, [
+      P(
+        { agent_instruction: "judge the action", when_node_type: ["action"] },
+        { kind: "probabilistic" },
+      ),
+    ]);
+    expect(v).toEqual([]);
   });
 });
 
-describe("authoring evaluator — descriptive", () => {
+describe("authoring evaluator — suggestion", () => {
   it("never produces a violation", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
-      P({ kind: "descriptive", spec: "Just a note for readers." }),
+      P({ agent_instruction: "Just a note for readers." }, { kind: "suggestion" }),
     ]);
     expect(v).toEqual([]);
   });
@@ -561,7 +547,7 @@ describe("authoring evaluator — descriptive", () => {
 describe("authoring evaluator — on_violation propagation", () => {
   it("default on_violation is block", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
-      P({ kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
+      P({ sub_kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] }),
     ]);
     expect(v[0]?.on_violation).toBe("block");
   });
@@ -569,7 +555,7 @@ describe("authoring evaluator — on_violation propagation", () => {
   it("warn propagates", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [
       P(
-        { kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] },
+        { sub_kind: "requires_field", fields: ["actor_id"], when_node_type: ["action"] },
         { on_violation: "warn" },
       ),
     ]);

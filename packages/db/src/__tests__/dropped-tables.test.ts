@@ -16,6 +16,9 @@ const DROPPED_TABLES = [
   "doco_templates",
   "doco_meta",
   "entity_fts_policies",
+  // Collapsed into the single `policies` table.
+  "guidance_policies",
+  "node_authoring_policies",
 ];
 
 function declaresTable(table: string): boolean {

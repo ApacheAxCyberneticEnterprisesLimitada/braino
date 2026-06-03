@@ -1,43 +1,41 @@
 /**
  * Authoring policies evaluator — pure module.
  *
- * Walks the doco's `node_authoring_policies` directly. Policies
- * apply to the whole doco.
+ * Walks the doco's `policies` directly. Policies apply to the whole doco.
  *
  * Inputs in, violations out. No IO, no LLM. The caller (web layer) is
  * responsible for:
  *   - loading the doco's policies, principals, edges, and population
  *   - passing the candidate's active outgoing edges
  *   - resolving probabilistic violations via an LLM judge (the engine
- *     just emits them as `pending` violations with the spec attached)
+ *     just emits them as `pending` violations with the agent instruction
+ *     attached)
  *
- * Predicate kinds handled:
- *   - requires_edge, requires_edge_role, forbids_edge
- *   - requires_field, forbids_field, unique_field
- *   - requires_node_type, requires_entity_type
- *   - requires_field_resolves_to_principal
- *   - graph-completeness
- *   - probabilistic   → emitted as pending violation
- *   - descriptive     → no-op (records intent only)
+ * Dispatch is on the policy's standalone `kind`:
+ *   - suggestion    → advisory; never produces a violation here.
+ *   - probabilistic → emitted as a pending violation (LLM judge resolves it).
+ *   - deterministic → engine-checked via `predicate.sub_kind`:
+ *       requires_edge, requires_edge_role, forbids_edge,
+ *       requires_field, forbids_field, unique_field,
+ *       requires_node_type, requires_entity_type,
+ *       requires_field_resolves_to_principal, graph-completeness
  *
- * Per-predicate filters:
+ * Per-policy filters:
  *   - `when_node_type` (on the predicate)
  *   - `fires_when_node_lifecycle` (on the policy wrapper)
  */
 
 import type { NodeType } from "./branded.js";
-import type { AuthoringPredicate, Lifecycle } from "./entities.js";
+import type { DeterministicSubKind, Lifecycle, PolicyKind, PolicyPredicate } from "./entities.js";
 
 /**
- * Candidate node / policy fields the engine evaluates. Just
- * the fields-as-bag the persister would write — the engine doesn't care
- * about the full Entity union, only that it has an id, a node_type
- * (or policy_kind), and optionally a lifecycle.
+ * Candidate node / policy fields the engine evaluates. Just the fields-as-bag
+ * the persister would write — the engine doesn't care about the full Entity
+ * union, only that it has an id, a node_type, and optionally a lifecycle.
  */
 export type CandidateFields = Record<string, unknown> & {
   id: string;
   node_type?: NodeType;
-  policy_kind?: "guidance" | "node_authoring";
   lifecycle?: Lifecycle;
 };
 
@@ -50,15 +48,14 @@ export interface EngineEdge {
 }
 
 /**
- * A node_authoring_policy loaded from the doco, with the bits the
- * engine consults.
+ * A policy loaded from the doco, with the bits the engine consults.
  */
 export interface LoadedPolicy {
   /** Id of the originating policy — back-pointer for the UI. */
   policy_id: string;
-  /** The one-line rule statement — surfaces in violation messages. */
-  policy: string;
-  predicate: AuthoringPredicate;
+  /** Standalone classifier — drives dispatch. */
+  kind: PolicyKind;
+  predicate: PolicyPredicate;
   /** Defaults to "block" when undefined. */
   on_violation?: "block" | "warn" | "log";
   /**
@@ -71,11 +68,14 @@ export interface LoadedPolicy {
 
 export interface Violation {
   policy_id: string;
-  predicate_kind: AuthoringPredicate["kind"];
+  /** The policy's kind — `deterministic` or `probabilistic` (suggestions never violate). */
+  kind: PolicyKind;
+  /** For deterministic violations: which engine check fired. */
+  sub_kind?: DeterministicSubKind;
   /** "block" propagates as a hard error; "warn" is reported; "log" is silent. */
   on_violation: "block" | "warn" | "log";
   reason: string;
-  /** For probabilistic violations: the spec to feed an LLM judge. */
+  /** For probabilistic violations: the agent instruction to feed an LLM judge. */
   pending_spec?: string;
 }
 
@@ -109,21 +109,6 @@ export interface EvaluateOpts {
   population: CandidateFields[];
 }
 
-const NODE_TYPE_PREDICATE_KINDS: ReadonlySet<AuthoringPredicate["kind"]> = new Set([
-  "requires_edge",
-  "requires_edge_role",
-  "forbids_edge",
-  "requires_field",
-  "forbids_field",
-  "unique_field",
-  "probabilistic",
-  "graph-completeness",
-  "requires_field_resolves_to_principal",
-  "descriptive",
-]);
-
-const POLICY_ENTITY_TYPES = new Set(["guidance_policy", "node_authoring_policy"]);
-
 function isNonEmpty(value: unknown): boolean {
   if (value === undefined || value === null) return false;
   if (typeof value === "string") return value.trim().length > 0;
@@ -137,12 +122,13 @@ function entityTypeFromId(id: string): string {
   return i <= 0 ? "" : id.slice(0, i);
 }
 
+/**
+ * Policy records are Doco-scoped metadata; the membership gates
+ * (`requires_node_type` / `requires_entity_type`) let them pass without
+ * forcing each template to list `policy` as domain content.
+ */
 function isPolicyMetadataCandidate(candidate: CandidateFields): boolean {
-  return (
-    candidate.policy_kind === "guidance" ||
-    candidate.policy_kind === "node_authoring" ||
-    POLICY_ENTITY_TYPES.has(entityTypeFromId(candidate.id))
-  );
+  return entityTypeFromId(candidate.id) === "policy";
 }
 
 function comparableFieldValue(value: unknown, caseFold: boolean): string | null {
@@ -181,14 +167,14 @@ export function policyFiresFor(p: LoadedPolicy, candidate: CandidateFields): boo
   if (lifecycles && lifecycles.length > 0) {
     if (!candidate.lifecycle || !lifecycles.includes(candidate.lifecycle)) return false;
   }
-  // `when_node_type` filter — only on predicates that carry one.
+  // `when_node_type` filter — only on predicates that carry one. Membership
+  // gates (requires_node_type / requires_entity_type) carry none, so they
+  // fire against every candidate.
   const pred = p.predicate;
-  if (NODE_TYPE_PREDICATE_KINDS.has(pred.kind)) {
-    const when = "when_node_type" in pred ? pred.when_node_type : undefined;
-    if (when && when.length > 0) {
-      const ct = candidate.node_type;
-      if (!ct || !when.includes(ct)) return false;
-    }
+  const when = "when_node_type" in pred ? pred.when_node_type : undefined;
+  if (when && when.length > 0) {
+    const ct = candidate.node_type;
+    if (!ct || !when.includes(ct)) return false;
   }
   return true;
 }
@@ -198,15 +184,34 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
   const onViolation = p.on_violation ?? "block";
   const pred = p.predicate;
 
-  const fail = (reason: string, extra?: { pending_spec?: string }): Violation => ({
+  // Suggestions are advisory — surfaced to agents elsewhere, never enforced.
+  if (p.kind === "suggestion") return null;
+
+  // Probabilistic — engine doesn't run the LLM judge. Emit a pending
+  // violation with the agent instruction so the caller can resolve it.
+  if (p.kind === "probabilistic") {
+    if (!("agent_instruction" in pred)) return null;
+    return {
+      policy_id: p.policy_id,
+      kind: "probabilistic",
+      on_violation: onViolation,
+      reason: pred.agent_instruction,
+      pending_spec: pred.agent_instruction,
+    };
+  }
+
+  // Deterministic — dispatch on the predicate's sub_kind.
+  if (!("sub_kind" in pred)) return null;
+
+  const fail = (reason: string): Violation => ({
     policy_id: p.policy_id,
-    predicate_kind: pred.kind,
+    kind: "deterministic",
+    sub_kind: pred.sub_kind,
     on_violation: onViolation,
-    reason: `${p.policy} — ${reason}`,
-    ...(extra?.pending_spec ? { pending_spec: extra.pending_spec } : {}),
+    reason,
   });
 
-  switch (pred.kind) {
+  switch (pred.sub_kind) {
     case "requires_edge": {
       const wanted = opts.candidateEdges.find((s) => {
         if (s.edge_type !== pred.edge_type) return false;
@@ -322,21 +327,6 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       return fail(
         `\`${pred.list_field}\` entries lack a matching incoming \`${pred.edge_type}\` from a \`${pred.incoming_node_type}\`: ${missing.map((m) => `\`${m}\``).join(", ")}`,
       );
-    }
-    case "probabilistic": {
-      // Engine doesn't run the LLM judge — emit a pending violation
-      // with the spec so the caller can decide synchronously or async.
-      return {
-        policy_id: p.policy_id,
-        predicate_kind: pred.kind,
-        on_violation: onViolation,
-        reason: `${p.policy} — pending LLM judge`,
-        pending_spec: pred.spec,
-      };
-    }
-    case "descriptive": {
-      // Recorded-but-not-enforced. No violation.
-      return null;
     }
   }
 }

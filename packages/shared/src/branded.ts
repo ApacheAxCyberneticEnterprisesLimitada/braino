@@ -6,12 +6,12 @@ import { CATALOG_NODE_TYPES } from "./entity-catalog.js";
  *
  * Entities are split across five categories.
  *   - Nodes (10):       graph-knowledge entities
- *   - Policies (2):       Doco-level authoring metadata
+ *   - Policies (1):       Doco-level authoring metadata
  *   - User (1):   OAuth identity layer
  *   - Doco (1):           workspace container
  *   - Workspace (1):   workspace container
  *
- * `EntityType` is the union of all 14 discriminator strings; `NodeType`
+ * `EntityType` is the union of all 13 discriminator strings; `NodeType`
  * and `PolicyType` are the narrower types for code that wants to
  * statically prohibit cross-category misuse.
  */
@@ -37,8 +37,8 @@ export const NODE_TYPES = CATALOG_NODE_TYPES;
 
 export type NodeType = (typeof NODE_TYPES)[number];
 
-/** The 2 policy types — Doco-level authoring metadata, not on the graph. */
-export const POLICY_TYPES = ["guidance_policy", "node_authoring_policy"] as const;
+/** The policy type — Doco-level authoring metadata, not on the graph. */
+export const POLICY_TYPES = ["policy"] as const;
 
 export type PolicyType = (typeof POLICY_TYPES)[number];
 
