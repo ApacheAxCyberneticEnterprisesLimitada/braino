@@ -10,32 +10,38 @@
  * Each template ships:
  * - `description` — the description text rendered in the picker and
  *   bootstrap manifest.
- * - `policies` — at install time entries seed Doco-level
- *   policies: prose-only entries become guidance_policies;
- *   predicate-bearing entries become node_authoring_policies.
+ * - `policies` — at install time each entry seeds one row in the unified
+ *   `policies` table, classified by a standalone `kind` (translated in
+ *   host.ts): a prose-only entry becomes a `suggestion` (advisory; the
+ *   prose IS the agent instruction); an entry with a `probabilistic`
+ *   predicate becomes a `probabilistic` policy (LLM-judged; the `spec` is
+ *   the agent instruction); a `descriptive` predicate folds into a
+ *   `suggestion` (recorded, not enforced); any other predicate becomes a
+ *   `deterministic` policy (engine-checked, keyed by `sub_kind`).
  * - `allowedNodeTypes` (optional) — a Doco-level allowlist. `global`
  *   ships with policy types so the Doco's policy set is kept
  *   separate from domain Rule nodes.
  *
- * Template policy entries seed Doco-level policies, split purely by
- * predicate-presence: prose-only entries become guidance_policies,
- * predicate-bearing entries become node_authoring_policies (see
- * host.ts). The historical Rule.kind overloading (guidance / authoring /
- * tagged) is gone — meta-constraints are policies, not Rule nodes
+ * The historical guidance_policies / node_authoring_policies split — and
+ * the older Rule.kind overloading (guidance / authoring / tagged) — are
+ * both gone: every policy now lives in the one `policies` table, and
+ * meta-constraints are policies, not Rule nodes
  * (decision_01KRRR5BQ16ASY8HQEE0V499YG).
  */
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
 export interface TemplatePolicy {
-  /** The one-line rule statement. Renamed from `summary` to `policy`
-   *  in migration 038 to match the migration-023 type-named-prose
-   *  pattern. For predicate-bearing policies this is the reason text
-   *  that accompanies the structured check; for guidance policies
-   *  this is the policy itself. */
+  /** The one-line statement of the policy. For a prose-only entry this IS
+   *  the policy — it seeds the `suggestion`'s agent instruction. For a
+   *  `probabilistic` entry the `predicate.spec` is what the judge and
+   *  agents actually see, so this doubles as the in-code summary. For a
+   *  `deterministic` entry it is human-readable documentation of the
+   *  structured check. */
   policy: string;
   /**
-   * Engine-readable predicate. When set, the seeder creates a
-   * node_authoring_policy so the check can run during capture.
+   * Engine-readable predicate. When set, the seeder records a
+   * `deterministic` policy — or a `probabilistic` one, for a
+   * `probabilistic` predicate — so the check can run at capture time.
    */
   predicate?: AuthoringPredicate;
   /**
@@ -416,28 +422,39 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     }),
   },
   {
-    // Glossaries define product and domain language. Each active term
-    // entry is a Decision: `question` names the concept, `chosen` is the
-    // canonical term, and `decision` holds the definition, scope, and
-    // examples. List is the natural authoring surface for terminology.
+    // Glossaries define product and domain language. Each term entry is a
+    // Decision: `question` names the concept, `chosen` is the canonical
+    // headword, `decision` holds the definition, scope, and examples, and
+    // `alternatives` carries aliases / rejected labels.
     //
-    // Term relationships are first-class edges. `relates_to` links
-    // confusable, parent/sub, or homograph terms; `replaces` links a retired
-    // term to its replacement.
+    // Two stages, on purpose. A glossary is a reference work, so a term
+    // entry is either the canonical answer (`active`) or a deprecated one
+    // kept for lookup (`retired`) — exactly the two stages a policy uses.
+    // The framework's other lifecycle stages add nothing here: `queued`
+    // (provisional-but-ready, e.g. an open PR awaiting approval) has no
+    // glossary meaning — a term is either the canonical answer or it isn't —
+    // and `drafting` is just a private scratch state for an unfinished term,
+    // not part of the glossary yet. So a captured term lands `active` (no
+    // `defaultNodeLifecycle` override) and the completeness gates fire on
+    // `active`; a `drafting` stub is exempt until it is activated, and a
+    // `retired` term winds down without re-running the gates. (Contrast
+    // business-processes, which defaults to `drafting` so a flow can be
+    // wired up incrementally.)
+    //
+    // Term relationships are first-class edges: `relates_to` is the
+    // associative "see also" link (confusable, broader/narrower, or
+    // homograph terms); `replaces` links a retired term to its replacement;
+    // `derived_from` cites the external source a borrowed term comes from;
+    // and an Eval `supports` the term it checks.
+    //
+    // The dictionary-styled Glossary perspective is the natural reading
+    // surface for terminology, so a Doco created from this template opens
+    // directly on it. Graph + list defaults stay attached behind.
     name: "glossaries",
     label: "Glossaries",
     icon: "📚",
     description:
       "Document product and domain terminology — canonical terms, definitions, aliases, replacement links, sources, and consistency checks.",
-    // No `defaultNodeLifecycle` override: a glossary term is a
-    // definitional, complete-on-creation node, so a captured term lands
-    // live (`active`) and the term-completeness gates apply right
-    // away. Authors who want to stub a term sketch it explicitly with
-    // `lifecycle: "drafting"`. (Contrast business-processes, which
-    // defaults to `drafting` so a flow can be wired up incrementally.)
-    // The dictionary-styled Glossary perspective is the natural reading
-    // surface for terminology, so a Doco created from this template
-    // opens directly on it. Graph + list defaults stay attached behind.
     perspectives: [{ slug: "glossary", isDefault: true }],
     policies: [
       // ── Membership ──────────────────────────────────────────────
@@ -501,11 +518,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // call replaces three, cutting latency and the misfire surface.
         on_violation: "warn",
         policy:
-          "A glossary term-entry Decision defines exactly one concept with a usable definition. It keeps one concept per entry, its `decision` prose gives a concise definition plus the product/domain scope, and — when the canonical term in `chosen` is itself an acronym or abbreviation — spells out the expanded form and says when the short form is acceptable.",
+          "A glossary term-entry Decision defines exactly one concept with a usable definition. It keeps one concept per entry, its `decision` prose gives a concise definition plus the product/domain scope and at least one example or non-example (never a circular restatement of the headword), and — when the canonical term in `chosen` is itself an acronym or abbreviation — spells out the expanded form and says when the short form is acceptable.",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["decision"],
-          spec: "Judge a glossary term-entry Decision on three aspects; report each failing aspect with a reason, but treat them as warnings, not hard errors. (a) ONE CONCEPT: PASS when the entry defines one concept or one canonical term; FAIL when it defines multiple independent terms, bundles a term with an unrelated policy, or is a catch-all for several concepts. (b) USABLE DEFINITION: PASS when the `decision` prose gives a concise definition AND the product or domain scope where the term applies AND at least one concrete example OR non-example — EITHER an example or a non-example is sufficient, do not require both; FAIL only when one of those three is genuinely absent. (c) ACRONYMS AND ABBREVIATIONS: only inspect the canonical term in `chosen`. If `chosen` is itself an acronym or abbreviation, PASS when the prose expands it at least once and states whether the short form is acceptable in product/docs/UI copy; FAIL when it is left unexpanded. Incidental abbreviations that merely appear in the prose (not the headword) are OUT OF SCOPE — ignore them. If `chosen` is not an acronym, this aspect PASSES.",
+          spec: "Judge a glossary term-entry Decision on three aspects; report each failing aspect with a reason, but treat them as warnings, not hard errors. (a) ONE CONCEPT: PASS when the entry defines one concept or one canonical term; FAIL when it defines multiple independent terms, bundles a term with an unrelated policy, or is a catch-all for several concepts. (b) USABLE DEFINITION: PASS when the `decision` prose gives a concise definition AND the product or domain scope where the term applies AND at least one concrete example OR non-example — EITHER an example or a non-example is sufficient, do not require both; FAIL when one of those three is genuinely absent, or when the prose merely restates the headword instead of explaining it (a circular definition such as `a workspace is a workspace`). (c) ACRONYMS AND ABBREVIATIONS: only inspect the canonical term in `chosen`. If `chosen` is itself an acronym or abbreviation, PASS when the prose expands it at least once and states whether the short form is acceptable in product/docs/UI copy; FAIL when it is left unexpanded. Incidental abbreviations that merely appear in the prose (not the headword) are OUT OF SCOPE — ignore them. If `chosen` is not an acronym, this aspect PASSES.",
         },
         fires_when_node_lifecycle: ["active"],
       },
@@ -548,6 +565,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Guidance ───────────────────────────────────────────────
       {
+        // The deliberate two-stage stance — see the block comment above.
+        policy:
+          "A glossary is a reference work: a term entry is either the canonical answer (`active`) or a deprecated one kept for lookup (`retired`). Capture a term and it lands `active`; `retire` it when it is superseded, pointing at the successor with a `replaces` edge. You may stub an unfinished term as `drafting` while you work on it, but it is not part of the glossary — and the completeness checks do not apply — until you `activate` it. The framework's `queued` stage has no glossary meaning, so this template stays two-stage like policies do.",
+      },
+      {
         policy:
           "When aliases, synonyms, misleading labels, or rejected labels exist for the same concept, record them in `alternatives`; otherwise omit `alternatives` rather than inventing filler.",
       },
@@ -557,11 +579,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Connect related glossary terms in the graph instead of leaving entries isolated — author a `relates_to` edge to link a term to terms it is easily confused with, its parent or sub-concepts, or the homographs it shares a surface form with, so the vocabulary reads as a navigable network. Change a link by retiring the old edge and adding a new one, not by editing endpoints in place. Deprecation links use `replaces` instead.",
+          'Connect related glossary terms with `relates_to` edges — the associative "see also" link — instead of leaving entries isolated, so the vocabulary reads as a navigable network. Link a term to the ones it is easily confused with, its broader or narrower concepts, and the homographs it shares a surface form with. Change a link by retiring the old edge and adding a new one, not by editing endpoints in place; deprecation links use `replaces` instead.',
       },
       {
         policy:
-          "Borrowed, standards-based, or industry terms cite a Reference when possible. Product-internal terms state that they are product-specific so readers don't mistake them for external standards.",
+          "Borrowed, standards-based, or industry terms cite their source: add a Reference for the external glossary, spec, or doc and link the term to it with a `derived_from` edge. Product-internal terms state that they are product-specific so readers don't mistake them for external standards.",
       },
       {
         policy:
@@ -570,6 +592,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Use Rules for terminology usage policies, such as banned words, capitalization conventions, UI copy constraints, or when two related terms must not be used interchangeably.",
+      },
+      {
+        policy:
+          "Agents read `GET /<handle>/api/authoring-contract.json` for the live field and edge vocabulary, then write terms with `POST /<handle>/api/changesets.json` — creating the term Decision together with its `relates_to`, `derived_from`, or `replaces` edges in the same changeset so an entry never lands isolated.",
       },
     ],
   },

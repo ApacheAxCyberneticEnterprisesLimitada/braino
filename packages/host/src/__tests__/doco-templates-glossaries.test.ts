@@ -180,6 +180,11 @@ describe("glossaries template", () => {
       expect(haystack).toMatch(/Reference/i);
       expect(haystack).toMatch(/product-specific/i);
     });
+
+    it("rejects circular definitions that merely restate the headword", () => {
+      expect(haystack).toMatch(/circular/i);
+      expect(haystack).toMatch(/restate|restatement/i);
+    });
   });
 
   describe("active terminology Evals", () => {
@@ -218,6 +223,55 @@ describe("glossaries template", () => {
       if (rerunRule?.predicate?.kind !== "probabilistic") return;
       expect(rerunRule.predicate.spec).toMatch(/concrete rerun path/i);
       expect(rerunRule.predicate.spec).toMatch(/search query|URL|script|manual review/i);
+    });
+  });
+
+  describe("edge vocabulary and the two-stage lifecycle", () => {
+    const guidance = template.policies
+      .filter((r) => !r.predicate)
+      .map((r) => r.policy)
+      .join("\n");
+
+    it("frames the glossary as a deliberate two-stage (active/retired) reference work", () => {
+      expect(guidance).toMatch(/reference work/i);
+      expect(guidance).toMatch(/canonical answer/i);
+      // The `queued` stage is explicitly out of scope for a glossary — a term
+      // is the canonical answer or it isn't.
+      expect(guidance).toMatch(/`queued` stage has no glossary meaning/i);
+    });
+
+    it("does NOT default new terms to a non-active lifecycle (no propose/queue dance)", () => {
+      expect(template.defaultNodeLifecycle).toBeUndefined();
+    });
+
+    it("only ever gates a term on the `active` stage — never `queued` or `drafting`", () => {
+      const gated = template.policies.filter((r) => r.fires_when_node_lifecycle);
+      expect(gated.length).toBeGreaterThan(0);
+      for (const r of gated) {
+        expect(r.fires_when_node_lifecycle).toEqual(["active"]);
+      }
+    });
+
+    it("names `derived_from` as the source-citation edge for borrowed terms", () => {
+      const borrowed = guidance
+        .split("\n")
+        .find((line) => /Borrowed, standards-based, or industry terms/i.test(line));
+      expect(borrowed).toBeDefined();
+      expect(borrowed).toMatch(/`derived_from` edge/i);
+      expect(borrowed).toMatch(/Reference/i);
+    });
+
+    it('frames `relates_to` as the associative "see also" link', () => {
+      const relates = guidance.split("\n").find((line) => /`relates_to` edges/i.test(line));
+      expect(relates).toBeDefined();
+      expect(relates).toMatch(/associative/i);
+      expect(relates).toMatch(/see also/i);
+      expect(relates).toMatch(/broader or narrower/i);
+    });
+
+    it("points agents at the authoring-contract and changeset API", () => {
+      expect(guidance).toMatch(/authoring-contract\.json/);
+      expect(guidance).toMatch(/changesets\.json/);
     });
   });
 });
