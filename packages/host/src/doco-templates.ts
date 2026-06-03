@@ -1103,6 +1103,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           spec: "Read the Principal's `body_md`. PASS if the prose clearly states the seat is filled by a human person (e.g. 'Human director of …', 'Person responsible for …'), filled by an AI agent (e.g. 'AI agent operated by @alice', 'Autonomous research bot'), OR currently vacant/open (e.g. 'Vacant — budgeted Staff Engineer seat, reporting to …'). FAIL with a reason if `body_md` is empty or doesn't take a stance on person / AI agent / vacant.",
         },
       },
+      {
+        // Deterministic floor under the person/agent/vacant judge above: that
+        // declaration lives in `body_md`, so an empty body can't possibly carry
+        // it. Catch the empty-shell case deterministically — cheaply, with a
+        // crisp error, and even when the LLM judge is unavailable. No lifecycle
+        // gate: it matches the judge it floors, which fires on every Principal
+        // regardless of stage.
+        policy:
+          "Every org-chart Principal declares its seat in `body_md` — the person / AI-agent / vacant declaration lives there, so the field must be present.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["body_md"],
+          when_node_type: ["principal"],
+        },
+      },
 
       // ── Hierarchy: every Principal either reports up or explains root ──
       {
@@ -1132,15 +1147,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Team Intents declare members ───────────────────────────
       {
-        // Fires on `queued` and `active` for the same reason the reporting
-        // nudge does: a team that's queued to stand up (an announced
-        // reorg) should already name its roster, while a `drafting` team
-        // can be sketched before its members are assigned.
+        // Formerly a `descriptive` predicate (recorded, never enforced); now a
+        // deterministic `warn`. A committed team/unit Intent links to its
+        // member Principals with outgoing `attributed_to` edges (role `member`,
+        // `lead`, …). `warn`, not block: a team that's `queued` to stand up
+        // should already name its roster, but a roster wired one member at a
+        // time shouldn't hard-fail mid-edit, and a `drafting` team is exempt
+        // entirely.
+        on_violation: "warn",
         policy:
-          "Every in-force or queued team/unit Intent in an org chart should be linked to member Principals with `attributed_to` edges.",
+          "Every in-force or queued team/unit Intent in an org chart is linked to its member Principals with `attributed_to` edges (role `member`, `lead`, …). A team with no members usually means a roster that has not been wired yet.",
         predicate: {
-          kind: "descriptive",
-          spec: "Review team membership through `attributed_to` edges with membership roles.",
+          // No `target_node_type` needed — the relation catalog already pins
+          // `attributed_to`'s target to a Principal, so any such edge from a
+          // team Intent is a member link.
+          kind: "requires_edge",
+          edge_type: "attributed_to",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: ["queued", "active"],

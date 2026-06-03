@@ -311,11 +311,16 @@ describe("org-chart template — 10 real-life scenarios", () => {
       reportsTo("eng", "ceo"),
       reportsTo("platform_lead", "ceo"),
       reportsTo("platform_sre", "platform_lead"),
+      // The queued team already names its roster (lead + a budgeted vacant SRE
+      // seat) — a committed team is held to the membership gate.
+      memberOf("platform", "platform_lead", "lead"),
+      memberOf("platform", "platform_sre", "member"),
     ];
     expectChartClean(nodes, edges);
-    // A queued Decision and queued team Intent are accepted node types.
-    expect(assess(nodes[4]).deterministic).toEqual([]);
-    expect(assess(nodes[5]).deterministic).toEqual([]);
+    // A queued Decision and queued team Intent are accepted node types (the
+    // team Intent passes the membership gate via its wired roster edges).
+    expect(assess(nodes[4], outgoing(edges, nodes[4].id)).deterministic).toEqual([]);
+    expect(assess(nodes[5], outgoing(edges, nodes[5].id)).deterministic).toEqual([]);
     // The queued seat is also vacant — both stages of the abstraction at once.
     expect(declaresOccupant(nodes[3].body_md as string)).toBe("vacant");
     expect(nodes[3].lifecycle).toBe("queued");
@@ -493,7 +498,9 @@ describe("org-chart template — rejects what doesn't belong", () => {
   it("accepts the five org node types", () => {
     for (const node of [
       principal("p", "A person — engineer."),
-      intent("t", "A team."),
+      // Drafting: this case checks the node-type allowlist, not the membership
+      // gate (which is committed-only and tested separately).
+      intent("t", "A team.", "drafting"),
       decision("d", { decision: "A reorg.", question: "?", chosen: "x" }),
       {
         id: "reference_r",
@@ -532,5 +539,55 @@ describe("org-chart template — rejects what doesn't belong", () => {
     expect(kept).toHaveLength(1);
     expect(kept[0].pending_spec).toMatch(TOP_OF_CHAIN);
     expect(kept[0].on_violation).toBe("warn");
+  });
+});
+
+// ── New structural gates: team membership + the body_md floor ─────────────────
+//
+// Both were unenforced before: team membership was a `descriptive` predicate
+// (recorded, never checked), and the person/agent/vacant declaration was only
+// LLM-judged. They are now deterministic policies; these cases pin that.
+
+describe("org-chart template — team membership gate (requires_edge)", () => {
+  it("warns when a committed team Intent names no members", () => {
+    const team = intent("ghost_team", "Ghost Team — roster never wired.", "active");
+    const findings = assess(team, []).deterministic; // no outgoing member edges
+    const warn = findings.find((v) => v.sub_kind === "requires_edge");
+    expect(warn, "expected a requires_edge finding").toBeDefined();
+    expect(warn?.reason).toMatch(/attributed_to/);
+    expect(warn?.on_violation).toBe("warn");
+  });
+
+  it("is satisfied once the team has at least one member edge", () => {
+    const team = intent("real_team", "Real Team — has a lead.", "active");
+    const edges = [memberOf("real_team", "lead", "lead")];
+    const findings = assess(team, outgoing(edges, team.id)).deterministic;
+    expect(findings.some((v) => v.sub_kind === "requires_edge")).toBe(false);
+  });
+
+  it("exempts a drafting team — a roster can be wired up later", () => {
+    const team = intent("sketch_team", "Sketch — still being drawn.", "drafting");
+    expect(assess(team, []).deterministic).toEqual([]);
+  });
+});
+
+describe("org-chart template — body_md presence floor (requires_field)", () => {
+  it("blocks a Principal whose body_md is empty (the seat declaration is missing)", () => {
+    const seat: CandidateFields = {
+      id: "principal_empty",
+      node_type: "principal",
+      name: "empty",
+      body_md: "",
+      lifecycle: "active",
+    };
+    const findings = assess(seat, []).deterministic;
+    const block = findings.find((v) => v.sub_kind === "requires_field");
+    expect(block, "expected a requires_field finding").toBeDefined();
+    expect(block?.reason).toMatch(/body_md/);
+  });
+
+  it("passes a Principal that declares its seat in body_md", () => {
+    const seat = principal("seated", "Director of Engineering — a person.");
+    expect(assess(seat, []).deterministic.some((v) => v.sub_kind === "requires_field")).toBe(false);
   });
 });

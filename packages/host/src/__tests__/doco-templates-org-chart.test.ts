@@ -154,18 +154,39 @@ describe("org-chart template", () => {
 
   describe("team Intents declare members through edges", () => {
     const rule = template.policies.find(
-      (r) => r.predicate?.kind === "descriptive" && r.predicate.when_node_type?.includes("intent"),
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "attributed_to" &&
+        r.predicate.when_node_type?.includes("intent"),
     );
 
-    it("exists", () => {
-      expect(rule).toBeDefined();
-      expect(rule?.predicate?.kind).toBe("descriptive");
-      if (rule?.predicate?.kind !== "descriptive") return;
-      expect(rule.predicate.spec).toMatch(/attributed_to/);
+    it("is ENFORCED as a deterministic requires_edge (warn), not merely documented", () => {
+      expect(rule?.predicate?.kind).toBe("requires_edge");
+      if (rule?.predicate?.kind !== "requires_edge") return;
+      expect(rule.predicate.edge_type).toBe("attributed_to");
+      // Warn, not block: a roster wired one member at a time shouldn't hard-fail.
+      expect(rule.on_violation).toBe("warn");
     });
 
     it("fires on `queued` and `active` — a team can be drafted before its roster is filled, but a ready or in-force team should name its members", () => {
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("every Principal declares its seat in body_md (deterministic floor)", () => {
+    const rule = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_field" &&
+        r.predicate.fields.includes("body_md") &&
+        (r.predicate.when_node_type?.includes("principal") ?? false),
+    );
+
+    it("requires body_md on Principals — the empty-shell case caught without the judge", () => {
+      expect(rule?.predicate?.kind).toBe("requires_field");
+    });
+
+    it("fires on every lifecycle, matching the person/agent/vacant judge it floors", () => {
+      expect(rule?.fires_when_node_lifecycle).toBeUndefined();
     });
   });
 
