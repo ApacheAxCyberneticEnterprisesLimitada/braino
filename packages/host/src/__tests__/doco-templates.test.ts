@@ -257,14 +257,14 @@ describe("business-processes template", () => {
     it("exhaustive gateway / branches", () => {
       expect(/exhaustive|default\/else|enum/i.test(haystack)).toBe(true);
     });
-    it("keeps gateway completeness as an activation-time check", () => {
+    it("keeps gateway completeness as an assertion-time check", () => {
       const rule = template.policies.find(
         (r) =>
           r.predicate?.kind === "probabilistic" && /exhaustive outgoing branches/i.test(r.policy),
       );
       expect(rule?.fires_when_node_lifecycle).toEqual(["asserted"]);
     });
-    it("keeps Action grain as an activation-time check", () => {
+    it("keeps Action grain as an assertion-time check", () => {
       const rule = template.policies.find(
         (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
       );
@@ -302,7 +302,7 @@ describe("business-processes template", () => {
     it("tells agents to use relate_many for gateway siblings", () => {
       expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
     });
-    it("documents draft-first activation", () => {
+    it("documents draft-first assertion", () => {
       expect(summaries.some((s) => /Drafting nodes/i.test(s) && /asserted/i.test(s))).toBe(true);
     });
     it("Log separation (instances live in a sibling Doco)", () => {
