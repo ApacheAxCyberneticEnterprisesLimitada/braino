@@ -405,18 +405,10 @@ export async function createDocoInWorkspace(opts: {
           lifecycle: "active",
         };
         await c.query(
-          `INSERT INTO policies (id, doco_id, kind, data, body_md, lifecycle,
+          `INSERT INTO policies (id, doco_id, kind, data, lifecycle,
                                 created_at, updated_at, created_by, updated_by)
-           VALUES ($1, $2, $3, $4::jsonb, $5, 'active', $6, $6, $7, $7)`,
-          [
-            policyId,
-            docoId,
-            row.kind,
-            JSON.stringify(policyData),
-            policy.body_md ?? "",
-            created,
-            opts.createdByUserId,
-          ],
+           VALUES ($1, $2, $3, $4::jsonb, 'active', $5, $5, $6, $6)`,
+          [policyId, docoId, row.kind, JSON.stringify(policyData), created, opts.createdByUserId],
         );
       }
     }

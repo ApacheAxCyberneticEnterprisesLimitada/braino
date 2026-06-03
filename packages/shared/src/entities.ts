@@ -315,8 +315,6 @@ export interface Policy extends CommonFields {
   fires_when_node_lifecycle?: Lifecycle[];
   /** Defaults to "block". Irrelevant for suggestions (advisory only). */
   on_violation?: "block" | "warn" | "log";
-  /** Optional long-form rationale. */
-  body_md?: string;
 }
 
 // ─── Decision ─────────────────────────────────────────────────────────────

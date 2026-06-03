@@ -141,7 +141,7 @@ export const ALL_ENTITY_TABLES: Record<
   ...USER_TABLES,
   ...CONTAINER_TABLES,
   // Policies all live in the single per-Doco `policies` table.
-  policy: { table: "policies", body: true },
+  policy: { table: "policies", body: false },
 };
 
 /**

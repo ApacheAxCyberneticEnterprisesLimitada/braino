@@ -54,11 +54,6 @@ export interface TemplatePolicy {
    * membership gates), and "log" for purely descriptive recording.
    */
   on_violation?: "block" | "warn" | "log";
-  /**
-   * Optional markdown body. Renders alongside the summary on the
-   * policy detail page.
-   */
-  body_md?: string;
 }
 
 export interface TemplatePerspectiveAttachment {

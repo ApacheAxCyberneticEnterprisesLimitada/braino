@@ -144,7 +144,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Nodes embed their prose verbatim. Principals embed `name` + `body_md`;
-      // policies embed `policy` + `body_md`.
+      // policies embed `policy`.
       const entityType = entityTypeFromId(le.entity.id) || "unknown";
       const typeNamedColumn =
         entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;

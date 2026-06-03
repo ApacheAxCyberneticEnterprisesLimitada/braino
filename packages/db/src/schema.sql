@@ -275,7 +275,6 @@ CREATE TABLE IF NOT EXISTS policies (
   kind        text,
   -- Policies only ever occupy two stages: 'active' or 'retired'.
   lifecycle   text NOT NULL DEFAULT 'active',
-  body_md     text,
   data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   created_by  text,
@@ -288,6 +287,12 @@ CREATE INDEX IF NOT EXISTS policies_kind_idx
   ON policies (doco_id, kind);
 CREATE INDEX IF NOT EXISTS policies_lifecycle_idx
   ON policies (doco_id, lifecycle);
+
+-- Policies never carried a rationale that any template populated, so the
+-- per-policy `body_md` column was retired. schema.sql is re-applied on every
+-- boot, so this strips the column from databases provisioned under the old
+-- shape and is a no-op on fresh installs and on every boot thereafter.
+ALTER TABLE policies DROP COLUMN IF EXISTS body_md;
 
 -- ── Unified node table ───────────────────────────────────────────────────
 -- One row per graph node of any type, discriminated by `node_type`.
