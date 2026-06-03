@@ -1141,8 +1141,12 @@ BEGIN
   -- 1. Backfill live rows to the new vocabulary (NULL/asserted → active).
   UPDATE nodes                   SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle = 'asserted';
   UPDATE edges                   SET lifecycle = 'active' WHERE lifecycle = 'asserted';
-  UPDATE guidance_policies       SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle = 'asserted';
-  UPDATE node_authoring_policies SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle = 'asserted';
+  -- Policies are constrained to {active, retired} below, and that CHECK
+  -- validates every existing row. Normalize ANY out-of-range policy lifecycle
+  -- (NULL, asserted, or a stale drafting/proposed left by the old capture
+  -- path) to `active` first, so ADD CONSTRAINT can never fail on older data.
+  UPDATE guidance_policies       SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle NOT IN ('active', 'retired');
+  UPDATE node_authoring_policies SET lifecycle = 'active' WHERE lifecycle IS NULL OR lifecycle NOT IN ('active', 'retired');
   -- `default_node_lifecycle` is optional; guard so very old databases that
   -- predate the column don't error here.
   IF EXISTS (SELECT 1 FROM information_schema.columns
