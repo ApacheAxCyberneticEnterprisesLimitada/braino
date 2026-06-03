@@ -10,9 +10,40 @@ import {
   rebuildDocoDerivedData,
   upsertEmbeddings,
 } from "@doco/db";
-import type { LoadedDoco } from "@doco/shared";
+import type { LoadedDoco, LoadedEntity } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
+
+// Identifying fields to index when a node has no prose yet. Order is the
+// fallback preference; deduped at join time.
+const FALLBACK_INDEX_FIELDS = ["title", "citation", "locator", "name", "verb"] as const;
+
+/**
+ * The text to index for a node — its FTS body and its embedding input.
+ *
+ * Normally the node's prose. When the prose is empty — a content-thin node
+ * such as a freshly-created Reference whose body hasn't been written yet —
+ * fall back to the node's identifying fields so it still enters the index.
+ * Without this, an empty-prose node is dropped by the `if (!text) continue`
+ * guard below: present in `nodes` (and on the page) but absent from search.
+ * Pure.
+ */
+export function nodeIndexText(le: LoadedEntity): string {
+  const prose = le.parsed.typeNamedValue?.trim() ?? "";
+  if (prose) return prose;
+  const data = (le.parsed.data ?? {}) as Record<string, unknown>;
+  const seen = new Set<string>();
+  const parts: string[] = [];
+  for (const key of FALLBACK_INDEX_FIELDS) {
+    const raw = data[key];
+    if (typeof raw !== "string") continue;
+    const value = raw.trim();
+    if (!value || seen.has(value)) continue;
+    seen.add(value);
+    parts.push(value);
+  }
+  return parts.join(" — ");
+}
 
 export interface BuildReport {
   inserted: number;
@@ -117,7 +148,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       let body: string;
       if (typeNamedColumn) {
         summary = null;
-        body = le.parsed.typeNamedValue ?? "";
+        body = nodeIndexText(le);
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
         const headline = entityType === "principal" ? e.name : e.policy;
@@ -153,7 +184,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       let text: string;
       if (typeNamedColumn) {
         summary = "";
-        body = le.parsed.typeNamedValue?.trim() ?? "";
+        body = nodeIndexText(le);
         text = body;
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
