@@ -1045,6 +1045,36 @@ BEGIN
 END $$;
 ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS doco_workspace_id text;
 
+-- One-shot data migrations (run exactly once across all boots). schema.sql is
+-- re-applied every boot, so destructive resets are gated on a marker row here
+-- rather than being idempotent in-place.
+CREATE TABLE IF NOT EXISTS schema_oneshots (
+  name        text PRIMARY KEY,
+  applied_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- Heal: chat teams are now bound to a single Doco workspace AT INSTALL TIME, so
+-- a team is never installed-but-unbound. Pre-existing Slack state predates that
+-- flow (installs with no binding, defaults/links chosen under the old account-
+-- wide model), so reset it ONCE — every team must re-install through the new
+-- bind-at-install flow and re-authorize. Guarded by a marker so it runs once;
+-- a fresh DB has nothing to delete and simply records the marker.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_oneshots WHERE name = 'slack_reset_bind_at_install') THEN
+    IF to_regclass('public.group_chat_channel_connections') IS NOT NULL THEN
+      DELETE FROM group_chat_channel_connections WHERE provider = 'slack';
+    END IF;
+    IF to_regclass('public.group_chat_user_links') IS NOT NULL THEN
+      DELETE FROM group_chat_user_links WHERE provider = 'slack';
+    END IF;
+    IF to_regclass('public.group_chat_installations') IS NOT NULL THEN
+      DELETE FROM group_chat_installations WHERE provider = 'slack';
+    END IF;
+    INSERT INTO schema_oneshots (name) VALUES ('slack_reset_bind_at_install');
+  END IF;
+END $$;
+
 -- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id                    text PRIMARY KEY,

@@ -88,8 +88,11 @@ describe("organization -> workspace migration", () => {
       "INSERT INTO tokens_blob (key, blob) VALUES ('invite_1', jsonb_build_object('org_id',$1::text))",
       [OLD_ID],
     );
+    // Use a non-slack provider: the org->workspace rewrite applies to every
+    // provider, and this keeps the row out of the one-time slack-reset heal
+    // (which deletes provider='slack' group-chat rows on the same boot).
     await db.query(
-      "INSERT INTO group_chat_channel_connections (id, target_level, target_id) VALUES ('gcc_1','org',$1)",
+      "INSERT INTO group_chat_channel_connections (id, provider, target_level, target_id) VALUES ('gcc_1','other','org',$1)",
       [OLD_ID],
     );
 
