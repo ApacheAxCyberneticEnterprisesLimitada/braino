@@ -2,10 +2,9 @@
  * Default Doco templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships curated templates. `global` is the policies
- * template; the others describe common Doco shapes such as business
- * processes, glossaries, org charts, and decision-record collections.
- * Template names are plain handles.
+ * The framework ships curated templates describing common Doco shapes
+ * such as business processes, glossaries, org charts, and decision-record
+ * collections. Template names are plain handles.
  *
  * Each template ships:
  * - `description` — the description text rendered in the picker and
@@ -18,9 +17,6 @@
  *   the agent instruction); a `descriptive` predicate folds into a
  *   `suggestion` (recorded, not enforced); any other predicate becomes a
  *   `deterministic` policy (engine-checked, keyed by `sub_kind`).
- * - `allowedNodeTypes` (optional) — a Doco-level allowlist. `global`
- *   ships with policy types so the Doco's policy set is kept
- *   separate from domain Rule nodes.
  *
  * The historical guidance_policies / node_authoring_policies split — and
  * the older Rule.kind overloading (guidance / authoring / tagged) — are
@@ -101,23 +97,6 @@ export interface DocoTemplate {
    * created from that template arrives with the BPMN tab ready.
    */
   perspectives?: TemplatePerspectiveAttachment[];
-  /**
-   * Doco-level allowlist for captured node types. `global` keeps the
-   * Doco policy set focused by accepting only policy types.
-   */
-  allowedNodeTypes?: (
-    | "decision"
-    | "intent"
-    | "action"
-    | "rule"
-    | "guidance_policy"
-    | "node_authoring_policy"
-    | "log"
-    | "eval"
-    | "reference"
-    | "idea"
-    | "state"
-  )[];
   /**
    * When set, captures into a Doco created from this template default
    * the new node's `lifecycle` to this value unless the author
@@ -267,44 +246,6 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
 const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
-  {
-    // Per decision_01KRPNZY7W6CCMYNKGND67BP0B the framework-seeded
-    // template renamed to "global"; template names
-    // are plain handles.
-    name: "global",
-    label: "global policies",
-    icon: "🌐",
-    description:
-      "Your doco's global policies — guidance policies and node-authoring policies that govern how contributors work.",
-    allowedNodeTypes: ["guidance_policy", "node_authoring_policy"],
-    policies: [
-      {
-        policy:
-          "Capture each meaningful decision, correction, and load-bearing implementation outcome in Doco.",
-      },
-      {
-        policy: "If you're an agent, check with your client before changing the policies.",
-      },
-      {
-        policy:
-          "AI agents: document every explicit rule and decision from the project owner, and especially every correction. Corrections are the highest-signal moments — they encode preferences that aren't visible in the code or docs. Capture them in Doco the same turn they happen, so the next agent (or the next session of you) doesn't repeat the mistake.",
-      },
-      {
-        policy:
-          "Nothing is ever deleted — nodes and edges are retired, not removed, and every prior version stays recoverable. When you retire or change something load-bearing, say why in the change's reason so the history explains itself to whoever reads it next.",
-      },
-    ],
-  },
-  {
-    // Catch-all template for important Doco-wide decisions that don't
-    // naturally fit a more specific subject area.
-    name: "important",
-    label: "important",
-    icon: "⭐",
-    description:
-      "Important doco-wide decisions that don't naturally fit a more specific subject area.",
-    policies: [],
-  },
   {
     name: "architectural-decisions",
     label: "Architectural decisions",

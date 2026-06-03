@@ -33,9 +33,9 @@ import type { EntityId, EntityType, NodeType } from "./branded.js";
 export type Lifecycle = "drafting" | "queued" | "active" | "retired";
 
 /**
- * Policies (guidance + node-authoring) only ever occupy two stages:
- * `active` (in force) or `retired` (superseded / withdrawn). They never
- * enter the node-only `drafting`/`queued` stages.
+ * Policies only ever occupy two stages: `active` (in force) or `retired`
+ * (superseded / withdrawn). They never enter the node-only
+ * `drafting`/`queued` stages.
  */
 export type PolicyLifecycle = "active" | "retired";
 

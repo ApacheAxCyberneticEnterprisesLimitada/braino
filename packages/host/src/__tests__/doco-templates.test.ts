@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_DOCO_TEMPLATES, findDocoTemplateByName } from "../doco-templates.js";
 
 describe("template policies carry no vestigial rule `kind`", () => {
-  // Rules are no longer guidances: the guidance/authoring distinction
-  // lives in standalone policies (guidance_policies / node_authoring_policies),
-  // seeded purely by predicate-presence — never a `kind` field
+  // Rules are no longer guidances: every policy lives in the one unified
+  // `policies` table, classified by a standalone `kind` only at seed time
+  // in host.ts — a TemplatePolicy never carries a `kind` field itself
   // (decision_01KRRR5BQ16ASY8HQEE0V499YG). Keep the vestige out for good.
   it("no seeded template policy declares a `kind`", () => {
     for (const t of DEFAULT_DOCO_TEMPLATES) {
@@ -13,6 +13,21 @@ describe("template policies carry no vestigial rule `kind`", () => {
       }
     }
   });
+});
+
+describe("orphaned pre-unification templates are gone", () => {
+  // `global` and `important` were never in the new-Doco picker
+  // (DOCO_TEMPLATES); the API and UI reject any handle outside that list,
+  // so both were unreachable. `global` also still seeded the removed
+  // `guidance_policy` / `node_authoring_policy` node types into the
+  // write-only `allowed_node_types` column. Both removed with the policy
+  // unify — keep them out.
+  for (const name of ["global", "important"]) {
+    it(`does not register the orphaned \`${name}\` template`, () => {
+      expect(findDocoTemplateByName(name)).toBeUndefined();
+      expect(DEFAULT_DOCO_TEMPLATES.some((t) => t.name === name)).toBe(false);
+    });
+  }
 });
 
 describe("business-processes template", () => {
@@ -37,10 +52,6 @@ describe("business-processes template", () => {
     expect(template.defaultNodeLifecycle).toBe("drafting");
     expect(template.description).toMatch(/repeatable business processes/i);
     expect(template.description).toMatch(/BPMN/);
-  });
-
-  it("does NOT set the policy-only `allowedNodeTypes` field — that's reserved for `global`", () => {
-    expect(template.allowedNodeTypes).toBeUndefined();
   });
 
   it("ships with the BPMN perspective attached as the default", () => {
@@ -407,10 +418,5 @@ describe("github-pull-requests template", () => {
   it("defaults the Doco overview to the Pull requests perspective", () => {
     const template = findDocoTemplateByName("github-pull-requests");
     expect(template?.perspectives).toEqual([{ slug: "pull-requests", isDefault: true }]);
-  });
-
-  it("does NOT set allowedNodeTypes — PRs are stored as reference nodes, allow all", () => {
-    const template = findDocoTemplateByName("github-pull-requests");
-    expect(template?.allowedNodeTypes).toBeUndefined();
   });
 });

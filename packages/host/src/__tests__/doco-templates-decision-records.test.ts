@@ -38,7 +38,6 @@ describe("decision-record templates", () => {
       const t = template(handle);
       expect(t.perspectives).toEqual([{ slug: "list", isDefault: true }]);
       expect(t.defaultNodeLifecycle).toBeUndefined();
-      expect(t.allowedNodeTypes).toBeUndefined();
       expect(t.description).toMatch(/decision records/i);
     }
   });

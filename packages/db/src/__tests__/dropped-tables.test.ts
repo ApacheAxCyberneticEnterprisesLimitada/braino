@@ -50,6 +50,14 @@ describe("dead schema objects stay dropped", () => {
     expect(/\bowner_user_id\b/.test(tableBlock("perspectives"))).toBe(false);
   });
 
+  it("docos no longer declares the write-only allowed_node_types column", () => {
+    // The Doco-level node-type allowlist was seeded at creation but never
+    // read by any capture-time check, and the lone template that set it
+    // (`global`) pointed at the removed `guidance_policy` /
+    // `node_authoring_policy` types. Column dropped with the policy unify.
+    expect(/\ballowed_node_types\b/.test(tableBlock("docos"))).toBe(false);
+  });
+
   it("does not keep a migration ledger table in the baseline", () => {
     expect(declaresTable("applied_migrations")).toBe(false);
   });

@@ -15,7 +15,8 @@
 -- Vocabulary:
 --   nodes   — graph entities (10 types: intent/idea/rule/decision/action/
 --               log/eval/reference/state/principal)
---   policies — Doco-level authoring metadata (2 kinds: guidance / node_authoring)
+--   policies — Doco-level authoring metadata (one `policies` table; each
+--               row's `kind` is suggestion / deterministic / probabilistic)
 --   edges   — relationships between nodes
 --   users      — human OAuth identities, separate from principals
 --                (which are role-personas linked by graph edges).
@@ -245,7 +246,6 @@ CREATE TABLE IF NOT EXISTS docos (
   owner_id        text NOT NULL,    -- workspace_<ulid>
   workspace_id    text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  allowed_node_types text[],
   default_node_lifecycle text,
   -- Free-form sentence the project owner writes (or the creation template
   -- seeds) to tell agents what this Doco is for. Surfaced at the top of
@@ -256,6 +256,12 @@ CREATE TABLE IF NOT EXISTS docos (
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
+-- Self-heal: the Doco-level `allowed_node_types` allowlist was seeded at
+-- creation but never read by any capture-time check — the lone template that
+-- set it (`global`) pointed at the removed `guidance_policy` /
+-- `node_authoring_policy` types. Idempotent — drops it where present, no-op
+-- on a fresh DB.
+ALTER TABLE docos DROP COLUMN IF EXISTS allowed_node_types;
 
 -- Per-Doco policies. Every policy is an authoring policy; the standalone
 -- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and

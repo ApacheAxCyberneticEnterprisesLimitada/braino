@@ -32,10 +32,6 @@ describe("glossaries template", () => {
     expect(template.perspectives).toEqual([{ slug: "glossary", isDefault: true }]);
   });
 
-  it("does NOT set the policy-only `allowedNodeTypes` field — that's reserved for `global`", () => {
-    expect(template.allowedNodeTypes).toBeUndefined();
-  });
-
   describe("node-type allowlist", () => {
     const allowlist = template.policies.find(
       (r) => r.predicate?.kind === "requires_node_type",
