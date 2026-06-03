@@ -69,6 +69,7 @@ export {
   createAccessRequest,
   getAccessRequest,
   listPendingAccessRequestsForDocos,
+  listPendingAccessRequestCountsByDoco,
   decideAccessRequest,
   cancelAccessRequest,
   // Docos

@@ -19,6 +19,7 @@ import {
   createAccessRequest,
   decideAccessRequest,
   getAccessRequest,
+  listPendingAccessRequestCountsByDoco,
   listPendingAccessRequestsForDocos,
 } from "../repo.js";
 
@@ -27,6 +28,7 @@ const DOCO = "doco_test0000000000000000000000";
 const DOCO2 = "doco_test200000000000000000000";
 const OWNER = "user_owner00000000000000000000";
 const REQ = "user_req0000000000000000000000";
+const REQ2 = "user_req2000000000000000000000";
 
 async function seed(): Promise<void> {
   const db = mocks.db;
@@ -167,5 +169,33 @@ describe("access requests", () => {
 
   it("returns an empty list when no doco ids are given", async () => {
     expect(await listPendingAccessRequestsForDocos([])).toEqual([]);
+  });
+
+  describe("listPendingAccessRequestCountsByDoco", () => {
+    it("returns an empty list when nothing is pending", async () => {
+      expect(await listPendingAccessRequestCountsByDoco()).toEqual([]);
+    });
+
+    it("counts pending requests per doco with owner_id, ignoring decided ones", async () => {
+      // A second requester so two pending on the same doco don't collide on the
+      // (doco_id, requester_id) WHERE pending unique constraint.
+      await mocks.db.query("INSERT INTO users (id, data) VALUES ($1,'{}')", [REQ2]);
+      await createAccessRequest({ doco_id: DOCO, requester_id: REQ, requested_role: "reader" });
+      await createAccessRequest({ doco_id: DOCO, requester_id: REQ2, requested_role: "writer" });
+      await createAccessRequest({ doco_id: DOCO2, requester_id: REQ, requested_role: "reader" });
+      // A decided request must not be counted.
+      const decided = await createAccessRequest({
+        doco_id: DOCO2,
+        requester_id: REQ2,
+        requested_role: "reader",
+      });
+      await decideAccessRequest({ id: decided.id, status: "denied", decided_by: OWNER });
+
+      const counts = await listPendingAccessRequestCountsByDoco();
+      const byDoco = new Map(counts.map((c) => [c.doco_id, c]));
+      expect(counts).toHaveLength(2);
+      expect(byDoco.get(DOCO)).toEqual({ doco_id: DOCO, owner_id: ORG, n: 2 });
+      expect(byDoco.get(DOCO2)).toEqual({ doco_id: DOCO2, owner_id: ORG, n: 1 });
+    });
   });
 });

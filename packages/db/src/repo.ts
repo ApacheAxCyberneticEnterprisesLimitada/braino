@@ -990,6 +990,32 @@ export async function listPendingAccessRequestsForDocos(
 }
 
 /**
+ * Pending-request counts for every Doco that currently has any — joined to the
+ * Doco's `owner_id` so a caller can resolve ownership without an N+1 of
+ * `getDocoById`. The result set is bounded by the (usually tiny) number of
+ * Docos with live requests, not by how many a viewer owns; callers filter it
+ * down to their own Docos. Powers the header's pending-requests badge.
+ */
+export async function listPendingAccessRequestCountsByDoco(): Promise<
+  { doco_id: string; owner_id: string; n: number }[]
+> {
+  return withClient(async (c) => {
+    const r = await c.query<{ doco_id: string; owner_id: string; n: number | string }>(
+      `SELECT d.id AS doco_id, d.owner_id, count(*)::int AS n
+         FROM access_requests r
+         JOIN docos d ON d.id = r.doco_id
+        WHERE r.status = 'pending'
+        GROUP BY d.id, d.owner_id`,
+    );
+    return r.rows.map((row) => ({
+      doco_id: String(row.doco_id),
+      owner_id: String(row.owner_id),
+      n: typeof row.n === "number" ? row.n : Number(row.n),
+    }));
+  });
+}
+
+/**
  * Flip a pending request to approved/denied. Returns the updated row, or null
  * if it was not pending (already decided or unknown id) — callers treat null
  * as "nothing to do". A pure status transition; on approval the caller writes
