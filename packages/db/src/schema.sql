@@ -985,6 +985,11 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   bot_scope                   text[] NOT NULL DEFAULT ARRAY[]::text[],
   installed_by_chat_user_id   text,
   installed_by_user_id        text REFERENCES users(id) ON DELETE SET NULL,
+  -- The single Doco workspace this chat team is bound to. The team's
+  -- assistant reaches at most this one workspace; null = unbound = no Doco
+  -- access (fail closed). This is what stops a linked user's account-wide
+  -- permissions from leaking into chat.
+  doco_workspace_id           text,
   data                        jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
@@ -1016,6 +1021,29 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider, workspace_id, chat_user_id, user_id)
 );
+
+-- Heal: chat teams are now bound to a single Doco workspace, so the assistant
+-- can no longer use a linked user's account-wide permissions. The deploy that
+-- introduces the binding column also REVOKES every pre-existing personal link
+-- (users re-link after their team is bound). This must run exactly ONCE, so it
+-- is guarded on the binding column not yet existing — on a fresh DB the column
+-- ships with the CREATE TABLE above (guard false → skip), and after this runs
+-- once the ALTER adds it (guard false on every later boot). Until a team is
+-- bound, the request-time resolver returns no access regardless, so the hole
+-- is closed even before anyone re-links.
+DO $$
+BEGIN
+  IF to_regclass('public.group_chat_installations') IS NOT NULL
+     AND to_regclass('public.group_chat_user_links') IS NOT NULL
+     AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+        WHERE table_name = 'group_chat_installations'
+          AND column_name = 'doco_workspace_id'
+     ) THEN
+    DELETE FROM group_chat_user_links;
+  END IF;
+END $$;
+ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS doco_workspace_id text;
 
 -- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (
