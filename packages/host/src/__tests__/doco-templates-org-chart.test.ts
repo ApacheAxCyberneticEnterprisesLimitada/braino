@@ -74,27 +74,36 @@ describe("org-chart template", () => {
   });
 
   describe("the unique constraint — person-vs-agent declaration", () => {
-    // Post-slim-down: there is no `type` field on Principal anymore;
-    // person-vs-agent lives in body_md prose, enforced by a
-    // probabilistic policy that reads the prose.
+    // The Principal slim-down promoted a structured `kind` ("human" | "agent")
+    // onto the Principal. A FILLED seat declares its occupant kind in that
+    // field; a VACANT seat carries no `kind` and states its vacancy in prose.
+    // The declaration is enforced by a probabilistic policy that reads `kind`
+    // first and falls back to `body_md` prose for the vacant case.
     const rule = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.when_node_type?.includes("principal") &&
+        /`kind`/.test(r.predicate.spec) &&
         /person/i.test(r.predicate.spec) &&
-        /agent/i.test(r.predicate.spec) &&
-        /body_md/i.test(r.predicate.spec),
+        /agent/i.test(r.predicate.spec),
     );
 
-    it("exists — every Principal MUST declare person vs agent in body_md", () => {
+    it("exists — every Principal MUST declare person vs agent, keyed off the `kind` field", () => {
       expect(rule).toBeDefined();
       expect(rule?.predicate?.kind).toBe("probabilistic");
+      if (rule?.predicate?.kind !== "probabilistic") return;
+      // Keys off the structured `kind` field (human / agent), not only prose.
+      expect(rule.predicate.spec).toMatch(/`kind`/);
+      expect(rule.predicate.spec).toMatch(/human/i);
+      expect(rule.predicate.spec).toMatch(/agent/i);
     });
 
-    it("admits a third state — a vacant/open seat — so budgeted roles appear on the chart", () => {
+    it("admits a third state — a vacant/open seat (no `kind`) read from prose — so budgeted roles appear on the chart", () => {
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.spec).toMatch(/vacant|open/i);
+      // Vacancy is still read from `body_md` — a vacant seat declares no `kind`.
+      expect(rule.predicate.spec).toMatch(/body_md/i);
     });
 
     it("fires on every Principal regardless of lifecycle (no fires_when_node_lifecycle gate)", () => {
@@ -173,7 +182,12 @@ describe("org-chart template", () => {
     });
   });
 
-  describe("every Principal declares its seat in body_md (deterministic floor)", () => {
+  describe("every Principal carries body_md (deterministic floor)", () => {
+    // The human/agent declaration is now the structured `kind` field, but the
+    // floor stays on `body_md`: a vacant seat carries no `kind` and declares
+    // its vacancy in the body, and an empty body can carry neither that
+    // vacancy declaration nor human/agent context. So the body floor remains
+    // the cheap empty-shell catch under the judge.
     const rule = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_field" &&
@@ -183,6 +197,22 @@ describe("org-chart template", () => {
 
     it("requires body_md on Principals — the empty-shell case caught without the judge", () => {
       expect(rule?.predicate?.kind).toBe("requires_field");
+    });
+
+    it("does NOT require the structured `kind` field — a vacant seat legitimately has none", () => {
+      // A deterministic requires_field on `kind` would block vacant seats
+      // (which carry no `kind`); the floor must not.
+      const kindFloor = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_field" &&
+          r.predicate.fields.includes("kind") &&
+          (r.predicate.when_node_type?.includes("principal") ?? false),
+      );
+      expect(kindFloor).toBeUndefined();
+    });
+
+    it("its prose names the structured `kind` field as where a filled seat declares its occupant", () => {
+      expect(rule?.policy).toMatch(/`kind`/);
     });
 
     it("fires on every lifecycle, matching the person/agent/vacant judge it floors", () => {

@@ -13,10 +13,11 @@
 // ANTHROPIC_API_KEY, absent in the sandbox — see AGENTS.md). The engine emits
 // them as *pending* violations carrying the agent instruction; we resolve each
 // with a stand-in judge derived directly from the policy's own spec text
-// (PASS/FAIL examples). The scenario prose is written the way the template's
-// guidance asks an author to write it (an explicit person / AI-agent / vacant
-// declaration, a root explanation or a reporting edge), so a faithful judge —
-// stand-in or live — reaches the same verdict.
+// (PASS/FAIL examples). The scenarios are written the way the template's
+// guidance asks an author to write them: a FILLED seat sets the structured
+// `kind` field ("human" | "agent"); a VACANT seat sets no `kind` and states its
+// vacancy in prose; plus a root explanation or a reporting edge. So a faithful
+// judge — stand-in or live — reaches the same verdict.
 
 import {
   type CandidateFields,
@@ -46,12 +47,24 @@ const POLICIES: LoadedPolicy[] = template.policies.map((p, i) => {
 });
 
 // ── Node + edge builders ─────────────────────────────────────────────────
+// A FILLED seat declares its occupant kind in the structured `kind` field
+// ("human" | "agent"); a VACANT seat sets no `kind` and states its vacancy in
+// `body_md`. `kind` defaults to "human" so the common filled-person case reads
+// cleanly; pass `null` for a vacant (or otherwise kind-less) seat.
 function principal(
   slug: string,
   body_md: string,
   lifecycle: Lifecycle = "active",
+  kind: "human" | "agent" | null = "human",
 ): CandidateFields {
-  return { id: `principal_${slug}`, node_type: "principal", name: slug, body_md, lifecycle };
+  return {
+    id: `principal_${slug}`,
+    node_type: "principal",
+    name: slug,
+    body_md,
+    ...(kind ? { kind } : {}),
+    lifecycle,
+  };
 }
 function intent(
   slug: string,
@@ -101,7 +114,10 @@ function memberOf(intentSlug: string, principalSlug: string, role = "member"): E
 }
 
 // ── Stand-in judges (mirror the probabilistic specs' PASS conditions) ─────
-// person / AI-agent / vacant declaration. Vacant is checked first: a seat
+// person / AI-agent / vacant declaration, read from PROSE. The slim-down moved
+// the human/agent declaration to the structured `kind` field, so the live judge
+// reads `kind` first; this prose reader is the FALLBACK that still recognises a
+// vacant seat (which carries no `kind`). Vacant is checked first: a seat
 // budgeted for a future hire reads as vacant even when it names the kind of
 // occupant who'll fill it.
 function declaresOccupant(body: string | undefined): "person" | "agent" | "vacant" | null {
@@ -125,6 +141,15 @@ function declaresOccupant(body: string | undefined): "person" | "agent" | "vacan
   }
   return null;
 }
+
+// Mirror the live declaration spec: a seat declares its occupant when `kind` is
+// "human"/"agent" (the structured, filled-seat path) OR its prose declares the
+// seat vacant (a vacant seat carries no `kind`). Returns false when neither
+// holds — exactly the FAIL the judge keeps.
+function seatDeclaresOccupant(node: CandidateFields): boolean {
+  if (node.kind === "human" || node.kind === "agent") return true;
+  return declaresOccupant(typeof node.body_md === "string" ? node.body_md : "") === "vacant";
+}
 // top-of-chain explanation (no manager above it is legitimate).
 function explainsRoot(body: string | undefined): boolean {
   return /\bfounder\b|\bco-?founder\b|\bboard\b|\btop[\s-]?of[\s-]?chain\b|\broot agent\b|\bexternal authority\b|\bno manager\b/i.test(
@@ -143,8 +168,11 @@ function judgeKeeps(node: CandidateFields, candidateEdges: EngineEdge[], v: Viol
     );
     return !(hasReportsTo || explainsRoot(body)); // KEEP (violation) when neither holds
   }
-  if (/filled by a human person|currently vacant|filled by an AI agent/i.test(spec)) {
-    return declaresOccupant(body) === null; // KEEP when the seat declares nothing
+  if (/filled by a person|currently vacant|filled by an AI agent/i.test(spec)) {
+    // KEEP (violation) when the seat declares nothing: no `kind`, and no prose
+    // vacancy. A filled seat that set `kind` — or a vacant seat that said so —
+    // passes.
+    return !seatDeclaresOccupant(node);
   }
   return false; // unknown probabilistic → judge passes it (no others in org-chart)
 }
@@ -228,15 +256,22 @@ describe("org-chart template — 10 real-life scenarios", () => {
       principal(
         "reviewer",
         "Automated code-review agent — an AI agent that operates under: @cto, reviewing every pull request.",
+        "active",
+        "agent",
       ),
       principal(
         "triage",
         "Autonomous incident-triage bot. No human owner — accountability stops at this agent.",
+        "active",
+        "agent",
       ),
     ];
     const edges = [reportsTo("reviewer", "cto"), reportsTo("triage", "cto")];
     expectChartClean(nodes, edges);
-    // The reviewer reads as an AI agent; the autonomous bot too.
+    // The reviewer + autonomous bot declare `kind: agent` (the org-tree icon
+    // comes from the field); the prose still corroborates it.
+    expect(nodes[1].kind).toBe("agent");
+    expect(nodes[2].kind).toBe("agent");
     expect(declaresOccupant(nodes[1].body_md as string)).toBe("agent");
     expect(declaresOccupant(nodes[2].body_md as string)).toBe("agent");
   });
@@ -250,10 +285,13 @@ describe("org-chart template — 10 real-life scenarios", () => {
       principal(
         "staff",
         "Vacant — budgeted Staff Engineer seat, currently unfilled. Open req targeting a Q3 start; reports to the Director of Engineering.",
+        "active",
+        null, // a vacant seat carries NO `kind` — its vacancy lives in prose
       ),
     ];
     const edges = [reportsTo("staff", "dir")];
     expectChartClean(nodes, edges);
+    expect(nodes[1].kind).toBeUndefined();
     expect(declaresOccupant(nodes[1].body_md as string)).toBe("vacant");
   });
 
@@ -291,6 +329,7 @@ describe("org-chart template — 10 real-life scenarios", () => {
         "platform_sre",
         "Vacant — budgeted Platform SRE seat for the new team; open req, to be hired once the team stands up. Reports to the Platform Lead.",
         "queued",
+        null, // vacant + queued at once: no `kind`, vacancy stated in prose
       ),
       intent(
         "platform",
@@ -519,17 +558,24 @@ describe("org-chart template — rejects what doesn't belong", () => {
     }
   });
 
-  it("a seat that declares neither person, AI agent, nor vacant is flagged (block-grade)", () => {
+  it("a seat that sets no `kind` and declares neither person, AI agent, nor vacant in prose is flagged (block-grade)", () => {
     // Identity-grade for an org chart, so the declaration policy blocks. Wire a
     // manager so the reporting nudge is satisfied and the *declaration* failure
-    // is the one isolated here.
-    const blank = principal("mystery", "Senior Engineer on the platform team.", "active");
+    // is the one isolated here. No `kind` (passed null) and no prose vacancy →
+    // the seat declares nothing, so the judge blocks.
+    const blank = principal(
+      "mystery",
+      "Senior Engineer on the platform team.",
+      "active",
+      null, // no structured kind set
+    );
     const edges = [reportsTo("mystery", "boss")];
-    expect(declaresOccupant(blank.body_md as string)).toBeNull();
+    expect(blank.kind).toBeUndefined();
+    expect(seatDeclaresOccupant(blank)).toBe(false);
     const kept = assess(blank, edges).probabilistic;
     expect(kept).toHaveLength(1);
     expect(kept[0].on_violation).toBe("block");
-    expect(kept[0].pending_spec).toMatch(/filled by a human person/i);
+    expect(kept[0].pending_spec).toMatch(/filled by a person/i);
   });
 
   it("an in-force, non-root seat with no reporting edge and no root reason warns (not blocks)", () => {
@@ -539,6 +585,61 @@ describe("org-chart template — rejects what doesn't belong", () => {
     expect(kept).toHaveLength(1);
     expect(kept[0].pending_spec).toMatch(TOP_OF_CHAIN);
     expect(kept[0].on_violation).toBe("warn");
+  });
+});
+
+// ── The kind-keyed person/agent/vacant declaration ─────────────────────────
+//
+// The slim-down moved the human/agent declaration onto the structured `kind`
+// field; a vacant seat still carries no `kind` and declares itself in prose.
+// These cases pin that a filled seat passes via `kind` even when its prose
+// never says "person"/"agent", and a vacant seat passes via prose with no
+// `kind`.
+describe("org-chart template — declaration keys off the structured `kind` field", () => {
+  it("a filled seat passes via `kind: human` even when its prose is silent on person/agent", () => {
+    // Prose names only the role; the occupant kind is the structured field.
+    const seat = principal("eng", "Staff Engineer on the payments platform.", "active", "human");
+    const edges = [reportsTo("eng", "boss")];
+    // The prose alone declares nothing (no "person"/"agent"/"vacant")…
+    expect(declaresOccupant(seat.body_md as string)).toBeNull();
+    // …but the structured `kind` carries the declaration, so the judge passes.
+    expect(seatDeclaresOccupant(seat)).toBe(true);
+    expect(assess(seat, edges).probabilistic).toEqual([]);
+  });
+
+  it("a filled seat passes via `kind: agent` even when its prose is silent on person/agent", () => {
+    const seat = principal(
+      "bot",
+      "Pull-request reviewer for the platform repo.",
+      "active",
+      "agent",
+    );
+    const edges = [reportsTo("bot", "boss")];
+    expect(declaresOccupant(seat.body_md as string)).toBeNull();
+    expect(seatDeclaresOccupant(seat)).toBe(true);
+    expect(assess(seat, edges).probabilistic).toEqual([]);
+  });
+
+  it("a vacant seat passes with NO `kind` because its prose declares the vacancy", () => {
+    const seat = principal(
+      "open",
+      "Vacant — budgeted Staff Engineer seat, open req. Reports to the Director.",
+      "active",
+      null,
+    );
+    const edges = [reportsTo("open", "boss")];
+    expect(seat.kind).toBeUndefined();
+    expect(seatDeclaresOccupant(seat)).toBe(true);
+    expect(assess(seat, edges).probabilistic).toEqual([]);
+  });
+
+  it("a seat with no `kind` and no prose vacancy is blocked — the declaration is genuinely absent", () => {
+    const seat = principal("mystery", "Staff Engineer on the platform team.", "active", null);
+    const edges = [reportsTo("mystery", "boss")];
+    expect(seatDeclaresOccupant(seat)).toBe(false);
+    const kept = assess(seat, edges).probabilistic;
+    expect(kept).toHaveLength(1);
+    expect(kept[0].on_violation).toBe("block");
   });
 });
 
@@ -572,12 +673,17 @@ describe("org-chart template — team membership gate (requires_edge)", () => {
 });
 
 describe("org-chart template — body_md presence floor (requires_field)", () => {
-  it("blocks a Principal whose body_md is empty (the seat declaration is missing)", () => {
+  // The human/agent declaration is the structured `kind` field now, but the
+  // floor stays on `body_md` (a vacant seat carries no `kind` and declares its
+  // vacancy in the body, so an empty body is the genuine empty shell). The
+  // floor deliberately does NOT require `kind` — that would block vacant seats.
+  it("blocks a Principal whose body_md is empty (the seat prose is missing)", () => {
     const seat: CandidateFields = {
       id: "principal_empty",
       node_type: "principal",
       name: "empty",
       body_md: "",
+      kind: "human",
       lifecycle: "active",
     };
     const findings = assess(seat, []).deterministic;
@@ -586,7 +692,18 @@ describe("org-chart template — body_md presence floor (requires_field)", () =>
     expect(block?.reason).toMatch(/body_md/);
   });
 
-  it("passes a Principal that declares its seat in body_md", () => {
+  it("does NOT block a vacant seat that has no `kind` (the floor is on body_md, not kind)", () => {
+    const seat = principal(
+      "open",
+      "Vacant — budgeted seat, open req. Reports to the Director.",
+      "active",
+      null,
+    );
+    expect(seat.kind).toBeUndefined();
+    expect(assess(seat, []).deterministic.some((v) => v.sub_kind === "requires_field")).toBe(false);
+  });
+
+  it("passes a Principal that carries body_md prose", () => {
     const seat = principal("seated", "Director of Engineering — a person.");
     expect(assess(seat, []).deterministic.some((v) => v.sub_kind === "requires_field")).toBe(false);
   });

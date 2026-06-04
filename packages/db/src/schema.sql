@@ -1550,3 +1550,94 @@ WHERE NOT EXISTS (
      AND existing.data -> 'predicate' ->> 'edge_role' = 'serves'
 )
 ON CONFLICT (id) DO NOTHING;
+
+-- ── Org-chart: the person/agent declaration moves from body_md prose to `kind` ─
+-- The Principal slim-down promoted a structured `kind` ("human" | "agent") onto
+-- the Principal, and the org-chart template now keys its person/agent/vacant
+-- declaration off that field: a FILLED seat declares `kind`, a VACANT seat sets
+-- no `kind` and states its vacancy in `body_md` prose. New org-chart Docos seed
+-- the kind-keyed policy at creation; every ALREADY-seeded org-chart Doco still
+-- carries the OLD body_md-only probabilistic judge (and the OLD guidance prose
+-- that pointed authors at `body_md` for the declaration). schema.sql is
+-- re-applied on every boot, so these UPDATEs carry the change to production.
+--
+-- Scoped to org-chart Docos via `docos.data->>'template_handle'` AND matched by
+-- the OLD predicate/prose signature, so no other template's policies are
+-- touched. Each statement carries a `NOT (... new text)` guard so the FIRST boot
+-- rewrites the row and EVERY later boot — and a fresh install that already seeds
+-- the new text — is a strict no-op. The deterministic `body_md` presence floor
+-- is intentionally NOT migrated: its predicate (requires_field on `body_md`) is
+-- byte-identical before and after — only its human prose, which is not persisted
+-- on a deterministic row, changed — and a vacant seat legitimately has no `kind`,
+-- so the floor must stay on `body_md`, never `kind`.
+
+-- (A) Behaviour-bearing: rewrite the probabilistic declaration judge from the
+-- body_md-only spec to the kind-keyed spec (kept byte-identical to the template
+-- in packages/host/src/doco-templates.ts so seeded and new Docos converge).
+UPDATE policies p
+SET data = jsonb_set(
+      p.data,
+      '{predicate,agent_instruction}',
+      to_jsonb($orgchart_kind_spec$Read the Principal's `kind` field and its `body_md` prose. PASS if `kind` is `human` (the seat is filled by a person) or `agent` (filled by an AI agent), OR if `kind` is unset AND the `body_md` prose states the seat is currently vacant/open (e.g. 'Vacant — budgeted Staff Engineer seat, reporting to …'). FAIL with a reason if `kind` is unset AND the prose does not declare the seat vacant — the seat must state whether it's filled by a person, filled by an AI agent, or vacant.$orgchart_kind_spec$::text)
+    ),
+    updated_at = now()
+FROM docos d
+WHERE p.doco_id = d.id
+  AND d.data ->> 'template_handle' = 'org-chart'
+  AND p.kind = 'probabilistic'
+  AND p.data -> 'predicate' -> 'when_node_type' ? 'principal'
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Read the Principal''s `body_md`.%'
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%Read the Principal''s `kind` field%';
+
+-- (B) Prose convergence: the three guidance `suggestion` rows that told authors
+-- the declaration lives in `body_md` now name the structured `kind` field. Only
+-- `predicate.agent_instruction` is persisted on a suggestion, so refresh it for
+-- already-seeded org-chart Docos. Each matches its OLD opening and guards on a
+-- NEW distinctive fragment (the `kind`-naming) so a second boot is a no-op.
+
+-- (B1) "Person vs agent isn't about who signed in …" → names `kind`.
+UPDATE policies p
+SET data = jsonb_set(
+      p.data,
+      '{predicate,agent_instruction}',
+      to_jsonb($orgchart_person_vs_agent$Person vs agent isn't about who signed in — it's about who fills the seat, declared in the `kind` field. A Principal with `kind: agent` (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal with `kind: human` is a person, even if that human has no Doco account. A vacant seat sets no `kind` and says so in `body_md`.$orgchart_person_vs_agent$::text)
+    ),
+    updated_at = now()
+FROM docos d
+WHERE p.doco_id = d.id
+  AND d.data ->> 'template_handle' = 'org-chart'
+  AND p.kind = 'suggestion'
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Person vs agent isn''t about who signed in%'
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%`kind` field%';
+
+-- (B2) "Treat each Principal as a seat …" → a filled seat sets `kind`; a vacant
+-- one leaves `kind` unset and declares itself in `body_md`.
+UPDATE policies p
+SET data = jsonb_set(
+      p.data,
+      '{predicate,agent_instruction}',
+      to_jsonb($orgchart_seat_vacant$Treat each Principal as a seat — a role plus its current occupant — not just a person. A filled seat sets `kind` to `human` or `agent`; a budgeted-but-unfilled seat is still a valid Principal: leave `kind` unset, declare it `vacant` in `body_md`, name the role it's budgeted for, and keep its reporting edge so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure.$orgchart_seat_vacant$::text)
+    ),
+    updated_at = now()
+FROM docos d
+WHERE p.doco_id = d.id
+  AND d.data ->> 'template_handle' = 'org-chart'
+  AND p.kind = 'suggestion'
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Treat each Principal as a seat%'
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%leave `kind` unset%';
+
+-- (B3) "Seats persist across routine turnover …" → clear/restore `kind`, and a
+-- person↔agent flip (kind: human ↔ kind: agent) retires + recreates.
+UPDATE policies p
+SET data = jsonb_set(
+      p.data,
+      '{predicate,agent_instruction}',
+      to_jsonb($orgchart_turnover$Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md` (and clear or restore `kind` as the seat empties or refills), and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person (`kind: human`) and AI agent (`kind: agent`) do you retire the old Principal and create a new one.$orgchart_turnover$::text)
+    ),
+    updated_at = now()
+FROM docos d
+WHERE p.doco_id = d.id
+  AND d.data ->> 'template_handle' = 'org-chart'
+  AND p.kind = 'suggestion'
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Seats persist across routine turnover%'
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%clear or restore `kind`%';
