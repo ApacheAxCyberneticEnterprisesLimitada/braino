@@ -94,18 +94,74 @@ export function captureSchema(type: string): CaptureSchema | null {
   return (CAPTURE_SCHEMAS as Record<string, CaptureSchema>)[type] ?? null;
 }
 
+/**
+ * Lifecycle-envelope keys that live at the TOP LEVEL of a capture body, not in
+ * `attributes`. (`prose` and `kind` are the other top-level keys; everything
+ * else is an attribute hint.)
+ */
+const ENVELOPE_FIELDS: ReadonlySet<string> = new Set([
+  "lifecycle",
+  "deprecated",
+  "outcome",
+  "created_by_user_id",
+]);
+
+/**
+ * Classify a schema field for the raw `{prose, kind?, attributes}` body shape:
+ *  - the type-named prose field → `prose`
+ *  - `kind` → the top-level promoted classifier
+ *  - lifecycle envelope keys → top-level
+ *  - everything else → an `attributes.<name>` hint
+ */
+function fieldSlot(spec: CaptureSchema, name: string): "prose" | "kind" | "envelope" | "attribute" {
+  if (name === spec.entityType) return "prose";
+  if (name === "kind") return "kind";
+  if (ENVELOPE_FIELDS.has(name)) return "envelope";
+  return "attribute";
+}
+
+/**
+ * Render the capture body for the `.txt` specs in the raw row shape the API now
+ * exposes: a top-level `prose` (and `kind` when the type has one), the
+ * lifecycle envelope, and the per-type fields nested as `attributes` hints.
+ * CAPTURE_SCHEMAS stays the single source of those attribute hints.
+ */
 export function renderCaptureBodyFields(type: string, indent = "  "): string {
   const spec = captureSchema(type);
   if (!spec) return "";
-  const width = Math.max(...spec.fields.map((f) => f.name.length));
+
+  const proseDesc =
+    spec.fields.find((f) => f.name === spec.entityType)?.description ??
+    "full prose; first line is the label";
+  const kindField = spec.fields.find((f) => f.name === "kind");
+  const attributeFields = spec.fields.filter((f) => fieldSlot(spec, f.name) === "attribute");
+  const envelopeFields = spec.fields.filter((f) => fieldSlot(spec, f.name) === "envelope");
+
+  // Width covers the deepest label so the descriptions line up; attribute rows
+  // are indented one extra step under the `attributes` heading.
+  const attrIndent = `${indent}  `;
+  const labels = [
+    "prose",
+    ...(kindField ? ["kind"] : []),
+    ...attributeFields.map((f) => f.name),
+    ...envelopeFields.map((f) => f.name),
+  ];
+  const width = Math.max(...labels.map((l) => l.length));
   const requirementWidth = "requirement".length;
-  return spec.fields
-    .map((f) => {
-      const name = f.name.padEnd(width, " ");
-      const req = f.requirement.padEnd(requirementWidth, " ");
-      return `${indent}${name}  ${req}  ${f.description}`;
-    })
-    .join("\n");
+  const row = (pad: string, name: string, req: CaptureFieldRequirement, desc: string) =>
+    `${pad}${name.padEnd(width, " ")}  ${req.padEnd(requirementWidth, " ")}  ${desc}`;
+
+  const lines: string[] = [row(indent, "prose", "required", proseDesc)];
+  if (kindField) lines.push(row(indent, "kind", kindField.requirement, kindField.description));
+  if (attributeFields.length > 0) {
+    lines.push(
+      `${indent}${"attributes".padEnd(width, " ")}  ${"object".padEnd(requirementWidth, " ")}  per-type fields (keys below):`,
+    );
+    for (const f of attributeFields)
+      lines.push(row(attrIndent, f.name, f.requirement, f.description));
+  }
+  for (const f of envelopeFields) lines.push(row(indent, f.name, f.requirement, f.description));
+  return lines.join("\n");
 }
 
 export function renderCapturePatchFields(type: string, indent = "    "): string {
@@ -114,13 +170,20 @@ export function renderCapturePatchFields(type: string, indent = "    "): string 
   return `${indent}${spec.patchFields.join(" / ")}`;
 }
 
+/**
+ * One-line-per-type cheatsheet in the raw row shape: `prose` (and `kind`) at the
+ * top level, the per-type hints grouped under `attributes`.
+ */
 export function renderCaptureCheatsheet(): string {
   return Object.values(CAPTURE_SCHEMAS)
     .map((spec) => {
-      const body = spec.fields
-        .map((f) => `${f.name}${f.requirement === "required" ? "*" : "?"}`)
-        .join(", ");
-      return `- ${spec.label}: { ${body} }`;
+      const mark = (f: CaptureFieldSpec) => `${f.name}${f.requirement === "required" ? "*" : "?"}`;
+      const top: string[] = ["prose*"];
+      const kindField = spec.fields.find((f) => f.name === "kind");
+      if (kindField) top.push(mark(kindField));
+      const attrs = spec.fields.filter((f) => fieldSlot(spec, f.name) === "attribute").map(mark);
+      const parts = [...top, ...(attrs.length > 0 ? [`attributes: { ${attrs.join(", ")} }`] : [])];
+      return `- ${spec.label}: { ${parts.join(", ")} }`;
     })
     .join("\n");
 }
