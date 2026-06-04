@@ -684,3 +684,77 @@ describe("github-pull-requests template", () => {
     expect(template?.perspectives).toEqual([{ slug: "pull-requests", isDefault: true }]);
   });
 });
+
+describe("edge-type allowlists (requires_edge_type)", () => {
+  // The edge analogue of the node-type allowlist: each template declares which
+  // relationship edge types it permits, enforced (block) on edge creation.
+  function allowlistOf(name: string): string[] | undefined {
+    const t = findDocoTemplateByName(name);
+    const p = t?.policies.find((r) => r.predicate?.kind === "requires_edge_type");
+    return p?.predicate?.kind === "requires_edge_type" ? [...p.predicate.edge_types] : undefined;
+  }
+
+  it("business-processes allows BPMN edge types and bars has_parent / relates_to", () => {
+    const a = allowlistOf("business-processes");
+    expect(a && new Set(a)).toEqual(
+      new Set([
+        "flows_to",
+        "supports",
+        "attributed_to",
+        "constrained_by",
+        "replaces",
+        "derived_from",
+      ]),
+    );
+    expect(a).not.toContain("has_parent");
+    expect(a).not.toContain("relates_to");
+  });
+
+  it("org-chart allows has_parent + attributed_to and bars flows_to", () => {
+    const a = allowlistOf("org-chart");
+    expect(a && new Set(a)).toEqual(
+      new Set([
+        "has_parent",
+        "attributed_to",
+        "relates_to",
+        "supports",
+        "replaces",
+        "derived_from",
+      ]),
+    );
+    expect(a).not.toContain("flows_to");
+  });
+
+  it("glossaries allows relates_to / derived_from / replaces / supports", () => {
+    expect(allowlistOf("glossaries") && new Set(allowlistOf("glossaries"))).toEqual(
+      new Set(["relates_to", "derived_from", "replaces", "supports"]),
+    );
+  });
+
+  for (const name of [
+    "architectural-decisions",
+    "product-decisions",
+    "design-decisions",
+    "data-decisions",
+  ]) {
+    it(`${name} allows decision-record edge types and bars flows_to / has_parent`, () => {
+      const a = allowlistOf(name);
+      expect(a && new Set(a)).toEqual(
+        new Set(["supports", "attributed_to", "relates_to", "replaces", "derived_from"]),
+      );
+      expect(a).not.toContain("flows_to");
+      expect(a).not.toContain("has_parent");
+    });
+  }
+
+  it("seeds as a blocking deterministic policy carrying the edge_types allowlist", () => {
+    const template = findDocoTemplateByName("business-processes");
+    const policy = template?.policies.find((r) => r.predicate?.kind === "requires_edge_type");
+    if (!policy) throw new Error("business-processes requires_edge_type policy missing");
+    const seeded = templatePolicyToPolicyRow(policy);
+    expect(seeded.kind).toBe("deterministic");
+    expect(seeded.on_violation).toBe("block");
+    expect(seeded.predicate.sub_kind).toBe("requires_edge_type");
+    expect(seeded.predicate.edge_types).toContain("flows_to");
+  });
+});

@@ -1724,3 +1724,67 @@ WHERE p.doco_id = d.id
   AND p.kind = 'suggestion'
   AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Seats persist across routine turnover%'
   AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%clear or restore `kind`%';
+
+-- ── Edge-type allowlist backfill (requires_edge_type) ───────────────────────
+-- Each Doco template now declares which relationship edge types it permits (the
+-- edge analogue of the node-type allowlist). New Docos get it at seed time; this
+-- converges already-seeded Docos, one template at a time, identified by that
+-- template's node-type allowlist fingerprint (exact set match, order-independent).
+-- Idempotent: the NOT EXISTS guard skips any Doco that already carries a
+-- requires_edge_type policy (including freshly-seeded ones), and the derived id +
+-- ON CONFLICT DO NOTHING prevents duplicates. schema.sql re-applies every boot,
+-- carrying this to production.
+DO $$
+DECLARE
+  t record;
+BEGIN
+  FOR t IN
+    SELECT * FROM (VALUES
+      ('business-processes',
+       '["intent","action","decision","state","eval","reference","rule","principal"]'::jsonb,
+       '["flows_to","supports","attributed_to","constrained_by","replaces","derived_from"]'::jsonb),
+      ('org-chart',
+       '["principal","intent","decision","reference","rule"]'::jsonb,
+       '["has_parent","attributed_to","relates_to","supports","replaces","derived_from"]'::jsonb),
+      ('glossaries',
+       '["decision","rule","reference","eval"]'::jsonb,
+       '["relates_to","derived_from","replaces","supports"]'::jsonb),
+      ('decision-records',
+       '["intent","decision","eval","reference","rule","principal"]'::jsonb,
+       '["supports","attributed_to","relates_to","replaces","derived_from"]'::jsonb)
+    ) AS v(handle, node_types, edge_types)
+  LOOP
+    INSERT INTO policies (id, doco_id, kind, data, lifecycle, created_at, updated_at)
+    SELECT
+      'policy_' || substr(md5(nt.doco_id || ':edge-type-allowlist'), 1, 26),
+      nt.doco_id,
+      'deterministic',
+      jsonb_build_object(
+        'id', 'policy_' || substr(md5(nt.doco_id || ':edge-type-allowlist'), 1, 26),
+        'doco_id', nt.doco_id,
+        'kind', 'deterministic',
+        'predicate', jsonb_build_object('sub_kind', 'requires_edge_type', 'edge_types', t.edge_types),
+        'on_violation', 'block',
+        'template_seeded', true,
+        'template_handle', t.handle,
+        'lifecycle', 'active'
+      ),
+      'active', now(), now()
+    FROM (
+      SELECT DISTINCT doco_id
+        FROM policies
+       WHERE kind = 'deterministic'
+         AND lifecycle = 'active'
+         AND data -> 'predicate' ->> 'sub_kind' = 'requires_node_type'
+         AND data -> 'predicate' -> 'node_types' @> t.node_types
+         AND data -> 'predicate' -> 'node_types' <@ t.node_types
+    ) AS nt
+    WHERE NOT EXISTS (
+      SELECT 1 FROM policies x
+       WHERE x.doco_id = nt.doco_id
+         AND x.lifecycle = 'active'
+         AND x.data -> 'predicate' ->> 'sub_kind' = 'requires_edge_type'
+    )
+    ON CONFLICT (id) DO NOTHING;
+  END LOOP;
+END $$;

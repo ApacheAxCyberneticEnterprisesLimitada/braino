@@ -19,6 +19,8 @@
  *       requires_field, forbids_field, unique_field,
  *       requires_node_type, requires_entity_type,
  *       requires_field_resolves_to_principal, graph-completeness
+ *     (and the edge-scoped `requires_edge_type` allowlist, enforced on edge
+ *      creation by `evaluateEdgePolicies`, not on node candidates)
  *
  * Per-policy filters:
  *   - `when_node_type` (on the predicate)
@@ -181,22 +183,50 @@ export interface EdgeCandidate {
 }
 
 /**
- * Evaluate edge-scoped probabilistic policies against a newly-created edge.
- * Emits one pending probabilistic `Violation` per policy whose edge scoping
- * (`edge_type`, optional endpoint node types) matches the
- * edge. The caller resolves each with the LLM judge, handing it BOTH endpoint
- * nodes — this is the only check that compares two nodes. Node-scoped and
- * deterministic policies are ignored here.
+ * Evaluate edge-scoped policies against a newly-created edge. Two kinds fire
+ * here:
+ *
+ *   - `requires_edge_type` (deterministic): the Doco-wide edge-type allowlist.
+ *     An edge whose `edge_type` is not permitted yields a resolved deterministic
+ *     violation. It is a structural membership gate, so it always applies —
+ *     even when `includeProbabilistic` is false (a `drafting` edge).
+ *   - edge-scoped `probabilistic`: one pending violation per policy whose edge
+ *     scoping (`edge_type`, optional endpoint node types) matches; the caller
+ *     resolves each with the LLM judge, handing it BOTH endpoint nodes. These
+ *     are quality checks, so they are skipped when `includeProbabilistic` is
+ *     false (a `drafting` edge is exempt, mirroring node lifecycle exemptions).
+ *
+ * Node-scoped policies are ignored here.
  */
 export function evaluateEdgePolicies(opts: {
   edge: EdgeCandidate;
   policies: LoadedPolicy[];
+  /** Include edge-scoped probabilistic quality checks. Default true; pass false for a `drafting` edge. */
+  includeProbabilistic?: boolean;
 }): Violation[] {
   const { edge, policies } = opts;
+  const includeProbabilistic = opts.includeProbabilistic ?? true;
   const violations: Violation[] = [];
   for (const p of policies) {
-    if (p.kind !== "probabilistic") continue;
     const pred = p.predicate;
+    // Deterministic edge-type allowlist — always applies (structural gate).
+    if (
+      p.kind === "deterministic" &&
+      "sub_kind" in pred &&
+      pred.sub_kind === "requires_edge_type"
+    ) {
+      if (!pred.edge_types.includes(edge.edge_type)) {
+        violations.push({
+          policy_id: p.policy_id,
+          kind: "deterministic",
+          sub_kind: "requires_edge_type",
+          on_violation: p.on_violation ?? "block",
+          reason: `edge_type \`${edge.edge_type}\` not in allowlist [${pred.edge_types.map((e) => `\`${e}\``).join(", ")}]`,
+        });
+      }
+      continue;
+    }
+    if (p.kind !== "probabilistic" || !includeProbabilistic) continue;
     if (!("edge_type" in pred) || !("agent_instruction" in pred)) continue;
     if (pred.edge_type !== edge.edge_type) continue;
     if (pred.from_node_type !== undefined && pred.from_node_type !== edge.from_node_type) continue;
@@ -405,6 +435,11 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
         `node_type \`${ct ?? "<missing>"}\` not in allowlist [${pred.node_types.map((n) => `\`${n}\``).join(", ")}]`,
       );
     }
+    case "requires_edge_type":
+      // Edge-type allowlist is an EDGE-scoped gate, enforced on edge creation by
+      // `evaluateEdgePolicies`. It never constrains a node candidate, so node
+      // evaluation skips it.
+      return null;
     case "requires_entity_type": {
       if (isPolicyMetadataCandidate(candidate)) return null;
       const fromId = entityTypeFromId(candidate.id);

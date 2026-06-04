@@ -51,6 +51,7 @@ const SUB_KIND_HEADLINE: Record<DeterministicPredicate["sub_kind"], string> = {
   "flow-wiring": "Flow wiring",
   unique_field: "Unique field",
   requires_node_type: "Allowed node types",
+  requires_edge_type: "Allowed edge types",
   requires_entity_type: "Allowed entity types",
   "graph-completeness": "Graph completeness",
   requires_field_resolves_to_principal: "Field resolves to Principal",
@@ -111,6 +112,9 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
       break;
     case "requires_node_type":
       parts.push({ label: "node types", value: p.node_types.join(", ") });
+      break;
+    case "requires_edge_type":
+      parts.push({ label: "edge types", value: p.edge_types.join(", ") });
       break;
     case "requires_entity_type":
       parts.push({ label: "entity types", value: p.entity_types.join(", ") });

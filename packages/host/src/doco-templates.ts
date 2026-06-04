@@ -164,6 +164,20 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
       },
     },
     {
+      // Edge-type allowlist (the edge analogue of the node-type allowlist above).
+      // A decision record links a Decision to its supporting Intents/Evals/
+      // References (`supports`), names accountability (`attributed_to`), connects
+      // related or superseding records (`relates_to` / `replaces`), and cites
+      // sources (`derived_from`). BPMN sequence flow and Rule guards have no
+      // place here, so `flows_to` / `constrained_by` / `has_parent` are barred.
+      policy:
+        "Only these relationship edge types may be used in a decision-record Doco: `supports`, `attributed_to`, `relates_to`, `replaces`, `derived_from`. Process flow (`flows_to`), Rule guards (`constrained_by`), and hierarchy (`has_parent`) belong in other Doco kinds.",
+      predicate: {
+        kind: "requires_edge_type",
+        edge_types: ["supports", "attributed_to", "relates_to", "replaces", "derived_from"],
+      },
+    },
+    {
       policy:
         "Every proposed or active decision-record Decision declares `question`, `chosen`, and `alternatives`: the issue being decided, the selected resolution, and the options considered. A `drafting` sketch is exempt — its `chosen` may stay blank while the author is still thinking.",
       predicate: {
@@ -419,6 +433,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           node_types: ["decision", "rule", "reference", "eval"],
         },
       },
+      {
+        // Edge-type allowlist. A glossary wires terms together with `relates_to`
+        // ("see also"), cites external sources with `derived_from`, deprecates a
+        // term toward its replacement with `replaces`, and links an Eval to the
+        // term it checks with `supports`. Actor/flow/guard/hierarchy edges have
+        // no glossary meaning, so they are barred.
+        policy:
+          "Only these relationship edge types may be used in a glossary Doco: `relates_to`, `derived_from`, `replaces`, `supports`. Others (`flows_to`, `attributed_to`, `constrained_by`, `has_parent`) belong in other Doco kinds.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: ["relates_to", "derived_from", "replaces", "supports"],
+        },
+      },
 
       // ── Term entry Decisions ───────────────────────────────────
       {
@@ -612,6 +639,29 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
             "reference",
             "rule",
             "principal",
+          ],
+        },
+      },
+      {
+        // Edge-type allowlist (the edge analogue of the node-type allowlist
+        // above). A business process wires sequence flow (`flows_to`), pool
+        // membership and validation/rationale/evidence (`supports`), actor /
+        // decider / owner attribution (`attributed_to`), policy guards
+        // (`constrained_by`), supersession (`replaces`), and provenance
+        // (`derived_from`). Org-chart hierarchy (`has_parent`) and bare
+        // associative links (`relates_to`) have no BPMN meaning, so they are
+        // barred — keeping a process graph drawable as swimlanes + sequence flow.
+        policy:
+          "Only these relationship edge types may be used in a business-processes Doco: `flows_to`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. Hierarchy (`has_parent`) and bare `relates_to` links belong in other Doco kinds.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "flows_to",
+            "supports",
+            "attributed_to",
+            "constrained_by",
+            "replaces",
+            "derived_from",
           ],
         },
       },
@@ -1105,6 +1155,27 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "requires_node_type",
           node_types: ["principal", "intent", "decision", "reference", "rule"],
+        },
+      },
+      {
+        // Edge-type allowlist. An org chart wires reporting lines (`has_parent`
+        // between principals), team membership and accountability
+        // (`attributed_to`), associative links (`relates_to`), reorg/appointment
+        // rationale (`supports`), supersession (`replaces`), and provenance
+        // (`derived_from`). BPMN sequence flow (`flows_to`) and Rule guards
+        // (`constrained_by`) have no org-chart meaning, so they are barred.
+        policy:
+          "Only these relationship edge types may be used in an org-chart Doco: `has_parent`, `attributed_to`, `relates_to`, `supports`, `replaces`, `derived_from`. Process flow (`flows_to`) and Rule guards (`constrained_by`) belong in other Doco kinds.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "has_parent",
+            "attributed_to",
+            "relates_to",
+            "supports",
+            "replaces",
+            "derived_from",
+          ],
         },
       },
 

@@ -540,6 +540,53 @@ describe("authoring evaluator — suggestion", () => {
   });
 });
 
+describe("authoring evaluator — requires_edge_type (edge-type allowlist)", () => {
+  // The edge analogue of requires_node_type: a Doco-wide deterministic gate
+  // enforced on edge CREATION via evaluateEdgePolicies. An edge whose type isn't
+  // in the allowlist is rejected.
+  const allowlist = (extras: Partial<LoadedPolicy> = {}) =>
+    P({ sub_kind: "requires_edge_type", edge_types: ["flows_to", "supports"] }, extras);
+
+  it("passes an edge whose type is in the allowlist", () => {
+    const v = evaluateEdgePolicies({ edge: { edge_type: "supports" }, policies: [allowlist()] });
+    expect(v).toEqual([]);
+  });
+
+  it("blocks an edge whose type is not in the allowlist", () => {
+    const v = evaluateEdgePolicies({ edge: { edge_type: "has_parent" }, policies: [allowlist()] });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.kind).toBe("deterministic");
+    expect(v[0]?.sub_kind).toBe("requires_edge_type");
+    expect(v[0]?.on_violation).toBe("block");
+    expect(v[0]?.reason).toMatch(/has_parent/);
+  });
+
+  it("fires even when probabilistic checks are skipped (a drafting edge)", () => {
+    // The allowlist is a structural membership gate, so it applies even to a
+    // `drafting` edge (includeProbabilistic=false), unlike the quality judges.
+    const v = evaluateEdgePolicies({
+      edge: { edge_type: "has_parent" },
+      policies: [allowlist()],
+      includeProbabilistic: false,
+    });
+    expect(v.some((x) => x.sub_kind === "requires_edge_type")).toBe(true);
+  });
+
+  it("honors on_violation: warn", () => {
+    const v = evaluateEdgePolicies({
+      edge: { edge_type: "has_parent" },
+      policies: [allowlist({ on_violation: "warn" })],
+    });
+    expect(v[0]?.on_violation).toBe("warn");
+  });
+
+  it("does not constrain node candidates (edge-scoped only)", () => {
+    // On the node path it's a no-op — a node never trips the edge-type allowlist.
+    const v = evaluate({ id: "action_01", node_type: "action" }, [allowlist()]);
+    expect(v).toEqual([]);
+  });
+});
+
 describe("authoring evaluator — edge-scoped probabilistic", () => {
   const edgePolicy = (extras: Partial<LoadedPolicy> = {}) =>
     P(

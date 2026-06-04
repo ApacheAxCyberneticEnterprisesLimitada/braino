@@ -252,6 +252,14 @@ export type AuthoringPredicate =
   | { kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
   | { kind: "requires_node_type"; node_types: NodeType[] }
   /**
+   * Edge-type allowlist — the edge analogue of `requires_node_type`. A
+   * Doco-wide membership gate evaluated when an edge is CREATED: an edge whose
+   * `edge_type` is not in `edge_types` is rejected. Like the node-type allowlist
+   * it carries no `when_node_type` and is not lifecycle-scoped (a disallowed
+   * edge type is barred even in a `drafting` sketch).
+   */
+  | { kind: "requires_edge_type"; edge_types: string[] }
+  /**
    * Like `requires_node_type` but matches on the candidate's id prefix,
    * for callers that intentionally allow broader entity categories than
    * graph nodes.
@@ -366,6 +374,7 @@ export type DeterministicPredicate =
     }
   | { sub_kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
   | { sub_kind: "requires_node_type"; node_types: NodeType[] }
+  | { sub_kind: "requires_edge_type"; edge_types: string[] }
   | { sub_kind: "requires_entity_type"; entity_types: EntityType[] }
   | {
       sub_kind: "graph-completeness";
