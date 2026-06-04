@@ -759,6 +759,30 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
+        // Sub-process naming, enforced on the `serves` EDGE (not on either
+        // node). A sub-process is designed by connecting a calling Action to a
+        // child purpose Intent with a `serves` relationship; the Intent's name
+        // should be the base (imperative) form of that Action, which is
+        // normally written third-person (`Posts a job` → `Post a job`). The
+        // convention spans two nodes, so it can't live on either node alone —
+        // the node judge sees only its own candidate. This edge-scoped check
+        // fires when the Action→Intent `serves` edge is created and hands the
+        // judge BOTH endpoints. A STEP-1 gate in the spec makes ordinary
+        // flow-step `serves` edges (an Action that is merely one step of the
+        // overarching process, not a sub-process expansion) PASS, so only true
+        // sub-process pairings are graded.
+        policy:
+          "When a calling Action `serves` a child purpose Intent (a sub-process), name that Intent in the base (imperative) verb form of the Action it serves — the Action is normally written third-person, so the Intent drops the third-person `-s`. For example, the Action `Posts a job` serves the Intent `Post a job`, not `Posts a job`.",
+        predicate: {
+          kind: "edge-probabilistic",
+          edge_type: "supports",
+          edge_role: "serves",
+          from_node_type: "action",
+          to_node_type: "intent",
+          spec: "You are checking a `serves` relationship from an Action (the `action` endpoint) to a purpose Intent (the `intent` endpoint). STEP 1 — decide whether this is a SUB-PROCESS pairing: the Intent names the SAME single activity as the Action, expanded into its own process (e.g. Action `Posts a job` ↔ Intent `Post a job`). If instead the Action is merely one step within a broader process the Intent names (e.g. Action `review the application` serving Intent `Approve a consumer loan`), this is an ordinary flow-step link, not a sub-process — PASS, the rule does not apply. STEP 2 — for a sub-process pairing, PASS when the Intent's name is the base (imperative) verb form of the Action, i.e. the Action's third-person verb converted to its base form (`Posts a job` → `Post a job`, `Approves the invoice` → `Approve the invoice`). FAIL with `intent name is not the base form of the action` when the Intent's name is in the third-person singular present tense (a verb ending in `-s`) or otherwise does not read as the base-form imperative of the same activity.",
+        },
+      },
+      {
         // Atomic activity prose — surface umbrella phases and
         // implementation chores divorced from business meaning. Fires as a
         // `warn`, not a block: it's an LLM-judged style check, so a blocking
@@ -1312,6 +1336,18 @@ export function templatePolicyToPolicyRow(policy: TemplatePolicy): SeededPolicyR
     predicate = {
       agent_instruction: pred.spec,
       ...(pred.when_node_type ? { when_node_type: pred.when_node_type } : {}),
+    };
+  } else if (pred.kind === "edge-probabilistic") {
+    // Edge-scoped probabilistic: LLM-judged like `probabilistic`, but fires on
+    // edge creation with both endpoints handed to the judge. The edge scoping
+    // (edge_type / role / endpoint node types) rides on the seeded predicate.
+    kind = "probabilistic";
+    predicate = {
+      agent_instruction: pred.spec,
+      edge_type: pred.edge_type,
+      ...(pred.edge_role ? { edge_role: pred.edge_role } : {}),
+      ...(pred.from_node_type ? { from_node_type: pred.from_node_type } : {}),
+      ...(pred.to_node_type ? { to_node_type: pred.to_node_type } : {}),
     };
   } else {
     kind = "deterministic";

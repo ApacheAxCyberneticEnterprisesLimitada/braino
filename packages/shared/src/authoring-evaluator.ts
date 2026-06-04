@@ -179,6 +179,49 @@ export function policyFiresFor(p: LoadedPolicy, candidate: CandidateFields): boo
   return true;
 }
 
+/** A newly-created edge, as the edge evaluator sees it. */
+export interface EdgeCandidate {
+  edge_type: string;
+  /** The edge's `props.role` metadata, if any. */
+  role?: string | null;
+  /** Endpoint node types (entity-type prefixes), when known. */
+  from_node_type?: string;
+  to_node_type?: string;
+}
+
+/**
+ * Evaluate edge-scoped probabilistic policies against a newly-created edge.
+ * Emits one pending probabilistic `Violation` per policy whose edge scoping
+ * (`edge_type`, optional `edge_role`, optional endpoint node types) matches the
+ * edge. The caller resolves each with the LLM judge, handing it BOTH endpoint
+ * nodes — this is the only check that compares two nodes. Node-scoped and
+ * deterministic policies are ignored here.
+ */
+export function evaluateEdgePolicies(opts: {
+  edge: EdgeCandidate;
+  policies: LoadedPolicy[];
+}): Violation[] {
+  const { edge, policies } = opts;
+  const violations: Violation[] = [];
+  for (const p of policies) {
+    if (p.kind !== "probabilistic") continue;
+    const pred = p.predicate;
+    if (!("edge_type" in pred) || !("agent_instruction" in pred)) continue;
+    if (pred.edge_type !== edge.edge_type) continue;
+    if (pred.edge_role !== undefined && pred.edge_role !== (edge.role ?? undefined)) continue;
+    if (pred.from_node_type !== undefined && pred.from_node_type !== edge.from_node_type) continue;
+    if (pred.to_node_type !== undefined && pred.to_node_type !== edge.to_node_type) continue;
+    violations.push({
+      policy_id: p.policy_id,
+      kind: "probabilistic",
+      on_violation: p.on_violation ?? "block",
+      reason: pred.agent_instruction,
+      pending_spec: pred.agent_instruction,
+    });
+  }
+  return violations;
+}
+
 function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | null {
   const { candidate } = opts;
   const onViolation = p.on_violation ?? "block";
@@ -191,6 +234,10 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
   // violation with the agent instruction so the caller can resolve it.
   if (p.kind === "probabilistic") {
     if (!("agent_instruction" in pred)) return null;
+    // Edge-scoped probabilistic predicates fire on edge creation, not on a
+    // node candidate — they're owned by `evaluateEdgePolicies`. Skip them here
+    // so node evaluation never emits them.
+    if ("edge_type" in pred) return null;
     return {
       policy_id: p.policy_id,
       kind: "probabilistic",

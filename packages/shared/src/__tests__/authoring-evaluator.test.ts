@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   type CandidateFields,
+  type EdgeCandidate,
   type EngineEdge,
   type LoadedPolicy,
   type PrincipalIndex,
+  evaluateEdgePolicies,
   evaluatePolicies,
 } from "../authoring-evaluator.js";
 
@@ -541,6 +543,81 @@ describe("authoring evaluator — suggestion", () => {
       P({ agent_instruction: "Just a note for readers." }, { kind: "suggestion" }),
     ]);
     expect(v).toEqual([]);
+  });
+});
+
+describe("authoring evaluator — edge-scoped probabilistic", () => {
+  const edgePolicy = (extras: Partial<LoadedPolicy> = {}) =>
+    P(
+      {
+        agent_instruction: "Intent name is the base form of the Action it serves.",
+        edge_type: "supports",
+        edge_role: "serves",
+        from_node_type: "action",
+        to_node_type: "intent",
+      },
+      { kind: "probabilistic", ...extras },
+    );
+
+  const edge: EdgeCandidate = {
+    edge_type: "supports",
+    role: "serves",
+    from_node_type: "action",
+    to_node_type: "intent",
+  };
+
+  it("node evaluation IGNORES an edge-scoped predicate (it never fires on a node)", () => {
+    // Even with a matching node_type-less probabilistic policy, the node
+    // evaluator must skip edge predicates — they belong to the edge evaluator.
+    const v = evaluate({ id: "intent_01", node_type: "intent" }, [edgePolicy()]);
+    expect(v).toEqual([]);
+  });
+
+  it("emits a pending probabilistic violation when the edge matches", () => {
+    const v = evaluateEdgePolicies({ edge, policies: [edgePolicy()] });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.kind).toBe("probabilistic");
+    expect(v[0]?.on_violation).toBe("block");
+    expect(v[0]?.pending_spec).toMatch(/base form of the Action/);
+  });
+
+  it("does not fire when the edge_type differs", () => {
+    expect(
+      evaluateEdgePolicies({ edge: { ...edge, edge_type: "flows_to" }, policies: [edgePolicy()] }),
+    ).toEqual([]);
+  });
+
+  it("does not fire when the edge role differs", () => {
+    expect(
+      evaluateEdgePolicies({ edge: { ...edge, role: "tests" }, policies: [edgePolicy()] }),
+    ).toEqual([]);
+  });
+
+  it("does not fire when an endpoint node type differs (decision serves intent)", () => {
+    expect(
+      evaluateEdgePolicies({
+        edge: { ...edge, from_node_type: "decision" },
+        policies: [edgePolicy()],
+      }),
+    ).toEqual([]);
+  });
+
+  it("ignores deterministic and node-scoped probabilistic policies", () => {
+    const nodeProb = P(
+      { agent_instruction: "judge the intent", when_node_type: ["intent"] },
+      { kind: "probabilistic" },
+    );
+    const deterministic = P({
+      sub_kind: "requires_field",
+      fields: ["intent"],
+      when_node_type: ["intent"],
+    });
+    expect(evaluateEdgePolicies({ edge, policies: [nodeProb, deterministic] })).toEqual([]);
+  });
+
+  it("honors on_violation = warn on the edge policy", () => {
+    const v = evaluateEdgePolicies({ edge, policies: [edgePolicy({ on_violation: "warn" })] });
+    expect(v[0]?.on_violation).toBe("warn");
   });
 });
 

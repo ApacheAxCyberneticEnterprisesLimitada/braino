@@ -5,10 +5,23 @@
  * in sync.
  */
 
-import type { DeterministicPredicate, PolicyKind, PolicyPredicate } from "./entities.js";
+import type {
+  DeterministicPredicate,
+  EdgeAgentInstructionPredicate,
+  PolicyKind,
+  PolicyPredicate,
+} from "./entities.js";
 
 export function isDeterministicPredicate(p: PolicyPredicate): p is DeterministicPredicate {
   return "sub_kind" in p;
+}
+
+/**
+ * Whether a (probabilistic) predicate is edge-scoped — fires on edge creation
+ * with both endpoints handed to the judge, rather than on a single node.
+ */
+export function isEdgePredicate(p: PolicyPredicate): p is EdgeAgentInstructionPredicate {
+  return "agent_instruction" in p && "edge_type" in p;
 }
 
 /** The single natural-language instruction for suggestion / probabilistic policies. */

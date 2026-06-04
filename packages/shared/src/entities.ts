@@ -236,6 +236,23 @@ export type AuthoringPredicate =
   | { kind: "requires_entity_type"; entity_types: EntityType[] }
   | { kind: "probabilistic"; spec: string; when_node_type?: NodeType[] }
   | {
+      /**
+       * Edge-scoped probabilistic check. Unlike `probabilistic` (which the
+       * judge runs against a single candidate node), this fires when an edge
+       * of `edge_type` (optionally carrying `edge_role`, and optionally between
+       * the given endpoint node types) is created, and the judge sees BOTH
+       * endpoint nodes. It is the only predicate that can compare two nodes
+       * against each other — e.g. that a sub-process child Intent's name is the
+       * base form of the calling Action it `serves`.
+       */
+      kind: "edge-probabilistic";
+      spec: string;
+      edge_type: string;
+      edge_role?: string;
+      from_node_type?: NodeType;
+      to_node_type?: NodeType;
+    }
+  | {
       kind: "graph-completeness";
       list_field: string;
       edge_type: string;
@@ -354,7 +371,25 @@ export interface AgentInstructionPredicate {
   when_node_type?: NodeType[];
 }
 
-export type PolicyPredicate = AgentInstructionPredicate | DeterministicPredicate;
+/**
+ * Edge-scoped probabilistic predicate — the seeded form of an
+ * `edge-probabilistic` template policy. Carries the judge instruction plus the
+ * edge scoping that selects which edge creations it fires on. Distinguished
+ * from `AgentInstructionPredicate` (a node check) by the presence of
+ * `edge_type`; node evaluation skips it, and the edge evaluator owns it.
+ */
+export interface EdgeAgentInstructionPredicate {
+  agent_instruction: string;
+  edge_type: string;
+  edge_role?: string;
+  from_node_type?: NodeType;
+  to_node_type?: NodeType;
+}
+
+export type PolicyPredicate =
+  | AgentInstructionPredicate
+  | EdgeAgentInstructionPredicate
+  | DeterministicPredicate;
 
 export interface Policy extends CommonFields {
   /** Standalone classifier — drives evaluation and rendering. */

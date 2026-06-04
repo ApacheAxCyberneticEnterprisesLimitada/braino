@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_DOCO_TEMPLATES, findDocoTemplateByName } from "../doco-templates.js";
+import {
+  DEFAULT_DOCO_TEMPLATES,
+  findDocoTemplateByName,
+  templatePolicyToPolicyRow,
+} from "../doco-templates.js";
 
 describe("template policies carry no vestigial rule `kind`", () => {
   // Rules are no longer guidances: every policy lives in the one unified
@@ -181,6 +185,56 @@ describe("business-processes template", () => {
       expect(policies).toMatch(/`performed_by`/);
       expect(policies).toMatch(/`tests`/);
       expect(policies).toMatch(/`gated_by`/);
+    });
+  });
+
+  describe("sub-process naming (edge-scoped)", () => {
+    // A sub-process pairs a calling Action with a child purpose Intent through
+    // a `serves` edge; the Intent's name should be the base (imperative) form
+    // of the third-person Action (`Posts a job` → `Post a job`). The convention
+    // spans two nodes, so it is enforced on the EDGE, where the judge sees both
+    // endpoints — not on either node alone.
+    const edgeRule = template.policies.find((r) => r.predicate?.kind === "edge-probabilistic");
+
+    it("is an edge-probabilistic policy on the Action→Intent serves edge", () => {
+      expect(edgeRule).toBeDefined();
+      if (edgeRule?.predicate?.kind !== "edge-probabilistic") throw new Error("missing edge rule");
+      expect(edgeRule.predicate.edge_type).toBe("supports");
+      expect(edgeRule.predicate.edge_role).toBe("serves");
+      expect(edgeRule.predicate.from_node_type).toBe("action");
+      expect(edgeRule.predicate.to_node_type).toBe("intent");
+    });
+
+    it("spec compares both endpoints and gates ordinary flow-step serves edges", () => {
+      if (edgeRule?.predicate?.kind !== "edge-probabilistic") throw new Error("missing edge rule");
+      const { spec } = edgeRule.predicate;
+      // Names both endpoints, the base-form rule, and the worked example.
+      expect(spec).toMatch(/base \(imperative\) verb form|base form/i);
+      expect(spec).toMatch(/Posts a job/);
+      expect(spec).toMatch(/Post a job/);
+      // A STEP-1 gate so ordinary step→purpose `serves` edges PASS (not graded).
+      expect(spec).toMatch(/STEP 1/i);
+      expect(spec).toMatch(/sub-?process/i);
+    });
+
+    it("the human-readable policy states the convention with the example", () => {
+      expect(edgeRule?.policy).toMatch(/sub-?process/i);
+      expect(edgeRule?.policy).toMatch(/Posts a job/);
+      expect(edgeRule?.policy).toMatch(/Post a job/);
+    });
+
+    it("seeds as a blocking probabilistic policy carrying the edge scoping", () => {
+      if (!edgeRule) throw new Error("missing edge rule");
+      const seeded = templatePolicyToPolicyRow(edgeRule);
+      expect(seeded.kind).toBe("probabilistic");
+      expect(seeded.on_violation).toBe("block");
+      // The edge scoping rides on the seeded predicate; no node-type filter.
+      expect(seeded.predicate.agent_instruction).toMatch(/sub-?process|base form/i);
+      expect(seeded.predicate.edge_type).toBe("supports");
+      expect(seeded.predicate.edge_role).toBe("serves");
+      expect(seeded.predicate.from_node_type).toBe("action");
+      expect(seeded.predicate.to_node_type).toBe("intent");
+      expect(seeded.predicate.when_node_type).toBeUndefined();
     });
   });
 
