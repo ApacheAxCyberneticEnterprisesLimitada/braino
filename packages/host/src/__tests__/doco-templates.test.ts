@@ -152,21 +152,21 @@ describe("business-processes template", () => {
         requiresEdgeRole("attributed_to", "decided_by", "principal", "decision"),
       ).toBeDefined();
     });
-    it("Decision decided_by fires at every pre-retirement stage (drafting + queued + active)", () => {
-      // Attachment to a decider Principal is required from the moment the
-      // gateway exists, so the gate fires in `drafting` too.
+    it("Decision decided_by fires only on committed stages (queued + active), NOT drafting", () => {
+      // A gateway may be sketched without a decider; the decider Principal is
+      // required once it is committed (`queued`/`active`), not while drafting.
       expect(
         requiresEdgeRole("attributed_to", "decided_by", "principal", "decision")
           ?.fires_when_node_lifecycle,
-      ).toEqual(["drafting", "queued", "active"]);
+      ).toEqual(["queued", "active"]);
     });
-    it("Action performed_by fires at every pre-retirement stage (drafting + queued + active)", () => {
-      // Attachment to the performing Principal is required from `drafting`
-      // onward — an Action never floats free of an actor, even in draft.
+    it("Action performed_by fires only on committed stages (queued + active), NOT drafting", () => {
+      // An Action may be sketched without an actor; the performing Principal is
+      // required once it is committed, not while drafting.
       expect(
         requiresEdgeRole("attributed_to", "performed_by", "principal", "action")
           ?.fires_when_node_lifecycle,
-      ).toEqual(["drafting", "queued", "active"]);
+      ).toEqual(["queued", "active"]);
     });
     it("Eval tests a target", () => {
       const rule = requiresEdgeRole("supports", "tests", null, "eval");
@@ -202,8 +202,8 @@ describe("business-processes template", () => {
   describe("a flow node serves exactly one Intent (serves ceiling)", () => {
     // The `serves` floor (requires_edge_role, ≥1) gets a matching CEILING:
     // every flow node serves AT MOST one Intent, so a flow node belongs to
-    // exactly one BPMN pool. Like the floor, the ceiling is an ATTACHMENT
-    // invariant — it fires from `drafting` onward, i.e. at every stage.
+    // exactly one BPMN pool. Like the floor, the ceiling fires only on the
+    // committed stages (`queued`/`active`) — a `drafting` sketch is exempt.
     const ceiling = template.policies.find(
       (r) =>
         r.predicate?.kind === "limits_edge_role" &&
@@ -223,11 +223,11 @@ describe("business-processes template", () => {
       ]);
     });
 
-    it("blocks (hard) and fires at every pre-retirement stage — drafting included", () => {
-      // "at any stage": a node never serves two Intents, even in a draft —
-      // symmetric with the `serves` floor it complements.
+    it("blocks (hard) and fires only on committed stages — NOT drafting", () => {
+      // A node never serves two Intents once committed; while drafting the
+      // ceiling is exempt, symmetric with the `serves` floor it complements.
       expect(ceiling?.on_violation ?? "block").toBe("block");
-      expect(ceiling?.fires_when_node_lifecycle).toEqual(["drafting", "queued", "active"]);
+      expect(ceiling?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
     it("seeds as a deterministic policy carrying the predicate verbatim", () => {
@@ -238,7 +238,7 @@ describe("business-processes template", () => {
       expect(seeded.predicate.sub_kind).toBe("limits_edge_role");
       expect(seeded.predicate.edge_role).toBe("serves");
       expect(seeded.predicate.max_count).toBe(1);
-      expect(seeded.fires_when_node_lifecycle).toEqual(["drafting", "queued", "active"]);
+      expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
   });
 
