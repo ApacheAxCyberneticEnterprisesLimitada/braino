@@ -1403,3 +1403,23 @@ WHERE kind = 'deterministic'
          AND data -> 'predicate' ->> 'target_node_type' = 'principal')
       )
   AND NOT (data -> 'fires_when_node_lifecycle' ? 'drafting');
+
+-- ── Business-processes lifecycle-walk guidance: attachment-aware prose ──────
+-- The lifecycle-walk `suggestion` shipped before the attachment change, so it
+-- still tells authors a `drafting` sketch merely has "completeness and shape
+-- rules suspended". The enforcement now also requires a flow node to be
+-- ATTACHED to its Intent/Principal even in draft (see the attachment-gate
+-- migration above), so refresh the advisory prose to match for already-seeded
+-- Docos — kept byte-identical to the template so seeded and new Docos converge.
+-- Matched by the suggestion's stable opening; the `NOT LIKE '%ATTACHED%'` guard
+-- (the new prose contains "ATTACHED") makes a second boot a no-op.
+UPDATE policies
+SET data = jsonb_set(
+      data,
+      '{predicate,agent_instruction}',
+      to_jsonb($bp_lifecycle_walk$Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — completeness and shape rules (forward `flows_to` wiring, gateway exhaustiveness, milestone naming, quality) are suspended — but it must already be ATTACHED: a flow node `serves` its Intent from the moment it is drafted, an Action is `performed_by` a Principal, and a gateway Decision is `decided_by` one, so no node ever floats free of an Intent or Principal even in draft. Create the node and its `serves`/`performed_by`/`decided_by` edge together in one changeset. `queue` it (changeset op `queue`) once its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; a `drafting` sketch is exempt only from those completeness/shape rules, not from attachment. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).$bp_lifecycle_walk$::text)
+    ),
+    updated_at = now()
+WHERE kind = 'suggestion'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE 'Walk a process node through the four-stage lifecycle%'
+  AND data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%ATTACHED%';
