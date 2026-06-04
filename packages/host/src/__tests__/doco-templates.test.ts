@@ -198,15 +198,22 @@ describe("business-processes template", () => {
       // First line is a short verb+object process name…
       expect(intentRule.predicate.spec).toMatch(/first line/i);
       expect(intentRule.predicate.spec).toMatch(/brief|short|concise/i);
-      // …with trigger / outcome / out-of-scope still discernible from the body.
-      expect(intentRule.predicate.spec).toMatch(/trigger/i);
-      expect(intentRule.predicate.spec).toMatch(/outcome/i);
-      expect(intentRule.predicate.spec).toMatch(/out of scope/i);
+      // …and that is ALL it grades. The Intent no longer has to restate the
+      // trigger, terminal outcome, or out-of-scope boundary in its body —
+      // those live on the initial/terminal States and the flow wiring, so the
+      // policy must not demand them (that demand is what bloated the Intent).
+      expect(intentRule.predicate.spec).not.toMatch(/trigger/i);
+      expect(intentRule.predicate.spec).not.toMatch(/outcome/i);
+      expect(intentRule.predicate.spec).not.toMatch(/out of scope|out-of-scope/i);
     });
 
     it("asks for the brief name in the human-readable policy too", () => {
       expect(intentRule?.policy).toMatch(/first line/i);
       expect(intentRule?.policy).toMatch(/brief|short|concise/i);
+      // The prose policy must not ask for trigger / outcome / scope either.
+      expect(intentRule?.policy).not.toMatch(/trigger/i);
+      expect(intentRule?.policy).not.toMatch(/outcome/i);
+      expect(intentRule?.policy).not.toMatch(/out of scope|out-of-scope/i);
     });
   });
 

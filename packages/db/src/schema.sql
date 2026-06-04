@@ -1256,3 +1256,26 @@ BEGIN
   ALTER TABLE policies ADD  CONSTRAINT policies_lifecycle_check
                             CHECK (lifecycle IN ('active','retired'));
 END $$;
+
+-- ── Business-processes Intent shape: drop the trigger/outcome/out-of-scope
+-- demand, keep only the brief-headline clause ──────────────────────────────
+-- The seeded business-processes Intent-shape policy used to require the
+-- Intent body to spell out the trigger, the terminal outcome, and what is out
+-- of scope. That forced verbose Intents: the prose duplicated facts the graph
+-- already holds (the process's initial State, terminal State, and flow
+-- wiring). The template now grades only the FIRST LINE as a brief BPMN name.
+-- Rewrite already-seeded policy rows in place so existing Docos match the new
+-- template (only `predicate.agent_instruction` is persisted, never the prose
+-- `policy`). schema.sql is re-applied on every boot, so this carries the
+-- change to production. Idempotent: it matches only rows that still carry the
+-- old "remaining text lets the reader discern" clause, so a second boot — or
+-- any Doco seeded after this change — is a no-op.
+UPDATE policies
+SET data = jsonb_set(
+      data,
+      '{predicate,agent_instruction}',
+      to_jsonb($intent_headline_spec$Check the FIRST LINE of the Intent's `intent` field. PASS when the first line is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name. FAIL with `first line is not a brief headline` when line one crams a whole description into one sentence. Judge ONLY the first line; whatever follows it is free prose and is not graded.$intent_headline_spec$::text)
+    ),
+    updated_at = now()
+WHERE kind = 'probabilistic'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%the remaining text lets the reader discern%';

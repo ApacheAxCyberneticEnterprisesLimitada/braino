@@ -715,13 +715,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Probabilistic on intent — the FIRST LINE is a brief BPMN process
         // name (the label readers scan and the card summary takes from line
-        // one), and the body still carries the trigger, terminal outcome, and
-        // out-of-scope boundary.
+        // one). That is ALL this policy asks of the Intent. The body is free
+        // prose; the template deliberately no longer requires the Intent to
+        // restate the trigger, the terminal outcome, or what is out of scope —
+        // those already live structurally as the process's initial State, its
+        // terminal State, and the flow wiring between them, so duplicating
+        // them in the Intent prose only bloated it.
         policy:
-          "The purpose Intent of a business process opens with a brief BPMN-style name on its first line — a short verb-and-object phrase, optionally with an adjective or adverb (for example, `Publish a job`), not a run-on sentence. The lines that follow name the trigger that starts the process, the terminal business outcome that ends it, and what is explicitly out of scope.",
+          "The purpose Intent of a business process opens with a brief BPMN-style name on its first line — a short verb-and-object phrase, optionally with an adjective or adverb (for example, `Publish a job`), not a run-on sentence.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Intent's `intent` field. PASS only when BOTH hold: (a) the FIRST LINE is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name; and (b) the remaining text lets the reader discern (1) the trigger that starts the process, (2) the terminal business outcome that ends it, and (3) what is explicitly out of scope. FAIL with what is wrong — say `first line is not a brief headline` when line one crams the whole description into one sentence, or name the missing trigger / outcome / out-of-scope element.",
+          spec: "Check the FIRST LINE of the Intent's `intent` field. PASS when the first line is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name. FAIL with `first line is not a brief headline` when line one crams a whole description into one sentence. Judge ONLY the first line; whatever follows it is free prose and is not graded.",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
