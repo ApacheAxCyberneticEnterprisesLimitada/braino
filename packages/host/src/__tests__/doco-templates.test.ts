@@ -404,6 +404,20 @@ describe("business-processes template", () => {
     it("tells agents to use relate_many for gateway siblings", () => {
       expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
     });
+    it("tells agents to name a subprocess Intent as the base form of the calling Action", () => {
+      // A subprocess pairs a calling Action with a child purpose Intent via
+      // `serves`. The Action verb is typically third-person (`Posts a job`);
+      // its child Intent should be the base/imperative form (`Post a job`).
+      expect(
+        summaries.some(
+          (s) =>
+            /sub-?process/i.test(s) &&
+            /base form/i.test(s) &&
+            /Posts a job/i.test(s) &&
+            /Post a job/i.test(s),
+        ),
+      ).toBe(true);
+    });
     it("documents the four-stage lifecycle (drafting → queued → active → retired) and its changeset ops", () => {
       expect(
         summaries.some(
