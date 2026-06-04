@@ -152,11 +152,21 @@ describe("business-processes template", () => {
         requiresEdgeRole("attributed_to", "decided_by", "principal", "decision"),
       ).toBeDefined();
     });
-    it("Decision decided_by fires on both committed stages (queued + active)", () => {
+    it("Decision decided_by fires at every pre-retirement stage (drafting + queued + active)", () => {
+      // Attachment to a decider Principal is required from the moment the
+      // gateway exists, so the gate fires in `drafting` too.
       expect(
         requiresEdgeRole("attributed_to", "decided_by", "principal", "decision")
           ?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
+      ).toEqual(["drafting", "queued", "active"]);
+    });
+    it("Action performed_by fires at every pre-retirement stage (drafting + queued + active)", () => {
+      // Attachment to the performing Principal is required from `drafting`
+      // onward — an Action never floats free of an actor, even in draft.
+      expect(
+        requiresEdgeRole("attributed_to", "performed_by", "principal", "action")
+          ?.fires_when_node_lifecycle,
+      ).toEqual(["drafting", "queued", "active"]);
     });
     it("Eval tests a target", () => {
       const rule = requiresEdgeRole("supports", "tests", null, "eval");
@@ -164,19 +174,20 @@ describe("business-processes template", () => {
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("fires flow membership checks on both committed stages (queued + active), exempting drafting", () => {
-      // A `queued` node asserts readiness, so it is held to the same
-      // actor / serves / sequence-flow wiring as `active`. Only `drafting`
-      // sketches are exempt from completeness.
+    it("fires the flow `serves`-Intent attachment at every pre-retirement stage, drafting included", () => {
+      // ATTACHMENT, not completeness: a flow node (Action, gateway Decision, or
+      // milestone/event State) must `serve` an Intent from the moment it
+      // exists, so the gate fires in `drafting` too. Completeness/shape rules
+      // (forward `flows_to` wiring, exhaustiveness, …) still exempt `drafting`.
       expect(
         requiresEdgeRole("supports", "serves", "intent", "action")?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
+      ).toEqual(["drafting", "queued", "active"]);
       expect(
         requiresEdgeRole("supports", "serves", "intent", "decision")?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
+      ).toEqual(["drafting", "queued", "active"]);
       expect(
         requiresEdgeRole("supports", "serves", "intent", "state")?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
+      ).toEqual(["drafting", "queued", "active"]);
     });
 
     it("keeps the role vocabulary in the business-process guidance", () => {

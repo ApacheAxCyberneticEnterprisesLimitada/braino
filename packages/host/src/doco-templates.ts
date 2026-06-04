@@ -237,8 +237,32 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
  * draft → queue → activate authoring story. Templates that default new
  * nodes straight to `active` (decision-records, glossaries, org-chart)
  * rarely pass through `queued`, so they still fire on `["active"]`.
+ *
+ * The lone exception is the *attachment* gates — see
+ * BUSINESS_PROCESS_ATTACHED_LIFECYCLES below — which fire in `drafting` too.
  */
 const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
+/**
+ * The flow-node ATTACHMENT gates — every Action/Decision/State must `serve`
+ * an Intent, every Action be `performed_by` a Principal, and every gateway
+ * Decision be `decided_by` a Principal — fire at EVERY pre-retirement stage,
+ * `drafting` included.
+ *
+ * Attachment is not a completeness nicety a sketch may defer: a
+ * business-processes Doco never holds a flow node — an Action, a gateway
+ * Decision, or a milestone/event State — that floats free of the Intent it
+ * serves or the Principal that owns it, even in draft. So while the
+ * completeness, quality, sequence-flow, and shape rules above stay suspended
+ * in `drafting` (BUSINESS_PROCESS_COMMITTED_LIFECYCLES), the rule that a node
+ * is *bound to* an Intent or Principal holds from the moment it exists.
+ * Authors satisfy it by creating the node and its
+ * `serves`/`performed_by`/`decided_by` edge together in one changeset.
+ *
+ * `retired` is still excluded: a winding-down node isn't re-judged (and the
+ * runner's terminal-skip drops these `requires_edge_role` checks anyway).
+ */
+const BUSINESS_PROCESS_ATTACHED_LIFECYCLES: Lifecycle[] = ["drafting", "queued", "active"];
 
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
@@ -563,8 +587,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // treated as BPMN arrows.
     //
     // Lifecycle: nodes default to `drafting` so a process can be sketched
-    // freely; completeness + shape rules fire on the committed stages
+    // freely; the completeness + shape rules fire on the committed stages
     // (`queued` and `active`) only — see BUSINESS_PROCESS_COMMITTED_LIFECYCLES.
+    // The exception is the flow-node ATTACHMENT gates (a node `serves` an
+    // Intent / is `performed_by` / `decided_by` a Principal), which fire from
+    // `drafting` onward — see BUSINESS_PROCESS_ATTACHED_LIFECYCLES — so even a
+    // sketch is bound to an Intent or Principal, never floating free.
     name: "business-processes",
     label: "business-processes",
     icon: "🏭",
@@ -717,8 +745,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Action shape ────────────────────────────────────────────
       {
+        // Attachment, not completeness — fires from `drafting` onward (see
+        // BUSINESS_PROCESS_ATTACHED_LIFECYCLES): an Action never floats free of
+        // the actor who performs it, even in a sketch. Authors create the
+        // Action and its `performed_by` edge together in one changeset.
         policy:
-          "Every Action in business-processes must have a `performed_by` relationship to the Principal who performs the activity (stored as an `attributed_to` edge).",
+          "Every Action in business-processes must have a `performed_by` relationship to the Principal who performs the activity (stored as an `attributed_to` edge) — from the moment the Action is drafted, not only once it is committed.",
         predicate: {
           kind: "requires_edge_role",
           edge_type: "attributed_to",
@@ -726,7 +758,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "principal",
           when_node_type: ["action"],
         },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+        fires_when_node_lifecycle: BUSINESS_PROCESS_ATTACHED_LIFECYCLES,
       },
       {
         // One rule for all three flow-node types. The role-aware edge
@@ -735,7 +767,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // same constraint (be tied to a concrete process/pool) and
         // previously shipped as three near-identical entries.
         policy:
-          "Every flow node in business-processes — Action, gateway Decision, or milestone State — must `serve` an Intent (stored as a `supports` edge with role `serves`). Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
+          "Every flow node in business-processes — Action, gateway Decision, or milestone/event State — must `serve` an Intent (stored as a `supports` edge with role `serves`) from the moment it is drafted, not only once it is committed. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
         predicate: {
           kind: "requires_edge_role",
           edge_type: "supports",
@@ -743,7 +775,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "intent",
           when_node_type: ["action", "decision", "state"],
         },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+        // Attachment, not completeness — fires from `drafting` onward (see
+        // BUSINESS_PROCESS_ATTACHED_LIFECYCLES). A flow node is bound to the
+        // Intent it advances from the moment it exists; only the completeness /
+        // shape rules below stay suspended while drafting.
+        fires_when_node_lifecycle: BUSINESS_PROCESS_ATTACHED_LIFECYCLES,
       },
       {
         // Sub-process naming, enforced on the `serves` EDGE (not on either
@@ -821,17 +857,18 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // A gateway routes the flow; strict BPMN leaves the diamond itself
         // unowned and lets the surrounding activities carry accountability.
-        // We make that accountability explicit instead: every committed
-        // gateway names the Principal — a role, team, or system actor —
-        // answerable for the call, via a `decided_by` attributed_to edge.
-        // Mirrors the Action `performed_by` gate and fires on the same
-        // committed stages, so a gateway may be sketched unowned in
-        // `drafting` but cannot be queued or activated without a decider
-        // (which would also strand it in the BPMN "Unassigned" lane). The
-        // perspective still renders a decider supplied via `performed_by`,
-        // but `decided_by` is the role this template requires.
+        // We make that accountability explicit instead: every gateway names
+        // the Principal — a role, team, or system actor — answerable for the
+        // call, via a `decided_by` attributed_to edge. Mirrors the Action
+        // `performed_by` gate, and like it this is an ATTACHMENT gate: it
+        // fires from `drafting` onward (see BUSINESS_PROCESS_ATTACHED_LIFECYCLES),
+        // so a gateway is never sketched unowned — drafting a decider-less
+        // gateway is blocked, not deferred, which also keeps it out of the
+        // BPMN "Unassigned" lane. The perspective still renders a decider
+        // supplied via `performed_by`, but `decided_by` is the role this
+        // template requires.
         policy:
-          "Every gateway Decision in business-processes must have a `decided_by` relationship to the Principal answerable for the call — the role, team, or system that owns how the gateway is decided (stored as an `attributed_to` edge). A gateway with no decider floats into the Unassigned lane.",
+          "Every gateway Decision in business-processes must have a `decided_by` relationship to the Principal answerable for the call — the role, team, or system that owns how the gateway is decided (stored as an `attributed_to` edge) — from the moment the gateway is drafted, not only once it is committed. A gateway with no decider floats into the Unassigned lane.",
         predicate: {
           kind: "requires_edge_role",
           edge_type: "attributed_to",
@@ -839,7 +876,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "principal",
           when_node_type: ["decision"],
         },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+        fires_when_node_lifecycle: BUSINESS_PROCESS_ATTACHED_LIFECYCLES,
       },
 
       // ── State shape & sequence wiring ───────────────────────────
@@ -1012,7 +1049,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. Sketch it in `drafting`, where it may be incomplete — completeness and shape rules are suspended. `queue` it (changeset op `queue`) once its actor (`performed_by`, or `decided_by` for a gateway Decision), Intent (`serves`), and forward `flows_to` wiring are coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; only a `drafting` sketch is exempt. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
+          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — completeness and shape rules (forward `flows_to` wiring, gateway exhaustiveness, milestone naming, quality) are suspended — but it must already be ATTACHED: a flow node `serves` its Intent from the moment it is drafted, an Action is `performed_by` a Principal, and a gateway Decision is `decided_by` one, so no node ever floats free of an Intent or Principal even in draft. Create the node and its `serves`/`performed_by`/`decided_by` edge together in one changeset. `queue` it (changeset op `queue`) once its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; a `drafting` sketch is exempt only from those completeness/shape rules, not from attachment. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
       },
       {
         policy:
