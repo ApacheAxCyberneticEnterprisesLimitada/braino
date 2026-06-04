@@ -300,6 +300,10 @@ export async function updateEdge(
     `UPDATE edges
         SET props      = COALESCE($2, props),
             lifecycle  = COALESCE($3, lifecycle),
+            -- Reviving a retired edge (lifecycle back to drafting/active) must
+            -- clear the retirement stamp so the row never carries a live
+            -- lifecycle with a stale retired_at. Pure props edits leave it be.
+            retired_at = CASE WHEN $3 IS NOT NULL THEN NULL ELSE retired_at END,
             updated_at = now(),
             updated_by = $4
       WHERE id = $1
