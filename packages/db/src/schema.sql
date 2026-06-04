@@ -1344,3 +1344,43 @@ SET lifecycle = 'retired',
 WHERE kind = 'deterministic'
   AND data -> 'predicate' ->> 'sub_kind' = 'field-line-shape'
   AND lifecycle = 'active';
+
+-- ── Business-processes flow-node attachment fires in `drafting` too ─────────
+-- The three flow-node ATTACHMENT gates — a flow node `serves` an Intent, an
+-- Action is `performed_by` a Principal, a gateway Decision is `decided_by` a
+-- Principal — used to fire only on the committed stages (`["queued","active"]`),
+-- so a flow node sketched in `drafting` could float free of any Intent or
+-- Principal. The template now fires them from `drafting` onward, so no flow
+-- node is ever unattached even in a sketch (only the completeness/shape gates
+-- stay drafting-exempt). Converge every already-seeded business-processes Doco
+-- onto that.
+--
+-- Matched by the three distinct (edge_type, edge_role, target_node_type) tuples,
+-- which are unique to these gates. The actor-coverage `performed_by` nudge
+-- carries NO target_node_type (and an `incoming` direction), and the `owned_by`
+-- owner gate / `tests` Eval gate carry other roles, so all stay committed-only.
+-- Idempotent: the `NOT (... ? 'drafting')` guard makes a second boot a no-op,
+-- and the `lifecycle = 'active'` guard leaves retired rows untouched.
+UPDATE policies
+SET data = jsonb_set(
+      data,
+      '{fires_when_node_lifecycle}',
+      '["drafting", "queued", "active"]'::jsonb,
+      true
+    ),
+    updated_at = now()
+WHERE kind = 'deterministic'
+  AND lifecycle = 'active'
+  AND data -> 'predicate' ->> 'sub_kind' = 'requires_edge_role'
+  AND (
+        (data -> 'predicate' ->> 'edge_type' = 'supports'
+         AND data -> 'predicate' ->> 'edge_role' = 'serves'
+         AND data -> 'predicate' ->> 'target_node_type' = 'intent')
+     OR (data -> 'predicate' ->> 'edge_type' = 'attributed_to'
+         AND data -> 'predicate' ->> 'edge_role' = 'performed_by'
+         AND data -> 'predicate' ->> 'target_node_type' = 'principal')
+     OR (data -> 'predicate' ->> 'edge_type' = 'attributed_to'
+         AND data -> 'predicate' ->> 'edge_role' = 'decided_by'
+         AND data -> 'predicate' ->> 'target_node_type' = 'principal')
+      )
+  AND NOT (data -> 'fires_when_node_lifecycle' ? 'drafting');
