@@ -33,7 +33,7 @@ async function seed(): Promise<void> {
     [FROM, "decision"],
     [TO, "intent"],
   ] as const) {
-    await db.query("INSERT INTO nodes (id, doco_id, node_type, data) VALUES ($1,$2,$3,'{}')", [
+    await db.query("INSERT INTO nodes (id, doco_id, node_type) VALUES ($1,$2,$3)", [
       id,
       DOCO,
       type,
