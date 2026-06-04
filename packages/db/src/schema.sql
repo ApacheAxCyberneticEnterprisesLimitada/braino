@@ -1382,6 +1382,58 @@ WHERE kind = 'deterministic'
   AND data -> 'predicate' ->> 'sub_kind' = 'field-line-shape'
   AND lifecycle = 'active';
 
+-- ── Business-processes: backfill the sub-process Intent-naming EDGE policy ────
+-- The business-processes template gained an EDGE-scoped probabilistic policy:
+-- when a calling Action `serves` a child purpose Intent (a sub-process), the
+-- Intent's name must be the base (imperative) form of the third-person Action
+-- (`Posts a job` -> `Post a job`). New Docos seed it at creation; this backfills
+-- every ALREADY-seeded business-processes Doco that predates the policy so the
+-- rule applies to ALL business-process documents. schema.sql is re-applied on
+-- every boot, carrying the change to production.
+--
+-- A Doco is "business-processes" when it carries the seeded membership judge
+-- (whose instruction mentions "belongs in business-processes"). The new policy's
+-- id is derived deterministically from the doco id, and a NOT EXISTS guard skips
+-- any Doco that already has the Action->Intent `serves` edge policy — so a second
+-- boot is a no-op (doubly so via ON CONFLICT (id) DO NOTHING).
+INSERT INTO policies (id, doco_id, kind, lifecycle, data)
+SELECT
+  'policy_' || upper(substr(md5(bp.doco_id || '-subprocess-serves-naming'), 1, 26)),
+  bp.doco_id,
+  'probabilistic',
+  'active',
+  jsonb_build_object(
+    'id', 'policy_' || upper(substr(md5(bp.doco_id || '-subprocess-serves-naming'), 1, 26)),
+    'doco_id', bp.doco_id,
+    'kind', 'probabilistic',
+    'predicate', jsonb_build_object(
+      'agent_instruction', $subproc_spec$You are checking a `serves` relationship from an Action (the `action` endpoint) to a purpose Intent (the `intent` endpoint). STEP 1 — decide whether this is a SUB-PROCESS pairing: the Intent names the SAME single activity as the Action, expanded into its own process (e.g. Action `Posts a job` ↔ Intent `Post a job`). If instead the Action is merely one step within a broader process the Intent names (e.g. Action `review the application` serving Intent `Approve a consumer loan`), this is an ordinary flow-step link, not a sub-process — PASS, the rule does not apply. STEP 2 — for a sub-process pairing, PASS when the Intent's name is the base (imperative) verb form of the Action, i.e. the Action's third-person verb converted to its base form (`Posts a job` → `Post a job`, `Approves the invoice` → `Approve the invoice`). FAIL with `intent name is not the base form of the action` when the Intent's name is in the third-person singular present tense (a verb ending in `-s`) or otherwise does not read as the base-form imperative of the same activity.$subproc_spec$::text,
+      'edge_type', 'supports',
+      'edge_role', 'serves',
+      'from_node_type', 'action',
+      'to_node_type', 'intent'
+    ),
+    'on_violation', 'block',
+    'template_seeded', true,
+    'template_handle', 'business-processes',
+    'lifecycle', 'active'
+  )
+FROM (
+  SELECT DISTINCT p.doco_id
+  FROM policies p
+  WHERE p.kind = 'probabilistic'
+    AND p.data -> 'predicate' ->> 'agent_instruction' ILIKE '%belongs in business-processes%'
+) bp
+WHERE NOT EXISTS (
+  SELECT 1 FROM policies x
+  WHERE x.doco_id = bp.doco_id
+    AND x.data -> 'predicate' ->> 'edge_type'      = 'supports'
+    AND x.data -> 'predicate' ->> 'edge_role'      = 'serves'
+    AND x.data -> 'predicate' ->> 'from_node_type' = 'action'
+    AND x.data -> 'predicate' ->> 'to_node_type'   = 'intent'
+)
+ON CONFLICT (id) DO NOTHING;
+
 -- ── Business-processes flow-node attachment fires in `drafting` too ─────────
 -- The three flow-node ATTACHMENT gates — a flow node `serves` an Intent, an
 -- Action is `performed_by` a Principal, a gateway Decision is `decided_by` a
