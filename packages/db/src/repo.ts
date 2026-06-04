@@ -407,10 +407,9 @@ export async function listIdentityRows(
  * sees the structured values.
  */
 const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
-  action: ["verb", "performed_at"],
-  log: ["verb", "happened_at"],
+  // Node-shape slim-down (contract phase): action/log/rule scalars are dropped
+  // columns now — they come back via the `attributes` merge below, not here.
   eval: ["kind"],
-  rule: ["kind", "severity", "phase", "on_violation"],
   state: ["kind"],
   reference: ["ref_type", "locator", "citation", "title"],
   principal: ["role_principal"],
@@ -432,6 +431,13 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
       // bag stays JSON-shaped.
       data[col] = v instanceof Date ? v.toISOString() : v;
     }
+  }
+  // Node-shape slim-down: the unified `attributes` bag is the source of truth
+  // for per-type domain fields (incl. the dropped action/log/rule scalars like
+  // verb / severity). Merge it on top so callers reading `rec.data.verb` still
+  // find them once those columns are gone.
+  if (row.attributes && typeof row.attributes === "object") {
+    Object.assign(data, row.attributes as Record<string, unknown>);
   }
 
   const rec: EntityRecord = {

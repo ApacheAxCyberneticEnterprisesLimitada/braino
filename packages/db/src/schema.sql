@@ -317,14 +317,11 @@ CREATE TABLE IF NOT EXISTS nodes (
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
-  -- Promoted scalar columns.
-  verb         text,                          -- action, log
-  performed_at timestamptz,                   -- action (matches actions.performed_at)
-  happened_at  timestamptz,                   -- log (matches logs.happened_at)
+  -- Promoted scalar columns. Slim-down contract phase: the action/log/rule
+  -- scalars (verb / performed_at / happened_at / severity / phase /
+  -- on_violation) moved into `attributes` and are dropped below; only `kind`
+  -- and the reference columns remain promoted.
   kind         text,                          -- eval, state
-  severity     text,                          -- rule
-  phase        text,                          -- rule
-  on_violation text,                          -- rule
   ref_type     text,                          -- reference
   locator      text,                          -- reference
   citation     text,                          -- reference
@@ -349,13 +346,9 @@ CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
 -- where present, a no-op on fresh installs (never created above).
 ALTER TABLE nodes DROP COLUMN IF EXISTS modality;
 
--- Node-shape slim-down (expand phase). Add the unified `attributes` bag to
--- pre-existing tables, then backfill it from `data` + the promoted scalar
--- columns. Idempotent and non-destructive: the backfill only touches rows that
--- still carry the empty default, so re-applying schema.sql (every prod boot)
--- is a no-op once migrated, and freshly-written rows populate `attributes`
--- directly via the writer. No columns are dropped here — that is the later
--- contract phase, after every reader has moved off them.
+-- Node-shape slim-down. Add the unified `attributes` bag and backfill it from
+-- `data` + the retained promoted columns (defensive: the writer already fills
+-- it on every write, this only touches rows still on the empty default).
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS attributes jsonb NOT NULL DEFAULT '{}'::jsonb;
 UPDATE nodes
    SET attributes = jsonb_strip_nulls(
@@ -373,10 +366,32 @@ UPDATE nodes
             - 'intent' - 'idea' - 'rule' - 'decision' - 'action'
             - 'log' - 'eval' - 'reference' - 'state')
          || jsonb_build_object(
-              'verb', verb, 'performed_at', performed_at, 'happened_at', happened_at,
-              'severity', severity, 'phase', phase, 'on_violation', on_violation,
               'ref_type', ref_type, 'locator', locator, 'citation', citation, 'title', title))
  WHERE attributes = '{}'::jsonb;
+
+-- Contract phase: the action/log/rule scalar columns now live in `attributes`.
+-- Fold any straggler values in, then DROP the columns. Guarded on the `verb`
+-- column so a fresh install (never created them) and an already-migrated DB
+-- both skip — idempotent across every prod boot.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'nodes' AND column_name = 'verb'
+  ) THEN
+    UPDATE nodes
+       SET attributes = attributes || jsonb_strip_nulls(jsonb_build_object(
+             'verb', verb, 'performed_at', performed_at, 'happened_at', happened_at,
+             'severity', severity, 'phase', phase, 'on_violation', on_violation));
+    ALTER TABLE nodes
+      DROP COLUMN IF EXISTS verb,
+      DROP COLUMN IF EXISTS performed_at,
+      DROP COLUMN IF EXISTS happened_at,
+      DROP COLUMN IF EXISTS severity,
+      DROP COLUMN IF EXISTS phase,
+      DROP COLUMN IF EXISTS on_violation;
+  END IF;
+END $$;
 
 -- Audit events: one row per mutation.
 

@@ -91,20 +91,13 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   intent: [],
   idea: [{ column: "proposer_id", field: "proposer_id" }],
   decision: [],
-  action: [
-    { column: "verb", field: "verb", stripFromData: true },
-    { column: "performed_at", field: "performed_at", stripFromData: true },
-  ],
-  log: [
-    { column: "verb", field: "verb", stripFromData: true },
-    { column: "happened_at", field: "happened_at", stripFromData: true },
-  ],
+  // Node-shape slim-down (contract phase): action/log/rule scalars no longer
+  // get their own columns — they live in the unified `attributes` bag. Only
+  // `kind` (eval/state) stays promoted, plus idea's `proposer_id` FK.
+  action: [],
+  log: [],
   eval: [{ column: "kind", field: "kind", stripFromData: true }],
-  rule: [
-    { column: "severity", field: "severity", stripFromData: true },
-    { column: "phase", field: "phase", stripFromData: true },
-    { column: "on_violation", field: "on_violation", stripFromData: true },
-  ],
+  rule: [],
   state: [{ column: "kind", field: "kind", stripFromData: true }],
   reference: [
     { column: "ref_type", field: "ref_type", stripFromData: true },

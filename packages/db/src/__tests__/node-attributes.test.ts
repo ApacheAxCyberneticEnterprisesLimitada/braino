@@ -6,10 +6,10 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { rowToRecord, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
 
-// Stage 1 of the node-shape slim-down (expand phase): a single `attributes`
-// jsonb that will eventually replace the per-type promoted columns + `data`.
-// These tests pin the write-path population and the idempotent production
-// backfill. They are non-destructive — no columns are dropped yet.
+// Node-shape slim-down: a single `attributes` jsonb that replaces the per-type
+// promoted columns + `data`. These tests pin the write-path population, the
+// idempotent production backfill, the read-path surfacing, and the contract
+// drop of the action/log/rule scalar columns (verb / severity / …).
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
@@ -139,6 +139,53 @@ describe("node attributes column (Stage 1 — expand)", () => {
       note: "kept",
     });
     expect(rows[0].attributes).not.toHaveProperty("reference");
+  });
+
+  it("drops the action/log/rule scalar columns, serving them from attributes (contract)", async () => {
+    const cols = await db.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
+    );
+    const names = cols.rows.map((r) => r.column_name);
+    for (const dropped of [
+      "verb",
+      "performed_at",
+      "happened_at",
+      "severity",
+      "phase",
+      "on_violation",
+    ]) {
+      expect(names).not.toContain(dropped);
+    }
+    // `kind` and the reference columns are retained this phase.
+    expect(names).toContain("kind");
+    expect(names).toContain("ref_type");
+
+    const id = "action_contract00000000000000000";
+    await upsertEntity(
+      {
+        id,
+        doco_id: DOCO,
+        entity_type: "action",
+        data: {
+          id,
+          doco_id: DOCO,
+          node_type: "action",
+          action: "Deployed the build",
+          verb: "deploy",
+          lifecycle: "active",
+        },
+        type_named_value: "Deployed the build",
+        lifecycle: "active",
+      } as unknown as EntityRecord,
+      db as never,
+    );
+    const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [
+      id,
+    ]);
+    const rec = rowToRecord("action", rows[0]);
+    // verb is gone as a column but still reachable on the record, via attributes.
+    expect(rec.attributes).toMatchObject({ verb: "deploy" });
+    expect(rec.data.verb).toBe("deploy");
   });
 
   it("surfaces the attributes column onto the record on read (Stage 2 — raw schema)", () => {
