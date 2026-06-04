@@ -378,9 +378,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   },
   {
     // Glossaries define product and domain language. Each term entry is a
-    // Decision: `question` names the concept, `chosen` is the canonical
-    // headword, `decision` holds the definition, scope, and examples, and
-    // `alternatives` carries aliases / rejected labels.
+    // Decision whose `decision` prose LEADS WITH THE TERM on its first line —
+    // that first line is the node's name and the dictionary headword — then a
+    // blank line and the definition (scope + examples) as the body. `question`
+    // names the concept, `chosen` repeats the same canonical term (the
+    // case-folded uniqueness key), and `alternatives` carries aliases /
+    // rejected labels. Opening with the definition instead would make the
+    // definition the node's name (the name is the first line of the prose
+    // everywhere in Doco), so the term must come first.
     //
     // Two stages, on purpose. A glossary is a reference work, so a term
     // entry is either the canonical answer (`active`) or a deprecated one
@@ -519,6 +524,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
 
       // ── Guidance ───────────────────────────────────────────────
+      {
+        // A node's name is the first line of its prose everywhere in Doco
+        // (List, Graph, search, the node dialog, and the Glossary headword),
+        // so a term Decision must lead its prose with the term — otherwise the
+        // definition lands in the name instead of the body.
+        policy:
+          "Lead each term Decision's `decision` prose with the term itself on the first line — that first line becomes the node's name and the dictionary headword — then a blank line and the definition as the body. Repeat the same canonical term in `chosen`. Don't open with the definition: the first line is the node's name, so a definition-first entry puts the definition where the term should be.",
+      },
       {
         // The deliberate two-stage stance — see the block comment above.
         policy:

@@ -145,6 +145,18 @@ describe("glossaries template", () => {
       expect(replacement).toBeDefined();
       expect(replacement).toMatch(/retiring the old edge and adding a new one/i);
     });
+
+    it("tells agents to lead the term Decision's prose with the term (its first line is the node name)", () => {
+      // A node's name is the first line of its prose. Lead with the term so the
+      // name is the term and the definition lands in the body — not the name.
+      // Guards the fix for the bug where the definition became the node name.
+      const leadGuidance = guidance
+        .split("\n")
+        .find((line) => /first line/i.test(line) && /\bterm\b/i.test(line));
+      expect(leadGuidance).toBeDefined();
+      expect(leadGuidance).toMatch(/node'?s name/i);
+      expect(leadGuidance).toMatch(/definition/i);
+    });
   });
 
   describe("quality gates", () => {
