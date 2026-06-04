@@ -108,24 +108,25 @@ describe("node attributes column (Stage 1 — expand)", () => {
     expect(rows[0].attributes).not.toHaveProperty("action");
   });
 
-  it("backfills attributes for pre-existing rows when schema.sql is re-applied", async () => {
-    // Simulate a row written before the column existed: attributes empty, the
-    // per-type values still in their promoted columns, the type-named field
-    // duplicated in `data`.
+  it("folds legacy reference columns into attributes, then drops them (contract migration)", async () => {
+    // Simulate a DB written before the reference contract: re-add the dropped
+    // columns, insert a row carrying its values in them with attributes still
+    // empty and a stray non-promoted field in `data`.
+    await db.exec(
+      `ALTER TABLE nodes ADD COLUMN IF NOT EXISTS ref_type text,
+                         ADD COLUMN IF NOT EXISTS locator text,
+                         ADD COLUMN IF NOT EXISTS citation text,
+                         ADD COLUMN IF NOT EXISTS title text`,
+    );
     const id = "reference_legacy0000000000000000";
     await db.query(
       `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes, ref_type, locator, title, data)
        VALUES ($1,$2,'reference','active','Legacy ref','{}'::jsonb,'url',$3,'Legacy title',$4::jsonb)`,
-      [
-        id,
-        DOCO,
-        "https://example.com/acme/pull/9",
-        JSON.stringify({ reference: "Legacy ref", note: "kept" }),
-      ],
+      [id, DOCO, "https://example.com/acme/pull/9", JSON.stringify({ note: "kept" })],
     );
 
-    // Re-applying schema.sql runs the idempotent backfill — production does
-    // this on every boot.
+    // Re-applying schema.sql runs the guarded fold + drop — production does this
+    // on every boot.
     await db.exec(schemaSql);
 
     const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
@@ -138,10 +139,13 @@ describe("node attributes column (Stage 1 — expand)", () => {
       title: "Legacy title",
       note: "kept",
     });
-    expect(rows[0].attributes).not.toHaveProperty("reference");
+    const after = await db.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
+    );
+    expect(after.rows.map((r) => r.column_name)).not.toContain("ref_type");
   });
 
-  it("drops the action/log/rule scalar columns, serving them from attributes (contract)", async () => {
+  it("drops every per-type scalar column, serving them from attributes (contract)", async () => {
     const cols = await db.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
     );
@@ -153,12 +157,15 @@ describe("node attributes column (Stage 1 — expand)", () => {
       "severity",
       "phase",
       "on_violation",
+      "ref_type",
+      "locator",
+      "citation",
+      "title",
     ]) {
       expect(names).not.toContain(dropped);
     }
-    // `kind` and the reference columns are retained this phase.
+    // `kind` is the last promoted scalar this phase.
     expect(names).toContain("kind");
-    expect(names).toContain("ref_type");
 
     const id = "action_contract00000000000000000";
     await upsertEntity(

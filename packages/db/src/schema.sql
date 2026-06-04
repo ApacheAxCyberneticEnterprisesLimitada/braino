@@ -317,15 +317,12 @@ CREATE TABLE IF NOT EXISTS nodes (
   body_md        text,                       -- principal prose description (NULL for the others)
   role_principal boolean NOT NULL DEFAULT false,
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
-  -- Promoted scalar columns. Slim-down contract phase: the action/log/rule
-  -- scalars (verb / performed_at / happened_at / severity / phase /
-  -- on_violation) moved into `attributes` and are dropped below; only `kind`
-  -- and the reference columns remain promoted.
+  -- Promoted scalar columns. Slim-down contract phase: every per-type scalar
+  -- (action/log/rule verb/severity/… AND the reference ref_type/locator/
+  -- citation/title) moved into `attributes` and is dropped below. `kind`
+  -- (eval/state) is the last promoted scalar; principal name/body_md and the
+  -- catch-all `data` are folded in later phases.
   kind         text,                          -- eval, state
-  ref_type     text,                          -- reference
-  locator      text,                          -- reference
-  citation     text,                          -- reference
-  title        text,                          -- reference
   data         jsonb NOT NULL,
   -- Node-shape slim-down (expand phase): the unified per-node attributes bag
   -- that will replace every per-type promoted column (except `kind`) and the
@@ -339,6 +336,9 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
+-- Reference dedupe key (slim-down: `locator` is now in `attributes`). Keeps the
+-- PR-import idempotency lookup (github-pr-import.server.ts) an indexed read.
+CREATE INDEX IF NOT EXISTS nodes_ref_locator_idx ON nodes (doco_id, (attributes->>'locator')) WHERE node_type = 'reference';
 
 -- Self-heal: `modality` was a promoted Rule column that capture always wrote
 -- as the constant "must" and no reader ever consulted (enforcement modality
@@ -352,7 +352,7 @@ ALTER TABLE nodes DROP COLUMN IF EXISTS modality;
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS attributes jsonb NOT NULL DEFAULT '{}'::jsonb;
 UPDATE nodes
    SET attributes = jsonb_strip_nulls(
-         (COALESCE(data, '{}'::jsonb)
+         COALESCE(data, '{}'::jsonb)
             -- identity / audit / lifecycle live in real columns
             - 'id' - 'doco_id' - 'node_type' - 'lifecycle'
             - 'created_at' - 'created_by' - 'updated_at' - 'updated_by'
@@ -365,8 +365,6 @@ UPDATE nodes
             -- the type-named prose field, duplicated into data on old writes
             - 'intent' - 'idea' - 'rule' - 'decision' - 'action'
             - 'log' - 'eval' - 'reference' - 'state')
-         || jsonb_build_object(
-              'ref_type', ref_type, 'locator', locator, 'citation', citation, 'title', title))
  WHERE attributes = '{}'::jsonb;
 
 -- Contract phase: the action/log/rule scalar columns now live in `attributes`.
@@ -390,6 +388,27 @@ BEGIN
       DROP COLUMN IF EXISTS severity,
       DROP COLUMN IF EXISTS phase,
       DROP COLUMN IF EXISTS on_violation;
+  END IF;
+END $$;
+
+-- Contract phase: the reference scalar columns (ref_type / locator / citation
+-- / title) now live in `attributes`. Fold any straggler values in, then DROP.
+-- Guarded on `ref_type` so fresh installs and already-migrated DBs both skip.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'nodes' AND column_name = 'ref_type'
+  ) THEN
+    UPDATE nodes
+       SET attributes = attributes || jsonb_strip_nulls(jsonb_build_object(
+             'ref_type', ref_type, 'locator', locator,
+             'citation', citation, 'title', title));
+    ALTER TABLE nodes
+      DROP COLUMN IF EXISTS ref_type,
+      DROP COLUMN IF EXISTS locator,
+      DROP COLUMN IF EXISTS citation,
+      DROP COLUMN IF EXISTS title;
   END IF;
 END $$;
 

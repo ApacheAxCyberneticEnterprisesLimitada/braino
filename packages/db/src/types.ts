@@ -99,12 +99,8 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   eval: [{ column: "kind", field: "kind", stripFromData: true }],
   rule: [],
   state: [{ column: "kind", field: "kind", stripFromData: true }],
-  reference: [
-    { column: "ref_type", field: "ref_type", stripFromData: true },
-    { column: "locator", field: "locator", stripFromData: true },
-    { column: "citation", field: "citation", stripFromData: true },
-    { column: "title", field: "title", stripFromData: true },
-  ],
+  // reference scalars (ref_type/locator/citation/title) now live in `attributes`.
+  reference: [],
   // principal: no graph promoted columns; name/body_md/role_principal handled
   // directly by the writer (role_principal is stripped from data there).
 };

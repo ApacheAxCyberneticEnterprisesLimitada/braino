@@ -407,11 +407,11 @@ export async function listIdentityRows(
  * sees the structured values.
  */
 const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
-  // Node-shape slim-down (contract phase): action/log/rule scalars are dropped
-  // columns now — they come back via the `attributes` merge below, not here.
+  // Node-shape slim-down (contract phase): action/log/rule AND reference scalars
+  // are dropped columns now — they come back via the `attributes` merge below,
+  // not here. Only `kind` (eval/state) and principal's `role_principal` remain.
   eval: ["kind"],
   state: ["kind"],
-  reference: ["ref_type", "locator", "citation", "title"],
   principal: ["role_principal"],
 };
 
