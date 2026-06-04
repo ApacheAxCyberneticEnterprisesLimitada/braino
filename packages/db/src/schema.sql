@@ -1087,7 +1087,7 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
 );
 -- One row per group-chat channel the assistant has already spoken in. The
 -- presence of a row means "already introduced", so Señor Doco leads only its
--- FIRST message in a channel with the Haiku/MCP intro and never repeats it.
+-- FIRST message in a channel with the Sonnet/MCP intro and never repeats it.
 -- A bare insert with ON CONFLICT DO NOTHING makes the first-time check atomic.
 CREATE TABLE IF NOT EXISTS group_chat_channel_intros (
   provider      text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
