@@ -137,13 +137,16 @@ function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): s
  * Upsert a graph node (any of the 10 types) into the unified `nodes` table.
  *
  * Prose: the prose nodes carry their content in `prose`; principals carry
- * name + body_md and leave prose = ''. Promoted scalar columns come from
- * NODE_PROMOTED_COLUMNS, and their keys are stripped from `data` so the typed
- * column is the single source of truth. Graph links live in `edges`.
- * `data.lifecycle` is the source of truth for the lifecycle column.
+ * their name in `prose` and `body_md` in `attributes`. Promoted scalar columns
+ * come from NODE_PROMOTED_COLUMNS; every other per-node domain field lives in
+ * the unified `attributes` bag (the catch-all `data` jsonb was dropped). Graph
+ * links live in `edges`. `data.lifecycle` is the source of truth for the
+ * lifecycle column.
  */
 async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const t = rec.entity_type;
+  // `cleanData` is no longer persisted (the `data` column is gone); we still
+  // derive it to resolve the lifecycle column from `data.lifecycle`.
   const baseData = stripLegacyProseKeys(rec.data);
   const cleanData = stripPromotedKeys(t, baseData);
   const lifecycleCol = deriveLifecycleColumn(rec, cleanData);
@@ -151,14 +154,13 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
   // Slim-down: principals are ordinary prose nodes now — their name lives in
   // `prose` (set by capture), `body_md` rides along in `attributes`, and the
   // dropped `name`/`body_md`/`role_principal` columns are gone.
-  const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "data", "attributes"];
+  const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "attributes"];
   const vals: unknown[] = [
     rec.id,
     rec.doco_id,
     t,
     lifecycleCol,
     rec.type_named_value ?? "",
-    JSON.stringify(cleanData),
     JSON.stringify(buildAttributes(rec.data)),
   ];
   for (const pc of NODE_PROMOTED_COLUMNS[t] ?? []) {
@@ -390,28 +392,48 @@ export async function listIdentityRows(
 }
 
 /**
- * Columns promoted out of the `data` jsonb that we merge back INTO `data` on
- * read so downstream code that reads `rec.data.verb`, `rec.data.kind`, etc.
- * sees the structured values.
+ * Real columns whose values we merge into the record's `data` field bag on read
+ * so downstream code that reads `rec.data.kind`, `rec.data.proposer_id`, etc.
+ * still finds them now that the catch-all `data` jsonb is gone (the rest of the
+ * domain fields come from `attributes`, merged separately below).
  */
 const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
-  // Node-shape slim-down (contract phase): action/log/rule AND reference scalars
-  // are dropped columns now — they come back via the `attributes` merge below,
-  // not here. Only `kind` (eval/state) and principal's `role_principal` remain.
+  // Node-shape slim-down: action/log/rule AND reference scalars are dropped
+  // columns now — they come back via the `attributes` merge below, not here.
+  // What remains are the columns NOT carried in `attributes`: `kind`
+  // (eval/state/principal), principal's `role_principal`, and idea's
+  // `proposer_id` FK (excluded from `attributes`, so surfaced from its column).
   eval: ["kind"],
   state: ["kind"],
+  idea: ["proposer_id"],
   principal: ["role_principal", "kind"],
 };
 
 export function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
-  // Merge promoted typed columns back into the data jsonb so callers that read
-  // structured fields off `rec.data` still find them.
-  const baseData = (row.data && typeof row.data === "object" ? row.data : {}) as Record<
-    string,
-    unknown
-  >;
+  // Node-shape slim-down: the catch-all `data` jsonb is gone, so rebuild the
+  // record's `data` field bag from its real homes:
+  //   1. the system/identity/audit keys, injected from their real columns
+  //      (these used to be stored verbatim in the `data` jsonb), then
+  //   2. the still-promoted typed columns (kind / proposer_id / role_principal),
+  //      then
+  //   3. the unified `attributes` bag — every other per-node domain field.
+  const data: Record<string, unknown> = {};
+  // 1. System keys, only when present on the row (a column may be absent from a
+  // narrowed SELECT). node_type is the discriminator we were handed.
+  data.id = String(row.id);
+  if (row.doco_id != null) data.doco_id = String(row.doco_id);
+  data.node_type = entityType;
+  if (row.lifecycle != null) data.lifecycle = String(row.lifecycle);
+  for (const key of ["created_at", "updated_at"] as const) {
+    const v = row[key];
+    if (v instanceof Date) data[key] = v.toISOString();
+    else if (typeof v === "string" && v !== "") data[key] = v;
+  }
+  for (const key of ["created_by", "updated_by"] as const) {
+    if (row[key] != null) data[key] = String(row[key]);
+  }
+  // 2. Promoted typed columns.
   const promoted = PROMOTED_COLUMNS_BY_TYPE[entityType] ?? [];
-  const data: Record<string, unknown> = { ...baseData };
   for (const col of promoted) {
     if (col in row && row[col] !== null && row[col] !== undefined) {
       const v = row[col];
@@ -420,10 +442,8 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
       data[col] = v instanceof Date ? v.toISOString() : v;
     }
   }
-  // Node-shape slim-down: the unified `attributes` bag is the source of truth
-  // for per-type domain fields (incl. the dropped action/log/rule scalars like
-  // verb / severity). Merge it on top so callers reading `rec.data.verb` still
-  // find them once those columns are gone.
+  // 3. The unified `attributes` bag — the source of truth for per-type domain
+  // fields (incl. the dropped action/log/rule scalars like verb / severity).
   if (row.attributes && typeof row.attributes === "object") {
     Object.assign(data, row.attributes as Record<string, unknown>);
   }
@@ -579,18 +599,26 @@ export interface PrincipalRow {
 }
 
 function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
+  // Slim-down: the catch-all `data` jsonb is gone. Rebuild the principal's
+  // field bag from `attributes` (its domain fields, e.g. `owner_id`) plus the
+  // `created_by` column (a provenance field readers consult off `data`).
+  const data: Record<string, unknown> =
+    row.attributes && typeof row.attributes === "object"
+      ? { ...(row.attributes as Record<string, unknown>) }
+      : {};
+  if (row.created_by != null) data.created_by = String(row.created_by);
   return {
     id: String(row.id),
     name: String(row.name),
     doco_id: String(row.doco_id),
-    data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
+    data,
   };
 }
 
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, prose AS name, doco_id, data FROM nodes WHERE id = $1 AND node_type = 'principal'",
+      "SELECT id, prose AS name, doco_id, attributes, created_by FROM nodes WHERE id = $1 AND node_type = 'principal'",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -604,7 +632,7 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
 export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, prose AS name, doco_id, data
+      `SELECT id, prose AS name, doco_id, attributes, created_by
        FROM nodes
        WHERE node_type = 'principal' AND doco_id = $1
        ORDER BY prose, created_at, id`,

@@ -316,14 +316,13 @@ CREATE TABLE IF NOT EXISTS nodes (
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
   -- Promoted scalar columns. Slim-down contract phase: every per-type scalar
   -- moved into `attributes` and is dropped below; `kind` is the last one
-  -- (eval/state, plus principal human|agent). The catch-all `data` folds in
-  -- a later phase.
+  -- (eval/state, plus principal human|agent).
   kind         text,                          -- eval, state, principal
-  data         jsonb NOT NULL,
-  -- Node-shape slim-down (expand phase): the unified per-node attributes bag
-  -- that will replace every per-type promoted column (except `kind`) and the
-  -- catch-all `data` jsonb. Populated on write and by the backfill below;
-  -- nothing reads it yet, so this stays non-destructive.
+  -- Node-shape slim-down: the unified per-node attributes bag is the single
+  -- home for per-node domain fields — it replaced every per-type promoted
+  -- column (except `kind`) and the catch-all `data` jsonb (now dropped below).
+  -- Populated on every write; the read path rebuilds the record's field bag
+  -- from this plus the real columns.
   attributes   jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at   timestamptz NOT NULL DEFAULT now(),
   created_by   text,
@@ -345,23 +344,34 @@ ALTER TABLE nodes DROP COLUMN IF EXISTS modality;
 -- Node-shape slim-down. Add the unified `attributes` bag and backfill it from
 -- `data` + the retained promoted columns (defensive: the writer already fills
 -- it on every write, this only touches rows still on the empty default).
+-- Guarded on the `data` column still existing, so a fresh install (which never
+-- creates `data`) and a boot after the drop below both skip it — the writer is
+-- the only populator once `data` is gone.
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS attributes jsonb NOT NULL DEFAULT '{}'::jsonb;
-UPDATE nodes
-   SET attributes = jsonb_strip_nulls(
-         COALESCE(data, '{}'::jsonb)
-            -- identity / audit / lifecycle live in real columns
-            - 'id' - 'doco_id' - 'node_type' - 'lifecycle'
-            - 'created_at' - 'created_by' - 'updated_at' - 'updated_by'
-            -- prose + its historical aliases live in `prose`
-            - 'prose' - 'summary' - 'description'
-            -- principal label/body (kept as columns this phase) + dropped flag
-            - 'name' - 'body_md' - 'role_principal'
-            -- columns we keep promoted
-            - 'kind' - 'proposer_id'
-            -- the type-named prose field, duplicated into data on old writes
-            - 'intent' - 'idea' - 'rule' - 'decision' - 'action'
-            - 'log' - 'eval' - 'reference' - 'state')
- WHERE attributes = '{}'::jsonb;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'nodes' AND column_name = 'data'
+  ) THEN
+    UPDATE nodes
+       SET attributes = jsonb_strip_nulls(
+             COALESCE(data, '{}'::jsonb)
+                -- identity / audit / lifecycle live in real columns
+                - 'id' - 'doco_id' - 'node_type' - 'lifecycle'
+                - 'created_at' - 'created_by' - 'updated_at' - 'updated_by'
+                -- prose + its historical aliases live in `prose`
+                - 'prose' - 'summary' - 'description'
+                -- principal label/body (folded into prose / attributes) + dropped flag
+                - 'name' - 'body_md' - 'role_principal'
+                -- columns we keep promoted
+                - 'kind' - 'proposer_id'
+                -- the type-named prose field, duplicated into data on old writes
+                - 'intent' - 'idea' - 'rule' - 'decision' - 'action'
+                - 'log' - 'eval' - 'reference' - 'state')
+     WHERE attributes = '{}'::jsonb;
+  END IF;
+END $$;
 
 -- Contract phase: the action/log/rule scalar columns now live in `attributes`.
 -- Fold any straggler values in, then DROP the columns. Guarded on the `verb`
@@ -429,6 +439,14 @@ BEGIN
       DROP COLUMN IF EXISTS role_principal;
   END IF;
 END $$;
+
+-- Node-shape slim-down: drop the catch-all `data` jsonb. Every per-node domain
+-- field already lives in `attributes` (the guarded backfill above folded any
+-- stragglers in before this runs), so no further copy is needed. The read path
+-- (rowToRecord) now rebuilds a record's field bag from `attributes` + the real
+-- columns. Idempotent — drops it where present, a no-op on fresh installs (the
+-- CREATE TABLE above no longer declares it) and on every boot thereafter.
+ALTER TABLE nodes DROP COLUMN IF EXISTS data;
 
 -- Audit events: one row per mutation.
 

@@ -108,15 +108,17 @@ describe("node attributes column (Stage 1 — expand)", () => {
     expect(rows[0].attributes).not.toHaveProperty("action");
   });
 
-  it("folds legacy reference columns into attributes, then drops them (contract migration)", async () => {
-    // Simulate a DB written before the reference contract: re-add the dropped
-    // columns, insert a row carrying its values in them with attributes still
-    // empty and a stray non-promoted field in `data`.
+  it("folds legacy reference columns + the dropped data jsonb into attributes, then drops them (contract migration)", async () => {
+    // Simulate a DB written before the slim-down: re-add the dropped reference
+    // columns AND the catch-all `data` jsonb, then insert a row carrying its
+    // values in those columns with `attributes` still empty and a stray
+    // non-promoted field living only in `data`.
     await db.exec(
       `ALTER TABLE nodes ADD COLUMN IF NOT EXISTS ref_type text,
                          ADD COLUMN IF NOT EXISTS locator text,
                          ADD COLUMN IF NOT EXISTS citation text,
-                         ADD COLUMN IF NOT EXISTS title text`,
+                         ADD COLUMN IF NOT EXISTS title text,
+                         ADD COLUMN IF NOT EXISTS data jsonb NOT NULL DEFAULT '{}'::jsonb`,
     );
     const id = "reference_legacy0000000000000000";
     await db.query(
@@ -125,8 +127,9 @@ describe("node attributes column (Stage 1 — expand)", () => {
       [id, DOCO, "https://example.com/acme/pull/9", JSON.stringify({ note: "kept" })],
     );
 
-    // Re-applying schema.sql runs the guarded fold + drop — production does this
-    // on every boot.
+    // Re-applying schema.sql runs the guarded `data`→attributes backfill, the
+    // reference-column fold, and the column drops — production does this on
+    // every boot.
     await db.exec(schemaSql);
 
     const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
@@ -137,12 +140,16 @@ describe("node attributes column (Stage 1 — expand)", () => {
       ref_type: "url",
       locator: "https://example.com/acme/pull/9",
       title: "Legacy title",
+      // the stray field that lived only in `data` survived the backfill.
       note: "kept",
     });
     const after = await db.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
     );
-    expect(after.rows.map((r) => r.column_name)).not.toContain("ref_type");
+    const remaining = after.rows.map((r) => r.column_name);
+    expect(remaining).not.toContain("ref_type");
+    // The catch-all `data` jsonb is dropped by the same re-applied schema.
+    expect(remaining).not.toContain("data");
   });
 
   it("drops every per-type scalar column, serving them from attributes (contract)", async () => {
@@ -165,6 +172,8 @@ describe("node attributes column (Stage 1 — expand)", () => {
       "name",
       "body_md",
       "role_principal",
+      // the catch-all jsonb, now replaced entirely by `attributes`
+      "data",
     ]) {
       expect(names).not.toContain(dropped);
     }
@@ -210,5 +219,113 @@ describe("node attributes column (Stage 1 — expand)", () => {
     });
     expect(rec.attributes).toEqual({ ref_type: "url", locator: "https://x", pr_body: "the body" });
     expect(rec.type_named_value).toBe("ACME PR #1");
+  });
+
+  it("no longer writes the dropped data column; the write path persists only attributes (Stage 3 — drop)", async () => {
+    const cols = await db.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
+    );
+    expect(cols.rows.map((r) => r.column_name)).not.toContain("data");
+
+    // upsertNode must not reference the gone `data` column.
+    const id = "decision_drop00000000000000000000";
+    await upsertEntity(
+      {
+        id,
+        doco_id: DOCO,
+        entity_type: "decision",
+        data: {
+          id,
+          doco_id: DOCO,
+          node_type: "decision",
+          decision: "Adopt the plan",
+          chosen: "Route A",
+          lifecycle: "active",
+        },
+        type_named_value: "Adopt the plan",
+        lifecycle: "active",
+      } as unknown as EntityRecord,
+      db as never,
+    );
+    const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
+      "SELECT attributes FROM nodes WHERE id = $1",
+      [id],
+    );
+    // The domain field round-trips through `attributes`, not a `data` column.
+    expect(rows[0].attributes).toMatchObject({ chosen: "Route A" });
+  });
+
+  it("rebuilds rec.data from attributes + the real columns once data is gone, incl. idea.proposer_id", async () => {
+    const id = "idea_proposer00000000000000000000";
+    const proposer = "user_proposer00000000000000000000";
+    // proposer_id FKs to users(id); seed the OAuth identity first.
+    await db.query("INSERT INTO users (id, data) VALUES ($1, '{}'::jsonb)", [proposer]);
+    await upsertEntity(
+      {
+        id,
+        doco_id: DOCO,
+        entity_type: "idea",
+        data: {
+          id,
+          doco_id: DOCO,
+          node_type: "idea",
+          idea: "Try the widget",
+          proposer_id: proposer,
+          tradeoffs: "cheap but slow",
+          lifecycle: "active",
+        },
+        type_named_value: "Try the widget",
+        lifecycle: "active",
+        created_by: proposer,
+      } as unknown as EntityRecord,
+      db as never,
+    );
+    // `proposer_id` lives ONLY in its real column — excluded from attributes,
+    // and the `data` column is gone — so it must come back via the column merge.
+    const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
+      "SELECT attributes FROM nodes WHERE id = $1",
+      [id],
+    );
+    expect(rows[0].attributes).not.toHaveProperty("proposer_id");
+    expect(rows[0].attributes).toMatchObject({ tradeoffs: "cheap but slow" });
+
+    const fullRow = (
+      await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [id])
+    ).rows[0];
+    const rec = rowToRecord("idea", fullRow);
+    // System keys injected from real columns…
+    expect(rec.data.id).toBe(id);
+    expect(rec.data.doco_id).toBe(DOCO);
+    expect(rec.data.node_type).toBe("idea");
+    expect(rec.data.lifecycle).toBe("active");
+    expect(rec.data.created_by).toBe(proposer);
+    // …the promoted FK column surfaced…
+    expect(rec.data.proposer_id).toBe(proposer);
+    // …and the per-type domain field from attributes.
+    expect(rec.data.tradeoffs).toBe("cheap but slow");
+  });
+
+  it("rowToRecord injects system keys from columns without any data column present", () => {
+    const rec = rowToRecord("decision", {
+      id: "decision_sys000000000000000000000",
+      doco_id: DOCO,
+      node_type: "decision",
+      lifecycle: "queued",
+      prose: "Pick the path",
+      attributes: { chosen: "Route A" },
+      created_by: "user_alice0000000000000000000000",
+      created_at: new Date("2026-01-02T03:04:05.000Z"),
+    });
+    expect(rec.data).toMatchObject({
+      id: "decision_sys000000000000000000000",
+      doco_id: DOCO,
+      node_type: "decision",
+      lifecycle: "queued",
+      created_by: "user_alice0000000000000000000000",
+      created_at: "2026-01-02T03:04:05.000Z",
+      chosen: "Route A",
+    });
+    // No stray `data` round-trip and no leaked prose key.
+    expect(rec.data).not.toHaveProperty("decision");
   });
 });
