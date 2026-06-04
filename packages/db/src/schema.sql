@@ -1434,65 +1434,64 @@ WHERE NOT EXISTS (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- ── Business-processes flow-node attachment fires in `drafting` too ─────────
--- The three flow-node ATTACHMENT gates — a flow node `serves` an Intent, an
--- Action is `performed_by` a Principal, a gateway Decision is `decided_by` a
--- Principal — used to fire only on the committed stages (`["queued","active"]`),
--- so a flow node sketched in `drafting` could float free of any Intent or
--- Principal. The template now fires them from `drafting` onward, so no flow
--- node is ever unattached even in a sketch (only the completeness/shape gates
--- stay drafting-exempt). Converge every already-seeded business-processes Doco
--- onto that.
---
--- Matched by the three distinct (edge_type, edge_role, target_node_type) tuples,
--- which are unique to these gates. The actor-coverage `performed_by` nudge
--- carries NO target_node_type (and an `incoming` direction), and the `owned_by`
--- owner gate / `tests` Eval gate carry other roles, so all stay committed-only.
--- Idempotent: the `NOT (... ? 'drafting')` guard makes a second boot a no-op,
--- and the `lifecycle = 'active'` guard leaves retired rows untouched.
+-- ── Business-processes flow-node attachment lifecycles ──────────────────────
+-- Bring already-seeded business-processes Docos to the template's current
+-- attachment-gate lifecycle config:
+--   • PRINCIPAL gates — an Action `performed_by` a Principal, a gateway Decision
+--     `decided_by` a Principal — fire from `drafting` onward, so an Action or
+--     gateway never floats free of its actor/decider even in a sketch.
+--   • The `serves`→Intent gate is COMPLETENESS, deferrable while drafting (a
+--     step can be sketched before its Intent/pool is chosen), so it fires only
+--     on the committed stages (`["queued","active"]`).
+-- Matched by each gate's distinct (edge_type, edge_role, target_node_type)
+-- tuple; the actor-coverage `performed_by` nudge (NO target_node_type, incoming
+-- direction), the `owned_by` owner gate, and the `tests` Eval gate carry other
+-- shapes and stay committed-only. Both statements are idempotent — the
+-- `? 'drafting'` guards make a second boot a no-op — and skip retired rows.
+
+-- (1) PRINCIPAL gates → include `drafting` (add it if missing).
 UPDATE policies
-SET data = jsonb_set(
-      data,
-      '{fires_when_node_lifecycle}',
-      '["drafting", "queued", "active"]'::jsonb,
-      true
-    ),
+SET data = jsonb_set(data, '{fires_when_node_lifecycle}', '["drafting", "queued", "active"]'::jsonb, true),
     updated_at = now()
 WHERE kind = 'deterministic'
   AND lifecycle = 'active'
   AND data -> 'predicate' ->> 'sub_kind' = 'requires_edge_role'
-  AND (
-        (data -> 'predicate' ->> 'edge_type' = 'supports'
-         AND data -> 'predicate' ->> 'edge_role' = 'serves'
-         AND data -> 'predicate' ->> 'target_node_type' = 'intent')
-     OR (data -> 'predicate' ->> 'edge_type' = 'attributed_to'
-         AND data -> 'predicate' ->> 'edge_role' = 'performed_by'
-         AND data -> 'predicate' ->> 'target_node_type' = 'principal')
-     OR (data -> 'predicate' ->> 'edge_type' = 'attributed_to'
-         AND data -> 'predicate' ->> 'edge_role' = 'decided_by'
-         AND data -> 'predicate' ->> 'target_node_type' = 'principal')
-      )
+  AND data -> 'predicate' ->> 'edge_type' = 'attributed_to'
+  AND data -> 'predicate' ->> 'target_node_type' = 'principal'
+  AND data -> 'predicate' ->> 'edge_role' IN ('performed_by', 'decided_by')
   AND NOT (data -> 'fires_when_node_lifecycle' ? 'drafting');
 
--- ── Business-processes lifecycle-walk guidance: attachment-aware prose ──────
--- The lifecycle-walk `suggestion` shipped before the attachment change, so it
--- still tells authors a `drafting` sketch merely has "completeness and shape
--- rules suspended". The enforcement now also requires a flow node to be
--- ATTACHED to its Intent/Principal even in draft (see the attachment-gate
--- migration above), so refresh the advisory prose to match for already-seeded
--- Docos — kept byte-identical to the template so seeded and new Docos converge.
--- Matched by the suggestion's stable opening; the `NOT LIKE '%ATTACHED%'` guard
--- (the new prose contains "ATTACHED") makes a second boot a no-op.
+-- (2) `serves`→Intent gate → committed-only (remove a `drafting` left by the
+-- earlier attachment migration, so intent is not required while drafting).
+UPDATE policies
+SET data = jsonb_set(data, '{fires_when_node_lifecycle}', '["queued", "active"]'::jsonb, true),
+    updated_at = now()
+WHERE kind = 'deterministic'
+  AND lifecycle = 'active'
+  AND data -> 'predicate' ->> 'sub_kind' = 'requires_edge_role'
+  AND data -> 'predicate' ->> 'edge_type' = 'supports'
+  AND data -> 'predicate' ->> 'edge_role' = 'serves'
+  AND data -> 'predicate' ->> 'target_node_type' = 'intent'
+  AND (data -> 'fires_when_node_lifecycle' ? 'drafting');
+
+-- ── Business-processes lifecycle-walk guidance prose ────────────────────────
+-- Keep the lifecycle-walk `suggestion`'s prose in sync with the template:
+-- a `drafting` sketch may defer serving an Intent (and the other completeness /
+-- shape rules) but must still name its actor (`performed_by`) / decider
+-- (`decided_by`). Kept byte-identical to the template (doco-templates.ts) so
+-- seeded and new Docos converge. Matched by the suggestion's stable opening;
+-- the `<> <target>` guard converges ANY earlier wording to the current text and
+-- makes a second boot a no-op (once equal, the row no longer matches).
 UPDATE policies
 SET data = jsonb_set(
       data,
       '{predicate,agent_instruction}',
-      to_jsonb($bp_lifecycle_walk$Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — completeness and shape rules (forward `flows_to` wiring, gateway exhaustiveness, milestone naming, quality) are suspended — but it must already be ATTACHED: a flow node `serves` its Intent from the moment it is drafted, an Action is `performed_by` a Principal, and a gateway Decision is `decided_by` one, so no node ever floats free of an Intent or Principal even in draft. Create the node and its `serves`/`performed_by`/`decided_by` edge together in one changeset. `queue` it (changeset op `queue`) once its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; a `drafting` sketch is exempt only from those completeness/shape rules, not from attachment. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).$bp_lifecycle_walk$::text)
+      to_jsonb($bp_lifecycle_walk$Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — serving an Intent, forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its Intent (and BPMN pool) is chosen — except that an Action must still name its actor (`performed_by` a Principal) and a gateway Decision its decider (`decided_by` a Principal) from the moment it is drafted, so neither floats free of a Principal even in draft. `queue` it (changeset op `queue`) once it `serves` its Intent and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).$bp_lifecycle_walk$::text)
     ),
     updated_at = now()
 WHERE kind = 'suggestion'
   AND data -> 'predicate' ->> 'agent_instruction' LIKE 'Walk a process node through the four-stage lifecycle%'
-  AND data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%ATTACHED%';
+  AND data -> 'predicate' ->> 'agent_instruction' <> $bp_lifecycle_walk$Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — serving an Intent, forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its Intent (and BPMN pool) is chosen — except that an Action must still name its actor (`performed_by` a Principal) and a gateway Decision its decider (`decided_by` a Principal) from the moment it is drafted, so neither floats free of a Principal even in draft. `queue` it (changeset op `queue`) once it `serves` its Intent and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).$bp_lifecycle_walk$;
 
 -- ── Business-processes: a flow node serves AT MOST one Intent ───────────────
 -- New CEILING gate complementing the `serves` attachment FLOOR (≥1 Intent):

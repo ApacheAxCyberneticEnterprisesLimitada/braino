@@ -105,10 +105,19 @@ describe("business-processes attachment-gate lifecycle migration", () => {
     await db.exec(schemaSql); // fresh baseline
   });
 
-  it("adds `drafting` to the serves-Intent gate (was committed-only)", async () => {
+  it("leaves the serves-Intent gate committed-only — intent is not required in drafting", async () => {
     const id = await seedEdgeRole({ ...SERVES, fires: ["queued", "active"] });
     await db.exec(schemaSql); // re-apply baseline — what every boot does
-    expect(await firesOf(id)).toEqual(["drafting", "queued", "active"]);
+    expect(await firesOf(id)).toEqual(["queued", "active"]);
+  });
+
+  it("reverts a serves-Intent gate an earlier migration had set to include drafting", async () => {
+    // A Doco already migrated to the previous behavior (serves fired in
+    // drafting); this change removes `drafting` so the Intent link is deferrable
+    // again while drafting.
+    const id = await seedEdgeRole({ ...SERVES, fires: ["drafting", "queued", "active"] });
+    await db.exec(schemaSql);
+    expect(await firesOf(id)).toEqual(["queued", "active"]);
   });
 
   it("adds `drafting` to the Action performed_by gate", async () => {
@@ -123,12 +132,13 @@ describe("business-processes attachment-gate lifecycle migration", () => {
     expect(await firesOf(id)).toEqual(["drafting", "queued", "active"]);
   });
 
-  it("is idempotent — a second boot does not change an already-migrated row", async () => {
-    const id = await seedEdgeRole({ ...SERVES, fires: ["queued", "active"] });
+  it("is idempotent — a second boot does not change an already-converged row", async () => {
+    const id = await seedEdgeRole({ ...PERFORMED_BY, fires: ["queued", "active"] });
     await db.exec(schemaSql);
     const once = await firesOf(id);
     await db.exec(schemaSql);
     expect(await firesOf(id)).toEqual(once);
+    expect(await firesOf(id)).toEqual(["drafting", "queued", "active"]);
   });
 
   it("leaves the actor-coverage performed_by nudge committed-only (no target_node_type, incoming)", async () => {
@@ -170,7 +180,9 @@ describe("business-processes attachment-gate lifecycle migration", () => {
   });
 
   it("does not touch a retired attachment-gate row", async () => {
-    const id = await seedEdgeRole({ ...SERVES, fires: ["queued", "active"] });
+    // A retired Action performed_by gate is left committed-only (the `drafting`
+    // add skips retired rows), winding down without being re-judged.
+    const id = await seedEdgeRole({ ...PERFORMED_BY, fires: ["queued", "active"] });
     await db.query("UPDATE policies SET lifecycle = 'retired' WHERE id = $1", [id]);
     await db.exec(schemaSql);
     expect(await firesOf(id)).toEqual(["queued", "active"]);

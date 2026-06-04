@@ -241,20 +241,18 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
 const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
 /**
- * The flow-node ATTACHMENT gates — every Action/Decision/State must `serve`
- * an Intent, every Action be `performed_by` a Principal, and every gateway
- * Decision be `decided_by` a Principal — fire at EVERY pre-retirement stage,
- * `drafting` included.
+ * The flow-node PRINCIPAL-attachment gates — every Action must be
+ * `performed_by` a Principal, and every gateway Decision `decided_by` a
+ * Principal — fire at EVERY pre-retirement stage, `drafting` included.
  *
- * Attachment is not a completeness nicety a sketch may defer: a
- * business-processes Doco never holds a flow node — an Action, a gateway
- * Decision, or a milestone/event State — that floats free of the Intent it
- * serves or the Principal that owns it, even in draft. So while the
- * completeness, quality, sequence-flow, and shape rules above stay suspended
- * in `drafting` (BUSINESS_PROCESS_COMMITTED_LIFECYCLES), the rule that a node
- * is *bound to* an Intent or Principal holds from the moment it exists.
- * Authors satisfy it by creating the node and its
- * `serves`/`performed_by`/`decided_by` edge together in one changeset.
+ * Naming the actor/decider is not a completeness nicety a sketch may defer: a
+ * business-processes Doco never holds an Action or gateway Decision that floats
+ * free of the Principal that owns it, even in draft. Serving an Intent, by
+ * contrast, IS deferrable while drafting — that gate fires only on the
+ * committed stages (BUSINESS_PROCESS_COMMITTED_LIFECYCLES), so a step can be
+ * sketched before its Intent (and BPMN pool) is decided. Authors satisfy this
+ * by creating the node and its `performed_by` / `decided_by` edge together in
+ * one changeset.
  *
  * `retired` is still excluded: a winding-down node isn't re-judged (and the
  * runner's terminal-skip drops these `requires_edge_role` checks anyway).
@@ -562,12 +560,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // treated as BPMN arrows.
     //
     // Lifecycle: nodes default to `drafting` so a process can be sketched
-    // freely; the completeness + shape rules fire on the committed stages
-    // (`queued` and `active`) only — see BUSINESS_PROCESS_COMMITTED_LIFECYCLES.
-    // The exception is the flow-node ATTACHMENT gates (a node `serves` an
-    // Intent / is `performed_by` / `decided_by` a Principal), which fire from
-    // `drafting` onward — see BUSINESS_PROCESS_ATTACHED_LIFECYCLES — so even a
-    // sketch is bound to an Intent or Principal, never floating free.
+    // freely; the completeness + shape rules — including serving an Intent —
+    // fire on the committed stages (`queued` and `active`) only, so a step can
+    // be drafted before its Intent/pool is chosen (BUSINESS_PROCESS_COMMITTED_LIFECYCLES).
+    // The exception is the Principal-attachment gates (an Action is
+    // `performed_by`, a gateway Decision `decided_by` a Principal), which fire
+    // from `drafting` onward — see BUSINESS_PROCESS_ATTACHED_LIFECYCLES — so a
+    // sketch always names its actor/decider even before it serves an Intent.
     name: "business-processes",
     label: "business-processes",
     icon: "🏭",
@@ -734,7 +733,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // same constraint (be tied to a concrete process/pool) and
         // previously shipped as three near-identical entries.
         policy:
-          "Every flow node in business-processes — Action, gateway Decision, or milestone/event State — must `serve` an Intent (stored as a `supports` edge with role `serves`) from the moment it is drafted, not only once it is committed. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances.",
+          "Every committed (`queued` or `active`) flow node in business-processes — Action, gateway Decision, or milestone/event State — must `serve` an Intent (stored as a `supports` edge with role `serves`). Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances. A `drafting` sketch may defer this link — serving an Intent is not required while drafting.",
         predicate: {
           kind: "requires_edge_role",
           edge_type: "supports",
@@ -742,11 +741,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           target_node_type: "intent",
           when_node_type: ["action", "decision", "state"],
         },
-        // Attachment, not completeness — fires from `drafting` onward (see
-        // BUSINESS_PROCESS_ATTACHED_LIFECYCLES). A flow node is bound to the
-        // Intent it advances from the moment it exists; only the completeness /
-        // shape rules below stay suspended while drafting.
-        fires_when_node_lifecycle: BUSINESS_PROCESS_ATTACHED_LIFECYCLES,
+        // Completeness, not Principal-attachment — a flow node need NOT `serve`
+        // an Intent while it is a `drafting` sketch (so a step can be drafted
+        // before its Intent/pool is chosen); the link is required once the node
+        // is committed (`queued` or `active`). Contrast the actor/decider gates
+        // (`performed_by`, `decided_by`), which DO fire in drafting — see
+        // BUSINESS_PROCESS_ATTACHED_LIFECYCLES.
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
         // The CEILING that complements the `serves` attachment FLOOR above.
@@ -1034,7 +1035,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — completeness and shape rules (forward `flows_to` wiring, gateway exhaustiveness, milestone naming, quality) are suspended — but it must already be ATTACHED: a flow node `serves` its Intent from the moment it is drafted, an Action is `performed_by` a Principal, and a gateway Decision is `decided_by` one, so no node ever floats free of an Intent or Principal even in draft. Create the node and its `serves`/`performed_by`/`decided_by` edge together in one changeset. `queue` it (changeset op `queue`) once its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; a `drafting` sketch is exempt only from those completeness/shape rules, not from attachment. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
+          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — serving an Intent, forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its Intent (and BPMN pool) is chosen — except that an Action must still name its actor (`performed_by` a Principal) and a gateway Decision its decider (`decided_by` a Principal) from the moment it is drafted, so neither floats free of a Principal even in draft. `queue` it (changeset op `queue`) once it `serves` its Intent and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
       },
       {
         policy:

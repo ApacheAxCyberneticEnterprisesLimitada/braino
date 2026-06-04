@@ -174,20 +174,20 @@ describe("business-processes template", () => {
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("fires the flow `serves`-Intent attachment at every pre-retirement stage, drafting included", () => {
-      // ATTACHMENT, not completeness: a flow node (Action, gateway Decision, or
-      // milestone/event State) must `serve` an Intent from the moment it
-      // exists, so the gate fires in `drafting` too. Completeness/shape rules
-      // (forward `flows_to` wiring, exhaustiveness, …) still exempt `drafting`.
+    it("fires the flow `serves`-Intent gate only on committed stages, NOT drafting", () => {
+      // Completeness, not Principal-attachment: serving an Intent is deferrable
+      // while drafting (a step can be sketched before its Intent/pool is
+      // chosen), so the gate fires only on `queued`/`active`. The Principal
+      // gates (`performed_by`, `decided_by`) above still fire in `drafting`.
       expect(
         requiresEdgeRole("supports", "serves", "intent", "action")?.fires_when_node_lifecycle,
-      ).toEqual(["drafting", "queued", "active"]);
+      ).toEqual(["queued", "active"]);
       expect(
         requiresEdgeRole("supports", "serves", "intent", "decision")?.fires_when_node_lifecycle,
-      ).toEqual(["drafting", "queued", "active"]);
+      ).toEqual(["queued", "active"]);
       expect(
         requiresEdgeRole("supports", "serves", "intent", "state")?.fires_when_node_lifecycle,
-      ).toEqual(["drafting", "queued", "active"]);
+      ).toEqual(["queued", "active"]);
     });
 
     it("keeps the role vocabulary in the business-process guidance", () => {

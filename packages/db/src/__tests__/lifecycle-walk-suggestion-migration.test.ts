@@ -17,14 +17,21 @@ import { beforeEach, describe, expect, it } from "vitest";
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
-// The pre-#1005 lifecycle-walk prose, as already-seeded Docos still carry it.
+// The pre-#1005 lifecycle-walk prose, as the earliest-seeded Docos carry it.
 const OLD_PROSE =
   "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. Sketch it in `drafting`, where it may be incomplete — completeness and shape rules are suspended. `queue` it (changeset op `queue`) once its actor (`performed_by`, or `decided_by` for a gateway Decision), Intent (`serves`), and forward `flows_to` wiring are coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; only a `drafting` sketch is exempt. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).";
 
-// The new prose (must stay byte-identical to the template in
-// packages/host/src/doco-templates.ts so seeded + new Docos converge).
-const NEW_PROSE =
+// The interim (#1014) wording — when serving an Intent was ALSO required in
+// drafting. Docos migrated during that window carry this; the migration must
+// converge it too (proving the `<>`-not-substring idempotency guard).
+const INTERIM_PROSE =
   "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — completeness and shape rules (forward `flows_to` wiring, gateway exhaustiveness, milestone naming, quality) are suspended — but it must already be ATTACHED: a flow node `serves` its Intent from the moment it is drafted, an Action is `performed_by` a Principal, and a gateway Decision is `decided_by` one, so no node ever floats free of an Intent or Principal even in draft. Create the node and its `serves`/`performed_by`/`decided_by` edge together in one changeset. `queue` it (changeset op `queue`) once its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules; a `drafting` sketch is exempt only from those completeness/shape rules, not from attachment. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).";
+
+// The current prose: intent (serves) is deferrable in drafting; only the
+// Principal actor/decider is required there. Must stay byte-identical to the
+// template in packages/host/src/doco-templates.ts so seeded + new Docos converge.
+const NEW_PROSE =
+  "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — serving an Intent, forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its Intent (and BPMN pool) is chosen — except that an Action must still name its actor (`performed_by` a Principal) and a gateway Decision its decider (`decided_by` a Principal) from the moment it is drafted, so neither floats free of a Principal even in draft. `queue` it (changeset op `queue`) once it `serves` its Intent and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).";
 
 let db: PGlite;
 
@@ -70,13 +77,22 @@ describe("business-processes lifecycle-walk suggestion prose migration", () => {
     await db.exec(schemaSql); // fresh baseline
   });
 
-  it("rewrites the legacy lifecycle-walk prose to the attachment-aware wording", async () => {
+  it("converges the earliest (pre-#1005) lifecycle-walk prose to the current wording", async () => {
     const id = await seedSuggestion(OLD_PROSE);
     await db.exec(schemaSql); // re-apply baseline — what every boot does
     expect(await proseOf(id)).toBe(NEW_PROSE);
   });
 
-  it("is idempotent — a second boot does not change the already-migrated row", async () => {
+  it("converges the interim (#1014) prose to the current wording too", async () => {
+    // The `<>` guard converges ANY earlier wording, not just one substring-keyed
+    // version — so a Doco migrated during the intent-required-in-drafting window
+    // lands on the current prose.
+    const id = await seedSuggestion(INTERIM_PROSE);
+    await db.exec(schemaSql);
+    expect(await proseOf(id)).toBe(NEW_PROSE);
+  });
+
+  it("is idempotent — a second boot does not change the already-converged row", async () => {
     const id = await seedSuggestion(OLD_PROSE);
     await db.exec(schemaSql);
     const once = await proseOf(id);
