@@ -15,7 +15,7 @@
  *   - suggestion    → advisory; never produces a violation here.
  *   - probabilistic → emitted as a pending violation (LLM judge resolves it).
  *   - deterministic → engine-checked via `predicate.sub_kind`:
- *       requires_edge, requires_edge_role, limits_edge_role, forbids_edge,
+ *       requires_edge, limits_edge, forbids_edge,
  *       requires_field, forbids_field, unique_field,
  *       requires_node_type, requires_entity_type,
  *       requires_field_resolves_to_principal, graph-completeness
@@ -139,13 +139,6 @@ function comparableFieldValue(value: unknown, caseFold: boolean): string | null 
   return caseFold ? normalized.toLowerCase() : normalized;
 }
 
-function edgeRole(edge: EngineEdge): string | null {
-  const role = edge.edge_props_json?.role;
-  if (typeof role !== "string") return null;
-  const trimmed = role.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
 /**
  * Evaluate every loaded policy against the candidate. Returns one
  * `Violation` per failing policy (zero if all pass). The caller
@@ -182,8 +175,6 @@ export function policyFiresFor(p: LoadedPolicy, candidate: CandidateFields): boo
 /** A newly-created edge, as the edge evaluator sees it. */
 export interface EdgeCandidate {
   edge_type: string;
-  /** The edge's `props.role` metadata, if any. */
-  role?: string | null;
   /** Endpoint node types (entity-type prefixes), when known. */
   from_node_type?: string;
   to_node_type?: string;
@@ -192,7 +183,7 @@ export interface EdgeCandidate {
 /**
  * Evaluate edge-scoped probabilistic policies against a newly-created edge.
  * Emits one pending probabilistic `Violation` per policy whose edge scoping
- * (`edge_type`, optional `edge_role`, optional endpoint node types) matches the
+ * (`edge_type`, optional endpoint node types) matches the
  * edge. The caller resolves each with the LLM judge, handing it BOTH endpoint
  * nodes — this is the only check that compares two nodes. Node-scoped and
  * deterministic policies are ignored here.
@@ -208,7 +199,6 @@ export function evaluateEdgePolicies(opts: {
     const pred = p.predicate;
     if (!("edge_type" in pred) || !("agent_instruction" in pred)) continue;
     if (pred.edge_type !== edge.edge_type) continue;
-    if (pred.edge_role !== undefined && pred.edge_role !== (edge.role ?? undefined)) continue;
     if (pred.from_node_type !== undefined && pred.from_node_type !== edge.from_node_type) continue;
     if (pred.to_node_type !== undefined && pred.to_node_type !== edge.to_node_type) continue;
     violations.push({
@@ -260,33 +250,20 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
 
   switch (pred.sub_kind) {
     case "requires_edge": {
-      const matches = opts.candidateEdges.filter((s) => {
-        if (s.edge_type !== pred.edge_type) return false;
-        if (pred.target_node_type) {
-          return entityTypeFromId(s.to_id) === pred.target_node_type;
-        }
-        return true;
-      });
-      const min = pred.min_count && pred.min_count > 0 ? pred.min_count : 1;
-      if (matches.length >= min) return null;
-      const target = pred.target_node_type ? ` to a ${pred.target_node_type}` : "";
-      const count = min > 1 ? ` (need ≥${min}, have ${matches.length})` : "";
-      return fail(`missing required \`${pred.edge_type}\` edge${target}${count}`);
-    }
-    case "requires_edge_role": {
-      // Structural exemption: a candidate that already carries the exempt role
-      // (on either side of an `edge_type` edge) is excused from the check — the
-      // accountable `owned_by` owner, say, is exempt from the `performed_by`
-      // coverage gate. Keeps the rule from false-positiving on a legitimate
-      // special case the way the org-tree `reports_to` nudge avoids dinging a
-      // valid root.
-      if (pred.exempt_when_role) {
-        const exempt = opts.edges.some(
-          (s) =>
-            (s.from_id === candidate.id || s.to_id === candidate.id) &&
-            s.edge_type === pred.edge_type &&
-            edgeRole(s) === pred.exempt_when_role,
-        );
+      // Endpoint-type exemption: a candidate already participating in an
+      // `edge_type` edge whose OTHER end is `exempt_when_other_node_type` is
+      // excused — e.g. the accountable process owner (`attributed_to` from an
+      // Intent) is exempt from the per-step actor-coverage gate. Replaces the
+      // old role-based exemption now that roles are gone.
+      if (pred.exempt_when_other_node_type) {
+        const exempt = opts.edges.some((s) => {
+          if (s.edge_type !== pred.edge_type) return false;
+          if (s.from_id === candidate.id)
+            return entityTypeFromId(s.to_id) === pred.exempt_when_other_node_type;
+          if (s.to_id === candidate.id)
+            return entityTypeFromId(s.from_id) === pred.exempt_when_other_node_type;
+          return false;
+        });
         if (exempt) return null;
       }
       const direction = pred.direction ?? "outgoing";
@@ -294,28 +271,27 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
         direction === "incoming"
           ? opts.edges.filter((s) => s.to_id === candidate.id)
           : opts.candidateEdges;
-      const wanted = pool.find((s) => {
+      const matches = pool.filter((s) => {
         if (s.edge_type !== pred.edge_type) return false;
-        if (edgeRole(s) !== pred.edge_role) return false;
         if (pred.target_node_type) {
           const otherEnd = direction === "incoming" ? s.from_id : s.to_id;
           return entityTypeFromId(otherEnd) === pred.target_node_type;
         }
         return true;
       });
-      if (wanted) return null;
+      const min = pred.min_count && pred.min_count > 0 ? pred.min_count : 1;
+      if (matches.length >= min) return null;
       const dir = direction === "incoming" ? "incoming " : "";
       const target = pred.target_node_type
         ? `${direction === "incoming" ? " from" : " to"} a ${pred.target_node_type}`
         : "";
-      return fail(
-        `missing required ${dir}\`${pred.edge_type}\` edge with role \`${pred.edge_role}\`${target}`,
-      );
+      const count = min > 1 ? ` (need ≥${min}, have ${matches.length})` : "";
+      return fail(`missing required ${dir}\`${pred.edge_type}\` edge${target}${count}`);
     }
-    case "limits_edge_role": {
-      // Ceiling check — the dual of requires_edge_role. Count the candidate's
-      // matching edges (same edge_type + role, optionally to target_node_type)
-      // on the chosen side and fail when there are MORE than `max_count`.
+    case "limits_edge": {
+      // Ceiling check — the dual of requires_edge. Count the candidate's
+      // matching edges (by edge_type, optionally to target_node_type) on the
+      // chosen side and fail when there are MORE than `max_count`.
       const direction = pred.direction ?? "outgoing";
       const pool =
         direction === "incoming"
@@ -323,7 +299,6 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
           : opts.candidateEdges;
       const matches = pool.filter((s) => {
         if (s.edge_type !== pred.edge_type) return false;
-        if (edgeRole(s) !== pred.edge_role) return false;
         if (pred.target_node_type) {
           const otherEnd = direction === "incoming" ? s.from_id : s.to_id;
           return entityTypeFromId(otherEnd) === pred.target_node_type;
@@ -337,7 +312,7 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
         ? `${direction === "incoming" ? " from" : " to"} a ${pred.target_node_type}`
         : "";
       return fail(
-        `carries ${matches.length} ${dir}\`${pred.edge_type}\` edges with role \`${pred.edge_role}\`${target} (max ${max})`,
+        `carries ${matches.length} ${dir}\`${pred.edge_type}\` edges${target} (max ${max})`,
       );
     }
     case "forbids_edge": {

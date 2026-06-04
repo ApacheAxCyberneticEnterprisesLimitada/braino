@@ -24,7 +24,6 @@ import {
   type EngineEdge,
   type Lifecycle,
   type LoadedPolicy,
-  RELATION_CATALOG,
   type Violation,
   evaluatePolicies,
 } from "@doco/shared";
@@ -80,36 +79,24 @@ function decision(
 ): CandidateFields {
   return { id: `decision_${slug}`, node_type: "decision", lifecycle, ...fields };
 }
+// With `role` gone, a reporting line is just a `has_parent` edge between two
+// principals — its meaning comes from the edge type plus the principal→principal
+// endpoints, not from a role tag. Dotted-line/matrix reporting and one-person-
+// multiple-seats (`same_occupant_as`) are no longer modeled.
 function reportsTo(fromSlug: string, toSlug: string): EngineEdge {
   return {
     from_id: `principal_${fromSlug}`,
     to_id: `principal_${toSlug}`,
     edge_type: "has_parent",
-    edge_props_json: { role: "reports_to" },
   };
 }
-function dottedReportsTo(fromSlug: string, toSlug: string): EngineEdge {
-  return {
-    from_id: `principal_${fromSlug}`,
-    to_id: `principal_${toSlug}`,
-    edge_type: "has_parent",
-    edge_props_json: { role: "dotted_reports_to" },
-  };
-}
-function sameOccupant(aSlug: string, bSlug: string): EngineEdge {
-  return {
-    from_id: `principal_${aSlug}`,
-    to_id: `principal_${bSlug}`,
-    edge_type: "relates_to",
-    edge_props_json: { role: "same_occupant_as" },
-  };
-}
-function memberOf(intentSlug: string, principalSlug: string, role = "member"): EngineEdge {
+// A team Intent's `attributed_to` edge to a Principal IS a membership link
+// (the source node type — intent — carries that meaning, no role needed).
+function memberOf(intentSlug: string, principalSlug: string): EngineEdge {
   return {
     from_id: `intent_${intentSlug}`,
     to_id: `principal_${principalSlug}`,
     edge_type: "attributed_to",
-    edge_props_json: { role },
   };
 }
 
@@ -163,9 +150,9 @@ function judgeKeeps(node: CandidateFields, candidateEdges: EngineEdge[], v: Viol
   const spec = v.pending_spec ?? "";
   const body = typeof node.body_md === "string" ? node.body_md : "";
   if (/no manager above it/i.test(spec)) {
-    const hasReportsTo = candidateEdges.some(
-      (e) => e.edge_type === "has_parent" && e.edge_props_json?.role === "reports_to",
-    );
+    // A reporting line is any `has_parent` edge from this principal (to its
+    // manager principal) — no role tag to inspect now that roles are gone.
+    const hasReportsTo = candidateEdges.some((e) => e.edge_type === "has_parent");
     return !(hasReportsTo || explainsRoot(body)); // KEEP (violation) when neither holds
   }
   if (/filled by a person|currently vacant|filled by an AI agent/i.test(spec)) {
@@ -245,7 +232,7 @@ describe("org-chart template — 10 real-life scenarios", () => {
       reportsTo("eng", "ceo"),
       reportsTo("sales", "ceo"),
       reportsTo("ops", "ceo"),
-      memberOf("eng_team", "eng", "lead"),
+      memberOf("eng_team", "eng"),
     ];
     expectChartClean(nodes, edges);
   });
@@ -352,8 +339,8 @@ describe("org-chart template — 10 real-life scenarios", () => {
       reportsTo("platform_sre", "platform_lead"),
       // The queued team already names its roster (lead + a budgeted vacant SRE
       // seat) — a committed team is held to the membership gate.
-      memberOf("platform", "platform_lead", "lead"),
-      memberOf("platform", "platform_sre", "member"),
+      memberOf("platform", "platform_lead"),
+      memberOf("platform", "platform_sre"),
     ];
     expectChartClean(nodes, edges);
     // A queued Decision and queued team Intent are accepted node types (the
@@ -365,7 +352,9 @@ describe("org-chart template — 10 real-life scenarios", () => {
     expect(nodes[3].lifecycle).toBe("queued");
   });
 
-  it("6) a matrix org — a solid reporting line plus a dotted-line product manager", () => {
+  it("6) a deep reporting chain — every seat reports to exactly one manager", () => {
+    // Dotted-line/matrix reporting is no longer modeled (role is gone); each
+    // seat has a single solid `has_parent` reporting line up the chain.
     const nodes = [
       principal(
         "vp",
@@ -379,32 +368,30 @@ describe("org-chart template — 10 real-life scenarios", () => {
       reportsTo("eng_mgr", "vp"),
       reportsTo("prod_lead", "vp"),
       reportsTo("engineer", "eng_mgr"),
-      dottedReportsTo("engineer", "prod_lead"),
     ];
     expectChartClean(nodes, edges);
-    // The dotted matrix line is layered on; the solid line still satisfies the
-    // single-manager reporting nudge.
-    expect(
-      outgoing(edges, "principal_engineer").some(
-        (e) => e.edge_props_json?.role === "dotted_reports_to",
-      ),
-    ).toBe(true);
+    // The single solid line satisfies the reporting nudge — there is no second
+    // (dotted) manager edge to model.
+    const engineerEdges = outgoing(edges, "principal_engineer");
+    expect(engineerEdges.filter((e) => e.edge_type === "has_parent")).toHaveLength(1);
   });
 
-  it("7) a dual-role founder — two seats, one occupant, tied with `same_occupant_as`", () => {
+  it("7) a dual-role founder — modeled as one seat (one person, multiple seats is not modeled)", () => {
+    // `same_occupant_as` is gone: when one person covers two roles we model the
+    // load-bearing seat and document the dual role in prose, rather than minting
+    // a second Principal linked back to the first.
     const nodes = [
-      principal("ceo", "Founder & CEO — a person; top-of-chain, reports to the board."),
       principal(
-        "acting_cto",
-        "Acting CTO — a person; the same individual as the CEO, covering the role during the search. Reports to the CEO seat.",
+        "ceo",
+        "Founder & CEO — a person; top-of-chain, reports to the board. Also acting CTO during the search (one person covering both roles).",
       ),
+      principal("eng_mgr", "Engineering Manager — a person; reports to the CEO."),
     ];
-    const edges = [reportsTo("acting_cto", "ceo"), sameOccupant("acting_cto", "ceo")];
+    const edges = [reportsTo("eng_mgr", "ceo")];
     expectChartClean(nodes, edges);
-    // The guidance's `same_occupant_as` edge is functional end-to-end: the
-    // relation catalog accepts the role (so the changeset path won't drop it).
-    expect(RELATION_CATALOG.relates_to.acceptsProps).toContain("role");
-    expect(RELATION_CATALOG.relates_to.roleExamples).toContain("same_occupant_as");
+    // No `same_occupant_as` / `relates_to` occupancy edge is emitted — the dual
+    // role lives in the seat's prose.
+    expect(edges.some((e) => e.edge_type === "relates_to")).toBe(false);
   });
 
   it("8) a hospital department — a non-tech chain reporting up to a board", () => {
@@ -419,7 +406,7 @@ describe("org-chart template — 10 real-life scenarios", () => {
       reportsTo("cardio_dir", "chief"),
       reportsTo("attending", "cardio_dir"),
       reportsTo("nurse_mgr", "cardio_dir"),
-      memberOf("cardio", "cardio_dir", "lead"),
+      memberOf("cardio", "cardio_dir"),
     ];
     expectChartClean(nodes, edges);
   });
@@ -661,7 +648,7 @@ describe("org-chart template — team membership gate (requires_edge)", () => {
 
   it("is satisfied once the team has at least one member edge", () => {
     const team = intent("real_team", "Real Team — has a lead.", "active");
-    const edges = [memberOf("real_team", "lead", "lead")];
+    const edges = [memberOf("real_team", "lead")];
     const findings = assess(team, outgoing(edges, team.id)).deterministic;
     expect(findings.some((v) => v.sub_kind === "requires_edge")).toBe(false);
   });

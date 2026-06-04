@@ -7,7 +7,6 @@ export interface RelationKindCatalogEntry {
   value: RelationOwner;
   cardinality: RelationCardinality;
   acceptsProps?: readonly string[];
-  roleExamples?: readonly string[];
   endpointTypes?: {
     from?: readonly string[];
     to?: readonly string[];
@@ -23,25 +22,22 @@ export const RELATION_CATALOG = {
   }),
   supports: relation({
     kind: "supports",
-    roleExamples: ["serves", "enacts", "tests", "implemented_by"],
     description:
-      "Broad enabling relation, optionally role-tagged as serves, enacts, tests, or implemented_by.",
+      "Broad enabling relation — one node serves, validates, or provides evidence for another. The endpoint node types carry the specific meaning (e.g. an Eval that `supports` a node tests it; a flow node that `supports` an Intent serves it).",
   }),
   constrained_by: relation({
     kind: "constrained_by",
-    roleExamples: ["gated_by", "consults"],
     endpointTypes: { to: ["rule"] },
-    description: "Node is constrained by Rules, optionally role-tagged as gated_by or consults.",
+    description: "Node is constrained or guarded by a Rule.",
   }),
   attributed_to: relation({
     kind: "attributed_to",
-    roleExamples: ["performed_by", "owned_by", "decided_by"],
     endpointTypes: { to: ["principal"] },
-    description: "Principal attribution for performers, owners, stakeholders, and decision makers.",
+    description:
+      "Attribution to a Principal — performer, owner, decider, or stakeholder. The attributing node's type carries the specific meaning (an Action's actor, an Intent's owner, a gateway Decision's decider).",
   }),
   has_parent: relation({
     kind: "has_parent",
-    roleExamples: ["parent_intent", "reports_to", "dotted_reports_to"],
     description: "Hierarchy relation for Intent nesting and Principal reporting lines.",
   }),
   derived_from: relation({
@@ -55,9 +51,8 @@ export const RELATION_CATALOG = {
   }),
   relates_to: relation({
     kind: "relates_to",
-    roleExamples: ["same_occupant_as"],
     description:
-      "Associative 'see also' link between two peer nodes (the SKOS `related` analogue). No hierarchy or direction implied. Glossaries use it to connect related, confusable, parent/child, or homograph terms; org charts tag it `same_occupant_as` to tie the multiple seats one person holds.",
+      "Associative 'see also' link between two peer nodes (the SKOS `related` analogue). No hierarchy or direction implied. Glossaries use it to connect related, confusable, parent/child, or homograph terms; org charts use it to tie the multiple seats one person holds.",
   }),
 } as const satisfies Record<string, RelationKindCatalogEntry>;
 
@@ -69,19 +64,10 @@ function relation(
   entry: Pick<RelationKindCatalogEntry, "kind" | "description"> &
     Partial<Omit<RelationKindCatalogEntry, "kind" | "description">>,
 ): RelationKindCatalogEntry {
-  // A relation that documents role examples MUST also accept a `role` prop.
-  // Otherwise the changeset relate path (relationProps) filters `role` out as
-  // an unknown prop and writes a role-less edge — which fails the role-aware
-  // authoring policies and gets duplicated by a second, role-bearing edge
-  // created through the direct edges route to satisfy the policy.
-  const acceptsProps = entry.roleExamples
-    ? ["role", ...(entry.acceptsProps ?? [])]
-    : entry.acceptsProps;
   return {
     owner: "from",
     value: "to",
     cardinality: "many",
     ...entry,
-    ...(acceptsProps ? { acceptsProps } : {}),
   };
 }

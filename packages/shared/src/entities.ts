@@ -173,44 +173,44 @@ export type AuthoringPredicate =
   | {
       kind: "requires_edge";
       edge_type: string;
+      /**
+       * Constrain the node at the OTHER end of the edge (the `to` side for an
+       * outgoing edge, the `from` side for an incoming one). With `role` gone,
+       * this endpoint-type filter is how a policy distinguishes, say, an
+       * Action's actor edge (`attributed_to` from an Action) from an Intent's
+       * owner edge of the same `attributed_to` type.
+       */
       target_node_type?: string;
-      /** Minimum number of matching outgoing edges (default 1). A gateway, say, needs ≥2. */
+      /** Minimum number of matching edges (default 1). A gateway, say, needs ≥2. */
       min_count?: number;
-      when_node_type?: NodeType[];
-    }
-  | {
-      kind: "requires_edge_role";
-      edge_type: string;
-      edge_role: string;
-      target_node_type?: string;
       /**
        * Which side of the candidate the edge must sit on. "outgoing" (default)
        * checks edges the candidate owns; "incoming" checks edges that point AT
-       * the candidate (e.g. a Principal must be the target of a `performed_by`).
+       * the candidate (e.g. a Principal must be the target of an Action's
+       * `attributed_to`).
        */
       direction?: "incoming" | "outgoing";
       /**
        * Skip the check when the candidate already participates in an edge of
-       * `edge_type` carrying this role — the structural exemption that keeps a
-       * rule from false-positiving on a legitimate special case (e.g. the
-       * accountable `owned_by` owner is exempt from the `performed_by` gate).
+       * `edge_type` whose OTHER endpoint is this node type — the structural
+       * exemption that keeps a rule from false-positiving on a legitimate
+       * special case (e.g. the accountable process owner, `attributed_to` from
+       * an Intent, is exempt from the per-step actor-coverage gate).
        */
-      exempt_when_role?: string;
+      exempt_when_other_node_type?: string;
       when_node_type?: NodeType[];
     }
   | {
       /**
-       * Ceiling counterpart to `requires_edge_role`. Where that predicate is the
-       * FLOOR ("≥1 edge of this type+role"), this is the CAP: the candidate may
-       * carry AT MOST `max_count` (default 1) edges of `edge_type` carrying
-       * `edge_role`, optionally to a `target_node_type`. Pair the two on the same
-       * edge to pin a node to EXACTLY one neighbour — e.g. a business-process
-       * flow node that must `serve` one Intent and no more, so it lives in a
-       * single BPMN pool.
+       * Ceiling counterpart to `requires_edge`. Where that predicate is the
+       * FLOOR ("≥1 edge of this type"), this is the CAP: the candidate may carry
+       * AT MOST `max_count` (default 1) edges of `edge_type`, optionally to a
+       * `target_node_type`. Pair the two on the same edge to pin a node to
+       * EXACTLY one neighbour — e.g. a business-process flow node that must
+       * `support` one Intent and no more, so it lives in a single BPMN pool.
        */
-      kind: "limits_edge_role";
+      kind: "limits_edge";
       edge_type: string;
-      edge_role: string;
       target_node_type?: string;
       /** Which side of the candidate to count. "outgoing" (default) or "incoming". */
       direction?: "incoming" | "outgoing";
@@ -262,16 +262,15 @@ export type AuthoringPredicate =
       /**
        * Edge-scoped probabilistic check. Unlike `probabilistic` (which the
        * judge runs against a single candidate node), this fires when an edge
-       * of `edge_type` (optionally carrying `edge_role`, and optionally between
-       * the given endpoint node types) is created, and the judge sees BOTH
-       * endpoint nodes. It is the only predicate that can compare two nodes
-       * against each other — e.g. that a sub-process child Intent's name is the
-       * base form of the calling Action it `serves`.
+       * of `edge_type` (optionally between the given endpoint node types) is
+       * created, and the judge sees BOTH endpoint nodes. It is the only
+       * predicate that can compare two nodes against each other — e.g. that a
+       * sub-process child Intent's name is the base form of the calling Action
+       * that `supports` it.
        */
       kind: "edge-probabilistic";
       spec: string;
       edge_type: string;
-      edge_role?: string;
       from_node_type?: NodeType;
       to_node_type?: NodeType;
     }
@@ -331,21 +330,13 @@ export type DeterministicPredicate =
       edge_type: string;
       target_node_type?: string;
       min_count?: number;
-      when_node_type?: NodeType[];
-    }
-  | {
-      sub_kind: "requires_edge_role";
-      edge_type: string;
-      edge_role: string;
-      target_node_type?: string;
       direction?: "incoming" | "outgoing";
-      exempt_when_role?: string;
+      exempt_when_other_node_type?: string;
       when_node_type?: NodeType[];
     }
   | {
-      sub_kind: "limits_edge_role";
+      sub_kind: "limits_edge";
       edge_type: string;
-      edge_role: string;
       target_node_type?: string;
       direction?: "incoming" | "outgoing";
       max_count?: number;
@@ -413,7 +404,6 @@ export interface AgentInstructionPredicate {
 export interface EdgeAgentInstructionPredicate {
   agent_instruction: string;
   edge_type: string;
-  edge_role?: string;
   from_node_type?: NodeType;
   to_node_type?: NodeType;
 }

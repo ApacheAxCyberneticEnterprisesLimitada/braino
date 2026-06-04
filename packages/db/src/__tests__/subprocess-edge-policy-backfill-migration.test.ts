@@ -1,5 +1,5 @@
 // The business-processes template gained an EDGE-scoped probabilistic policy:
-// when a calling Action `serves` a child purpose Intent (a sub-process), the
+// when a calling Action supports a child purpose Intent (a sub-process), the
 // Intent's name must be the base (imperative) form of the third-person Action
 // (`Posts a job` -> `Post a job`). New Docos seed it at creation, but Docos
 // created before the policy existed don't have it — so a data migration in
@@ -7,7 +7,8 @@
 // seeds a Doco with the membership marker but no edge policy, re-applies the
 // baseline (what every boot does), and asserts the edge policy is inserted —
 // idempotently, scoped to business-process Docos, and without duplicating a Doco
-// that already has it.
+// that already has it. Edge `role` is retired: the backfilled edge-probabilistic
+// carries no `edge_role` — it is scoped by edge_type + endpoint node types.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -54,6 +55,7 @@ async function seedProbabilistic(docoId: string, spec: string): Promise<void> {
 interface EdgePolicyRow {
   id: string;
   edge_type: string | null;
+  /** Edge `role` is gone — always null; asserted absent. */
   edge_role: string | null;
   from_node_type: string | null;
   to_node_type: string | null;
@@ -97,11 +99,12 @@ describe("business-processes sub-process edge-policy backfill migration", () => 
     expect(edges).toHaveLength(1);
     expect(edges[0]).toMatchObject({
       edge_type: "supports",
-      edge_role: "serves",
       from_node_type: "action",
       to_node_type: "intent",
       on_violation: "block",
     });
+    // No edge_role — the concept is gone, so the column comes back null.
+    expect(edges[0].edge_role).toBeNull();
     expect(edges[0].spec).toMatch(/base \(imperative\) verb form/i);
     expect(edges[0].spec).toMatch(/Posts a job/);
     expect(edges[0].id.startsWith("policy_")).toBe(true);
@@ -136,7 +139,6 @@ describe("business-processes sub-process edge-policy backfill migration", () => 
       predicate: {
         agent_instruction: "pre-existing sub-process edge policy",
         edge_type: "supports",
-        edge_role: "serves",
         from_node_type: "action",
         to_node_type: "intent",
       },

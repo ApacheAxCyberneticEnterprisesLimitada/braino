@@ -119,101 +119,114 @@ describe("business-processes template", () => {
   });
 
   describe("requires_edge rules", () => {
-    function requiresEdgeRole(edgeType: string, role: string, target: string | null, on: string) {
+    // With `role` gone, each gate that used to be `requires_edge_role` is now a
+    // role-free `requires_edge` distinguished by edge_type + target_node_type +
+    // the candidate node type (`when_node_type`). E.g. the Action-performer gate
+    // is `requires_edge`(attributed_to → principal) scoped to `action`; the
+    // serves gate is `requires_edge`(supports → intent) scoped to the flow node.
+    function requiresEdge(edgeType: string, target: string | null, on: string) {
       return template.policies.find(
         (r) =>
-          r.predicate?.kind === "requires_edge_role" &&
+          r.predicate?.kind === "requires_edge" &&
           r.predicate.edge_type === edgeType &&
-          r.predicate.edge_role === role &&
-          (target === null || r.predicate.target_node_type === target) &&
-          r.predicate.when_node_type?.includes(on as never),
+          (target === null
+            ? r.predicate.target_node_type === undefined
+            : r.predicate.target_node_type === target) &&
+          (r.predicate.when_node_type?.includes(on as never) ?? false) &&
+          // Exclude the incoming actor-coverage gate (direction: incoming),
+          // which also matches attributed_to but is a different rule.
+          r.predicate.direction !== "incoming",
       );
     }
 
-    it("Action serves Intent", () => {
-      expect(requiresEdgeRole("supports", "serves", "intent", "action")).toBeDefined();
+    it("Action serves Intent (supports → intent)", () => {
+      expect(requiresEdge("supports", "intent", "action")).toBeDefined();
     });
-    it("Decision serves Intent", () => {
-      expect(requiresEdgeRole("supports", "serves", "intent", "decision")).toBeDefined();
+    it("Decision serves Intent (supports → intent)", () => {
+      expect(requiresEdge("supports", "intent", "decision")).toBeDefined();
     });
-    it("State serves Intent", () => {
-      expect(requiresEdgeRole("supports", "serves", "intent", "state")).toBeDefined();
+    it("State serves Intent (supports → intent)", () => {
+      expect(requiresEdge("supports", "intent", "state")).toBeDefined();
     });
-    it("Action performed_by Principal", () => {
-      expect(
-        requiresEdgeRole("attributed_to", "performed_by", "principal", "action"),
-      ).toBeDefined();
+    it("Action attributed to its performer Principal (attributed_to → principal)", () => {
+      expect(requiresEdge("attributed_to", "principal", "action")).toBeDefined();
     });
-    it("Decision decided_by Principal", () => {
+    it("Decision attributed to its decider Principal (attributed_to → principal)", () => {
       // A gateway routes the flow, but a role, team, or system is
       // accountable for how it is decided. Require that decider explicitly,
-      // mirroring the Action performed_by gate.
-      expect(
-        requiresEdgeRole("attributed_to", "decided_by", "principal", "decision"),
-      ).toBeDefined();
+      // mirroring the Action performer gate. With roles gone, a Decision's
+      // `attributed_to` edge to a Principal IS its decider (source = decision).
+      expect(requiresEdge("attributed_to", "principal", "decision")).toBeDefined();
     });
-    it("Decision decided_by fires only on committed stages (queued + active), NOT drafting", () => {
+    it("Decision decider edge fires only on committed stages (queued + active), NOT drafting", () => {
       // A gateway may be sketched without a decider; the decider Principal is
       // required once it is committed (`queued`/`active`), not while drafting.
       expect(
-        requiresEdgeRole("attributed_to", "decided_by", "principal", "decision")
-          ?.fires_when_node_lifecycle,
+        requiresEdge("attributed_to", "principal", "decision")?.fires_when_node_lifecycle,
       ).toEqual(["queued", "active"]);
     });
-    it("Action performed_by fires only on committed stages (queued + active), NOT drafting", () => {
+    it("Action performer edge fires only on committed stages (queued + active), NOT drafting", () => {
       // An Action may be sketched without an actor; the performing Principal is
       // required once it is committed, not while drafting.
       expect(
-        requiresEdgeRole("attributed_to", "performed_by", "principal", "action")
-          ?.fires_when_node_lifecycle,
+        requiresEdge("attributed_to", "principal", "action")?.fires_when_node_lifecycle,
       ).toEqual(["queued", "active"]);
     });
-    it("Eval tests a target", () => {
-      const rule = requiresEdgeRole("supports", "tests", null, "eval");
+    it("Eval tests a target (supports, any endpoint)", () => {
+      const rule = requiresEdge("supports", null, "eval");
       expect(rule).toBeDefined();
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("fires the flow `serves`-Intent gate only on committed stages, NOT drafting", () => {
+    it("fires the flow serves-Intent gate only on committed stages, NOT drafting", () => {
       // Completeness, not Principal-attachment: serving an Intent is deferrable
       // while drafting (a step can be sketched before its Intent/pool is
       // chosen), so the gate fires only on `queued`/`active`. The Principal
-      // gates (`performed_by`, `decided_by`) above still fire in `drafting`.
-      expect(
-        requiresEdgeRole("supports", "serves", "intent", "action")?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
-      expect(
-        requiresEdgeRole("supports", "serves", "intent", "decision")?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
-      expect(
-        requiresEdgeRole("supports", "serves", "intent", "state")?.fires_when_node_lifecycle,
-      ).toEqual(["queued", "active"]);
+      // attribution gates above still fire in `drafting`.
+      expect(requiresEdge("supports", "intent", "action")?.fires_when_node_lifecycle).toEqual([
+        "queued",
+        "active",
+      ]);
+      expect(requiresEdge("supports", "intent", "decision")?.fires_when_node_lifecycle).toEqual([
+        "queued",
+        "active",
+      ]);
+      expect(requiresEdge("supports", "intent", "state")?.fires_when_node_lifecycle).toEqual([
+        "queued",
+        "active",
+      ]);
     });
 
-    it("keeps the role vocabulary in the business-process guidance", () => {
+    it("describes edge meaning by type + endpoint node types, never a role tag", () => {
+      // The guidance must NOT reintroduce role tokens as edge roles, and the
+      // BPMN-vocabulary guidance now derives meaning from edge type + endpoints.
       const policies = template.policies.map((r) => r.policy ?? "").join("\n");
-      expect(policies).toMatch(/`serves`/);
-      expect(policies).toMatch(/`performed_by`/);
-      expect(policies).toMatch(/`tests`/);
-      expect(policies).toMatch(/`gated_by`/);
+      expect(policies).toMatch(/an edge's meaning comes from its type plus the node types/i);
+      expect(policies).toMatch(/`attributed_to` edge to a Principal drives actor lanes/i);
+      expect(policies).toMatch(/`supports` edge from an Eval tests/i);
+      expect(policies).toMatch(/`constrained_by` edge to a Rule/i);
+      // No retired role vocabulary leaks back into the prose.
+      expect(policies).not.toMatch(/`serves`|`performed_by`|`decided_by`|`owned_by`|`gated_by`/);
+      expect(policies).not.toMatch(/role `\w+`|carrying role|with role metadata|role examples/i);
     });
   });
 
   describe("a flow node serves exactly one Intent (serves ceiling)", () => {
-    // The `serves` floor (requires_edge_role, ≥1) gets a matching CEILING:
-    // every flow node serves AT MOST one Intent, so a flow node belongs to
-    // exactly one BPMN pool. Like the floor, the ceiling fires only on the
-    // committed stages (`queued`/`active`) — a `drafting` sketch is exempt.
+    // The serves floor (requires_edge supports → intent, ≥1) gets a matching
+    // CEILING: every flow node serves AT MOST one Intent, so a flow node belongs
+    // to exactly one BPMN pool. With `role` gone this is a role-free
+    // `limits_edge`(supports → intent, max 1). Like the floor, the ceiling fires
+    // only on the committed stages (`queued`/`active`) — a `drafting` sketch is exempt.
     const ceiling = template.policies.find(
       (r) =>
-        r.predicate?.kind === "limits_edge_role" &&
+        r.predicate?.kind === "limits_edge" &&
         r.predicate.edge_type === "supports" &&
-        r.predicate.edge_role === "serves",
+        r.predicate.target_node_type === "intent",
     );
 
-    it("seeds a limits_edge_role gate on the `serves` edge to an Intent, capped at one", () => {
-      expect(ceiling?.predicate?.kind).toBe("limits_edge_role");
-      if (ceiling?.predicate?.kind !== "limits_edge_role") return;
+    it("seeds a limits_edge gate on the `supports` edge to an Intent, capped at one", () => {
+      expect(ceiling?.predicate?.kind).toBe("limits_edge");
+      if (ceiling?.predicate?.kind !== "limits_edge") return;
       expect(ceiling.predicate.target_node_type).toBe("intent");
       expect(ceiling.predicate.max_count).toBe(1);
       expect([...(ceiling.predicate.when_node_type ?? [])].sort()).toEqual([
@@ -235,8 +248,9 @@ describe("business-processes template", () => {
       const seeded = templatePolicyToPolicyRow(ceiling);
       expect(seeded.kind).toBe("deterministic");
       expect(seeded.on_violation).toBe("block");
-      expect(seeded.predicate.sub_kind).toBe("limits_edge_role");
-      expect(seeded.predicate.edge_role).toBe("serves");
+      expect(seeded.predicate.sub_kind).toBe("limits_edge");
+      expect(seeded.predicate.edge_type).toBe("supports");
+      expect(seeded.predicate.target_node_type).toBe("intent");
       expect(seeded.predicate.max_count).toBe(1);
       expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
@@ -244,17 +258,18 @@ describe("business-processes template", () => {
 
   describe("sub-process naming (edge-scoped)", () => {
     // A sub-process pairs a calling Action with a child purpose Intent through
-    // a `serves` edge; the Intent's name should be the base (imperative) form
+    // a `supports` edge; the Intent's name should be the base (imperative) form
     // of the third-person Action (`Posts a job` → `Post a job`). The convention
     // spans two nodes, so it is enforced on the EDGE, where the judge sees both
-    // endpoints — not on either node alone.
+    // endpoints — not on either node alone. With `role` gone the edge is scoped
+    // by edge_type + endpoint node types only.
     const edgeRule = template.policies.find((r) => r.predicate?.kind === "edge-probabilistic");
 
-    it("is an edge-probabilistic policy on the Action→Intent serves edge", () => {
+    it("is an edge-probabilistic policy on the Action→Intent supports edge", () => {
       expect(edgeRule).toBeDefined();
       if (edgeRule?.predicate?.kind !== "edge-probabilistic") throw new Error("missing edge rule");
       expect(edgeRule.predicate.edge_type).toBe("supports");
-      expect(edgeRule.predicate.edge_role).toBe("serves");
+      expect(edgeRule.predicate).not.toHaveProperty("edge_role");
       expect(edgeRule.predicate.from_node_type).toBe("action");
       expect(edgeRule.predicate.to_node_type).toBe("intent");
     });
@@ -276,10 +291,11 @@ describe("business-processes template", () => {
       const seeded = templatePolicyToPolicyRow(edgeRule);
       expect(seeded.kind).toBe("probabilistic");
       expect(seeded.on_violation).toBe("block");
-      // The edge scoping rides on the seeded predicate; no node-type filter.
+      // The edge scoping rides on the seeded predicate; no node-type filter,
+      // and no role tag (role is gone).
       expect(seeded.predicate.agent_instruction).toMatch(/sub-?process|base form/i);
       expect(seeded.predicate.edge_type).toBe("supports");
-      expect(seeded.predicate.edge_role).toBe("serves");
+      expect(seeded.predicate).not.toHaveProperty("edge_role");
       expect(seeded.predicate.from_node_type).toBe("action");
       expect(seeded.predicate.to_node_type).toBe("intent");
       expect(seeded.predicate.when_node_type).toBeUndefined();
@@ -376,32 +392,42 @@ describe("business-processes template", () => {
 
   describe("actor coverage (enforced)", () => {
     it("ENFORCES that each actor Principal performs ≥1 Action, exempting the owner", () => {
+      // With `role` gone, the per-step coverage gate is an INCOMING
+      // `requires_edge`(attributed_to) on a Principal, constrained so the far
+      // (from) end is an Action, and exempt when the principal is the target of
+      // an attributed_to edge from an Intent (the accountable process owner).
       const rule = template.policies.find(
         (r) =>
-          r.predicate?.kind === "requires_edge_role" &&
-          r.predicate.edge_role === "performed_by" &&
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "attributed_to" &&
           r.predicate.direction === "incoming",
       );
-      expect(rule?.predicate?.kind).toBe("requires_edge_role");
-      if (rule?.predicate?.kind !== "requires_edge_role") return;
+      expect(rule?.predicate?.kind).toBe("requires_edge");
+      if (rule?.predicate?.kind !== "requires_edge") return;
       expect(rule.predicate.edge_type).toBe("attributed_to");
-      expect(rule.predicate.exempt_when_role).toBe("owned_by");
+      expect(rule.predicate.target_node_type).toBe("action");
+      expect(rule.predicate.exempt_when_other_node_type).toBe("intent");
       expect(rule.predicate.when_node_type).toEqual(["principal"]);
       // A nudge, not a hard block — the owner exemption keeps it from false-firing.
       expect(rule.on_violation).toBe("warn");
       expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("ENFORCES that the process Intent names an accountable owner (owned_by)", () => {
+    it("ENFORCES that the process Intent names an accountable owner", () => {
+      // The owner gate is an OUTGOING `requires_edge`(attributed_to → principal)
+      // scoped to Intents (no direction). With `role` gone, the source node type
+      // (intent) is what marks this attribution as ownership.
       const rule = template.policies.find(
         (r) =>
-          r.predicate?.kind === "requires_edge_role" &&
-          r.predicate.edge_role === "owned_by" &&
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "attributed_to" &&
+          r.predicate.direction !== "incoming" &&
           (r.predicate.when_node_type?.includes("intent") ?? false),
       );
-      expect(rule?.predicate?.kind).toBe("requires_edge_role");
-      if (rule?.predicate?.kind !== "requires_edge_role") return;
+      expect(rule?.predicate?.kind).toBe("requires_edge");
+      if (rule?.predicate?.kind !== "requires_edge") return;
       expect(rule.predicate.edge_type).toBe("attributed_to");
+      expect(rule.predicate.target_node_type).toBe("principal");
       expect(rule.on_violation).toBe("warn");
       expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });

@@ -43,8 +43,7 @@ export interface PredicatePart {
 
 const SUB_KIND_HEADLINE: Record<DeterministicPredicate["sub_kind"], string> = {
   requires_edge: "Requires edge",
-  requires_edge_role: "Requires edge role",
-  limits_edge_role: "Limits edge role",
+  limits_edge: "Limits edge",
   forbids_edge: "Forbids edge",
   requires_field: "Requires field",
   forbids_field: "Forbids field",
@@ -68,24 +67,19 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
   switch (p.sub_kind) {
     case "requires_edge":
       parts.push({ label: "edge type", value: p.edge_type });
+      if (p.direction) parts.push({ label: "direction", value: p.direction });
       if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
       if (p.min_count && p.min_count > 1)
         parts.push({ label: "min count", value: String(p.min_count) });
+      if (p.exempt_when_other_node_type)
+        parts.push({ label: "exempt when other", value: p.exempt_when_other_node_type });
       break;
     case "forbids_edge":
       parts.push({ label: "edge type", value: p.edge_type });
       if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
       break;
-    case "requires_edge_role":
+    case "limits_edge":
       parts.push({ label: "edge type", value: p.edge_type });
-      parts.push({ label: "role", value: p.edge_role });
-      if (p.direction) parts.push({ label: "direction", value: p.direction });
-      if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
-      if (p.exempt_when_role) parts.push({ label: "exempt role", value: p.exempt_when_role });
-      break;
-    case "limits_edge_role":
-      parts.push({ label: "edge type", value: p.edge_type });
-      parts.push({ label: "role", value: p.edge_role });
       if (p.direction) parts.push({ label: "direction", value: p.direction });
       if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
       parts.push({ label: "max count", value: String(p.max_count ?? 1) });

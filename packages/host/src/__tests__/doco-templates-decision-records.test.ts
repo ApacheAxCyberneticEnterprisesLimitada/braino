@@ -232,14 +232,18 @@ describe("decision-record templates", () => {
     }
   });
 
-  it("describes accountable decision roles with first-class attribution edges", () => {
+  it("describes accountable decision owners with first-class attribution edges", () => {
+    // With edge `role` gone, the attribution is described by the edge TYPE plus
+    // its endpoints (an `attributed_to` edge from the Decision to a Principal),
+    // not by a `decided_by` role tag.
     const guidance = template("architectural-decisions")
       .policies.filter((p) => !p.predicate)
       .map((p) => p.policy ?? "")
       .join("\n");
-    expect(guidance).toMatch(/`attributed_to` edge/i);
-    expect(guidance).toMatch(/role `decided_by`/i);
-    expect(guidance).not.toMatch(/in `decided_by`/i);
+    expect(guidance).toMatch(/`attributed_to` edge from the Decision/i);
+    expect(guidance).toMatch(/accountable technical owner/i);
+    // No retired role token leaks back in.
+    expect(guidance).not.toMatch(/`decided_by`/i);
   });
 
   it("specializes quality gates by decision domain", () => {

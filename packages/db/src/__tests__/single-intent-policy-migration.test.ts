@@ -1,16 +1,16 @@
 // Already-seeded business-processes Docos predate the "a flow node serves AT
 // MOST one Intent" ceiling. The template now seeds that gate
-// (limits_edge_role / supports / serves / intent, max 1, firing drafting →
-// queued → active) on new Docos; existing Docos must get it too, so no flow
-// node can be wired into two BPMN pools.
+// (limits_edge / supports / intent, max 1, firing drafting → queued → active)
+// on new Docos; existing Docos must get it too, so no flow node can be wired
+// into two BPMN pools.
 //
-// A seeded policy row is just data, so the fix for already-seeded Docos is a
-// data migration in schema.sql, re-applied on every boot. A business-processes
-// Doco is identified by its `serves` attachment FLOOR gate (requires_edge_role
-// / supports / serves / intent), which only that template seeds. This test
-// seeds such a Doco WITHOUT the ceiling, re-applies the baseline (what every
-// boot does), and asserts the ceiling row is inserted — idempotently, scoped to
-// business-processes Docos, and never duplicated.
+// Edge `role` is retired: the floor and ceiling no longer carry an `edge_role`
+// tag — the meaning rides on the edge type + endpoint node types. A
+// business-processes Doco is identified by its role-free `serves` attachment
+// FLOOR gate (requires_edge / supports / intent), which only that template
+// seeds. This test seeds such a Doco WITHOUT the ceiling, re-applies the
+// baseline (what every boot does), and asserts the ceiling row is inserted —
+// idempotently, scoped to business-processes Docos, and never duplicated.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,7 +33,7 @@ async function ensureDoco(id: string): Promise<void> {
   `);
 }
 
-/** Seed the `serves` attachment FLOOR gate — the business-processes fingerprint. */
+/** Seed the role-free `serves` attachment FLOOR gate — the business-processes fingerprint. */
 async function seedServesFloor(docoId: string): Promise<void> {
   await ensureDoco(docoId);
   const id = `policy_floor_${Math.random().toString(36).slice(2)}`;
@@ -42,9 +42,8 @@ async function seedServesFloor(docoId: string): Promise<void> {
     doco_id: docoId,
     kind: "deterministic",
     predicate: {
-      sub_kind: "requires_edge_role",
+      sub_kind: "requires_edge",
       edge_type: "supports",
-      edge_role: "serves",
       target_node_type: "intent",
       when_node_type: ["action", "decision", "state"],
     },
@@ -93,8 +92,9 @@ async function ceilingRows(docoId: string): Promise<CeilingRow[]> {
     `SELECT id, data FROM policies
       WHERE doco_id = $1
         AND lifecycle = 'active'
-        AND data -> 'predicate' ->> 'sub_kind' = 'limits_edge_role'
-        AND data -> 'predicate' ->> 'edge_role' = 'serves'`,
+        AND data -> 'predicate' ->> 'sub_kind' = 'limits_edge'
+        AND data -> 'predicate' ->> 'edge_type' = 'supports'
+        AND data -> 'predicate' ->> 'target_node_type' = 'intent'`,
     [docoId],
   );
   return r.rows.map((row) => {
@@ -132,13 +132,14 @@ describe("business-processes serves-ceiling policy migration", () => {
     expect(row?.template_seeded).toBe(true);
     expect(row?.template_handle).toBe("business-processes");
     expect(row?.predicate).toMatchObject({
-      sub_kind: "limits_edge_role",
+      sub_kind: "limits_edge",
       edge_type: "supports",
-      edge_role: "serves",
       target_node_type: "intent",
       max_count: 1,
       when_node_type: ["action", "decision", "state"],
     });
+    // Edge `role` is gone — the inserted ceiling carries no role tag.
+    expect(row?.predicate.edge_role).toBeUndefined();
   });
 
   it("is idempotent — a second boot does not add a duplicate", async () => {
@@ -166,9 +167,8 @@ describe("business-processes serves-ceiling policy migration", () => {
       doco_id: "doco_bp",
       kind: "deterministic",
       predicate: {
-        sub_kind: "limits_edge_role",
+        sub_kind: "limits_edge",
         edge_type: "supports",
-        edge_role: "serves",
         target_node_type: "intent",
         max_count: 1,
         when_node_type: ["action", "decision", "state"],

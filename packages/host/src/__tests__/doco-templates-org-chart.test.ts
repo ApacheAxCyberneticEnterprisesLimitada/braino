@@ -121,18 +121,22 @@ describe("org-chart template", () => {
     });
   });
 
-  describe("hierarchy — reports_to", () => {
+  describe("hierarchy — reporting line", () => {
+    // With `role` gone, the reporting line is a `has_parent` edge between two
+    // principals; there is no `reports_to` role/edge_type to match on. The
+    // deterministic finder used a never-existent `reports_to` edge_type, so it
+    // still resolves to undefined (no deterministic gate), but match the role-
+    // free `has_parent` edge_type to keep the intent explicit.
     const deterministicRule = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_edge" &&
-        r.predicate.edge_type === "reports_to" &&
-        r.predicate.when_node_type?.includes("principal"),
+        r.predicate.edge_type === "has_parent" &&
+        (r.predicate.when_node_type?.includes("principal") ?? false),
     );
     const rule = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.when_node_type?.includes("principal") &&
-        /reports_to/i.test(r.predicate.spec) &&
+        (r.predicate.when_node_type?.includes("principal") ?? false) &&
         /has_parent/i.test(r.predicate.spec),
     );
 
@@ -144,7 +148,7 @@ describe("org-chart template", () => {
       expect(rule).toBeDefined();
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
-      expect(rule.predicate.spec).toMatch(/has_parent|reports_to/);
+      expect(rule.predicate.spec).toMatch(/has_parent/);
       expect(rule.predicate.spec).toMatch(/founder|external authority|no manager/i);
     });
 
@@ -315,20 +319,23 @@ describe("org-chart template", () => {
       ).toBe(true);
     });
 
-    it("secondary / dotted-line / matrix reporting layers on top of the single `reports_to` line", () => {
+    it("states that dotted-line / matrix reporting is NOT modeled (role is gone)", () => {
+      // Each seat reports to exactly one manager via a single `has_parent` edge;
+      // the retired `dotted_reports_to` role no longer exists, so the guidance
+      // says plainly that dotted-line/matrix reporting isn't modeled.
+      expect(summaries.some((s) => /dotted-line|matrix/i.test(s) && /not modeled/i.test(s))).toBe(
+        true,
+      );
+      expect(summaries.join("\n")).not.toMatch(/`dotted_reports_to`/);
+    });
+
+    it("states that one occupant / many seats is NOT modeled (same_occupant_as is gone)", () => {
       expect(
         summaries.some(
-          (s) => /dotted|matrix|secondary/i.test(s) && /reports_to|reporting/i.test(s),
+          (s) => /seat/i.test(s) && /not modeled/i.test(s) && /one person|several seats/i.test(s),
         ),
       ).toBe(true);
-    });
-
-    it("dotted-line guidance points at `dotted_reports_to` edges", () => {
-      expect(summaries.some((s) => /`dotted_reports_to`/.test(s))).toBe(true);
-    });
-
-    it("one occupant / many seats is modeled with `same_occupant_as`", () => {
-      expect(summaries.some((s) => /`same_occupant_as`/.test(s) && /seat/i.test(s))).toBe(true);
+      expect(summaries.join("\n")).not.toMatch(/`same_occupant_as`/);
     });
   });
 
@@ -342,16 +349,13 @@ describe("org-chart template", () => {
       expect(g).toMatch(/retiring the old edge and adding the new one/i);
     });
 
-    it("frames `dotted_reports_to` as edges", () => {
-      const g = summaries.find((s) => /`dotted_reports_to`/.test(s));
-      expect(g).toBeDefined();
-      expect(g).toMatch(/edges/i);
-    });
-
-    it("frames `same_occupant_as` as edges", () => {
-      const g = summaries.find((s) => /`same_occupant_as`/.test(s));
-      expect(g).toBeDefined();
-      expect(g).toMatch(/edges/i);
+    it("no longer frames `dotted_reports_to` / `same_occupant_as` edges (those concepts are gone)", () => {
+      // Edge `role` is removed: a reporting line is a plain `has_parent` edge,
+      // and the dotted-line and same-occupant roles no longer exist anywhere in
+      // the guidance.
+      const all = summaries.join("\n");
+      expect(all).not.toMatch(/`dotted_reports_to`/);
+      expect(all).not.toMatch(/`same_occupant_as`/);
     });
 
     it("does not describe relationship keys in Principal data", () => {

@@ -233,60 +233,54 @@ describe("authoring evaluator — requires_edge", () => {
   });
 });
 
-describe("authoring evaluator — requires_edge_role", () => {
-  it("passes when the required outgoing edge role is present", () => {
+describe("authoring evaluator — requires_edge distinguishes by endpoint type", () => {
+  // With `role` gone, the meaning that used to live on a role tag (e.g. an
+  // Action's `attributed_to` performer vs an Intent's `attributed_to` owner)
+  // is now carried entirely by `edge_type` + `target_node_type`. The performer
+  // gate is `attributed_to` → principal from an Action.
+  it("passes when the required edge points at the right endpoint type", () => {
     const v = evaluate(
       { id: "action_01", node_type: "action" },
       [
         P({
-          sub_kind: "requires_edge_role",
-          edge_type: "supports",
-          edge_role: "serves",
-          target_node_type: "intent",
+          sub_kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
           when_node_type: ["action"],
         }),
       ],
       {
         candidateEdges: [
-          {
-            from_id: "action_01",
-            to_id: "intent_42",
-            edge_type: "supports",
-            edge_props_json: { role: "serves" },
-          },
+          { from_id: "action_01", to_id: "principal_42", edge_type: "attributed_to" },
         ],
       },
     );
     expect(v).toEqual([]);
   });
 
-  it("fails when the edge family matches but role metadata is missing or different", () => {
+  it("fails when the edge family matches but the endpoint type is wrong", () => {
     const v = evaluate(
       { id: "action_01", node_type: "action" },
       [
         P({
-          sub_kind: "requires_edge_role",
-          edge_type: "supports",
-          edge_role: "serves",
-          target_node_type: "intent",
+          sub_kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
           when_node_type: ["action"],
         }),
       ],
       {
         candidateEdges: [
-          {
-            from_id: "action_01",
-            to_id: "intent_42",
-            edge_type: "supports",
-            edge_props_json: { role: "implemented_by" },
-          },
+          // An `attributed_to` edge to the wrong endpoint type doesn't satisfy
+          // the performer gate (what used to be the wrong-role case).
+          { from_id: "action_01", to_id: "decision_42", edge_type: "attributed_to" },
         ],
       },
     );
     expect(v).toHaveLength(1);
-    expect(v[0]?.sub_kind).toBe("requires_edge_role");
-    expect(v[0]?.reason).toMatch(/supports/);
-    expect(v[0]?.reason).toMatch(/serves/);
+    expect(v[0]?.sub_kind).toBe("requires_edge");
+    expect(v[0]?.reason).toMatch(/attributed_to/);
+    expect(v[0]?.reason).toMatch(/principal/);
   });
 });
 
@@ -552,7 +546,6 @@ describe("authoring evaluator — edge-scoped probabilistic", () => {
       {
         agent_instruction: "Intent name is the base form of the Action it serves.",
         edge_type: "supports",
-        edge_role: "serves",
         from_node_type: "action",
         to_node_type: "intent",
       },
@@ -561,7 +554,6 @@ describe("authoring evaluator — edge-scoped probabilistic", () => {
 
   const edge: EdgeCandidate = {
     edge_type: "supports",
-    role: "serves",
     from_node_type: "action",
     to_node_type: "intent",
   };
@@ -587,9 +579,11 @@ describe("authoring evaluator — edge-scoped probabilistic", () => {
     ).toEqual([]);
   });
 
-  it("does not fire when the edge role differs", () => {
+  it("does not fire when the `to` endpoint node type differs (action supports rule)", () => {
+    // With `role` gone, endpoint node types are the only scoping left beyond
+    // edge_type — a `supports` edge to a non-Intent doesn't match the policy.
     expect(
-      evaluateEdgePolicies({ edge: { ...edge, role: "tests" }, policies: [edgePolicy()] }),
+      evaluateEdgePolicies({ edge: { ...edge, to_node_type: "rule" }, policies: [edgePolicy()] }),
     ).toEqual([]);
   });
 
@@ -669,29 +663,27 @@ describe("authoring evaluator — requires_edge min_count", () => {
   });
 });
 
-describe("authoring evaluator — limits_edge_role", () => {
-  // The ceiling counterpart to requires_edge_role: a candidate may carry AT
-  // MOST max_count (default 1) edges of (edge_type, edge_role[, target]). The
-  // business-processes "a flow node serves exactly one Intent" gate is the
-  // canonical use — paired with the requires_edge_role serves floor.
+describe("authoring evaluator — limits_edge", () => {
+  // The ceiling counterpart to requires_edge: a candidate may carry AT MOST
+  // max_count (default 1) edges of (edge_type[, target_node_type]). With `role`
+  // gone, the business-processes "a flow node serves exactly one Intent" gate is
+  // `limits_edge`(supports → intent), paired with the requires_edge serves floor.
   const servesAtMostOne = () =>
     P({
-      sub_kind: "limits_edge_role",
+      sub_kind: "limits_edge",
       edge_type: "supports",
-      edge_role: "serves",
       target_node_type: "intent",
       when_node_type: ["action", "decision", "state"],
     });
-  const serves = (from: string, to: string, role = "serves") => ({
+  const supports = (from: string, to: string) => ({
     from_id: from,
     to_id: to,
     edge_type: "supports",
-    edge_props_json: { role },
   });
 
   it("passes when the candidate serves exactly one Intent", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
-      candidateEdges: [serves("action_01", "intent_01")],
+      candidateEdges: [supports("action_01", "intent_01")],
     });
     expect(v).toEqual([]);
   });
@@ -705,23 +697,23 @@ describe("authoring evaluator — limits_edge_role", () => {
 
   it("fails when the candidate serves two Intents", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
-      candidateEdges: [serves("action_01", "intent_01"), serves("action_01", "intent_02")],
+      candidateEdges: [supports("action_01", "intent_01"), supports("action_01", "intent_02")],
     });
     expect(v).toHaveLength(1);
     expect(v[0]?.kind).toBe("deterministic");
-    expect(v[0]?.sub_kind).toBe("limits_edge_role");
-    expect(v[0]?.reason).toMatch(/serves/);
+    expect(v[0]?.sub_kind).toBe("limits_edge");
+    expect(v[0]?.reason).toMatch(/supports/);
     expect(v[0]?.reason).toMatch(/max 1/);
   });
 
-  it("counts only matching role + target — other supports edges don't push it over", () => {
+  it("counts only matching edge_type + target — other supports edges don't push it over", () => {
     const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
       candidateEdges: [
-        serves("action_01", "intent_01"),
-        // a non-`serves` supports edge to an Intent does not count
-        serves("action_01", "intent_02", "enacts"),
-        // a `serves` edge to a non-Intent target does not count
-        serves("action_01", "decision_09"),
+        supports("action_01", "intent_01"),
+        // a `supports` edge to a non-Intent target does not count toward the cap
+        supports("action_01", "decision_09"),
+        // a non-`supports` edge to an Intent does not count either
+        { from_id: "action_01", to_id: "intent_02", edge_type: "attributed_to" },
       ],
     });
     expect(v).toEqual([]);
@@ -732,33 +724,18 @@ describe("authoring evaluator — limits_edge_role", () => {
       { id: "intent_01", node_type: "intent" },
       [
         P({
-          sub_kind: "limits_edge_role",
+          sub_kind: "limits_edge",
           edge_type: "attributed_to",
-          edge_role: "member",
+          target_node_type: "principal",
           max_count: 2,
           when_node_type: ["intent"],
         }),
       ],
       {
         candidateEdges: [
-          {
-            from_id: "intent_01",
-            to_id: "p_a",
-            edge_type: "attributed_to",
-            edge_props_json: { role: "member" },
-          },
-          {
-            from_id: "intent_01",
-            to_id: "p_b",
-            edge_type: "attributed_to",
-            edge_props_json: { role: "member" },
-          },
-          {
-            from_id: "intent_01",
-            to_id: "p_c",
-            edge_type: "attributed_to",
-            edge_props_json: { role: "member" },
-          },
+          { from_id: "intent_01", to_id: "principal_a", edge_type: "attributed_to" },
+          { from_id: "intent_01", to_id: "principal_b", edge_type: "attributed_to" },
+          { from_id: "intent_01", to_id: "principal_c", edge_type: "attributed_to" },
         ],
       },
     );
@@ -767,56 +744,53 @@ describe("authoring evaluator — limits_edge_role", () => {
   });
 });
 
-describe("authoring evaluator — requires_edge_role direction + exemption", () => {
+describe("authoring evaluator — requires_edge direction + exemption", () => {
+  // With `role` gone, the per-step actor-coverage gate becomes
+  // requires_edge(attributed_to, direction: incoming, target_node_type: action)
+  // on a Principal: it must be the target of an incoming `attributed_to` edge
+  // FROM an Action, unless it is exempt because it owns an Intent (the
+  // accountable process owner, whose `attributed_to` comes from an Intent).
   const coverage = () =>
     P({
-      sub_kind: "requires_edge_role",
+      sub_kind: "requires_edge",
       edge_type: "attributed_to",
-      edge_role: "performed_by",
       direction: "incoming",
-      exempt_when_role: "owned_by",
+      target_node_type: "action",
+      exempt_when_other_node_type: "intent",
       when_node_type: ["principal"],
     });
-  const inEdge = (from: string, role: string) => ({
+  const inEdge = (from: string) => ({
     from_id: from,
     to_id: "principal_01",
     edge_type: "attributed_to",
-    edge_props_json: { role },
   });
 
-  it("passes when an incoming performed_by edge points at the principal", () => {
+  it("passes when an incoming attributed_to edge from an Action points at the principal", () => {
     const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
-      edges: [inEdge("action_a", "performed_by")],
+      edges: [inEdge("action_a")],
     });
     expect(v).toEqual([]);
   });
 
-  it("fails when no incoming performed_by edge exists", () => {
+  it("fails when no incoming attributed_to edge from an Action exists", () => {
     const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
-      edges: [inEdge("action_a", "decided_by")],
+      edges: [inEdge("decision_a")],
     });
     expect(v).toHaveLength(1);
-    expect(v[0]?.sub_kind).toBe("requires_edge_role");
+    expect(v[0]?.sub_kind).toBe("requires_edge");
     expect(v[0]?.reason).toMatch(/incoming/);
   });
 
-  it("is exempt when the principal carries the exemption role (owned_by owner)", () => {
+  it("is exempt when the principal owns an Intent (incoming attributed_to from an Intent)", () => {
     const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
-      edges: [inEdge("intent_a", "owned_by")],
+      edges: [inEdge("intent_a")],
     });
     expect(v).toEqual([]);
   });
 
-  it("does not count an OUTGOING performed_by as satisfying an incoming requirement", () => {
+  it("does not count an OUTGOING attributed_to as satisfying an incoming requirement", () => {
     const v = evaluate({ id: "principal_01", node_type: "principal" }, [coverage()], {
-      candidateEdges: [
-        {
-          from_id: "principal_01",
-          to_id: "action_a",
-          edge_type: "attributed_to",
-          edge_props_json: { role: "performed_by" },
-        },
-      ],
+      candidateEdges: [{ from_id: "principal_01", to_id: "action_a", edge_type: "attributed_to" }],
     });
     expect(v).toHaveLength(1);
   });
