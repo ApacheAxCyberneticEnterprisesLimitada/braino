@@ -1434,45 +1434,18 @@ WHERE NOT EXISTS (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- ── Business-processes flow-node attachment lifecycles ──────────────────────
--- Bring already-seeded business-processes Docos to the template's current
--- attachment-gate lifecycle config:
---   • PRINCIPAL gates — an Action `performed_by` a Principal, a gateway Decision
---     `decided_by` a Principal — fire from `drafting` onward, so an Action or
---     gateway never floats free of its actor/decider even in a sketch.
---   • The `serves`→Intent gate is COMPLETENESS, deferrable while drafting (a
---     step can be sketched before its Intent/pool is chosen), so it fires only
---     on the committed stages (`["queued","active"]`).
--- Matched by each gate's distinct (edge_type, edge_role, target_node_type)
--- tuple; the actor-coverage `performed_by` nudge (NO target_node_type, incoming
--- direction), the `owned_by` owner gate, and the `tests` Eval gate carry other
--- shapes and stay committed-only. Both statements are idempotent — the
--- `? 'drafting'` guards make a second boot a no-op — and skip retired rows.
-
--- (1) PRINCIPAL gates → include `drafting` (add it if missing).
-UPDATE policies
-SET data = jsonb_set(data, '{fires_when_node_lifecycle}', '["drafting", "queued", "active"]'::jsonb, true),
-    updated_at = now()
-WHERE kind = 'deterministic'
-  AND lifecycle = 'active'
-  AND data -> 'predicate' ->> 'sub_kind' = 'requires_edge_role'
-  AND data -> 'predicate' ->> 'edge_type' = 'attributed_to'
-  AND data -> 'predicate' ->> 'target_node_type' = 'principal'
-  AND data -> 'predicate' ->> 'edge_role' IN ('performed_by', 'decided_by')
-  AND NOT (data -> 'fires_when_node_lifecycle' ? 'drafting');
-
--- (2) `serves`→Intent gate → committed-only (remove a `drafting` left by the
--- earlier attachment migration, so intent is not required while drafting).
-UPDATE policies
-SET data = jsonb_set(data, '{fires_when_node_lifecycle}', '["queued", "active"]'::jsonb, true),
-    updated_at = now()
-WHERE kind = 'deterministic'
-  AND lifecycle = 'active'
-  AND data -> 'predicate' ->> 'sub_kind' = 'requires_edge_role'
-  AND data -> 'predicate' ->> 'edge_type' = 'supports'
-  AND data -> 'predicate' ->> 'edge_role' = 'serves'
-  AND data -> 'predicate' ->> 'target_node_type' = 'intent'
-  AND (data -> 'fires_when_node_lifecycle' ? 'drafting');
+-- NOTE: Two boot-time UPDATEs that force `fires_when_node_lifecycle` on the
+-- business-process flow-node attachment gates used to live here — (1) adding
+-- `drafting` to the Principal gates and (2) stripping it from the `serves`→Intent
+-- gate. They were one-time convergence for already-seeded Docos, but schema.sql
+-- re-applies on EVERY boot, so their `? 'drafting'` guards re-matched the moment
+-- an owner edited a gate's lifecycle stages — the next cold-start (deploy /
+-- serverless cold start, seconds away) silently reverted the edit. From the
+-- owner's view the change "wouldn't save". Convergence is long complete and new
+-- Docos get the right stages from the template at seed time (host.ts), so these
+-- re-applied UPDATEs were pure liability and have been removed. Owner edits to a
+-- policy's lifecycle stages now persist across reboots. See
+-- attachment-lifecycle-policy-migration.test.ts for the regression guard.
 
 -- ── Business-processes lifecycle-walk guidance prose ────────────────────────
 -- Keep the lifecycle-walk `suggestion`'s prose in sync with the template:

@@ -1,18 +1,16 @@
-// Already-seeded business-processes Docos got the three flow-node ATTACHMENT
-// gates — a flow node `serves` an Intent, an Action is `performed_by` a
-// Principal, a gateway Decision is `decided_by` a Principal — firing only on
-// the committed stages (`["queued","active"]`). The template now fires them
-// from `drafting` onward (BUSINESS_PROCESS_ATTACHED_LIFECYCLES), so no flow
-// node floats free of an Intent or Principal even in a sketch — only the
-// completeness/shape gates stay drafting-exempt.
+// Boot-time UPDATEs in schema.sql used to force `fires_when_node_lifecycle` on
+// the three business-process flow-node attachment gates — a flow node `serves`
+// an Intent, an Action is `performed_by` a Principal, a gateway Decision is
+// `decided_by` a Principal. They were one-time convergence for already-seeded
+// Docos, but schema.sql re-applies on EVERY boot, and their `? 'drafting'`
+// guards re-matched the moment an owner edited a gate's lifecycle stages — so
+// the next cold-start silently reverted the edit and the change "wouldn't save".
 //
-// Only `predicate` + `fires_when_node_lifecycle` are persisted on a seeded
-// policy row, so the fix for already-seeded Docos is a data migration in
-// schema.sql, re-applied on every boot. This test seeds the legacy rows,
-// re-applies the baseline (what every boot does), and asserts the three
-// converge to include `drafting` — idempotently, and without touching unrelated
-// policies (notably the actor-coverage `performed_by` nudge and the `owned_by`
-// owner gate, which stay committed-only).
+// Those re-applied UPDATEs have been removed. This test is the regression guard:
+// an owner-customized attachment gate must SURVIVE a re-boot unchanged, in any
+// direction (drafting removed, drafting added, narrowed to active-only). New
+// Docos still get the right stages from the template at seed time (host.ts), so
+// nothing relies on the boot-time heal anymore.
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -99,92 +97,46 @@ const DECIDED_BY = {
   when_node_type: ["decision"],
 } as const;
 
-describe("business-processes attachment-gate lifecycle migration", () => {
+describe("business-processes attachment-gate lifecycle: owner edits survive a re-boot", () => {
   beforeEach(async () => {
     db = new PGlite();
     await db.exec(schemaSql); // fresh baseline
   });
 
-  it("leaves the serves-Intent gate committed-only — intent is not required in drafting", async () => {
-    const id = await seedEdgeRole({ ...SERVES, fires: ["queued", "active"] });
+  // The reported bug: an owner removes `drafting`, it saves, and the next boot
+  // re-adds it. Each gate must now keep exactly what the owner set, either way.
+
+  it("does NOT re-add `drafting` to the Action performed_by gate after an owner removes it", async () => {
+    const id = await seedEdgeRole({ ...PERFORMED_BY, fires: ["queued", "active"] });
     await db.exec(schemaSql); // re-apply baseline — what every boot does
     expect(await firesOf(id)).toEqual(["queued", "active"]);
   });
 
-  it("reverts a serves-Intent gate an earlier migration had set to include drafting", async () => {
-    // A Doco already migrated to the previous behavior (serves fired in
-    // drafting); this change removes `drafting` so the Intent link is deferrable
-    // again while drafting.
-    const id = await seedEdgeRole({ ...SERVES, fires: ["drafting", "queued", "active"] });
-    await db.exec(schemaSql);
-    expect(await firesOf(id)).toEqual(["queued", "active"]);
-  });
-
-  it("adds `drafting` to the Action performed_by gate", async () => {
-    const id = await seedEdgeRole({ ...PERFORMED_BY, fires: ["queued", "active"] });
-    await db.exec(schemaSql);
-    expect(await firesOf(id)).toEqual(["drafting", "queued", "active"]);
-  });
-
-  it("adds `drafting` to the gateway decided_by gate", async () => {
+  it("does NOT re-add `drafting` to the gateway decided_by gate after an owner removes it", async () => {
     const id = await seedEdgeRole({ ...DECIDED_BY, fires: ["queued", "active"] });
     await db.exec(schemaSql);
+    expect(await firesOf(id)).toEqual(["queued", "active"]);
+  });
+
+  it("does NOT strip `drafting` from the serves-Intent gate after an owner adds it", async () => {
+    const id = await seedEdgeRole({ ...SERVES, fires: ["drafting", "queued", "active"] });
+    await db.exec(schemaSql);
     expect(await firesOf(id)).toEqual(["drafting", "queued", "active"]);
   });
 
-  it("is idempotent — a second boot does not change an already-converged row", async () => {
-    const id = await seedEdgeRole({ ...PERFORMED_BY, fires: ["queued", "active"] });
-    await db.exec(schemaSql);
-    const once = await firesOf(id);
-    await db.exec(schemaSql);
-    expect(await firesOf(id)).toEqual(once);
-    expect(await firesOf(id)).toEqual(["drafting", "queued", "active"]);
-  });
-
-  it("leaves the actor-coverage performed_by nudge committed-only (no target_node_type, incoming)", async () => {
-    // This `performed_by` gate fires on the Principal and carries no
-    // target_node_type and an `incoming` direction — it is a quality nudge, not
-    // an attachment gate, so the migration must NOT widen it to drafting.
-    const id = await seedEdgeRole({
-      edge_type: "attributed_to",
-      edge_role: "performed_by",
-      when_node_type: ["principal"],
-      direction: "incoming",
-      fires: ["queued", "active"],
-    });
+  it("leaves a serves-Intent gate the owner kept committed-only untouched", async () => {
+    const id = await seedEdgeRole({ ...SERVES, fires: ["queued", "active"] });
     await db.exec(schemaSql);
     expect(await firesOf(id)).toEqual(["queued", "active"]);
   });
 
-  it("leaves the owned_by owner gate committed-only", async () => {
-    const id = await seedEdgeRole({
-      edge_type: "attributed_to",
-      edge_role: "owned_by",
-      target_node_type: "principal",
-      when_node_type: ["intent"],
-      fires: ["queued", "active"],
-    });
+  it("leaves an owner's narrower customization (active-only) untouched on every gate", async () => {
+    const serves = await seedEdgeRole({ ...SERVES, fires: ["active"] });
+    const performed = await seedEdgeRole({ ...PERFORMED_BY, fires: ["active"] });
+    const decided = await seedEdgeRole({ ...DECIDED_BY, fires: ["active"] });
     await db.exec(schemaSql);
-    expect(await firesOf(id)).toEqual(["queued", "active"]);
-  });
-
-  it("leaves the Eval tests gate committed-only (no target, role tests)", async () => {
-    const id = await seedEdgeRole({
-      edge_type: "supports",
-      edge_role: "tests",
-      when_node_type: ["eval"],
-      fires: ["queued", "active"],
-    });
-    await db.exec(schemaSql);
-    expect(await firesOf(id)).toEqual(["queued", "active"]);
-  });
-
-  it("does not touch a retired attachment-gate row", async () => {
-    // A retired Action performed_by gate is left committed-only (the `drafting`
-    // add skips retired rows), winding down without being re-judged.
-    const id = await seedEdgeRole({ ...PERFORMED_BY, fires: ["queued", "active"] });
-    await db.query("UPDATE policies SET lifecycle = 'retired' WHERE id = $1", [id]);
-    await db.exec(schemaSql);
-    expect(await firesOf(id)).toEqual(["queued", "active"]);
+    expect(await firesOf(serves)).toEqual(["active"]);
+    expect(await firesOf(performed)).toEqual(["active"]);
+    expect(await firesOf(decided)).toEqual(["active"]);
   });
 });
