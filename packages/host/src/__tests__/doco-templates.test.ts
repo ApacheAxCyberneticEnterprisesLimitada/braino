@@ -191,7 +191,7 @@ describe("business-processes template", () => {
     });
 
     it("keeps the role vocabulary in the business-process guidance", () => {
-      const policies = template.policies.map((r) => r.policy).join("\n");
+      const policies = template.policies.map((r) => r.policy ?? "").join("\n");
       expect(policies).toMatch(/`serves`/);
       expect(policies).toMatch(/`performed_by`/);
       expect(policies).toMatch(/`tests`/);
@@ -228,12 +228,6 @@ describe("business-processes template", () => {
       expect(spec).toMatch(/sub-?process/i);
     });
 
-    it("the human-readable policy states the convention with the example", () => {
-      expect(edgeRule?.policy).toMatch(/sub-?process/i);
-      expect(edgeRule?.policy).toMatch(/Posts a job/);
-      expect(edgeRule?.policy).toMatch(/Post a job/);
-    });
-
     it("seeds as a blocking probabilistic policy carrying the edge scoping", () => {
       if (!edgeRule) throw new Error("missing edge rule");
       const seeded = templatePolicyToPolicyRow(edgeRule);
@@ -254,7 +248,7 @@ describe("business-processes template", () => {
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.when_node_type?.includes("intent") &&
-        /purpose Intent/i.test(r.policy),
+        /Read the ENTIRE/i.test(r.predicate.spec),
     );
 
     it("grades the WHOLE intent field for a concise process purpose, never a line", () => {
@@ -271,15 +265,6 @@ describe("business-processes template", () => {
       expect(intentRule.predicate.spec).not.toMatch(/trigger/i);
       expect(intentRule.predicate.spec).not.toMatch(/out of scope|out-of-scope/i);
     });
-
-    it("asks for a concise whole-field purpose in the human-readable policy too", () => {
-      expect(intentRule?.policy).toMatch(/concise|focused/i);
-      expect(intentRule?.policy).toMatch(/repeatable process/i);
-      // No first-line / headline framing, no trigger / outcome / scope demand.
-      expect(intentRule?.policy).not.toMatch(/first line/i);
-      expect(intentRule?.policy).not.toMatch(/trigger/i);
-      expect(intentRule?.policy).not.toMatch(/out of scope|out-of-scope/i);
-    });
   });
 
   describe("Principal lane shape", () => {
@@ -287,7 +272,7 @@ describe("business-processes template", () => {
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.when_node_type?.includes("principal") &&
-        /swim-lane actors/i.test(r.policy),
+        /role, team, external party, or system/i.test(r.predicate.spec),
     );
 
     it("warns when a Principal does not read as a process swim-lane actor", () => {
@@ -303,7 +288,9 @@ describe("business-processes template", () => {
     // The per-node sequence-flow + uniqueness invariants are now ENGINE-checked
     // (deterministic), not prose-only. Doco-level existence ("≥1 initial, ≥1
     // terminal") can't be a per-candidate predicate, so it stays guidance.
-    const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
+    const guidanceSummaries = template.policies
+      .filter((r) => !r.predicate)
+      .map((r) => r.policy ?? "");
 
     it("≥1 active initial State is documented (doco-level, stays guidance)", () => {
       expect(guidanceSummaries.some((s) => /\binitial\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
@@ -431,7 +418,7 @@ describe("business-processes template", () => {
     const specs = template.policies
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.policies.map((r) => r.policy);
+    const summaries = template.policies.map((r) => r.policy ?? "");
     const haystack = [...specs, ...summaries].join("\n");
 
     it("exhaustive gateway / branches", () => {
@@ -440,20 +427,23 @@ describe("business-processes template", () => {
     it("keeps gateway completeness as an assertion-time check", () => {
       const rule = template.policies.find(
         (r) =>
-          r.predicate?.kind === "probabilistic" && /exhaustive outgoing branches/i.test(r.policy),
+          r.predicate?.kind === "probabilistic" &&
+          r.predicate.when_node_type?.includes("decision") &&
+          /default\/else|enumerat/i.test(r.predicate.spec),
       );
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
     it("keeps Action grain as an assertion-time check", () => {
       const rule = template.policies.find(
-        (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          /single business activity/i.test(r.predicate.spec),
       );
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
     it("blocks imported BPMN/source metadata in user-facing process prose", () => {
       const rule = template.policies.find(
-        (r) =>
-          r.predicate?.kind === "probabilistic" && /imported BPMN\/source metadata/i.test(r.policy),
+        (r) => r.predicate?.kind === "probabilistic" && /Source type/i.test(r.predicate.spec ?? ""),
       );
       expect(rule?.on_violation).toBe("block");
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
@@ -472,7 +462,7 @@ describe("business-processes template", () => {
 
   describe("guidance rules", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
-    const summaries = guidance.map((r) => r.policy);
+    const summaries = guidance.map((r) => r.policy ?? "");
 
     it("tells agents to use the authoring contract and changesets", () => {
       expect(
@@ -528,7 +518,9 @@ describe("business-processes template", () => {
   });
 
   describe("relationships are edge-only", () => {
-    const guidanceSummaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
+    const guidanceSummaries = template.policies
+      .filter((r) => !r.predicate)
+      .map((r) => r.policy ?? "");
     const edgeGuidance = guidanceSummaries.find((s) => /Relationships in/i.test(s));
 
     it("documents edge-only relationship authoring", () => {
@@ -569,7 +561,9 @@ describe("business-processes template", () => {
 
     it("softens the atomic-activity grain check to a warning (LLM-judged, non-blocking)", () => {
       const atomic = template.policies.find(
-        (r) => r.predicate?.kind === "probabilistic" && /atomic business activity/i.test(r.policy),
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          /single business activity/i.test(r.predicate.spec),
       );
       expect(atomic?.on_violation).toBe("warn");
     });
@@ -590,7 +584,7 @@ describe("business-processes template", () => {
         const firesActive = lifecycles.includes("active");
         expect(
           firesQueued,
-          `policy "${p.policy.slice(0, 72)}…" fires on queued=${firesQueued} / active=${firesActive}; the two committed stages must be gated identically`,
+          `policy "${(p.policy ?? `[${p.predicate?.kind}]`).slice(0, 72)}…" fires on queued=${firesQueued} / active=${firesActive}; the two committed stages must be gated identically`,
         ).toBe(firesActive);
       }
     });

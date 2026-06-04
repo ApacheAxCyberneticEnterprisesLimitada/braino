@@ -95,7 +95,6 @@ describe("org-chart template", () => {
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.spec).toMatch(/vacant|open/i);
-      expect(rule.policy).toMatch(/vacant/i);
     });
 
     it("fires on every Principal regardless of lifecycle (no fires_when_node_lifecycle gate)", () => {
@@ -125,7 +124,7 @@ describe("org-chart template", () => {
         r.predicate?.kind === "probabilistic" &&
         r.predicate.when_node_type?.includes("principal") &&
         /reports_to/i.test(r.predicate.spec) &&
-        /top-of-chain/i.test(r.policy),
+        /has_parent/i.test(r.predicate.spec),
     );
 
     it("does not use a deterministic `requires_edge` rule that would warn legitimate roots", () => {
@@ -135,8 +134,9 @@ describe("org-chart template", () => {
     it("every active Principal either has a reporting edge or explains why it is top-of-chain", () => {
       expect(rule).toBeDefined();
       expect(rule?.predicate?.kind).toBe("probabilistic");
-      expect(rule?.policy).toMatch(/either has a `has_parent` reporting edge/);
-      expect(rule?.policy).toMatch(/top-of-chain/);
+      if (rule?.predicate?.kind !== "probabilistic") return;
+      expect(rule.predicate.spec).toMatch(/has_parent|reports_to/);
+      expect(rule.predicate.spec).toMatch(/founder|external authority|no manager/i);
     });
 
     it("fires on `queued` and `active` — a drafting seat can be captured before its manager exists, but a ready (queued) or in-force seat must wire its reporting line", () => {
@@ -194,7 +194,7 @@ describe("org-chart template", () => {
     const specs = template.policies
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.policies.map((r) => r.policy);
+    const summaries = template.policies.map((r) => r.policy ?? "");
     const haystack = [...specs, ...summaries].join("\n");
 
     it("does not impose a slug-like style gate on Principal names", () => {
@@ -214,7 +214,6 @@ describe("org-chart template", () => {
         (r) =>
           r.predicate?.kind === "probabilistic" &&
           r.predicate.when_node_type?.includes("principal") &&
-          /top-of-chain/i.test(r.policy) &&
           /no manager above/i.test(r.predicate.spec),
       );
       expect(topGate).toBeDefined();
@@ -228,7 +227,7 @@ describe("org-chart template", () => {
 
   describe("guidance rules", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
-    const summaries = guidance.map((r) => r.policy);
+    const summaries = guidance.map((r) => r.policy ?? "");
 
     it("reporting chains must not be circular (engine can't check yet)", () => {
       expect(summaries.some((s) => /reporting/i.test(s) && /circular|cycle/i.test(s))).toBe(true);
@@ -305,7 +304,7 @@ describe("org-chart template", () => {
 
   describe("reporting relationships are first-class edges", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
-    const summaries = guidance.map((r) => r.policy);
+    const summaries = guidance.map((r) => r.policy ?? "");
 
     it("frames reporting lines as edges you retire-and-re-add", () => {
       const g = summaries.find((s) => /reporting line/i.test(s) && /first-class/i.test(s));
@@ -332,7 +331,7 @@ describe("org-chart template", () => {
 
   describe("queued — staging a committed-but-not-yet-effective org change", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
-    const summaries = guidance.map((r) => r.policy);
+    const summaries = guidance.map((r) => r.policy ?? "");
 
     it("has dedicated guidance for the `queued` stage (signed hire / future appointment / announced reorg / successor)", () => {
       const g = summaries.find(
@@ -355,7 +354,7 @@ describe("org-chart template", () => {
 
   describe("agent authoring — current changeset ops (post `assert`→`activate` + `queue`)", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
-    const summaries = guidance.map((r) => r.policy);
+    const summaries = guidance.map((r) => r.policy ?? "");
 
     it("points agents at the authoring contract and changesets endpoint", () => {
       expect(
@@ -385,7 +384,7 @@ describe("org-chart template", () => {
           r.predicate?.kind === "probabilistic" || r.predicate?.kind === "descriptive"
             ? r.predicate.spec
             : "";
-        return `${r.policy}\n${spec}`;
+        return `${r.policy ?? ""}\n${spec}`;
       })
       .join("\n");
 
@@ -394,7 +393,7 @@ describe("org-chart template", () => {
     });
 
     it("the circular-reporting guidance says to resolve a cycle before *activating*", () => {
-      const summaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy);
+      const summaries = template.policies.filter((r) => !r.predicate).map((r) => r.policy ?? "");
       expect(summaries.some((s) => /circular|cycle/i.test(s) && /activating/i.test(s))).toBe(true);
     });
   });

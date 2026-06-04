@@ -132,11 +132,11 @@ describe("decision-record templates", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const guidance = template(handle)
         .policies.filter((p) => !p.predicate)
-        .map((p) => p.policy)
+        .map((p) => p.policy ?? "")
         .join("\n");
       const lifecycle = template(handle)
         .policies.filter((p) => !p.predicate)
-        .map((p) => p.policy)
+        .map((p) => p.policy ?? "")
         .find((s) => /Lifecycle is the decision's status/i.test(s));
       expect(lifecycle).toBeDefined();
       expect(lifecycle).toMatch(/drafting/);
@@ -155,7 +155,7 @@ describe("decision-record templates", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const guidance = template(handle)
         .policies.filter((p) => !p.predicate)
-        .map((p) => p.policy)
+        .map((p) => p.policy ?? "")
         .join("\n");
       expect(guidance).toMatch(/append-only/i);
       expect(guidance).toMatch(/retiring or superseding/i);
@@ -207,7 +207,7 @@ describe("decision-record templates", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const guidance = template(handle)
         .policies.filter((p) => !p.predicate)
-        .map((p) => p.policy)
+        .map((p) => p.policy ?? "")
         .join("\n");
       expect(guidance).toMatch(/Support nodes are allowed when they clearly support a Decision/i);
       expect(guidance).toMatch(/Principal nodes are optional/i);
@@ -221,7 +221,7 @@ describe("decision-record templates", () => {
         (p) =>
           p.predicate?.kind === "probabilistic" &&
           p.predicate.when_node_type?.includes("decision") &&
-          /active .* Decision/i.test(p.policy),
+          /Check the Decision's/i.test(p.predicate.spec),
       );
       const spec = quality?.predicate?.kind === "probabilistic" ? quality.predicate.spec : "";
       expect(spec).toContain(
@@ -235,7 +235,7 @@ describe("decision-record templates", () => {
   it("describes accountable decision roles with first-class attribution edges", () => {
     const guidance = template("architectural-decisions")
       .policies.filter((p) => !p.predicate)
-      .map((p) => p.policy)
+      .map((p) => p.policy ?? "")
       .join("\n");
     expect(guidance).toMatch(/`attributed_to` edge/i);
     expect(guidance).toMatch(/role `decided_by`/i);
@@ -253,7 +253,7 @@ describe("decision-record templates", () => {
     for (const handle of DECISION_RECORD_HANDLES) {
       const haystack = template(handle)
         .policies.flatMap((p) => [
-          p.policy,
+          p.policy ?? "",
           p.predicate?.kind === "probabilistic" ? p.predicate.spec : "",
         ])
         .join("\n");

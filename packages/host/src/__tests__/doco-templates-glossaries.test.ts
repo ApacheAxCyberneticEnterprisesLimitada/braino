@@ -43,7 +43,7 @@ describe("glossaries template", () => {
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.when_node_type?.includes("decision") &&
-        /belongs in glossaries/i.test(r.policy),
+        /belongs in glossaries/i.test(r.predicate.spec),
     );
 
     it("allows only glossary content node types", () => {
@@ -95,7 +95,7 @@ describe("glossaries template", () => {
     const uniqueCanonicalTerm = template.policies.find((r) => r.predicate?.kind === "unique_field");
     const guidance = template.policies
       .filter((r) => !r.predicate)
-      .map((r) => r.policy)
+      .map((r) => r.policy ?? "")
       .join("\n");
 
     it("requires the concept question and canonical term only when active (no owner required)", () => {
@@ -151,7 +151,7 @@ describe("glossaries template", () => {
     const specs = template.policies
       .map((r) => (r.predicate?.kind === "probabilistic" ? r.predicate.spec : null))
       .filter((s): s is string => s !== null);
-    const summaries = template.policies.map((r) => r.policy);
+    const summaries = template.policies.map((r) => r.policy ?? "");
     const haystack = [...specs, ...summaries].join("\n");
 
     it("keeps one concept per glossary Decision", () => {
@@ -200,7 +200,7 @@ describe("glossaries template", () => {
       (r) =>
         r.predicate?.kind === "probabilistic" &&
         r.predicate.when_node_type?.includes("eval") &&
-        /how_to_run/i.test(r.policy),
+        /how_to_run/i.test(r.predicate.spec),
     );
 
     it("requires a supports edge and how_to_run only when active", () => {
@@ -225,7 +225,7 @@ describe("glossaries template", () => {
   describe("edge vocabulary and the two-stage lifecycle", () => {
     const guidance = template.policies
       .filter((r) => !r.predicate)
-      .map((r) => r.policy)
+      .map((r) => r.policy ?? "")
       .join("\n");
 
     it("frames the glossary as a deliberate two-stage (active/retired) reference work", () => {

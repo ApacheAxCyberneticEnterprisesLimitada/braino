@@ -27,13 +27,14 @@
 import type { AuthoringPredicate, Lifecycle } from "@doco/shared";
 
 export interface TemplatePolicy {
-  /** The one-line statement of the policy. For a prose-only entry this IS
-   *  the policy — it seeds the `suggestion`'s agent instruction. For a
-   *  `probabilistic` entry the `predicate.spec` is what the judge and
-   *  agents actually see, so this doubles as the in-code summary. For a
-   *  `deterministic` entry it is human-readable documentation of the
-   *  structured check. */
-  policy: string;
+  /** The one-line statement of the policy. REQUIRED for a prose-only
+   *  suggestion entry — there it IS the policy and seeds the suggestion's
+   *  agent instruction. REQUIRED (and the sole human description) for a
+   *  `deterministic` entry, whose structured predicate carries no prose.
+   *  OMITTED for `probabilistic` and `edge-probabilistic` entries, where the
+   *  `predicate.spec` already IS the human-readable instruction the judge and
+   *  agents see — a separate summary would just duplicate it. */
+  policy?: string;
   /**
    * Engine-readable predicate. When set, the seeder records a
    * `deterministic` policy — or a `probabilistic` one, for a
@@ -112,9 +113,7 @@ const DECISION_RECORD_NODE_TYPES = [
 ] as const;
 
 interface DecisionRecordTemplatePolicyOptions {
-  decisionMembershipPolicy: string;
   decisionMembershipSpec: string;
-  qualityPolicy: string;
   qualityChecklist: string[];
   qualityFailure: string;
   guidance: string[];
@@ -149,7 +148,6 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
   return [
     {
       on_violation: "warn",
-      policy: opts.decisionMembershipPolicy,
       predicate: {
         kind: "probabilistic",
         spec: opts.decisionMembershipSpec,
@@ -189,7 +187,6 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
     },
     {
       on_violation: "warn",
-      policy: opts.qualityPolicy,
       predicate: {
         kind: "probabilistic",
         when_node_type: ["decision"],
@@ -273,12 +270,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document architectural decision records — system structure, interfaces, infrastructure, quality attributes, constraints, alternatives, and consequences.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      decisionMembershipPolicy:
-        "A Decision belongs in architectural-decisions when it records an architectural decision: system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, security/compliance architecture, implementation evidence, or an architecture validation check.",
       decisionMembershipSpec:
         "PASS for ADR Decisions, technology-selection Decisions, and security/privacy architecture Decisions that record system structure, API or integration boundaries, infrastructure, quality attributes, operational constraints, compliance architecture, implementation evidence, or architecture validation, including Decisions supported by References and Evals. FAIL for product roadmap or pricing choices (route to product-decisions), UI or interaction design choices (design-decisions), data-definition or governance decisions (data-decisions), raw incidents, or implementation tasks with no architectural consequence.",
-      qualityPolicy:
-        "An active architectural Decision reads like an ADR: it states context and problem, decision drivers or quality attributes, options considered, chosen approach, consequences and trade-offs, implementation/migration impact, and the review or rollback trigger.",
       qualityChecklist: [
         "context/problem",
         "decision drivers such as quality attributes, constraints, or forces",
@@ -305,12 +298,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document product decision records — user/customer evidence, scope, positioning, pricing, roadmap choices, success metrics, alternatives, and revisit triggers.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      decisionMembershipPolicy:
-        "A Decision belongs in product-decisions when it records a product decision: target users, problem framing, scope, roadmap priority, launch strategy, pricing/packaging, growth motion, success metrics, experiment interpretation, or a deliberate decision not to build something.",
       decisionMembershipSpec:
         "PASS for product Decisions about target users, product goals or outcomes, product principles or commitments, customer/research evidence, experiment or metric interpretation, pricing, packaging, roadmap priority, launch strategy, or deliberate decisions not to build something, including Decisions supported by References and Evals. FAIL for engineering or infrastructure implementation choices (route to architectural-decisions), visual or interaction design details (design-decisions), data-governance or metric-definition choices (data-decisions), one-off support events, or unpromoted feature ideas with no decision yet.",
-      qualityPolicy:
-        "An active product Decision states the user/customer problem, strategic goal, evidence, assumptions, options considered, chosen product direction, explicit trade-offs, success metric, accountable decision role, and revisit trigger.",
       qualityChecklist: [
         "the user/customer problem and affected segment",
         "strategic or OKR alignment",
@@ -339,12 +328,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document design decision records — UX, service, interaction, content, accessibility, design-system, and research-backed trade-offs.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      decisionMembershipPolicy:
-        "A Decision belongs in design-decisions when it records a design decision: user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation.",
       decisionMembershipSpec:
         "PASS for design Decisions about user journeys, interaction patterns, service flows, content strategy, accessibility behavior, design-system conventions, visual hierarchy with product meaning, research findings, prototypes, or usability validation, including Decisions supported by Figma or research References and usability/accessibility Evals. FAIL for backend or infrastructure architecture (route to architectural-decisions), product scope or roadmap priority without UX implications (product-decisions), data governance or schema decisions (data-decisions), or cosmetic preference notes with no user or system rationale.",
-      qualityPolicy:
-        "An active design Decision states the user journey or service moment, evidence, alternatives considered, chosen pattern, affected states and edge cases, accessibility/content implications, trade-offs, artifacts, and validation plan.",
       qualityChecklist: [
         "the user journey, service moment, or interface state being decided",
         "evidence from research, support, analytics, accessibility review, or product constraints",
@@ -373,12 +358,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document data decision records — source-of-truth choices, schemas, contracts, metric definitions, governance, quality, lineage, retention, privacy, and access.",
     perspectives: [{ slug: "list", isDefault: true }],
     policies: decisionRecordPolicies({
-      decisionMembershipPolicy:
-        "A Decision belongs in data-decisions when it records a data decision: source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation.",
       decisionMembershipSpec:
         "PASS for data Decisions about source-of-truth ownership, canonical metric or entity definitions, schema and contract choices, lineage, quality/freshness targets, retention, privacy classification, access controls, migration/backfill plans, or consumer-impact validation, including Decisions supported by data contract References and quality or freshness Evals. FAIL for UI or interaction design decisions (route to design-decisions), product roadmap or pricing choices (product-decisions), pure application or infrastructure architecture with no data ownership or semantics impact (architectural-decisions), or raw pipeline run Logs.",
-      qualityPolicy:
-        "An active data Decision states the data asset or definition, accountable owner/steward, producers and consumers, source of truth, schema or semantics, privacy/access/retention stance, quality and freshness expectations, lineage, migration/backfill impact, and monitoring/revisit plan.",
       qualityChecklist: [
         "the data asset, metric, event, dataset, or contract being decided",
         "accountable owner or steward",
@@ -439,8 +420,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Membership ──────────────────────────────────────────────
       {
         on_violation: "warn",
-        policy:
-          "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. Feature work, process flows, org charts, and runtime events belong elsewhere.",
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in glossaries when it defines product or domain terminology, records a terminology choice, cites an authoritative source, states a terminology usage rule, or checks terminology consistency. PASS for term entries, terminology usage rules, references to source glossaries/specs/docs, and evals that scan terminology consistency. FAIL for glossary scope statements, feature implementation work, process flows, org charts, runtime incidents, or state-machine stages.",
@@ -496,8 +475,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // is now scoped to the headword in `chosen`; (3) one combined judge
         // call replaces three, cutting latency and the misfire surface.
         on_violation: "warn",
-        policy:
-          "A glossary term-entry Decision defines exactly one concept with a usable definition. It keeps one concept per entry, its `decision` prose gives a concise definition plus the product/domain scope and at least one example or non-example (never a circular restatement of the headword), and — when the canonical term in `chosen` is itself an acronym or abbreviation — spells out the expanded form and says when the short form is acceptable.",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["decision"],
@@ -532,8 +509,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // author's Eval. The deterministic requires_field gate above still
         // blocks a truly missing field.
         on_violation: "warn",
-        policy:
-          "An active glossary Eval's `how_to_run` names a concrete command, query, URL, or review procedure plus any scope needed to reproduce the terminology check.",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["eval"],
@@ -627,8 +602,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // milestone-naming probabilistic policy below, not this membership
         // gate.
         on_violation: "warn",
-        policy:
-          "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. One-off incidents, UI-specific user journeys, and pure state machines without a workflow outcome belong elsewhere.",
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
@@ -693,8 +666,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // This stays LLM-judged because terms like "source" and
         // "implementation" can be legitimate business language; the bad
         // case is raw importer/debug scaffolding leaking into process text.
-        policy:
-          "Business-process nodes must keep imported BPMN/source metadata out of user-facing prose.",
         on_violation: "block",
         predicate: {
           kind: "probabilistic",
@@ -711,8 +682,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // quick name-only create, and the template should nudge
         // authors toward richer swim lanes without blocking a sketch.
         on_violation: "warn",
-        policy:
-          "Principals in business-processes are swim-lane actors: a role, team, external party, or system that owns work in the process. The Principal's `name` and `body_md` should make its process responsibility and boundary clear.",
         predicate: {
           kind: "probabilistic",
           spec: "Check the Principal's `name` and `body_md`. PASS when the Principal clearly names a process actor — a role, team, external party, or system — and the body explains what responsibility or boundary it owns in this process. FAIL if it reads like an uncontextualized org-chart person, a vague label (`user`, `team`, `system`) with no process responsibility, or an empty shell with no body prose.",
@@ -733,8 +702,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // trigger, terminal outcome, or out-of-scope boundary — those live
         // structurally as the process's initial State, terminal State, and
         // flow wiring.
-        policy:
-          "The purpose Intent of a business process identifies a single repeatable process and reads as a concise statement of its purpose — recognizable as a verb-and-object process (for example, `publish a job`), kept focused rather than sprawling into a full specification.",
         predicate: {
           kind: "probabilistic",
           spec: "Read the ENTIRE `intent` field. PASS when it identifies a single repeatable business process — recognizable as a verb + object (e.g. `publish a job`), optionally with an adjective or adverb — and reads as a concise statement of that process's purpose. FAIL when no single process is identifiable, when several distinct processes are bundled together, or when it sprawls into a multi-paragraph specification instead of a focused purpose. Grade the whole field; do not privilege or judge any single line.",
@@ -794,8 +761,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // flow-step `serves` edges (an Action that is merely one step of the
         // overarching process, not a sub-process expansion) PASS, so only true
         // sub-process pairings are graded.
-        policy:
-          "When a calling Action `serves` a child purpose Intent (a sub-process), name that Intent in the base (imperative) verb form of the Action it serves — the Action is normally written third-person, so the Intent drops the third-person `-s`. For example, the Action `Posts a job` serves the Intent `Post a job`, not `Posts a job`.",
         predicate: {
           kind: "edge-probabilistic",
           edge_type: "supports",
@@ -816,8 +781,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // FAIL for true umbrellas and conjunction ("examine AND treat")
         // steps that bundle two activities.
         on_violation: "warn",
-        policy:
-          "Action `action` reads as an atomic business activity — a single unit of work an actor performs. Avoid vague umbrella phases (`handle request`, `do the thing`), steps that bundle two activities with `and`, and implementation chores divorced from business meaning (`call API`, `update row`).",
         predicate: {
           kind: "probabilistic",
           spec: "Check the Action's `action` and `verb`. PASS when the text names a single business activity the named actor performs — an ordinary single-verb step like `review the legal terms`, `approve the invoice`, or `pack the order` PASSES. FAIL with reason only if the text (a) is a vague umbrella phase covering many steps (e.g. `handle request`, `do the thing`, `process order`), (b) bundles two distinct activities joined by `and` (e.g. `examine and treat the patient`), or (c) is an implementation chore divorced from business meaning (e.g. `call API`, `update row`, `write to DB`).",
@@ -845,8 +808,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Exhaustive branches: question reads as yes/no or enumerated,
         // and the alternatives list either has a default/else branch
         // or covers every enum value.
-        policy:
-          "Gateway Decisions in business-processes have exhaustive outgoing branches. The `question` reads as yes/no or an enumerated choice, and the `alternatives` plus outgoing `flows_to` branch labels either include a default/else branch or name every enum value.",
         predicate: {
           kind: "probabilistic",
           spec: "Check the Decision's `question`, `alternatives`, and any outgoing `flows_to` branch labels/conditions. PASS when the question reads as yes/no or an enumeration, AND the alternatives / outgoing branches either include an explicit default/else branch or name every enumerated value. FAIL with reason if the question has uncovered cases or if a default/else is missing where enum coverage isn't visibly complete.",
@@ -922,8 +883,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // State summary as milestone/condition — noun or past-participle
         // naming the milestone.
-        policy:
-          "State `state` reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`), not an imperative verb naming an Action (`Approve invoice`).",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["state"],
@@ -1156,8 +1115,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // chart (HR best practice: omitting open roles breaks headcount
         // and reporting structure). A vacant seat is the closest this
         // template gets to W3C `org:Post` without a schema change.
-        policy:
-          "Every Principal in an org chart is a seat: its `body_md` must declare whether the seat is filled by a person, filled by an AI agent, or currently vacant. The org-tree perspective infers this from the prose; without an explicit declaration a chart can't tell humans from AI agents from open roles.",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["principal"],
@@ -1196,8 +1153,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // still-being-sketched stage — is exempt, so a member can be
         // captured before its manager exists.
         on_violation: "warn",
-        policy:
-          "Every in-force or queued Principal in an org chart either has a `has_parent` reporting edge or explains in `body_md` why it is top-of-chain (founder, board-reporting, root agent, external authority).",
         predicate: {
           kind: "probabilistic",
           when_node_type: ["principal"],
@@ -1353,7 +1308,7 @@ export function templatePolicyToPolicyRow(policy: TemplatePolicy): SeededPolicyR
   let predicate: Record<string, unknown>;
   if (!pred) {
     kind = "suggestion";
-    predicate = { agent_instruction: policy.policy };
+    predicate = { agent_instruction: policy.policy ?? "" };
   } else if (pred.kind === "probabilistic" || pred.kind === "descriptive") {
     // `descriptive` was recorded-but-not-enforced → folds into suggestion.
     kind = pred.kind === "probabilistic" ? "probabilistic" : "suggestion";
