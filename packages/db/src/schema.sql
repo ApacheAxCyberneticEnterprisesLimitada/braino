@@ -330,6 +330,11 @@ CREATE TABLE IF NOT EXISTS nodes (
   citation     text,                          -- reference
   title        text,                          -- reference
   data         jsonb NOT NULL,
+  -- Node-shape slim-down (expand phase): the unified per-node attributes bag
+  -- that will replace every per-type promoted column (except `kind`) and the
+  -- catch-all `data` jsonb. Populated on write and by the backfill below;
+  -- nothing reads it yet, so this stays non-destructive.
+  attributes   jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at   timestamptz NOT NULL DEFAULT now(),
   created_by   text,
   updated_at   timestamptz NOT NULL DEFAULT now(),
@@ -343,6 +348,35 @@ CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
 -- lives in Policy records, not Rule nodes). Drop it. Idempotent — removed
 -- where present, a no-op on fresh installs (never created above).
 ALTER TABLE nodes DROP COLUMN IF EXISTS modality;
+
+-- Node-shape slim-down (expand phase). Add the unified `attributes` bag to
+-- pre-existing tables, then backfill it from `data` + the promoted scalar
+-- columns. Idempotent and non-destructive: the backfill only touches rows that
+-- still carry the empty default, so re-applying schema.sql (every prod boot)
+-- is a no-op once migrated, and freshly-written rows populate `attributes`
+-- directly via the writer. No columns are dropped here — that is the later
+-- contract phase, after every reader has moved off them.
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS attributes jsonb NOT NULL DEFAULT '{}'::jsonb;
+UPDATE nodes
+   SET attributes = jsonb_strip_nulls(
+         (COALESCE(data, '{}'::jsonb)
+            -- identity / audit / lifecycle live in real columns
+            - 'id' - 'doco_id' - 'node_type' - 'lifecycle'
+            - 'created_at' - 'created_by' - 'updated_at' - 'updated_by'
+            -- prose + its historical aliases live in `prose`
+            - 'prose' - 'summary' - 'description'
+            -- principal label/body (kept as columns this phase) + dropped flag
+            - 'name' - 'body_md' - 'role_principal'
+            -- columns we keep promoted
+            - 'kind' - 'proposer_id'
+            -- the type-named prose field, duplicated into data on old writes
+            - 'intent' - 'idea' - 'rule' - 'decision' - 'action'
+            - 'log' - 'eval' - 'reference' - 'state')
+         || jsonb_build_object(
+              'verb', verb, 'performed_at', performed_at, 'happened_at', happened_at,
+              'severity', severity, 'phase', phase, 'on_violation', on_violation,
+              'ref_type', ref_type, 'locator', locator, 'citation', citation, 'title', title))
+ WHERE attributes = '{}'::jsonb;
 
 -- Audit events: one row per mutation.
 

@@ -44,6 +44,51 @@ function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unk
 }
 
 /**
+ * Node-shape slim-down (expand phase). Build the unified `attributes` bag: the
+ * per-node domain fields, with everything that lives in a real column or in
+ * `prose` excluded. This is the future single home for the per-type promoted
+ * scalars (severity, verb, locator, …) plus any free-form per-type data (a
+ * reference's PR body / word definition, a decision's alternatives, …).
+ *
+ * The schema.sql backfill mirrors this exclusion set for pre-existing rows.
+ */
+const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
+  // identity / audit / lifecycle — real columns
+  "id",
+  "doco_id",
+  "node_type",
+  "lifecycle",
+  "created_at",
+  "created_by",
+  "updated_at",
+  "updated_by",
+  // prose + historical aliases — the `prose` column
+  "prose",
+  "summary",
+  "description",
+  // principal label/body (still columns this phase) + the dropped flag
+  "name",
+  "body_md",
+  "role_principal",
+  // columns we keep promoted
+  "kind",
+  "proposer_id",
+  // the type-named prose fields (intent, decision, …); only the node's own is
+  // ever present, but excluding all is safe since no domain field shares a name
+  ...NODE_TYPE_SET,
+]);
+
+function buildAttributes(data: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(data)) {
+    if (v === undefined || v === null) continue;
+    if (ATTRIBUTE_EXCLUDED_KEYS.has(k) || BLOCKED_NODE_JSON_EDGE_FIELD_SET.has(k)) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
+/**
  * Derive the `lifecycle` column from `data.lifecycle` (the source of
  * truth). If the caller also supplied `rec.lifecycle` and it disagrees,
  * log a warning — the call site is fighting itself.
@@ -114,6 +159,7 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
     "body_md",
     "role_principal",
     "data",
+    "attributes",
   ];
   const vals: unknown[] = [
     rec.id,
@@ -125,6 +171,7 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
     isPrincipal ? (rec.body_md ?? null) : null,
     isPrincipal ? Boolean(rec.data.role_principal) : false,
     JSON.stringify(cleanData),
+    JSON.stringify(buildAttributes(rec.data)),
   ];
   for (const pc of NODE_PROMOTED_COLUMNS[t] ?? []) {
     cols.push(pc.column);
