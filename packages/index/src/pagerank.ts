@@ -35,6 +35,15 @@ export interface PprOptions {
   /** Weight per edge type. Default returns 1 for every type. Higher weight =
    * more random-walker mass flows along that edge. */
   edgeWeight?: (edge_type: string | undefined) => number;
+  /**
+   * Honor edge direction (from → to) instead of symmetrizing every edge.
+   * Only consumed by {@link globalPageRank}; {@link personalizedPageRank}
+   * is always undirected (its relevance semantics depend on it). With
+   * `directed: true`, a node that is the *target* of many edges (e.g. an
+   * intent that many events "serve") accumulates rank as an authority,
+   * while a pure source that fans out leaks its mass. Default false.
+   */
+  directed?: boolean;
 }
 
 export function defaultEdgeWeight(_edgeType: string | undefined): number {
@@ -181,6 +190,7 @@ export function globalPageRank(
   const iters = options.iters ?? 50;
   const tol = options.tol ?? 1e-6;
   const edgeWeight = options.edgeWeight ?? defaultEdgeWeight;
+  const directed = options.directed ?? false;
 
   const idToIdx = new Map<string, number>();
   function idx(id: string): number {
@@ -200,6 +210,8 @@ export function globalPageRank(
   const idxToId: string[] = new Array(n);
   for (const [id, i] of idToIdx) idxToId[i] = id;
 
+  // Adjacency. Undirected pushes both directions; directed pushes only
+  // from → to, so the walker flows along the edge and pools at targets.
   const neighbors: { idx: number; w: number }[][] = Array.from({ length: n }, () => []);
   for (const e of edges) {
     const a = mustGetIndex(idToIdx, e.from);
@@ -208,7 +220,7 @@ export function globalPageRank(
     const w = edgeWeight(e.edge_type);
     if (w <= 0) continue;
     mustGetBucket(neighbors, a).push({ idx: b, w });
-    mustGetBucket(neighbors, b).push({ idx: a, w });
+    if (!directed) mustGetBucket(neighbors, b).push({ idx: a, w });
   }
 
   // Uniform personalization: 1/N at every node. Initial rank also uniform.
