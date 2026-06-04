@@ -44,6 +44,7 @@ export interface PredicatePart {
 const SUB_KIND_HEADLINE: Record<DeterministicPredicate["sub_kind"], string> = {
   requires_edge: "Requires edge",
   requires_edge_role: "Requires edge role",
+  limits_edge_role: "Limits edge role",
   forbids_edge: "Forbids edge",
   requires_field: "Requires field",
   forbids_field: "Forbids field",
@@ -81,6 +82,13 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
       if (p.direction) parts.push({ label: "direction", value: p.direction });
       if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
       if (p.exempt_when_role) parts.push({ label: "exempt role", value: p.exempt_when_role });
+      break;
+    case "limits_edge_role":
+      parts.push({ label: "edge type", value: p.edge_type });
+      parts.push({ label: "role", value: p.edge_role });
+      if (p.direction) parts.push({ label: "direction", value: p.direction });
+      if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
+      parts.push({ label: "max count", value: String(p.max_count ?? 1) });
       break;
     case "requires_field":
     case "forbids_field":

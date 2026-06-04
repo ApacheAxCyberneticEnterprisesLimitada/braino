@@ -199,6 +199,26 @@ export type AuthoringPredicate =
       when_node_type?: NodeType[];
     }
   | {
+      /**
+       * Ceiling counterpart to `requires_edge_role`. Where that predicate is the
+       * FLOOR ("≥1 edge of this type+role"), this is the CAP: the candidate may
+       * carry AT MOST `max_count` (default 1) edges of `edge_type` carrying
+       * `edge_role`, optionally to a `target_node_type`. Pair the two on the same
+       * edge to pin a node to EXACTLY one neighbour — e.g. a business-process
+       * flow node that must `serve` one Intent and no more, so it lives in a
+       * single BPMN pool.
+       */
+      kind: "limits_edge_role";
+      edge_type: string;
+      edge_role: string;
+      target_node_type?: string;
+      /** Which side of the candidate to count. "outgoing" (default) or "incoming". */
+      direction?: "incoming" | "outgoing";
+      /** The maximum number of matching edges allowed (default 1). */
+      max_count?: number;
+      when_node_type?: NodeType[];
+    }
+  | {
       kind: "forbids_edge";
       edge_type: string;
       target_node_type?: string;
@@ -320,6 +340,15 @@ export type DeterministicPredicate =
       target_node_type?: string;
       direction?: "incoming" | "outgoing";
       exempt_when_role?: string;
+      when_node_type?: NodeType[];
+    }
+  | {
+      sub_kind: "limits_edge_role";
+      edge_type: string;
+      edge_role: string;
+      target_node_type?: string;
+      direction?: "incoming" | "outgoing";
+      max_count?: number;
       when_node_type?: NodeType[];
     }
   | {

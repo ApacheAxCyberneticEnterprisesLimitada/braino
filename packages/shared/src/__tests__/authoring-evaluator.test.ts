@@ -669,6 +669,104 @@ describe("authoring evaluator — requires_edge min_count", () => {
   });
 });
 
+describe("authoring evaluator — limits_edge_role", () => {
+  // The ceiling counterpart to requires_edge_role: a candidate may carry AT
+  // MOST max_count (default 1) edges of (edge_type, edge_role[, target]). The
+  // business-processes "a flow node serves exactly one Intent" gate is the
+  // canonical use — paired with the requires_edge_role serves floor.
+  const servesAtMostOne = () =>
+    P({
+      sub_kind: "limits_edge_role",
+      edge_type: "supports",
+      edge_role: "serves",
+      target_node_type: "intent",
+      when_node_type: ["action", "decision", "state"],
+    });
+  const serves = (from: string, to: string, role = "serves") => ({
+    from_id: from,
+    to_id: to,
+    edge_type: "supports",
+    edge_props_json: { role },
+  });
+
+  it("passes when the candidate serves exactly one Intent", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
+      candidateEdges: [serves("action_01", "intent_01")],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("passes when the candidate serves no Intent (the floor gate owns the ≥1 rule)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
+      candidateEdges: [],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("fails when the candidate serves two Intents", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
+      candidateEdges: [serves("action_01", "intent_01"), serves("action_01", "intent_02")],
+    });
+    expect(v).toHaveLength(1);
+    expect(v[0]?.kind).toBe("deterministic");
+    expect(v[0]?.sub_kind).toBe("limits_edge_role");
+    expect(v[0]?.reason).toMatch(/serves/);
+    expect(v[0]?.reason).toMatch(/max 1/);
+  });
+
+  it("counts only matching role + target — other supports edges don't push it over", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [servesAtMostOne()], {
+      candidateEdges: [
+        serves("action_01", "intent_01"),
+        // a non-`serves` supports edge to an Intent does not count
+        serves("action_01", "intent_02", "enacts"),
+        // a `serves` edge to a non-Intent target does not count
+        serves("action_01", "decision_09"),
+      ],
+    });
+    expect(v).toEqual([]);
+  });
+
+  it("honors max_count > 1", () => {
+    const v = evaluate(
+      { id: "intent_01", node_type: "intent" },
+      [
+        P({
+          sub_kind: "limits_edge_role",
+          edge_type: "attributed_to",
+          edge_role: "member",
+          max_count: 2,
+          when_node_type: ["intent"],
+        }),
+      ],
+      {
+        candidateEdges: [
+          {
+            from_id: "intent_01",
+            to_id: "p_a",
+            edge_type: "attributed_to",
+            edge_props_json: { role: "member" },
+          },
+          {
+            from_id: "intent_01",
+            to_id: "p_b",
+            edge_type: "attributed_to",
+            edge_props_json: { role: "member" },
+          },
+          {
+            from_id: "intent_01",
+            to_id: "p_c",
+            edge_type: "attributed_to",
+            edge_props_json: { role: "member" },
+          },
+        ],
+      },
+    );
+    expect(v).toHaveLength(1);
+    expect(v[0]?.reason).toMatch(/max 2/);
+  });
+});
+
 describe("authoring evaluator — requires_edge_role direction + exemption", () => {
   const coverage = () =>
     P({

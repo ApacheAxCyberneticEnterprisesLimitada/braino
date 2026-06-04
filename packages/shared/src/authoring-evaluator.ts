@@ -15,7 +15,7 @@
  *   - suggestion    → advisory; never produces a violation here.
  *   - probabilistic → emitted as a pending violation (LLM judge resolves it).
  *   - deterministic → engine-checked via `predicate.sub_kind`:
- *       requires_edge, requires_edge_role, forbids_edge,
+ *       requires_edge, requires_edge_role, limits_edge_role, forbids_edge,
  *       requires_field, forbids_field, unique_field,
  *       requires_node_type, requires_entity_type,
  *       requires_field_resolves_to_principal, graph-completeness
@@ -310,6 +310,34 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
         : "";
       return fail(
         `missing required ${dir}\`${pred.edge_type}\` edge with role \`${pred.edge_role}\`${target}`,
+      );
+    }
+    case "limits_edge_role": {
+      // Ceiling check — the dual of requires_edge_role. Count the candidate's
+      // matching edges (same edge_type + role, optionally to target_node_type)
+      // on the chosen side and fail when there are MORE than `max_count`.
+      const direction = pred.direction ?? "outgoing";
+      const pool =
+        direction === "incoming"
+          ? opts.edges.filter((s) => s.to_id === candidate.id)
+          : opts.candidateEdges;
+      const matches = pool.filter((s) => {
+        if (s.edge_type !== pred.edge_type) return false;
+        if (edgeRole(s) !== pred.edge_role) return false;
+        if (pred.target_node_type) {
+          const otherEnd = direction === "incoming" ? s.from_id : s.to_id;
+          return entityTypeFromId(otherEnd) === pred.target_node_type;
+        }
+        return true;
+      });
+      const max = pred.max_count && pred.max_count > 0 ? pred.max_count : 1;
+      if (matches.length <= max) return null;
+      const dir = direction === "incoming" ? "incoming " : "";
+      const target = pred.target_node_type
+        ? `${direction === "incoming" ? " from" : " to"} a ${pred.target_node_type}`
+        : "";
+      return fail(
+        `carries ${matches.length} ${dir}\`${pred.edge_type}\` edges with role \`${pred.edge_role}\`${target} (max ${max})`,
       );
     }
     case "forbids_edge": {

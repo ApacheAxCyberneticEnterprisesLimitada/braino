@@ -1493,3 +1493,70 @@ SET data = jsonb_set(
 WHERE kind = 'suggestion'
   AND data -> 'predicate' ->> 'agent_instruction' LIKE 'Walk a process node through the four-stage lifecycle%'
   AND data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%ATTACHED%';
+
+-- ── Business-processes: a flow node serves AT MOST one Intent ───────────────
+-- New CEILING gate complementing the `serves` attachment FLOOR (≥1 Intent):
+-- every flow node (Action, gateway Decision, milestone/event State) serves at
+-- most ONE Intent, so combined with the floor it serves EXACTLY one — it lives
+-- in a single BPMN pool, at every stage (drafting → queued → active). The
+-- template seeds this on new Docos; converge every already-seeded
+-- business-processes Doco by inserting the policy where it is missing.
+--
+-- A business-processes Doco is identified by its `serves` attachment FLOOR gate
+-- (requires_edge_role / supports / serves / intent), which only that template
+-- seeds. The inserted row matches host.ts's seeded shape so a migrated Doco is
+-- indistinguishable from a freshly-created one.
+--
+-- Idempotent two ways: the NOT EXISTS guard skips any Doco that already carries
+-- a limits_edge_role / serves gate (including freshly-created Docos seeded from
+-- the template, whose gate has a different, ULID-shaped id), so a second boot
+-- is a no-op; and the id is derived from the doco id with ON CONFLICT DO
+-- NOTHING, so a re-run can never mint a duplicate or abort the boot on a PK
+-- clash. schema.sql is re-applied on every boot, so this carries the change to
+-- production.
+INSERT INTO policies (id, doco_id, kind, data, lifecycle, created_at, updated_at)
+SELECT
+  'policy_' || substr(md5(serves.doco_id || ':limits-serves-one-intent'), 1, 26),
+  serves.doco_id,
+  'deterministic',
+  jsonb_build_object(
+    'id', 'policy_' || substr(md5(serves.doco_id || ':limits-serves-one-intent'), 1, 26),
+    'doco_id', serves.doco_id,
+    'kind', 'deterministic',
+    'predicate', jsonb_build_object(
+      'sub_kind', 'limits_edge_role',
+      'edge_type', 'supports',
+      'edge_role', 'serves',
+      'target_node_type', 'intent',
+      'max_count', 1,
+      'when_node_type', jsonb_build_array('action', 'decision', 'state')
+    ),
+    'on_violation', 'block',
+    'fires_when_node_lifecycle', jsonb_build_array('drafting', 'queued', 'active'),
+    'template_seeded', true,
+    'template_handle', 'business-processes',
+    'lifecycle', 'active'
+  ),
+  'active',
+  now(),
+  now()
+FROM (
+  SELECT DISTINCT doco_id
+    FROM policies
+   WHERE kind = 'deterministic'
+     AND lifecycle = 'active'
+     AND data -> 'predicate' ->> 'sub_kind' = 'requires_edge_role'
+     AND data -> 'predicate' ->> 'edge_type' = 'supports'
+     AND data -> 'predicate' ->> 'edge_role' = 'serves'
+     AND data -> 'predicate' ->> 'target_node_type' = 'intent'
+) AS serves
+WHERE NOT EXISTS (
+  SELECT 1
+    FROM policies existing
+   WHERE existing.doco_id = serves.doco_id
+     AND existing.lifecycle = 'active'
+     AND existing.data -> 'predicate' ->> 'sub_kind' = 'limits_edge_role'
+     AND existing.data -> 'predicate' ->> 'edge_type' = 'supports'
+     AND existing.data -> 'predicate' ->> 'edge_role' = 'serves'
+)
+ON CONFLICT (id) DO NOTHING;

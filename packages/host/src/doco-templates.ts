@@ -749,6 +749,32 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_ATTACHED_LIFECYCLES,
       },
       {
+        // The CEILING that complements the `serves` attachment FLOOR above.
+        // Every flow node serves AT MOST one Intent, so combined with the ≥1
+        // gate a flow node serves EXACTLY one Intent — it belongs to a single
+        // BPMN pool. A node wired to two Intents is ambiguous: the renderer
+        // can't decide which pool owns it, and the step's business purpose is
+        // no longer singular. Like the floor it mirrors, this is an ATTACHMENT
+        // invariant — it fires from `drafting` onward
+        // (BUSINESS_PROCESS_ATTACHED_LIFECYCLES), i.e. at EVERY pre-retirement
+        // stage — so a node never serves two Intents even in a sketch. A
+        // sub-process calling Action `serves` only its child purpose Intent
+        // (its pool) and is woven into the parent flow by `flows_to`, so it too
+        // stays single-Intent. Re-point by retiring the old `serves` edge
+        // before adding the new one; endpoints are immutable.
+        policy:
+          "Every flow node in business-processes — Action, gateway Decision, or milestone/event State — serves AT MOST one Intent: it belongs to exactly one process pool, at every stage (drafting, queued, and active). Combined with the `serves` attachment gate that requires at least one Intent, a flow node serves exactly one. A node that serves two Intents is ambiguous — the BPMN renderer can't place it in a single pool, and its business purpose is no longer singular. Re-point by retiring the old `serves` edge before adding the new one.",
+        predicate: {
+          kind: "limits_edge_role",
+          edge_type: "supports",
+          edge_role: "serves",
+          target_node_type: "intent",
+          max_count: 1,
+          when_node_type: ["action", "decision", "state"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_ATTACHED_LIFECYCLES,
+      },
+      {
         // Sub-process naming, enforced on the `serves` EDGE (not on either
         // node). A sub-process is designed by connecting a calling Action to a
         // child purpose Intent with a `serves` relationship; the Intent's name

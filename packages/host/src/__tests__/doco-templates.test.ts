@@ -199,6 +199,49 @@ describe("business-processes template", () => {
     });
   });
 
+  describe("a flow node serves exactly one Intent (serves ceiling)", () => {
+    // The `serves` floor (requires_edge_role, ≥1) gets a matching CEILING:
+    // every flow node serves AT MOST one Intent, so a flow node belongs to
+    // exactly one BPMN pool. Like the floor, the ceiling is an ATTACHMENT
+    // invariant — it fires from `drafting` onward, i.e. at every stage.
+    const ceiling = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "limits_edge_role" &&
+        r.predicate.edge_type === "supports" &&
+        r.predicate.edge_role === "serves",
+    );
+
+    it("seeds a limits_edge_role gate on the `serves` edge to an Intent, capped at one", () => {
+      expect(ceiling?.predicate?.kind).toBe("limits_edge_role");
+      if (ceiling?.predicate?.kind !== "limits_edge_role") return;
+      expect(ceiling.predicate.target_node_type).toBe("intent");
+      expect(ceiling.predicate.max_count).toBe(1);
+      expect([...(ceiling.predicate.when_node_type ?? [])].sort()).toEqual([
+        "action",
+        "decision",
+        "state",
+      ]);
+    });
+
+    it("blocks (hard) and fires at every pre-retirement stage — drafting included", () => {
+      // "at any stage": a node never serves two Intents, even in a draft —
+      // symmetric with the `serves` floor it complements.
+      expect(ceiling?.on_violation ?? "block").toBe("block");
+      expect(ceiling?.fires_when_node_lifecycle).toEqual(["drafting", "queued", "active"]);
+    });
+
+    it("seeds as a deterministic policy carrying the predicate verbatim", () => {
+      if (!ceiling) throw new Error("ceiling gate missing");
+      const seeded = templatePolicyToPolicyRow(ceiling);
+      expect(seeded.kind).toBe("deterministic");
+      expect(seeded.on_violation).toBe("block");
+      expect(seeded.predicate.sub_kind).toBe("limits_edge_role");
+      expect(seeded.predicate.edge_role).toBe("serves");
+      expect(seeded.predicate.max_count).toBe(1);
+      expect(seeded.fires_when_node_lifecycle).toEqual(["drafting", "queued", "active"]);
+    });
+  });
+
   describe("sub-process naming (edge-scoped)", () => {
     // A sub-process pairs a calling Action with a child purpose Intent through
     // a `serves` edge; the Intent's name should be the base (imperative) form
