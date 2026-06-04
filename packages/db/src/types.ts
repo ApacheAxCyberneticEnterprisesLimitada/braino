@@ -166,6 +166,8 @@ export interface EntityRecord {
   name?: string | null;
   /** Full prose content for node rows. */
   type_named_value?: string | null;
+  /** Node-shape slim-down: the unified per-node attributes bag (jsonb). */
+  attributes?: Record<string, unknown> | null;
   created_at?: string | null;
   created_by?: string | null;
   updated_at?: string | null;

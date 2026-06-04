@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { upsertEntity } from "../repo.js";
+import { rowToRecord, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
 
 // Stage 1 of the node-shape slim-down (expand phase): a single `attributes`
@@ -139,5 +139,18 @@ describe("node attributes column (Stage 1 — expand)", () => {
       note: "kept",
     });
     expect(rows[0].attributes).not.toHaveProperty("reference");
+  });
+
+  it("surfaces the attributes column onto the record on read (Stage 2 — raw schema)", () => {
+    const rec = rowToRecord("reference", {
+      id: "reference_read000000000000000000",
+      doco_id: DOCO,
+      node_type: "reference",
+      prose: "ACME PR #1",
+      attributes: { ref_type: "url", locator: "https://x", pr_body: "the body" },
+      data: {},
+    });
+    expect(rec.attributes).toEqual({ ref_type: "url", locator: "https://x", pr_body: "the body" });
+    expect(rec.type_named_value).toBe("ACME PR #1");
   });
 });

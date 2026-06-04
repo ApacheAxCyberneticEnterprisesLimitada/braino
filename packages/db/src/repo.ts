@@ -416,7 +416,7 @@ const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
   principal: ["role_principal"],
 };
 
-function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
+export function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
   // Merge promoted typed columns back into the data jsonb so callers that read
   // structured fields off `rec.data` still find them.
   const baseData = (row.data && typeof row.data === "object" ? row.data : {}) as Record<
@@ -448,6 +448,11 @@ function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRe
   // Empty string means "not set yet".
   if ("prose" in row && row.prose !== null && row.prose !== "") {
     rec.type_named_value = String(row.prose);
+  }
+  // Node-shape slim-down (raw-schema phase): surface the unified `attributes`
+  // bag so callers/the API can read the row shape directly.
+  if ("attributes" in row && row.attributes && typeof row.attributes === "object") {
+    rec.attributes = row.attributes as Record<string, unknown>;
   }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
