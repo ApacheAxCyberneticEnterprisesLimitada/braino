@@ -43,7 +43,7 @@ function node(type: string, segment: string, proseField: string): NodeCatalogEnt
     segment,
     proseField,
     labelField: proseField,
-    storage: { table: "nodes", body: true, typeNamedColumn: "prose" },
+    storage: { table: "nodes", body: false, typeNamedColumn: "prose" },
     capture: "generic",
     searchable: true,
   };

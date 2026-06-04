@@ -66,9 +66,9 @@ const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   "prose",
   "summary",
   "description",
-  // principal label/body (still columns this phase) + the dropped flag
+  // principal label → `prose`; the dropped role flag. `body_md` is NOT
+  // excluded — for principals it folds into the bag as free-form content.
   "name",
-  "body_md",
   "role_principal",
   // columns we keep promoted
   "kind",
@@ -144,32 +144,20 @@ function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): s
  */
 async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const t = rec.entity_type;
-  const isPrincipal = t === "principal";
-  const baseData = isPrincipal ? rec.data : stripLegacyProseKeys(rec.data);
+  const baseData = stripLegacyProseKeys(rec.data);
   const cleanData = stripPromotedKeys(t, baseData);
   const lifecycleCol = deriveLifecycleColumn(rec, cleanData);
 
-  const cols: string[] = [
-    "id",
-    "doco_id",
-    "node_type",
-    "lifecycle",
-    "prose",
-    "name",
-    "body_md",
-    "role_principal",
-    "data",
-    "attributes",
-  ];
+  // Slim-down: principals are ordinary prose nodes now — their name lives in
+  // `prose` (set by capture), `body_md` rides along in `attributes`, and the
+  // dropped `name`/`body_md`/`role_principal` columns are gone.
+  const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "data", "attributes"];
   const vals: unknown[] = [
     rec.id,
     rec.doco_id,
     t,
     lifecycleCol,
-    isPrincipal ? "" : (rec.type_named_value ?? ""),
-    isPrincipal ? String(rec.data.name ?? rec.id) : null,
-    isPrincipal ? (rec.body_md ?? null) : null,
-    isPrincipal ? Boolean(rec.data.role_principal) : false,
+    rec.type_named_value ?? "",
     JSON.stringify(cleanData),
     JSON.stringify(buildAttributes(rec.data)),
   ];
@@ -460,6 +448,14 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   if ("attributes" in row && row.attributes && typeof row.attributes === "object") {
     rec.attributes = row.attributes as Record<string, unknown>;
   }
+  // Slim-down compat: principals dropped their `name`/`body_md` columns. Surface
+  // them from `prose` + the `attributes` bag so existing `rec.name` /
+  // `rec.body_md` readers keep working without a sweep.
+  if (entityType === "principal") {
+    if (rec.type_named_value != null && rec.name == null) rec.name = rec.type_named_value;
+    const bm = rec.attributes?.body_md;
+    if (typeof bm === "string" && rec.body_md == null) rec.body_md = bm;
+  }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
   if (row.updated_at instanceof Date) rec.updated_at = row.updated_at.toISOString();
@@ -594,7 +590,7 @@ function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT id, name, doco_id, data FROM nodes WHERE id = $1 AND node_type = 'principal'",
+      "SELECT id, prose AS name, doco_id, data FROM nodes WHERE id = $1 AND node_type = 'principal'",
       [id],
     );
     if (r.rowCount === 0) return null;
@@ -608,10 +604,10 @@ export async function getPrincipalById(id: string): Promise<PrincipalRow | null>
 export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, name, doco_id, data
+      `SELECT id, prose AS name, doco_id, data
        FROM nodes
        WHERE node_type = 'principal' AND doco_id = $1
-       ORDER BY name, created_at, id`,
+       ORDER BY prose, created_at, id`,
       [docoId],
     );
     return r.rows.map(mapPrincipalRow);

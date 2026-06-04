@@ -312,17 +312,13 @@ CREATE TABLE IF NOT EXISTS nodes (
   node_type      text NOT NULL,              -- intent|idea|rule|decision|action|log|eval|reference|state|principal
   -- Lifecycle is mandatory; canonical stages: drafting|queued|active|retired.
   lifecycle      text NOT NULL DEFAULT 'active',
-  prose          text NOT NULL DEFAULT '',   -- unified type-named column for the 9 prose node types; empty string for principals
-  name           text,                       -- principal display label (NULL for the others)
-  body_md        text,                       -- principal prose description (NULL for the others)
-  role_principal boolean NOT NULL DEFAULT false,
+  prose          text NOT NULL DEFAULT '',   -- unified label/prose for every node type, including the principal's name
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
   -- Promoted scalar columns. Slim-down contract phase: every per-type scalar
-  -- (action/log/rule verb/severity/… AND the reference ref_type/locator/
-  -- citation/title) moved into `attributes` and is dropped below. `kind`
-  -- (eval/state) is the last promoted scalar; principal name/body_md and the
-  -- catch-all `data` are folded in later phases.
-  kind         text,                          -- eval, state
+  -- moved into `attributes` and is dropped below; `kind` is the last one
+  -- (eval/state, plus principal human|agent). The catch-all `data` folds in
+  -- a later phase.
+  kind         text,                          -- eval, state, principal
   data         jsonb NOT NULL,
   -- Node-shape slim-down (expand phase): the unified per-node attributes bag
   -- that will replace every per-type promoted column (except `kind`) and the
@@ -409,6 +405,28 @@ BEGIN
       DROP COLUMN IF EXISTS locator,
       DROP COLUMN IF EXISTS citation,
       DROP COLUMN IF EXISTS title;
+  END IF;
+END $$;
+
+-- Contract phase: principals join the prose nodes. Their `name` becomes `prose`,
+-- `body_md` folds into `attributes`, and `name`/`body_md`/`role_principal` are
+-- dropped. Guarded on `name` so fresh installs and migrated DBs both skip.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'nodes' AND column_name = 'name'
+  ) THEN
+    UPDATE nodes
+       SET prose = COALESCE(NULLIF(prose, ''), name, id)
+     WHERE node_type = 'principal';
+    UPDATE nodes
+       SET attributes = attributes || jsonb_strip_nulls(jsonb_build_object('body_md', body_md))
+     WHERE node_type = 'principal' AND body_md IS NOT NULL AND body_md <> '';
+    ALTER TABLE nodes
+      DROP COLUMN IF EXISTS name,
+      DROP COLUMN IF EXISTS body_md,
+      DROP COLUMN IF EXISTS role_principal;
   END IF;
 END $$;
 

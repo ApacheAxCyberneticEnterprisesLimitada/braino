@@ -161,10 +161,14 @@ describe("node attributes column (Stage 1 — expand)", () => {
       "locator",
       "citation",
       "title",
+      // principal columns folded into prose / attributes
+      "name",
+      "body_md",
+      "role_principal",
     ]) {
       expect(names).not.toContain(dropped);
     }
-    // `kind` is the last promoted scalar this phase.
+    // `kind` is the last promoted scalar (eval/state/principal).
     expect(names).toContain("kind");
 
     const id = "action_contract00000000000000000";
