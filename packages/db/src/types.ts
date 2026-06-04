@@ -101,8 +101,9 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   state: [{ column: "kind", field: "kind", stripFromData: true }],
   // reference scalars (ref_type/locator/citation/title) now live in `attributes`.
   reference: [],
-  // principal: no graph promoted columns; name/body_md/role_principal handled
-  // directly by the writer (role_principal is stripped from data there).
+  // principal: `kind` (human/agent) is promoted to its column; name/body_md/
+  // role_principal are written directly by the writer.
+  principal: [{ column: "kind", field: "kind", stripFromData: true }],
 };
 
 /** The user category — human OAuth identity layer. */

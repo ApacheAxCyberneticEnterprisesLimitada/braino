@@ -262,8 +262,8 @@ const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() =>
     for (const pc of columns) if (pc.stripFromData) keys.add(pc.field);
     if (keys.size > 0) out[type] = keys;
   }
-  // Principal's role_principal is promoted to its own column by the writer.
-  out.principal = new Set(["role_principal"]);
+  // Principal's role_principal + kind are promoted to their own columns.
+  out.principal = new Set(["role_principal", "kind"]);
   return out;
 })();
 
@@ -412,7 +412,7 @@ const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
   // not here. Only `kind` (eval/state) and principal's `role_principal` remain.
   eval: ["kind"],
   state: ["kind"],
-  principal: ["role_principal"],
+  principal: ["role_principal", "kind"],
 };
 
 export function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {

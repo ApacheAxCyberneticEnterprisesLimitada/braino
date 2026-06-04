@@ -110,6 +110,9 @@ export interface Principal extends CommonFields {
   /** Display label for the Principal. Other nodes reference Principals
    *  by id; duplicate names are allowed. */
   name: string;
+  /** Seat occupant kind — "human" or "agent". Optional; a vacant seat
+   *  declares no kind. Drives the org-tree seat icon. */
+  kind?: "human" | "agent";
   /** Principal role marker used by system-authored templates. */
   role_principal?: boolean;
 }
