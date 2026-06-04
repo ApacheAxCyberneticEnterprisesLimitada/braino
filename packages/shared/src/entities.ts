@@ -212,14 +212,6 @@ export type AuthoringPredicate =
       when_node_type?: NodeType[];
     }
   | {
-      /** First-line length/shape gate — keeps a headline field scannable. */
-      kind: "field-line-shape";
-      field: string;
-      max_first_line_chars?: number;
-      max_first_line_words?: number;
-      when_node_type?: NodeType[];
-    }
-  | {
       /**
        * Sequence-flow completeness for a directed process graph. A flow node
        * must be wired in: reachable (≥1 incoming `edge_type`) unless it is an
@@ -323,13 +315,6 @@ export type DeterministicPredicate =
       fields: string[];
       pattern: string;
       flags?: string;
-      when_node_type?: NodeType[];
-    }
-  | {
-      sub_kind: "field-line-shape";
-      field: string;
-      max_first_line_chars?: number;
-      max_first_line_words?: number;
       when_node_type?: NodeType[];
     }
   | {

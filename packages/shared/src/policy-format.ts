@@ -35,7 +35,6 @@ const SUB_KIND_HEADLINE: Record<DeterministicPredicate["sub_kind"], string> = {
   requires_field: "Requires field",
   forbids_field: "Forbids field",
   forbids_field_pattern: "Forbids field pattern",
-  "field-line-shape": "Field line shape",
   "flow-wiring": "Flow wiring",
   unique_field: "Unique field",
   requires_node_type: "Allowed node types",
@@ -77,13 +76,6 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
     case "forbids_field_pattern":
       parts.push({ label: "fields", value: p.fields.join(", ") });
       parts.push({ label: "pattern", value: p.pattern });
-      break;
-    case "field-line-shape":
-      parts.push({ label: "field", value: p.field });
-      if (p.max_first_line_chars)
-        parts.push({ label: "max chars", value: String(p.max_first_line_chars) });
-      if (p.max_first_line_words)
-        parts.push({ label: "max words", value: String(p.max_first_line_words) });
       break;
     case "flow-wiring":
       parts.push({ label: "edge type", value: p.edge_type });

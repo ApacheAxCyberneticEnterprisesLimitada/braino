@@ -1257,25 +1257,41 @@ BEGIN
                             CHECK (lifecycle IN ('active','retired'));
 END $$;
 
--- ── Business-processes Intent shape: drop the trigger/outcome/out-of-scope
--- demand, keep only the brief-headline clause ──────────────────────────────
--- The seeded business-processes Intent-shape policy used to require the
--- Intent body to spell out the trigger, the terminal outcome, and what is out
--- of scope. That forced verbose Intents: the prose duplicated facts the graph
--- already holds (the process's initial State, terminal State, and flow
--- wiring). The template now grades only the FIRST LINE as a brief BPMN name.
--- Rewrite already-seeded policy rows in place so existing Docos match the new
--- template (only `predicate.agent_instruction` is persisted, never the prose
--- `policy`). schema.sql is re-applied on every boot, so this carries the
--- change to production. Idempotent: it matches only rows that still carry the
--- old "remaining text lets the reader discern" clause, so a second boot — or
--- any Doco seeded after this change — is a no-op.
+-- ── Business-processes Intent shape: grade the WHOLE field, never a line ────
+-- The seeded business-processes Intent-shape check used to be line-scoped — it
+-- graded "the first line" as a brief headline (and, earlier still, also
+-- demanded the body spell out trigger/outcome/out-of-scope). Line-shaped
+-- grading distorts the field's vector embedding and forces a headline
+-- structure into prose, so it is gone: the probabilistic check now reads the
+-- ENTIRE `intent` field for a concise process purpose, and the deterministic
+-- `field-line-shape` floor is retired outright.
+--
+-- This converges every already-seeded Doco onto the new shape, from EITHER
+-- prior state (the original trigger/outcome/scope spec or the interim
+-- first-line spec). Only `predicate.agent_instruction` is persisted, never the
+-- prose `policy`. schema.sql is re-applied on every boot, so this carries the
+-- change to production.
+
+-- (1) Rewrite the probabilistic Intent spec to the whole-field judge. Matches
+-- any Intent probabilistic policy whose instruction still scopes to "first
+-- line"; the new text contains no such phrase, so a second boot is a no-op.
 UPDATE policies
 SET data = jsonb_set(
       data,
       '{predicate,agent_instruction}',
-      to_jsonb($intent_headline_spec$Check the FIRST LINE of the Intent's `intent` field. PASS when the first line is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name. FAIL with `first line is not a brief headline` when line one crams a whole description into one sentence. Judge ONLY the first line; whatever follows it is free prose and is not graded.$intent_headline_spec$::text)
+      to_jsonb($intent_purpose_spec$Read the ENTIRE `intent` field. PASS when it identifies a single repeatable business process — recognizable as a verb + object (e.g. `publish a job`), optionally with an adjective or adverb — and reads as a concise statement of that process's purpose. FAIL when no single process is identifiable, when several distinct processes are bundled together, or when it sprawls into a multi-paragraph specification instead of a focused purpose. Grade the whole field; do not privilege or judge any single line.$intent_purpose_spec$::text)
     ),
     updated_at = now()
 WHERE kind = 'probabilistic'
-  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%the remaining text lets the reader discern%';
+  AND data -> 'predicate' -> 'when_node_type' ? 'intent'
+  AND data -> 'predicate' ->> 'agent_instruction' ILIKE '%first line%';
+
+-- (2) Retire the deterministic `field-line-shape` floor — the predicate kind no
+-- longer exists in the evaluator, so any still-active row must stop firing.
+-- Idempotent: the `lifecycle = 'active'` guard makes a second boot a no-op.
+UPDATE policies
+SET lifecycle = 'retired',
+    updated_at = now()
+WHERE kind = 'deterministic'
+  AND data -> 'predicate' ->> 'sub_kind' = 'field-line-shape'
+  AND lifecycle = 'active';

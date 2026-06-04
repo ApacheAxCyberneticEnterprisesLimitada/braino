@@ -682,47 +682,6 @@ describe("authoring evaluator — forbids_field_pattern", () => {
   });
 });
 
-describe("authoring evaluator — field-line-shape", () => {
-  const headline = () =>
-    P({
-      sub_kind: "field-line-shape",
-      field: "intent",
-      max_first_line_chars: 40,
-      when_node_type: ["intent"],
-    });
-
-  it("passes a short first line", () => {
-    const v = evaluate(
-      {
-        id: "intent_01",
-        node_type: "intent",
-        intent: "Publish a job\n\nTrigger: ...; Outcome: ...",
-      },
-      [headline()],
-    );
-    expect(v).toEqual([]);
-  });
-
-  it("fails a run-on first line over the char budget", () => {
-    const v = evaluate(
-      {
-        id: "intent_01",
-        node_type: "intent",
-        intent:
-          "this entire first line is one long run-on sentence that buries the process name completely",
-      },
-      [headline()],
-    );
-    expect(v).toHaveLength(1);
-    expect(v[0]?.sub_kind).toBe("field-line-shape");
-  });
-
-  it("ignores an empty field (presence is a separate concern)", () => {
-    const v = evaluate({ id: "intent_01", node_type: "intent", intent: "" }, [headline()]);
-    expect(v).toEqual([]);
-  });
-});
-
 describe("authoring evaluator — flow-wiring", () => {
   const wiring = () =>
     P({

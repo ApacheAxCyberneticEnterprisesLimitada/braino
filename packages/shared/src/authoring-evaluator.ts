@@ -303,25 +303,6 @@ function evaluatePredicate(p: LoadedPolicy, opts: EvaluateOpts): Violation | nul
       if (!hit) return null;
       return fail(`field \`${hit}\` contains forbidden pattern /${pred.pattern}/`);
     }
-    case "field-line-shape": {
-      const value = candidate[pred.field];
-      // Presence is a separate concern (requires_field) — only shape an
-      // actually-present headline.
-      if (typeof value !== "string" || value.trim().length === 0) return null;
-      const firstLine = (value.split("\n")[0] ?? "").trim();
-      const problems: string[] = [];
-      if (pred.max_first_line_chars && firstLine.length > pred.max_first_line_chars) {
-        problems.push(`first line is ${firstLine.length} chars (max ${pred.max_first_line_chars})`);
-      }
-      if (pred.max_first_line_words) {
-        const words = firstLine.split(/\s+/).filter(Boolean).length;
-        if (words > pred.max_first_line_words) {
-          problems.push(`first line is ${words} words (max ${pred.max_first_line_words})`);
-        }
-      }
-      if (problems.length === 0) return null;
-      return fail(`\`${pred.field}\` headline too long: ${problems.join("; ")}`);
-    }
     case "flow-wiring": {
       const isInitial =
         pred.initial_when !== undefined &&

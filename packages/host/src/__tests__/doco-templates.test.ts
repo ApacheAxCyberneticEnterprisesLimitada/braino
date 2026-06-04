@@ -192,27 +192,27 @@ describe("business-processes template", () => {
         /purpose Intent/i.test(r.policy),
     );
 
-    it("requires a brief BPMN headline on the Intent's first line", () => {
+    it("grades the WHOLE intent field for a concise process purpose, never a line", () => {
       expect(intentRule?.predicate?.kind).toBe("probabilistic");
       if (intentRule?.predicate?.kind !== "probabilistic") return;
-      // First line is a short verb+object process name…
-      expect(intentRule.predicate.spec).toMatch(/first line/i);
-      expect(intentRule.predicate.spec).toMatch(/brief|short|concise/i);
-      // …and that is ALL it grades. The Intent no longer has to restate the
-      // trigger, terminal outcome, or out-of-scope boundary in its body —
-      // those live on the initial/terminal States and the flow wiring, so the
-      // policy must not demand them (that demand is what bloated the Intent).
+      // Graded over the entire field — a concise process purpose…
+      expect(intentRule.predicate.spec).toMatch(/entire|whole field/i);
+      expect(intentRule.predicate.spec).toMatch(/concise|focused/i);
+      expect(intentRule.predicate.spec).toMatch(/repeatable (business )?process/i);
+      // …and it must NOT grade or privilege "the first line" (the line-shaped
+      // check distorted the field's vector embedding).
+      expect(intentRule.predicate.spec).not.toMatch(/first line/i);
+      // The Intent also no longer restates trigger / outcome / out-of-scope.
       expect(intentRule.predicate.spec).not.toMatch(/trigger/i);
-      expect(intentRule.predicate.spec).not.toMatch(/outcome/i);
       expect(intentRule.predicate.spec).not.toMatch(/out of scope|out-of-scope/i);
     });
 
-    it("asks for the brief name in the human-readable policy too", () => {
-      expect(intentRule?.policy).toMatch(/first line/i);
-      expect(intentRule?.policy).toMatch(/brief|short|concise/i);
-      // The prose policy must not ask for trigger / outcome / scope either.
+    it("asks for a concise whole-field purpose in the human-readable policy too", () => {
+      expect(intentRule?.policy).toMatch(/concise|focused/i);
+      expect(intentRule?.policy).toMatch(/repeatable process/i);
+      // No first-line / headline framing, no trigger / outcome / scope demand.
+      expect(intentRule?.policy).not.toMatch(/first line/i);
       expect(intentRule?.policy).not.toMatch(/trigger/i);
-      expect(intentRule?.policy).not.toMatch(/outcome/i);
       expect(intentRule?.policy).not.toMatch(/out of scope|out-of-scope/i);
     });
   });
@@ -338,15 +338,28 @@ describe("business-processes template", () => {
         new RegExp(rule.predicate.pattern, rule.predicate.flags),
       );
     });
+  });
 
-    it("a headline-length floor warns on a run-on Intent first line", () => {
-      const rule = template.policies.find((r) => r.predicate?.kind === "field-line-shape");
-      expect(rule?.predicate?.kind).toBe("field-line-shape");
-      if (rule?.predicate?.kind !== "field-line-shape") return;
-      expect(rule.predicate.field).toBe("intent");
-      expect(rule.predicate.max_first_line_chars).toBeGreaterThan(0);
-      expect(rule.on_violation).toBe("warn");
-    });
+  describe("no policy grades a single line", () => {
+    // Line-shaped grading distorts a field's vector embedding and forces a
+    // headline structure into prose. Checks run over the whole field instead;
+    // additional structure belongs in a separate field. This guards every
+    // template against reintroducing the retired `field-line-shape` predicate
+    // or a "first line"-scoped probabilistic spec.
+    for (const t of DEFAULT_DOCO_TEMPLATES) {
+      it(`${t.name} has no line-scoped policy`, () => {
+        for (const p of t.policies) {
+          expect(p.predicate?.kind, `${t.name} still uses field-line-shape`).not.toBe(
+            "field-line-shape",
+          );
+          if (p.predicate?.kind === "probabilistic") {
+            expect(p.predicate.spec, `${t.name} probabilistic spec scopes to a line`).not.toMatch(
+              /first line|line one|the first line/i,
+            );
+          }
+        }
+      });
+    }
   });
 
   describe("probabilistic specs cover process-critical claims", () => {

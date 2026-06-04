@@ -694,38 +694,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Intent shape ────────────────────────────────────────────
       {
-        // Deterministic floor under the headline judge below: line one is the
-        // label readers scan, so it must be short enough to BE a headline. A
-        // run-on first line that crams the whole description into one sentence
-        // trips this cheaply; whether the headline reads as a verb+object name
-        // (and the body names trigger/outcome/scope) stays with the judge.
-        // `warn`, not block — a slightly-long-but-legible headline shouldn't
-        // trap the author.
-        on_violation: "warn",
+        // Whole-field judge: the purpose Intent identifies a single
+        // repeatable business process and reads as a concise statement of its
+        // purpose. Graded over the ENTIRE `intent` field — never a single
+        // line. A line-shaped check (the former `field-line-shape` floor +
+        // "first line" judge) distorted the field's vector embedding and
+        // forced a headline structure into the prose; if a short process name
+        // is wanted it is the author's to phrase within the field, not a
+        // separately-graded first line. The Intent also no longer restates the
+        // trigger, terminal outcome, or out-of-scope boundary — those live
+        // structurally as the process's initial State, terminal State, and
+        // flow wiring.
         policy:
-          "The purpose Intent's first line is a brief headline, not a run-on sentence — keep it short enough to scan as a process name.",
-        predicate: {
-          kind: "field-line-shape",
-          field: "intent",
-          max_first_line_chars: 80,
-          when_node_type: ["intent"],
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-      {
-        // Probabilistic on intent — the FIRST LINE is a brief BPMN process
-        // name (the label readers scan and the card summary takes from line
-        // one). That is ALL this policy asks of the Intent. The body is free
-        // prose; the template deliberately no longer requires the Intent to
-        // restate the trigger, the terminal outcome, or what is out of scope —
-        // those already live structurally as the process's initial State, its
-        // terminal State, and the flow wiring between them, so duplicating
-        // them in the Intent prose only bloated it.
-        policy:
-          "The purpose Intent of a business process opens with a brief BPMN-style name on its first line — a short verb-and-object phrase, optionally with an adjective or adverb (for example, `Publish a job`), not a run-on sentence.",
+          "The purpose Intent of a business process identifies a single repeatable process and reads as a concise statement of its purpose — recognizable as a verb-and-object process (for example, `publish a job`), kept focused rather than sprawling into a full specification.",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the FIRST LINE of the Intent's `intent` field. PASS when the first line is a brief process name — a short verb + object phrase, optionally with an adjective or adverb, roughly two to six words (e.g. `Publish a job`), and NOT a full run-on sentence that buries the name. FAIL with `first line is not a brief headline` when line one crams a whole description into one sentence. Judge ONLY the first line; whatever follows it is free prose and is not graded.",
+          spec: "Read the ENTIRE `intent` field. PASS when it identifies a single repeatable business process — recognizable as a verb + object (e.g. `publish a job`), optionally with an adjective or adverb — and reads as a concise statement of that process's purpose. FAIL when no single process is identifiable, when several distinct processes are bundled together, or when it sprawls into a multi-paragraph specification instead of a focused purpose. Grade the whole field; do not privilege or judge any single line.",
           when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
