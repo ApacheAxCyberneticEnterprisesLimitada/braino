@@ -221,7 +221,10 @@ export interface CreateEdgeInput {
   fromNodeType: string;
   toId: string;
   toNodeType: string;
-  props?: Record<string, unknown> | null;
+  /** flows_to BPMN metadata (typed columns, replacing the old `props` jsonb). */
+  label?: string | null;
+  condition?: string | null;
+  kind?: string | null;
   lifecycle?: "drafting" | "active";
   actor?: string | null;
 }
@@ -234,7 +237,9 @@ export interface EdgeRow {
   from_node_type: string;
   to_id: string;
   to_node_type: string;
-  props: Record<string, unknown> | null;
+  label: string | null;
+  condition: string | null;
+  kind: string | null;
   lifecycle: string;
   origin: string;
   created_at: string;
@@ -257,8 +262,8 @@ export async function createEdge(
   const { rows } = await c.query<EdgeRow>(
     `INSERT INTO edges
        (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type,
-        props, lifecycle, origin, created_by, updated_by)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$11)
+        label, condition, kind, lifecycle, origin, created_by, updated_by)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
      RETURNING *`,
     [
       id,
@@ -268,7 +273,9 @@ export async function createEdge(
       input.fromNodeType,
       input.toId,
       input.toNodeType,
-      input.props ? JSON.stringify(input.props) : null,
+      input.label ?? null,
+      input.condition ?? null,
+      input.kind ?? null,
       input.lifecycle ?? "active",
       "authored",
       input.actor ?? null,
@@ -285,32 +292,38 @@ export async function createEdge(
   return row;
 }
 
-/** Mutate an edge's props and/or lifecycle (endpoints are immutable). */
+/** Mutate an edge's flows_to metadata and/or lifecycle (endpoints are immutable). */
 export async function updateEdge(
   c: pg.PoolClient,
   txId: number,
   input: {
     id: string;
-    props?: Record<string, unknown> | null;
+    label?: string | null;
+    condition?: string | null;
+    kind?: string | null;
     lifecycle?: "drafting" | "active";
     actor?: string | null;
   },
 ): Promise<EdgeRow> {
   const { rows } = await c.query<EdgeRow>(
     `UPDATE edges
-        SET props      = COALESCE($2, props),
-            lifecycle  = COALESCE($3, lifecycle),
+        SET label      = COALESCE($2, label),
+            condition  = COALESCE($3, condition),
+            kind       = COALESCE($4, kind),
+            lifecycle  = COALESCE($5, lifecycle),
             -- Reviving a retired edge (lifecycle back to drafting/active) must
             -- clear the retirement stamp so the row never carries a live
-            -- lifecycle with a stale retired_at. Pure props edits leave it be.
-            retired_at = CASE WHEN $3 IS NOT NULL THEN NULL ELSE retired_at END,
+            -- lifecycle with a stale retired_at. Pure metadata edits leave it be.
+            retired_at = CASE WHEN $5 IS NOT NULL THEN NULL ELSE retired_at END,
             updated_at = now(),
-            updated_by = $4
+            updated_by = $6
       WHERE id = $1
       RETURNING *`,
     [
       input.id,
-      input.props === undefined ? null : JSON.stringify(input.props),
+      input.label ?? null,
+      input.condition ?? null,
+      input.kind ?? null,
       input.lifecycle ?? null,
       input.actor ?? null,
     ],

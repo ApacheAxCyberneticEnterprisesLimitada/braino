@@ -55,7 +55,6 @@ async function main(): Promise<void> {
         fromNodeType: "decision",
         toId: rId,
         toNodeType: "reference",
-        props: { role: "implemented_by" },
         actor: userId,
       });
       const tx2 = await createChangeset(c, {
@@ -64,7 +63,7 @@ async function main(): Promise<void> {
         source: "api",
         reason: "annotate",
       });
-      await updateEdge(c, tx2, { id: e.id, props: { note: "x" }, actor: userId });
+      await updateEdge(c, tx2, { id: e.id, label: "x", actor: userId });
       return e;
     })();
 

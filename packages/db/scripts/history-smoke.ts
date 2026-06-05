@@ -92,7 +92,7 @@ async function main(): Promise<void> {
       fromNodeType: "decision",
       toId: refId,
       toNodeType: "reference",
-      props: { role: "implemented_by", note: "ships in PR #634" },
+      label: "ships in PR #634",
       actor: userId,
     });
     check("edge has surrogate id edge_<ulid>", /^edge_[0-9A-HJKMNP-TV-Z]{26}$/.test(edge.id));
@@ -108,17 +108,14 @@ async function main(): Promise<void> {
     });
     const updated = await updateEdge(c, tx2, {
       id: edge.id,
-      props: { note: "ships in PR #634", verified: true },
+      label: "ships in PR #634 (verified)",
       actor: userId,
     });
     check(
       "edge update kept endpoints immutable",
       updated.from_id === decisionId && updated.to_id === refId,
     );
-    check(
-      "edge update changed props",
-      (updated.props as Record<string, unknown>)?.verified === true,
-    );
+    check("edge update changed label", updated.label === "ships in PR #634 (verified)");
 
     // --- Live-unique: a second LIVE duplicate must be rejected ---
     let dupRejected = false;
@@ -131,7 +128,6 @@ async function main(): Promise<void> {
         fromNodeType: "decision",
         toId: refId,
         toNodeType: "reference",
-        props: { role: "implemented_by" },
         actor: userId,
       });
       await c.query("RELEASE SAVEPOINT dup");

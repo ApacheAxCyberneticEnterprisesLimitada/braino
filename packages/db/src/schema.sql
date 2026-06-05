@@ -540,7 +540,14 @@ CREATE TABLE IF NOT EXISTS edges (
   from_node_type  text NOT NULL,
   to_id           text NOT NULL CONSTRAINT edges_to_fk   REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,
   to_node_type    text NOT NULL,
-  props           jsonb,
+  -- flows_to BPMN metadata, promoted from the old `props` jsonb to typed
+  -- columns: branch `label`, gateway `condition`, and `kind`
+  -- (exception/timer). The edge's `role` qualifier is gone — an edge's meaning
+  -- is its type plus the node types it connects, and the live-unique index
+  -- below already identifies each edge.
+  label           text,
+  condition       text,
+  kind            text,
   lifecycle       text NOT NULL DEFAULT 'active',
   origin          text NOT NULL DEFAULT 'authored'
                     CHECK (origin IN ('authored')),
@@ -1450,7 +1457,25 @@ WITH ranked AS (
 UPDATE edges
    SET lifecycle = 'retired', updated_at = now()
  WHERE id IN (SELECT id FROM ranked WHERE rn > 1);
-UPDATE edges SET props = props - 'role' WHERE props ? 'role';
+-- Slice 2 (docs/simplification-plan.md): promote the flows_to BPMN metadata
+-- (label / condition / kind) from the `props` jsonb to typed columns, then drop
+-- `props` entirely (its `role` qualifier goes with it — the live-unique index
+-- above is the edge's identity). Guarded on `props` still existing, so fresh
+-- installs and an already-migrated DB both skip. The DROP runs after the
+-- constraint flush + index rebuild below (DDL can't run with pending events).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'edges' AND column_name = 'props'
+  ) THEN
+    UPDATE edges
+       SET label     = COALESCE(label, props->>'label'),
+           condition = COALESCE(condition, props->>'condition'),
+           kind      = COALESCE(kind, props->>'kind')
+     WHERE props IS NOT NULL;
+  END IF;
+END $$;
 -- The edges→nodes FKs are DEFERRABLE INITIALLY DEFERRED, so the dedup/strip
 -- UPDATEs above queue deferred constraint-trigger events; CREATE INDEX cannot
 -- run in a transaction that has pending trigger events. Flush them now (the
@@ -1459,6 +1484,18 @@ UPDATE edges SET props = props - 'role' WHERE props ? 'role';
 SET CONSTRAINTS ALL IMMEDIATE;
 CREATE UNIQUE INDEX IF NOT EXISTS edges_live_uniq
   ON edges (doco_id, from_id, to_id, edge_type) WHERE lifecycle <> 'retired';
+
+-- Now that the flows_to metadata is folded into typed columns and the deferred
+-- constraint events are flushed, drop the `props` jsonb. Guarded + idempotent.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'edges' AND column_name = 'props'
+  ) THEN
+    ALTER TABLE edges DROP COLUMN props;
+  END IF;
+END $$;
 
 -- ── Business-processes Intent shape: grade the WHOLE field, never a line ────
 -- The seeded business-processes Intent-shape check used to be line-scoped — it

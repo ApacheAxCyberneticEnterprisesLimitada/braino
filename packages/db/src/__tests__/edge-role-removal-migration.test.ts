@@ -93,11 +93,11 @@ async function insertNode(id: string, nodeType: string): Promise<void> {
 interface EdgeShape {
   id: string;
   lifecycle: string;
-  has_role: boolean;
+  label: string | null;
 }
 async function edgesBetween(from: string, to: string, edgeType: string): Promise<EdgeShape[]> {
-  const r = await db.query<{ id: string; lifecycle: string; has_role: boolean }>(
-    `SELECT id, lifecycle, (props ? 'role') AS has_role
+  const r = await db.query<EdgeShape>(
+    `SELECT id, lifecycle, label
        FROM edges
       WHERE doco_id = $1 AND from_id = $2 AND to_id = $3 AND edge_type = $4
       ORDER BY created_at, id`,
@@ -203,18 +203,19 @@ describe("edge `role` removal migration", () => {
 
   // ── (2) Edges: strip props.role + dedup collapsing live edges ──────────────
 
-  it("(2) strips props.role from every edge and dedups colliding live edges to one", async () => {
+  it("(2) folds props.{label,condition,kind} into columns, drops props, and dedups colliding live edges", async () => {
     await ensureDoco();
     await insertNode("action_a", "action");
     await insertNode("principal_p", "principal");
     await insertNode("intent_i", "intent");
 
-    // Recreate the OLD role-bearing live-uniqueness index (the production shape
-    // before this migration), so we can plant TWO live edges that differ ONLY by
-    // role between the same (doco, from, to, type). On re-exec, schema.sql's
-    // early `CREATE UNIQUE INDEX IF NOT EXISTS edges_live_uniq` is skipped
-    // (the index exists), and the role-removal migration is what DROPs this old
-    // index, dedups the collapsing edges, strips role, and recreates it role-free.
+    // Simulate a pre-Slice-2 DB: re-add the dropped `props` jsonb and the OLD
+    // role-bearing live-uniqueness index, so we can plant TWO live edges that
+    // differ ONLY by role between the same (doco, from, to, type), plus a
+    // flows_to edge whose label/condition/kind live in props. On re-exec, the
+    // migration drops the old index, dedups the colliding edges, folds
+    // props.{label,condition,kind} into the typed columns, and DROPs props.
+    await db.exec("ALTER TABLE edges ADD COLUMN IF NOT EXISTS props jsonb;");
     await db.exec("DROP INDEX IF EXISTS edges_live_uniq;");
     await db.exec(
       `CREATE UNIQUE INDEX edges_live_uniq
@@ -258,15 +259,15 @@ describe("edge `role` removal migration", () => {
       { role: "decided_by" },
       "2026-02-01T00:00:00Z",
     );
-    // A lone serves edge (no collision) that still carries a role to be stripped.
+    // A flows_to edge whose label/condition/kind must fold into the new columns.
     await insertEdge(
-      "edge_serves",
+      "edge_flow",
       "action_a",
       "action",
       "intent_i",
       "intent",
-      "supports",
-      { role: "serves" },
+      "flows_to",
+      { label: "approved", condition: "amount > 0", kind: "timer" },
       "2026-01-01T00:00:00Z",
     );
     // Flush the DEFERRABLE INITIALLY DEFERRED edge→node FK checks now (the nodes
@@ -274,14 +275,13 @@ describe("edge `role` removal migration", () => {
     // "pending trigger events".
     await db.exec("SET CONSTRAINTS ALL IMMEDIATE;");
 
-    await db.exec(schemaSql); // re-apply baseline — runs the role-removal migration
+    await db.exec(schemaSql); // re-apply baseline — runs the Slice-2 edge migration
 
-    // No edge anywhere keeps props.role.
-    const anyRole = await db.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM edges WHERE doco_id = $1 AND props ? 'role'`,
-      [DOCO],
+    // The `props` column is gone entirely.
+    const cols = await db.query<{ column_name: string }>(
+      "SELECT column_name FROM information_schema.columns WHERE table_name = 'edges'",
     );
-    expect(anyRole.rows[0].n).toBe(0);
+    expect(cols.rows.map((r) => r.column_name)).not.toContain("props");
 
     // The colliding pair collapses to exactly one LIVE edge; the oldest
     // (edge_perf, created first) is kept and the other retired.
@@ -292,18 +292,23 @@ describe("edge `role` removal migration", () => {
     expect(live[0].id).toBe("edge_perf");
     expect(collided.find((e) => e.id === "edge_dec")?.lifecycle).toBe("retired");
 
-    // The lone serves edge stays live (no collision), just role-stripped.
-    const serves = await edgesBetween("action_a", "intent_i", "supports");
-    expect(serves).toHaveLength(1);
-    expect(serves[0].lifecycle).toBe("active");
-    expect(serves[0].has_role).toBe(false);
+    // The flows_to edge stays live, with its metadata folded into typed columns.
+    const flow = await edgesBetween("action_a", "intent_i", "flows_to");
+    expect(flow).toHaveLength(1);
+    expect(flow[0].lifecycle).toBe("active");
+    expect(flow[0].label).toBe("approved");
+    const folded = await db.query<{ condition: string | null; kind: string | null }>(
+      "SELECT condition, kind FROM edges WHERE id = 'edge_flow'",
+    );
+    expect(folded.rows[0].condition).toBe("amount > 0");
+    expect(folded.rows[0].kind).toBe("timer");
 
     // The role-free unique index now holds: a second colliding live edge is
     // rejected, proving the index was recreated role-free.
     await expect(
       db.query(
-        `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, props, lifecycle)
-           VALUES ('edge_dupe', $1, 'attributed_to', 'action_a', 'action', 'principal_p', 'principal', '{}'::jsonb, 'active')`,
+        `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, lifecycle)
+           VALUES ('edge_dupe', $1, 'attributed_to', 'action_a', 'action', 'principal_p', 'principal', 'active')`,
         [DOCO],
       ),
     ).rejects.toThrow();
@@ -323,10 +328,11 @@ describe("edge `role` removal migration", () => {
     await insertNode("action_a", "action");
     await insertNode("principal_p", "principal");
     await db.query(
-      `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, props, lifecycle)
-         VALUES ('edge_one', $1, 'attributed_to', 'action_a', 'action', 'principal_p', 'principal', '{"role":"performed_by"}'::jsonb, 'active')`,
+      `INSERT INTO edges (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type, lifecycle)
+         VALUES ('edge_one', $1, 'attributed_to', 'action_a', 'action', 'principal_p', 'principal', 'active')`,
       [DOCO],
     );
+    await db.exec("SET CONSTRAINTS ALL IMMEDIATE;");
 
     await db.exec(schemaSql);
     const predAfterFirst = await predicateOf("policy_performer");
@@ -338,6 +344,5 @@ describe("edge `role` removal migration", () => {
     expect(await predicateOf("policy_performer")).toEqual(predAfterFirst);
     expect(await edgesBetween("action_a", "principal_p", "attributed_to")).toEqual(edgesAfterFirst);
     expect(predAfterFirst.sub_kind).toBe("requires_edge");
-    expect(edgesAfterFirst.every((e) => !e.has_role)).toBe(true);
   });
 });

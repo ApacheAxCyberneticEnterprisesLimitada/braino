@@ -46,7 +46,6 @@ export interface EngineEdge {
   from_id: string;
   to_id: string;
   edge_type: string;
-  edge_props_json?: Record<string, unknown> | null;
 }
 
 /**
