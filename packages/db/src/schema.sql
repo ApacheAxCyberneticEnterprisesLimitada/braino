@@ -424,8 +424,10 @@ BEGIN
 END $$;
 
 -- Contract phase: principals join the prose nodes. Their `name` becomes `prose`,
--- `body_md` folds into `attributes`, and `name`/`body_md`/`role_principal` are
--- dropped. Guarded on `name` so fresh installs and migrated DBs both skip.
+-- and `name`/`body_md`/`role_principal` are dropped. `body_md` content is NOT
+-- carried into `attributes` — the entity-shape normalization gives a principal
+-- one text home (`prose`); the body is dropped, no backward compatibility.
+-- Guarded on `name` so fresh installs and migrated DBs both skip.
 DO $$
 BEGIN
   IF EXISTS (
@@ -435,9 +437,6 @@ BEGIN
     UPDATE nodes
        SET prose = COALESCE(NULLIF(prose, ''), name, id)
      WHERE node_type = 'principal';
-    UPDATE nodes
-       SET attributes = attributes || jsonb_strip_nulls(jsonb_build_object('body_md', body_md))
-     WHERE node_type = 'principal' AND body_md IS NOT NULL AND body_md <> '';
     ALTER TABLE nodes
       DROP COLUMN IF EXISTS name,
       DROP COLUMN IF EXISTS body_md,
@@ -452,6 +451,16 @@ END $$;
 -- columns. Idempotent — drops it where present, a no-op on fresh installs (the
 -- CREATE TABLE above no longer declares it) and on every boot thereafter.
 ALTER TABLE nodes DROP COLUMN IF EXISTS data;
+
+-- Entity-shape normalization: `body_md` is dropped from the node model. No node
+-- field lives in `body_md` any more — a principal's text is its `prose`, and a
+-- PR Reference keeps the title in `prose` and drops the body. Strip the key from
+-- every node's attributes bag so the only non-`extra` content is real columns
+-- (earlier shapes folded a principal's body / a PR body into the bag). The
+-- reference title/body convergence near the end of this file drops the body that
+-- still lives inline in a PR reference's `prose`. Idempotent: once stripped, the
+-- `?` guard makes a second pass a no-op.
+UPDATE nodes SET attributes = attributes - 'body_md' WHERE attributes ? 'body_md';
 
 -- Audit events: one row per mutation.
 
@@ -1602,13 +1611,23 @@ SET data = jsonb_set(data, '{predicate,agent_instruction}',
 WHERE kind = 'probabilistic'
   AND data -> 'predicate' ->> 'agent_instruction' LIKE '%the Action''s `action` and `verb`%';
 
+-- The process Principal-shape judge reads only the Principal's `prose` now
+-- (`body_md` is dropped from the node model). Overwrite the seeded process
+-- principal judge to the prose-only text, converging from EITHER prior wording
+-- (the original `name and body_md`, or the interim `prose and body_md`). Kept
+-- byte-identical to the template (doco-templates.ts). Idempotent via the
+-- NOT-LIKE-new-text guard; scoped to the process principal judge by its opening
+-- + "names a process actor", so the org-chart "Read the Principal's …" judges
+-- are untouched.
 UPDATE policies
 SET data = jsonb_set(data, '{predicate,agent_instruction}',
-      to_jsonb(replace(data -> 'predicate' ->> 'agent_instruction',
-                       'the Principal''s `name` and `body_md`', 'the Principal''s `prose` and `body_md`'))),
+      to_jsonb($proc_principal_prose$Check the Principal's `prose`. PASS when it clearly names a process actor — a role, team, external party, or system — and explains what responsibility or boundary it owns in this process. FAIL if it reads like an uncontextualized org-chart person, a vague label (`user`, `team`, `system`) with no process responsibility, or an empty shell with only a bare name.$proc_principal_prose$::text)),
     updated_at = now()
 WHERE kind = 'probabilistic'
-  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%the Principal''s `name` and `body_md`%';
+  AND data -> 'predicate' -> 'when_node_type' ? 'principal'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE 'Check the Principal''s%'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%names a process actor%'
+  AND data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%only a bare name%';
 
 -- ── Business-processes: backfill the sub-process Intent-naming EDGE policy ────
 -- The business-processes template gained an EDGE-scoped probabilistic policy:
@@ -1761,34 +1780,32 @@ WHERE NOT EXISTS (
 )
 ON CONFLICT (id) DO NOTHING;
 
--- ── Org-chart: the person/agent declaration moves from body_md prose to `kind` ─
--- The Principal slim-down promoted a structured `kind` ("human" | "agent") onto
--- the Principal, and the org-chart template now keys its person/agent/vacant
--- declaration off that field: a FILLED seat declares `kind`, a VACANT seat sets
--- no `kind` and states its vacancy in `body_md` prose. New org-chart Docos seed
--- the kind-keyed policy at creation; every ALREADY-seeded org-chart Doco still
--- carries the OLD body_md-only probabilistic judge (and the OLD guidance prose
--- that pointed authors at `body_md` for the declaration). schema.sql is
--- re-applied on every boot, so these UPDATEs carry the change to production.
+-- ── Org-chart: drop `body_md`; person/agent/vacant reads `kind` + `prose` ────
+-- The Principal slim-down promoted a structured `kind` ("human" | "agent"); the
+-- entity-shape normalization then dropped `body_md` from the node model
+-- entirely. The org-chart template now keys the person/agent/vacant declaration
+-- off `kind` and reads a vacant seat's reason from `prose` (a principal's one
+-- text home). New org-chart Docos seed the kind+prose policies at creation;
+-- every ALREADY-seeded org-chart Doco still carries a `body_md`-bearing judge,
+-- the `body_md` guidance prose, AND the deterministic `body_md` presence floor
+-- (which, left active, would now block EVERY principal capture). schema.sql is
+-- re-applied on every boot, so these statements carry the change to production.
 --
 -- Scoped to org-chart Docos via `docos.data->>'template_handle'` AND matched by
--- the OLD predicate/prose signature, so no other template's policies are
--- touched. Each statement carries a `NOT (... new text)` guard so the FIRST boot
--- rewrites the row and EVERY later boot — and a fresh install that already seeds
--- the new text — is a strict no-op. The deterministic `body_md` presence floor
--- is intentionally NOT migrated: its predicate (requires_field on `body_md`) is
--- byte-identical before and after — only its human prose, which is not persisted
--- on a deterministic row, changed — and a vacant seat legitimately has no `kind`,
--- so the floor must stay on `body_md`, never `kind`.
+-- the OLD signature, so no other template's policies are touched. Each statement
+-- is guarded so the FIRST boot rewrites the row and EVERY later boot — and a
+-- fresh install that already seeds the new text — is a strict no-op.
 
--- (A) Behaviour-bearing: rewrite the probabilistic declaration judge from the
--- body_md-only spec to the kind-keyed spec (kept byte-identical to the template
--- in packages/host/src/doco-templates.ts so seeded and new Docos converge).
+-- (A) Behaviour-bearing: the probabilistic person/agent/vacant judge now reads
+-- `kind` + `prose` (kept byte-identical to the template in
+-- packages/host/src/doco-templates.ts so seeded and new Docos converge). Matches
+-- ANY prior principal judge still mentioning `body_md` — the body_md-only spec
+-- AND the interim kind+body_md spec — so a single block converges either.
 UPDATE policies p
 SET data = jsonb_set(
       p.data,
       '{predicate,agent_instruction}',
-      to_jsonb($orgchart_kind_spec$Read the Principal's `kind` field and its `body_md` prose. PASS if `kind` is `human` (the seat is filled by a person) or `agent` (filled by an AI agent), OR if `kind` is unset AND the `body_md` prose states the seat is currently vacant/open (e.g. 'Vacant — budgeted Staff Engineer seat, reporting to …'). FAIL with a reason if `kind` is unset AND the prose does not declare the seat vacant — the seat must state whether it's filled by a person, filled by an AI agent, or vacant.$orgchart_kind_spec$::text)
+      to_jsonb($orgchart_kind_prose$Read the Principal's `kind` field and its `prose`. PASS if `kind` is `human` (the seat is filled by a person) or `agent` (filled by an AI agent), OR if `kind` is unset AND the `prose` states the seat is currently vacant/open (e.g. 'Vacant — budgeted Staff Engineer seat, reporting to …'). FAIL with a reason if `kind` is unset AND the prose does not declare the seat vacant — the seat must state whether it's filled by a person, filled by an AI agent, or vacant.$orgchart_kind_prose$::text)
     ),
     updated_at = now()
 FROM docos d
@@ -1796,21 +1813,38 @@ WHERE p.doco_id = d.id
   AND d.data ->> 'template_handle' = 'org-chart'
   AND p.kind = 'probabilistic'
   AND p.data -> 'predicate' -> 'when_node_type' ? 'principal'
-  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Read the Principal''s `body_md`.%'
-  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%Read the Principal''s `kind` field%';
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Read the Principal''s%'
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE '%body_md%';
 
--- (B) Prose convergence: the three guidance `suggestion` rows that told authors
--- the declaration lives in `body_md` now name the structured `kind` field. Only
--- `predicate.agent_instruction` is persisted on a suggestion, so refresh it for
--- already-seeded org-chart Docos. Each matches its OLD opening and guards on a
--- NEW distinctive fragment (the `kind`-naming) so a second boot is a no-op.
+-- (B) Retire the deterministic `body_md` presence floor (requires_field on
+-- body_md). Principals no longer carry `body_md`, so left active it would block
+-- every org-chart principal capture. Mirror transitionPolicyLifecycle — flip
+-- both the column and `data.lifecycle`. Idempotent (only active rows match).
+UPDATE policies p
+SET lifecycle = 'retired',
+    data = jsonb_set(p.data, '{lifecycle}', '"retired"'::jsonb),
+    updated_at = now()
+FROM docos d
+WHERE p.doco_id = d.id
+  AND d.data ->> 'template_handle' = 'org-chart'
+  AND p.kind = 'deterministic'
+  AND p.lifecycle = 'active'
+  AND p.data -> 'predicate' ->> 'sub_kind' = 'requires_field'
+  AND p.data -> 'predicate' -> 'fields' = '["body_md"]'::jsonb;
 
--- (B1) "Person vs agent isn't about who signed in …" → names `kind`.
+-- (C) Prose convergence: the three guidance `suggestion` rows that pointed
+-- authors at `body_md` now name `prose`. Only `predicate.agent_instruction` is
+-- persisted on a suggestion, so refresh it for already-seeded org-chart Docos.
+-- Each matches its stable opening and guards on a NEW distinctive fragment (the
+-- prose-naming) so a second boot is a no-op — and so they converge from EITHER
+-- the body_md-only or the interim kind+body_md wording.
+
+-- (C1) "Person vs agent isn't about who signed in …" → says so in its `prose`.
 UPDATE policies p
 SET data = jsonb_set(
       p.data,
       '{predicate,agent_instruction}',
-      to_jsonb($orgchart_person_vs_agent$Person vs agent isn't about who signed in — it's about who fills the seat, declared in the `kind` field. A Principal with `kind: agent` (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal with `kind: human` is a person, even if that human has no Doco account. A vacant seat sets no `kind` and says so in `body_md`.$orgchart_person_vs_agent$::text)
+      to_jsonb($orgchart_person_vs_agent$Person vs agent isn't about who signed in — it's about who fills the seat, declared in the `kind` field. A Principal with `kind: agent` (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal with `kind: human` is a person, even if that human has no Doco account. A vacant seat sets no `kind` and says so in its `prose`.$orgchart_person_vs_agent$::text)
     ),
     updated_at = now()
 FROM docos d
@@ -1818,15 +1852,15 @@ WHERE p.doco_id = d.id
   AND d.data ->> 'template_handle' = 'org-chart'
   AND p.kind = 'suggestion'
   AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Person vs agent isn''t about who signed in%'
-  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%`kind` field%';
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%says so in its `prose`%';
 
--- (B2) "Treat each Principal as a seat …" → a filled seat sets `kind`; a vacant
--- one leaves `kind` unset and declares itself in `body_md`.
+-- (C2) "Treat each Principal as a seat …" → a filled seat sets `kind`; a vacant
+-- one leaves `kind` unset and declares itself in its `prose`.
 UPDATE policies p
 SET data = jsonb_set(
       p.data,
       '{predicate,agent_instruction}',
-      to_jsonb($orgchart_seat_vacant$Treat each Principal as a seat — a role plus its current occupant — not just a person. A filled seat sets `kind` to `human` or `agent`; a budgeted-but-unfilled seat is still a valid Principal: leave `kind` unset, declare it `vacant` in `body_md`, name the role it's budgeted for, and keep its reporting edge so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure.$orgchart_seat_vacant$::text)
+      to_jsonb($orgchart_seat_vacant$Treat each Principal as a seat — a role plus its current occupant — not just a person. A filled seat sets `kind` to `human` or `agent`; a budgeted-but-unfilled seat is still a valid Principal: leave `kind` unset, declare it `vacant` in its `prose`, name the role it's budgeted for, and keep its reporting edge so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure.$orgchart_seat_vacant$::text)
     ),
     updated_at = now()
 FROM docos d
@@ -1834,15 +1868,15 @@ WHERE p.doco_id = d.id
   AND d.data ->> 'template_handle' = 'org-chart'
   AND p.kind = 'suggestion'
   AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Treat each Principal as a seat%'
-  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%leave `kind` unset%';
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%declare it `vacant` in its `prose`%';
 
--- (B3) "Seats persist across routine turnover …" → clear/restore `kind`, and a
+-- (C3) "Seats persist across routine turnover …" → clear/restore `kind`, and a
 -- person↔agent flip (kind: human ↔ kind: agent) retires + recreates.
 UPDATE policies p
 SET data = jsonb_set(
       p.data,
       '{predicate,agent_instruction}',
-      to_jsonb($orgchart_turnover$Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md` (and clear or restore `kind` as the seat empties or refills), and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person (`kind: human`) and AI agent (`kind: agent`) do you retire the old Principal and create a new one.$orgchart_turnover$::text)
+      to_jsonb($orgchart_turnover$Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update its `prose` (and clear or restore `kind` as the seat empties or refills), and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person (`kind: human`) and AI agent (`kind: agent`) do you retire the old Principal and create a new one.$orgchart_turnover$::text)
     ),
     updated_at = now()
 FROM docos d
@@ -1850,7 +1884,24 @@ WHERE p.doco_id = d.id
   AND d.data ->> 'template_handle' = 'org-chart'
   AND p.kind = 'suggestion'
   AND p.data -> 'predicate' ->> 'agent_instruction' LIKE 'Seats persist across routine turnover%'
-  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%clear or restore `kind`%';
+  AND p.data -> 'predicate' ->> 'agent_instruction' NOT LIKE '%update its `prose`%';
+
+-- (C4) "AI-agent Principals that act on a human's behalf …" → declare the human
+-- in the agent's `prose` (not `body_md`). Targeted phrase replace, idempotent.
+UPDATE policies p
+SET data = jsonb_set(
+      p.data,
+      '{predicate,agent_instruction}',
+      to_jsonb(replace(p.data -> 'predicate' ->> 'agent_instruction',
+        'declare that human via prose in `body_md`',
+        'declare that human in their `prose`'))
+    ),
+    updated_at = now()
+FROM docos d
+WHERE p.doco_id = d.id
+  AND d.data ->> 'template_handle' = 'org-chart'
+  AND p.kind = 'suggestion'
+  AND p.data -> 'predicate' ->> 'agent_instruction' LIKE '%declare that human via prose in `body_md`%';
 
 -- ── Edge-type allowlist backfill (requires_edge_type) ───────────────────────
 -- Each Doco template now declares which relationship edge types it permits (the
@@ -1916,25 +1967,21 @@ BEGIN
   END LOOP;
 END $$;
 
--- Reference title/body split: PR references were stored prose="title\n\nbody";
--- move the body into attributes.body_md and leave prose = the title. Idempotent
--- (skips rows already split) and scoped to PR-URL references so hand-written or
--- code-locator references are untouched. Re-applied on every boot, so the WHERE
--- guards must make a second pass a strict no-op:
---   * body_md IS NULL          → already-split rows are skipped (no re-split)
---   * a blank line exists       → a title-only PR ref (no body) is skipped
---   * the locator is a /pull/   → only GitHub PR-URL references are split;
---     issue URLs, code locators, and hand-written refs are left alone.
--- The derived FTS / embedding rows for a migrated reference stay valid: they
--- already contain title+body and are not recomputed here, and `nodeIndexText`
--- now rebuilds the same title+body text on the next re-capture — so search
--- recall is unaffected by this migration.
+-- Reference title/body DROP: PR references were once stored prose="title\n\nbody"
+-- (a later migration split the body out into attributes.body_md). The
+-- entity-shape normalization drops the PR body entirely — a Reference's text is
+-- the title in `prose`, with no body anywhere — so truncate any PR-reference
+-- prose down to the title. (The strip-`body_md` migration near the top of this
+-- file removes the bag copy the old split wrote; this removes the body that is
+-- still inline in an un-split reference's prose.) Scoped to PR-URL references so
+-- hand-written or code-locator references are untouched. Idempotent: after the
+-- truncation the prose has no blank line, so a second pass skips it; a title-only
+-- PR ref (no blank line) is never touched. The derived FTS / embedding rows still
+-- carry title+body until the reference is next re-captured, at which point
+-- `nodeIndexText` rebuilds them from the title alone.
 UPDATE nodes
-   SET attributes = COALESCE(attributes, '{}'::jsonb)
-                    || jsonb_build_object('body_md', substring(prose FROM position(E'\n\n' IN prose) + 2)),
-       prose = left(prose, position(E'\n\n' IN prose) - 1)
+   SET prose = left(prose, position(E'\n\n' IN prose) - 1)
  WHERE node_type = 'reference'
-   AND (attributes->>'body_md') IS NULL
    AND position(E'\n\n' IN prose) > 0
    AND attributes->>'locator' ~ '^https?://github\.com/[^/]+/[^/]+/pull/[0-9]+$';
 -- ── torre-bpm policy convergence (older template snapshot → current) ─────────

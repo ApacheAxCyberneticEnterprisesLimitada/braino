@@ -677,7 +677,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
             "rule",
             "eval",
             "name",
-            "body_md",
           ],
           pattern:
             "(exclusiveGateway|parallelGateway|inclusiveGateway|eventBasedGateway|(?:Gateway|Task|UserTask|ServiceTask|SequenceFlow|StartEvent|EndEvent|BoundaryEvent|SubProcess|DataObject)_[A-Za-z0-9]+|user asks:)",
@@ -695,7 +694,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "block",
         predicate: {
           kind: "probabilistic",
-          spec: 'Check the candidate\'s visible user-facing text fields, including name, body_md, intent, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
+          spec: 'Check the candidate\'s visible user-facing text fields, including name, intent, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
           when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
@@ -710,7 +709,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "Check the Principal's `prose` and `body_md`. PASS when the Principal clearly names a process actor — a role, team, external party, or system — and the body explains what responsibility or boundary it owns in this process. FAIL if it reads like an uncontextualized org-chart person, a vague label (`user`, `team`, `system`) with no process responsibility, or an empty shell with no body prose.",
+          spec: "Check the Principal's `prose`. PASS when it clearly names a process actor — a role, team, external party, or system — and explains what responsibility or boundary it owns in this process. FAIL if it reads like an uncontextualized org-chart person, a vague label (`user`, `team`, `system`) with no process responsibility, or an empty shell with only a bare name.",
           when_node_type: ["principal"],
         },
       },
@@ -1096,11 +1095,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // declares its occupant kind in that field — the org-tree perspective
     // prefers it (mapPrincipalKind), falling back to prose only when unset. A
     // VACANT seat carries NO `kind` (a budgeted-but-unfilled role stays on the
-    // chart per HR practice) and states its vacancy in `body_md` prose. So the
-    // person / AI-agent / vacant distinction is keyed off `kind` for the
-    // filled cases and off prose for vacant, enforced by the probabilistic
-    // policy below; the `body_md` floor only guarantees every seat carries the
-    // prose that a vacancy declaration — and human/agent context — lives in.
+    // chart per HR practice) and states its vacancy in its `prose` (a
+    // principal's one text home — no separate body). So the person / AI-agent /
+    // vacant distinction is keyed off `kind` for the filled cases and off
+    // `prose` for vacant, enforced by the probabilistic policy below.
     //
     // Reporting is a first-class edge: a `has_parent` edge between two
     // principals is a (solid-line) reporting line. The org tree renders
@@ -1110,14 +1108,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // Industry alignment (W3C Organization Ontology + HR practice):
     // a seat that can stand vacant approximates `org:Post`. A fully
     // structural Post / Membership split — occupant nodes distinct from the seat, a versioned
-    // `member_of` / `held_by` edge, a real vacancy field instead of
-    // body_md prose — remains a deliberate follow-up rather than
+    // `member_of` / `held_by` edge, a real vacancy field instead of a
+    // `prose` declaration — remains a deliberate follow-up rather than
     // half-modeled here.
     name: "org-chart",
     label: "org-chart",
     icon: "🏢",
     description:
-      "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every filled seat sets its `kind` field to declare a person (`human`) or an AI agent (`agent`); a vacant seat sets no `kind` and says so in its `body_md` prose.",
+      "Map the people and AI agents in an organization — reporting lines, teams, roles, and appointments. Every filled seat sets its `kind` field to declare a person (`human`) or an AI agent (`agent`); a vacant seat sets no `kind` and says so in its `prose`.",
     // No `defaultNodeLifecycle` override: a seat, team, or appointment
     // is live the moment it's created, so a captured node lands
     // `active` (and the completeness rules — e.g. a team Intent's
@@ -1174,37 +1172,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // THE DISTINGUISHING CONSTRAINT. The Principal slim-down promoted a
         // structured `kind` ("human" | "agent") onto the Principal, so a FILLED
-        // seat declares its occupant kind in that field rather than only in
-        // prose. Org charts still need the declaration on every seat, so this
-        // probabilistic policy reads `kind` first and blocks captures that
-        // leave the distinction ambiguous. A third state — `vacant` — lets a
-        // budgeted-but-unfilled seat live on the chart (HR best practice:
-        // omitting open roles breaks headcount and reporting structure); a
-        // vacant seat carries NO `kind`, so its vacancy is read from `body_md`
-        // prose. A vacant seat is the closest this template gets to W3C
+        // seat declares its occupant kind in that field. Org charts still need
+        // the declaration on every seat, so this probabilistic policy reads
+        // `kind` first and blocks captures that leave the distinction ambiguous.
+        // A third state — `vacant` — lets a budgeted-but-unfilled seat live on
+        // the chart (HR best practice: omitting open roles breaks headcount and
+        // reporting structure); a vacant seat carries NO `kind`, so its vacancy
+        // is read from its `prose` (a principal's one text home — there is no
+        // separate body). A vacant seat is the closest this template gets to W3C
         // `org:Post` without a schema change.
         predicate: {
           kind: "probabilistic",
           when_node_type: ["principal"],
-          spec: "Read the Principal's `kind` field and its `body_md` prose. PASS if `kind` is `human` (the seat is filled by a person) or `agent` (filled by an AI agent), OR if `kind` is unset AND the `body_md` prose states the seat is currently vacant/open (e.g. 'Vacant — budgeted Staff Engineer seat, reporting to …'). FAIL with a reason if `kind` is unset AND the prose does not declare the seat vacant — the seat must state whether it's filled by a person, filled by an AI agent, or vacant.",
-        },
-      },
-      {
-        // Deterministic floor under the person/agent/vacant judge above. The
-        // human/agent declaration is now the structured `kind` field, but a
-        // vacant seat carries no `kind` and declares itself in `body_md` — and
-        // the judge needs that prose to recognise vacancy. So the floor stays
-        // on `body_md`: an empty body can carry neither a vacancy declaration
-        // nor human/agent context, so it's the empty-shell case caught
-        // deterministically — cheaply, with a crisp error, and even when the
-        // LLM judge is unavailable. No lifecycle gate: it matches the judge it
-        // floors, which fires on every Principal regardless of stage.
-        policy:
-          "Every org-chart Principal carries `body_md` prose. A filled seat declares its occupant kind in the structured `kind` field, but a vacant seat sets no `kind` and states its vacancy here — so the body must be present.",
-        predicate: {
-          kind: "requires_field",
-          fields: ["body_md"],
-          when_node_type: ["principal"],
+          spec: "Read the Principal's `kind` field and its `prose`. PASS if `kind` is `human` (the seat is filled by a person) or `agent` (filled by an AI agent), OR if `kind` is unset AND the `prose` states the seat is currently vacant/open (e.g. 'Vacant — budgeted Staff Engineer seat, reporting to …'). FAIL with a reason if `kind` is unset AND the prose does not declare the seat vacant — the seat must state whether it's filled by a person, filled by an AI agent, or vacant.",
         },
       },
 
@@ -1215,7 +1195,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // than a deterministic `requires_edge` predicate because a
         // valid root Principal (CEO/founder/root agent/external
         // authority) should not receive an unavoidable "missing
-        // reporting edge" warning once its body_md explains the absence.
+        // reporting edge" warning once its prose explains the absence.
         //
         // Fires on `queued` AND `active`: a queued seat is a committed,
         // ready-to-go-live org fact (a signed hire, an announced
@@ -1276,7 +1256,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "AI-agent Principals that act on a human's behalf should declare that human via prose in `body_md` (`Operates under: @alice`), or via a `delegated_by` Decision linking the human Principal to the agent Principal. Autonomous agents (no human owner) state that explicitly so readers know the accountability stops at the agent.",
+          "AI-agent Principals that act on a human's behalf should declare that human in their `prose` (`Operates under: @alice`), or via a `delegated_by` Decision linking the human Principal to the agent Principal. Autonomous agents (no human owner) state that explicitly so readers know the accountability stops at the agent.",
       },
       {
         policy:
@@ -1308,15 +1288,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Treat each Principal as a seat — a role plus its current occupant — not just a person. A filled seat sets `kind` to `human` or `agent`; a budgeted-but-unfilled seat is still a valid Principal: leave `kind` unset, declare it `vacant` in `body_md`, name the role it's budgeted for, and keep its reporting edge so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure.",
+          "Treat each Principal as a seat — a role plus its current occupant — not just a person. A filled seat sets `kind` to `human` or `agent`; a budgeted-but-unfilled seat is still a valid Principal: leave `kind` unset, declare it `vacant` in its `prose`, name the role it's budgeted for, and keep its reporting edge so the tree stays complete. Omitting open roles hides headcount and distorts the reporting structure.",
       },
       {
         policy:
-          "Person vs agent isn't about who signed in — it's about who fills the seat, declared in the `kind` field. A Principal with `kind: agent` (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal with `kind: human` is a person, even if that human has no Doco account. A vacant seat sets no `kind` and says so in `body_md`.",
+          "Person vs agent isn't about who signed in — it's about who fills the seat, declared in the `kind` field. A Principal with `kind: agent` (a code reviewer, a triage bot, a research agent) is an agent regardless of whether any User has signed in as it. A Principal with `kind: human` is a person, even if that human has no Doco account. A vacant seat sets no `kind` and says so in its `prose`.",
       },
       {
         policy:
-          "Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md` (and clear or restore `kind` as the seat empties or refills), and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person (`kind: human`) and AI agent (`kind: agent`) do you retire the old Principal and create a new one.",
+          "Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update its `prose` (and clear or restore `kind` as the seat empties or refills), and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person (`kind: human`) and AI agent (`kind: agent`) do you retire the old Principal and create a new one.",
       },
       {
         // Mirrors the process authoring rule. Org charts are

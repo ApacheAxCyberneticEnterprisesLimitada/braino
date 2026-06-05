@@ -155,7 +155,9 @@ export async function loadDocoFromPostgres(
         filePath: `<postgres>:${t}/${row.id}`,
         parsed: {
           data: fm,
-          body: row.body_md ?? "",
+          // No node carries a separate body — a node's only text is its `prose`
+          // (carried via `typeNamedValue`). Policies index by their label.
+          body: "",
           format: "postgres",
           typeNamedValue: typeof fm.prose === "string" ? fm.prose : null,
         },

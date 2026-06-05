@@ -35,7 +35,7 @@ function tableFor(entityType: string): {
  * content already lives in the `prose` column; keeping a stale copy in `data`
  * would diverge on subsequent updates and leak into JSON API responses.
  */
-const LEGACY_PROSE_KEYS = ["summary", "body_md", "title", "name", "description"] as const;
+const LEGACY_PROSE_KEYS = ["summary", "title", "name", "description"] as const;
 
 function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...data };
@@ -66,10 +66,12 @@ const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   "prose",
   "summary",
   "description",
-  // principal label → `prose`; the dropped role flag. `body_md` is NOT
-  // excluded — for principals it folds into the bag as free-form content.
+  // principal label → `prose`; the dropped role flag. `body_md` is excluded:
+  // the node model has no body — a node's only text is `prose`, so nothing is
+  // ever stored under `body_md` in the bag.
   "name",
   "role_principal",
+  "body_md",
   // columns we keep promoted
   "kind",
   "proposer_id",
@@ -136,12 +138,11 @@ function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): s
 /**
  * Upsert a graph node (any of the 10 types) into the unified `nodes` table.
  *
- * Prose: the prose nodes carry their content in `prose`; principals carry
- * their name in `prose` and `body_md` in `attributes`. Promoted scalar columns
- * come from NODE_PROMOTED_COLUMNS; every other per-node domain field lives in
- * the unified `attributes` bag (the catch-all `data` jsonb was dropped). Graph
- * links live in `edges`. `data.lifecycle` is the source of truth for the
- * lifecycle column.
+ * Prose: every node carries its content in `prose`; a principal's name is its
+ * `prose`. Promoted scalar columns come from NODE_PROMOTED_COLUMNS; every other
+ * per-node domain field lives in the unified `attributes` bag (the catch-all
+ * `data` jsonb was dropped). Graph links live in `edges`. `data.lifecycle` is
+ * the source of truth for the lifecycle column.
  */
 async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
   const t = rec.entity_type;
@@ -152,8 +153,8 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
   const lifecycleCol = deriveLifecycleColumn(rec, cleanData);
 
   // Slim-down: principals are ordinary prose nodes now — their name lives in
-  // `prose` (set by capture), `body_md` rides along in `attributes`, and the
-  // dropped `name`/`body_md`/`role_principal` columns are gone.
+  // `prose` (set by capture); the dropped `name`/`body_md`/`role_principal`
+  // columns are gone and there is no separate body.
   const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "attributes"];
   const vals: unknown[] = [
     rec.id,
@@ -210,10 +211,6 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
     JSON.stringify(rec.data),
     typeof rec.data.kind === "string" ? rec.data.kind : "",
   ];
-  if (spec.body) {
-    cols.push("body_md");
-    vals.push(rec.body_md ?? null);
-  }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
     rec.created_at ?? new Date().toISOString(),
@@ -456,7 +453,6 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
     entity_type: entityType,
     data,
   };
-  if ("body_md" in row && row.body_md !== null) rec.body_md = String(row.body_md);
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
@@ -472,13 +468,10 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   if ("attributes" in row && row.attributes && typeof row.attributes === "object") {
     rec.attributes = row.attributes as Record<string, unknown>;
   }
-  // Slim-down compat: principals dropped their `name`/`body_md` columns. Surface
-  // them from `prose` + the `attributes` bag so existing `rec.name` /
-  // `rec.body_md` readers keep working without a sweep.
+  // Slim-down compat: a principal's name is its `prose`. Surface it as `rec.name`
+  // so existing `rec.name` readers (PrincipalRow) keep working without a sweep.
   if (entityType === "principal") {
     if (typeof data.prose === "string" && rec.name == null) rec.name = data.prose;
-    const bm = rec.attributes?.body_md;
-    if (typeof bm === "string" && rec.body_md == null) rec.body_md = bm;
   }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);

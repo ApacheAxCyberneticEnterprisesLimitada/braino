@@ -78,7 +78,7 @@ describe("org-chart template", () => {
     // onto the Principal. A FILLED seat declares its occupant kind in that
     // field; a VACANT seat carries no `kind` and states its vacancy in prose.
     // The declaration is enforced by a probabilistic policy that reads `kind`
-    // first and falls back to `body_md` prose for the vacant case.
+    // first and falls back to the seat's `prose` for the vacant case.
     const rule = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
@@ -102,8 +102,8 @@ describe("org-chart template", () => {
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.spec).toMatch(/vacant|open/i);
-      // Vacancy is still read from `body_md` — a vacant seat declares no `kind`.
-      expect(rule.predicate.spec).toMatch(/body_md/i);
+      // Vacancy is read from the seat's `prose` — a vacant seat declares no `kind`.
+      expect(rule.predicate.spec).toMatch(/prose/i);
     });
 
     it("fires on every Principal regardless of lifecycle (no fires_when_node_lifecycle gate)", () => {
@@ -186,41 +186,18 @@ describe("org-chart template", () => {
     });
   });
 
-  describe("every Principal carries body_md (deterministic floor)", () => {
-    // The human/agent declaration is now the structured `kind` field, but the
-    // floor stays on `body_md`: a vacant seat carries no `kind` and declares
-    // its vacancy in the body, and an empty body can carry neither that
-    // vacancy declaration nor human/agent context. So the body floor remains
-    // the cheap empty-shell catch under the judge.
-    const rule = template.policies.find(
-      (r) =>
-        r.predicate?.kind === "requires_field" &&
-        r.predicate.fields.includes("body_md") &&
-        (r.predicate.when_node_type?.includes("principal") ?? false),
-    );
-
-    it("requires body_md on Principals — the empty-shell case caught without the judge", () => {
-      expect(rule?.predicate?.kind).toBe("requires_field");
-    });
-
-    it("does NOT require the structured `kind` field — a vacant seat legitimately has none", () => {
-      // A deterministic requires_field on `kind` would block vacant seats
-      // (which carry no `kind`); the floor must not.
-      const kindFloor = template.policies.find(
+  describe("no deterministic field floor on Principals", () => {
+    // `body_md` is gone from the node model, so the old empty-body floor
+    // (requires_field on `body_md`) was removed. A vacant seat legitimately
+    // carries no `kind`, so there is no deterministic requires_field on a
+    // principal — the probabilistic judge (kind + prose) is the only gate.
+    it("declares no requires_field gate on Principals (neither body_md nor kind)", () => {
+      const fieldFloor = template.policies.find(
         (r) =>
           r.predicate?.kind === "requires_field" &&
-          r.predicate.fields.includes("kind") &&
           (r.predicate.when_node_type?.includes("principal") ?? false),
       );
-      expect(kindFloor).toBeUndefined();
-    });
-
-    it("its prose names the structured `kind` field as where a filled seat declares its occupant", () => {
-      expect(rule?.policy).toMatch(/`kind`/);
-    });
-
-    it("fires on every lifecycle, matching the person/agent/vacant judge it floors", () => {
-      expect(rule?.fires_when_node_lifecycle).toBeUndefined();
+      expect(fieldFloor).toBeUndefined();
     });
   });
 
@@ -243,7 +220,7 @@ describe("org-chart template", () => {
       expect(haystack).not.toMatch(/Principal(?:'s)? `name`[^\n]*slug/i);
     });
 
-    it("top-of-chain Principal explains the missing reports_to in body_md", () => {
+    it("top-of-chain Principal explains the missing reports_to in prose", () => {
       const topGate = template.policies.find(
         (r) =>
           r.predicate?.kind === "probabilistic" &&
@@ -284,9 +261,10 @@ describe("org-chart template", () => {
     });
 
     it("person-vs-agent is identity — flipping it in place is forbidden, retire and recreate instead", () => {
-      // After the slim-down the kind declaration lives in body_md
-      // prose; the guidance still asks contributors to retire the old
-      // Principal and create a new one when the kind changes.
+      // The kind declaration lives in the structured `kind` field (with a
+      // vacant seat declaring itself in prose); the guidance still asks
+      // contributors to retire the old Principal and create a new one when the
+      // kind flips between person and agent.
       expect(
         summaries.some(
           (s) =>

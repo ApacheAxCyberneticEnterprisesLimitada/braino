@@ -12,9 +12,8 @@ import { GENERIC_CAPTURE_NODE_TYPES, NODE_CATALOG, NODE_TYPES } from "@doco/shar
  * `typeNamedColumn`, where present, is the per-table text column that
  * holds the full prose content for that node.
  *
- * `body` reflects whether the table physically has a `body_md`
- * column. All node types live in `nodes`, which carries `body_md` for
- * principal prose.
+ * `body` is legacy and always false: no node carries a separate body
+ * column — a node's text is its single `prose` column.
  */
 export const NODE_TABLES: Record<
   string,
@@ -66,9 +65,8 @@ export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> 
  * of truth for the storage writer (`upsertEntity` → `nodes`).
  *
  * These are the per-type graph columns promoted out of the `data` jsonb:
- * `proposer_id` and filterable scalars. Principal's identity columns
- * (name / body_md / role_principal) are handled directly by the writer,
- * not here.
+ * `proposer_id` and filterable scalars. A principal's name lands in the
+ * shared `prose` column (written directly by the writer), not here.
  *
  * - `field`        — source key in the entity's `data`/frontmatter.
  * - `requirePrefix`— only persist the value when it has this id prefix
@@ -101,8 +99,8 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   state: [{ column: "kind", field: "kind", stripFromData: true }],
   // reference scalars (ref_type/locator/citation) now live in `attributes`.
   reference: [],
-  // principal: `kind` (human/agent) is promoted to its column; name/body_md/
-  // role_principal are written directly by the writer.
+  // principal: `kind` (human/agent) is promoted to its column; its name lands
+  // in the shared `prose` column (written directly by the writer).
   principal: [{ column: "kind", field: "kind", stripFromData: true }],
 };
 
@@ -149,7 +147,6 @@ export interface EntityRecord {
   /** Bag of structured fields. Stored as `data jsonb` in Postgres;
    *  node-pg parses jsonb columns to JS objects on read. */
   data: Record<string, unknown>;
-  body_md?: string;
   /** Mirrored hot-path columns for indexes — derived from data. */
   summary?: string | null;
   lifecycle?: string | null;

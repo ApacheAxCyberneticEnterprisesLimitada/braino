@@ -19,17 +19,11 @@ import { loadDocoFromPostgres } from "./loadDoco.js";
 const FALLBACK_INDEX_FIELDS = ["title", "citation", "locator", "name", "verb"] as const;
 
 /**
- * The text to index for a node — its FTS body and its embedding input.
- *
- * The node's prose, plus its `body_md` when present (a per-type free-form body
- * that lives in `attributes`, surfaced as a flat `body_md` key on `data` by the
- * loader). A PR Reference, for instance, stores the title in prose and the PR
- * body in `attributes.body_md`; appending it keeps the indexed text byte-for-
- * byte identical to the pre-split merged prose ("title\n\nbody"), so the
- * title/body split leaves FTS recall and embeddings unchanged.
+ * The text to index for a node — its FTS body and its embedding input: the
+ * node's `prose`, its one text home.
  *
  * When the prose is empty — a content-thin node such as a freshly-created
- * Reference whose body hasn't been written yet — fall back to the node's
+ * Reference whose title hasn't been written yet — fall back to the node's
  * identifying fields so it still enters the index. Without this, an empty-prose
  * node is dropped by the `if (!text) continue` guard below: present in `nodes`
  * (and on the page) but absent from search. Pure.
@@ -37,8 +31,7 @@ const FALLBACK_INDEX_FIELDS = ["title", "citation", "locator", "name", "verb"] a
 export function nodeIndexText(le: LoadedEntity): string {
   const data = (le.parsed.data ?? {}) as Record<string, unknown>;
   const prose = le.parsed.typeNamedValue?.trim() ?? "";
-  const bodyMd = typeof data.body_md === "string" ? data.body_md.trim() : "";
-  if (prose) return bodyMd ? `${prose}\n\n${bodyMd}` : prose;
+  if (prose) return prose;
   const seen = new Set<string>();
   const parts: string[] = [];
   for (const key of FALLBACK_INDEX_FIELDS) {
@@ -148,8 +141,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       const entityType = entityTypeFromId(le.entity.id) || "unknown";
       if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
-      // Node prose goes into FTS `body`; policy/principal labels use the
-      // A-weight `summary` column.
+      // Node prose (every node, incl. principal) goes into FTS `body`; policy
+      // labels use the A-weight `summary` column.
       const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
       let summary: string | null;
       let body: string;
@@ -158,8 +151,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         body = nodeIndexText(le);
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
-        const headline = entityType === "principal" ? e.name : e.policy;
-        summary = typeof headline === "string" ? headline : "";
+        summary = typeof e.policy === "string" ? e.policy : "";
         body = le.parsed.body ?? "";
       }
       pgFts.push({
@@ -181,8 +173,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
     const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
-      // Nodes embed their prose verbatim. Principals embed `name` + `body_md`;
-      // policies embed `policy`.
+      // Nodes (including principals) embed their `prose` verbatim; policies
+      // embed `policy`.
       const entityType = entityTypeFromId(le.entity.id) || "unknown";
       const typeNamedColumn =
         entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;
@@ -195,8 +187,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         text = body;
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
-        const headline = entityType === "principal" ? e.name : e.policy;
-        summary = typeof headline === "string" ? headline : "";
+        summary = typeof e.policy === "string" ? e.policy : "";
         body = le.parsed.body ?? "";
         text = `${summary}\n\n${body}`.trim();
       }

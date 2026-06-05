@@ -45,22 +45,8 @@ describe("nodeIndexText", () => {
     expect(nodeIndexText(le("   ", { ref_type: "url", outcome: "succeeded" }))).toBe("");
   });
 
-  // Title/body split recall-identity: a PR reference now stores the title in
-  // prose and the body in attributes.body_md (surfaced as a flat `body_md` key
-  // on `data`). The indexed text must stay BYTE-IDENTICAL to the old merged
-  // prose ("title\n\nbody") so the FTS body and embedding text — and thus search
-  // recall — are unchanged by the split.
-  it("appends body_md to the prose, reproducing the pre-split merged text", () => {
-    expect(nodeIndexText(le("Fix X", { body_md: "### Problem\n…" }))).toBe(
-      "Fix X\n\n### Problem\n…",
-    );
-  });
-
-  it("uses prose alone when there is no body_md", () => {
-    expect(nodeIndexText(le("Fix X", { ref_type: "url" }))).toBe("Fix X");
-  });
-
-  it("ignores a blank body_md (no trailing separator)", () => {
-    expect(nodeIndexText(le("Fix X", { body_md: "   " }))).toBe("Fix X");
+  // A node's only text is its `prose` — there is no separate body to append.
+  it("uses the prose alone, ignoring other per-node attributes", () => {
+    expect(nodeIndexText(le("Fix X", { ref_type: "url", locator: "https://x/9" }))).toBe("Fix X");
   });
 });

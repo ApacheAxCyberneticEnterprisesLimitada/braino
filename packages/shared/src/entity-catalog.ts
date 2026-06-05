@@ -2,7 +2,6 @@ export interface NodeCatalogEntry {
   type: string;
   segment: string;
   proseField: string;
-  labelField: string;
   storage: {
     table: "nodes";
     body: boolean;
@@ -22,9 +21,11 @@ export const NODE_CATALOG = {
   eval: node("eval", "evals", "eval"),
   reference: node("reference", "references", "reference"),
   state: node("state", "states", "state"),
+  // Principal is a bespoke-capture node (the /principals.json route + the
+  // org-tree / BPMN-lane readers), but it carries its text in the one canonical
+  // `prose` column like every other node — no `body_md`, no second text field.
   principal: {
-    ...node("principal", "principals", "body_md"),
-    labelField: "name",
+    ...node("principal", "principals", "prose"),
     capture: "bespoke",
   },
 } as const satisfies Record<string, NodeCatalogEntry>;
@@ -42,7 +43,6 @@ function node(type: string, segment: string, proseField: string): NodeCatalogEnt
     type,
     segment,
     proseField,
-    labelField: proseField,
     storage: { table: "nodes", body: false, typeNamedColumn: "prose" },
     capture: "generic",
     searchable: true,
