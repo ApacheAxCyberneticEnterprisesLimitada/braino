@@ -977,6 +977,28 @@ CREATE TABLE IF NOT EXISTS perspectives (
 CREATE INDEX IF NOT EXISTS perspectives_owner_handle_idx ON perspectives (owner_handle);
 CREATE INDEX IF NOT EXISTS perspectives_kind_idx         ON perspectives (kind);
 
+-- Relax the `kind` CHECK and carry the built-in perspective row onto its new
+-- identity, BEFORE the seed below (#1062 renamed `bpmn` → `process`). A DB
+-- provisioned before #1062 still carries the old CHECK (CREATE TABLE IF NOT
+-- EXISTS never alters an existing table's constraint), so the seed's
+-- `kind='process'` row would trip it and abort the ENTIRE schema apply — 500'ing
+-- every DB-backed route. So: DROP the old constraint and move the row onto
+-- `process` HERE, let the seed run constraint-free, then RE-ADD the canonical
+-- constraint further down — after the approval-perspective heal — once every
+-- stale kind (`bpmn` here, `approval` below) has been normalized, so the re-add
+-- never trips on a leftover row. The opaque primary key `perspective_bpmn` is
+-- left untouched (referenced by doco_perspectives, never user-visible), so no
+-- foreign keys move. Idempotent.
+ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
+UPDATE perspectives
+   SET slug = 'process',
+       kind = 'process',
+       name = 'Process',
+       icon = '🔁',
+       updated_at = now()
+ WHERE id = 'perspective_bpmn'
+   AND slug = 'bpmn';
+
 -- Built-in perspectives. host.ts attaches graph/list to every new
 -- Doco, so these rows must exist for doco creation to succeed.
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
@@ -1009,6 +1031,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS doco_perspectives_one_default
 -- doco_perspectives.perspective_id removes any Doco's attachment of it too.
 -- Safe to remove once every environment has been re-provisioned without it.
 DELETE FROM perspectives WHERE id = 'perspective_approval';
+
+-- Re-add the canonical `kind` CHECK now that every stale kind has been
+-- normalized (the `bpmn` → `process` rename above the seed, and the `approval`
+-- delete just above). Pairs with the DROP near the table definition — re-adding
+-- here, after the heals, guarantees no leftover row violates it. Idempotent: the
+-- DROP IF EXISTS above this on the next boot clears it before this re-adds it.
+ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
+  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests'));
 
 -- In-page assistant chat.
 CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -2064,24 +2094,8 @@ UPDATE policies
        updated_at = now()
  WHERE data -> 'predicate' ->> 'agent_instruction' LIKE '%belongs in business-processes%';
 
--- (4) The built-in perspective row: slug/kind/name/icon. The opaque primary key
--- `perspective_bpmn` is left untouched (it is referenced by doco_perspectives
--- and never user-visible), so no foreign keys move.
---
--- An already-provisioned database still carries the column CHECK that only
--- allows the old `bpmn` kind (CREATE TABLE IF NOT EXISTS skips the updated
--- definition above). Drop it, move the row onto `process`, then re-add the
--- constraint with the new value — in that order, so the row update is never
--- blocked by the old constraint and the re-add never trips on the old row.
-ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
-UPDATE perspectives
-   SET slug = 'process',
-       kind = 'process',
-       name = 'Process',
-       icon = '🔁',
-       updated_at = now()
- WHERE id = 'perspective_bpmn'
-   AND slug = 'bpmn';
-ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
-  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests'));
+-- (4) The built-in perspective row (slug/kind/name/icon) and its `kind` CHECK
+-- are migrated `bpmn` → `process` up where the perspectives table is defined —
+-- it MUST run before the built-in seed, or the seed's `kind='process'` row trips
+-- the old constraint and aborts the whole apply. See that block above.
 -- ── end business-processes → process rename ─────────────────────────────────
