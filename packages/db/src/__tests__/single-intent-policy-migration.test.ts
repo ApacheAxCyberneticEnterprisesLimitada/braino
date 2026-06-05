@@ -130,7 +130,7 @@ describe("business-processes serves-ceiling policy migration", () => {
     expect(row?.on_violation).toBe("block");
     expect(row?.fires).toEqual(["drafting", "queued", "active"]);
     expect(row?.template_seeded).toBe(true);
-    expect(row?.template_handle).toBe("business-processes");
+    expect(row?.template_handle).toBe("process");
     expect(row?.predicate).toMatchObject({
       sub_kind: "limits_edge",
       edge_type: "supports",

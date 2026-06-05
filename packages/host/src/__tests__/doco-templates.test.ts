@@ -34,32 +34,32 @@ describe("orphaned pre-unification templates are gone", () => {
   }
 });
 
-describe("business-processes template", () => {
-  const template = findDocoTemplateByName("business-processes");
-  if (!template) throw new Error("business-processes template not registered");
+describe("process template", () => {
+  const template = findDocoTemplateByName("process");
+  if (!template) throw new Error("process template not registered");
 
   it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "business-processes")).toBeDefined();
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "process")).toBeDefined();
   });
 
   it("is reachable via its bare handle and is NOT reachable via the legacy hashtag-prefixed form", () => {
-    const bare = findDocoTemplateByName("business-processes");
-    const hashtagged = findDocoTemplateByName("#business-processes");
+    const bare = findDocoTemplateByName("process");
+    const hashtagged = findDocoTemplateByName("#process");
     expect(bare).toBeDefined();
-    expect(bare?.name).toBe("business-processes");
+    expect(bare?.name).toBe("process");
     expect(hashtagged).toBeUndefined();
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
-    expect(template.icon).toBe("🏭");
-    expect(template.label).toBe("business-processes");
+    expect(template.icon).toBe("🔁");
+    expect(template.label).toBe("process");
     expect(template.defaultNodeLifecycle).toBe("drafting");
     expect(template.description).toMatch(/repeatable business processes/i);
     expect(template.description).toMatch(/BPMN/);
   });
 
   it("ships with the BPMN perspective attached as the default", () => {
-    expect(template.perspectives).toEqual([{ slug: "bpmn", isDefault: true }]);
+    expect(template.perspectives).toEqual([{ slug: "process", isDefault: true }]);
   });
 
   describe("node-type allowlist", () => {
@@ -605,7 +605,7 @@ describe("business-processes template", () => {
     const gate = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.spec.includes("business-processes") &&
+        r.predicate.spec.includes("process") &&
         r.predicate.spec.includes("belongs"),
     );
 
@@ -694,8 +694,8 @@ describe("edge-type allowlists (requires_edge_type)", () => {
     return p?.predicate?.kind === "requires_edge_type" ? [...p.predicate.edge_types] : undefined;
   }
 
-  it("business-processes allows BPMN edge types and bars has_parent / relates_to", () => {
-    const a = allowlistOf("business-processes");
+  it("process allows BPMN edge types and bars has_parent / relates_to", () => {
+    const a = allowlistOf("process");
     expect(a && new Set(a)).toEqual(
       new Set([
         "flows_to",
@@ -748,9 +748,9 @@ describe("edge-type allowlists (requires_edge_type)", () => {
   }
 
   it("seeds as a blocking deterministic policy carrying the edge_types allowlist", () => {
-    const template = findDocoTemplateByName("business-processes");
+    const template = findDocoTemplateByName("process");
     const policy = template?.policies.find((r) => r.predicate?.kind === "requires_edge_type");
-    if (!policy) throw new Error("business-processes requires_edge_type policy missing");
+    if (!policy) throw new Error("process requires_edge_type policy missing");
     const seeded = templatePolicyToPolicyRow(policy);
     expect(seeded.kind).toBe("deterministic");
     expect(seeded.on_violation).toBe("block");

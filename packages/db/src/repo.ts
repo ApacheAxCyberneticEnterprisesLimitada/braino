@@ -1149,7 +1149,7 @@ export interface DocoRow {
   data: Record<string, unknown>;
   /**
    * Template-seeded default lifecycle for new nodes captured into this
-   * Doco (e.g. `org-chart` / `glossaries` / `business-processes` ship
+   * Doco (e.g. `org-chart` / `glossaries` / `process` ship
    * `drafting`). Null when the Doco's template set no default; capture
    * then falls back to each node type's built-in default.
    */

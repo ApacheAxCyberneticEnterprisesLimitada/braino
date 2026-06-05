@@ -102,7 +102,7 @@ describe("edge-type allowlist (requires_edge_type) backfill migration", () => {
     const rows = await edgeAllowlist("doco_bp");
     expect(rows).toHaveLength(1);
     expect(rows[0]?.on_violation).toBe("block");
-    expect(rows[0]?.template_handle).toBe("business-processes");
+    expect(rows[0]?.template_handle).toBe("process");
     expect(new Set(rows[0]?.edge_types)).toEqual(
       new Set([
         "flows_to",

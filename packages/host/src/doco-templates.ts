@@ -89,14 +89,14 @@ export interface DocoTemplate {
    * Optional perspectives to attach on Doco creation. The built-in
    * perspectives (graph, list) are always attached even
    * if this list is empty; entries here append after them. The
-   * business-processes template ships `[{slug:"bpmn"}]` so a Doco
+   * process template ships `[{slug:"process"}]` so a Doco
    * created from that template arrives with the BPMN tab ready.
    */
   perspectives?: TemplatePerspectiveAttachment[];
   /**
    * When set, captures into a Doco created from this template default
    * the new node's `lifecycle` to this value unless the author
-   * overrides with an explicit flag. The business-processes template
+   * overrides with an explicit flag. The process template
    * uses `"drafting"` so authors can sketch incomplete processes
    * without tripping completeness rules.
    */
@@ -232,7 +232,7 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
 }
 
 /**
- * Business-processes fires its completeness + shape policies on the two
+ * Process fires its completeness + shape policies on the two
  * *committed* lifecycle stages — `queued` (ready, awaiting activation) and
  * `active` (in force) — and exempts only `drafting`.
  *
@@ -244,7 +244,7 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
  * `active` node does — otherwise "ready" is a lie the BPMN renderer can't
  * draw. Only a `drafting` sketch may be incomplete.
  *
- * This is scoped to business-processes on purpose: it is the one template
+ * This is scoped to process on purpose: it is the one template
  * that defaults new nodes to `drafting` and carries a real
  * draft → queue → activate authoring story. Templates that default new
  * nodes straight to `active` (decision-records, glossaries, org-chart)
@@ -411,7 +411,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // `defaultNodeLifecycle` override) and the completeness gates fire on
     // `active`; a `drafting` stub is exempt until it is activated, and a
     // `retired` term winds down without re-running the gates. (Contrast
-    // business-processes, which defaults to `drafting` so a flow can be
+    // process, which defaults to `drafting` so a flow can be
     // wired up incrementally.)
     //
     // Term relationships are first-class edges: `relates_to` is the
@@ -571,18 +571,18 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // (`queued` and `active`) only (BUSINESS_PROCESS_COMMITTED_LIFECYCLES), so a
     // step can be drafted before its actor, decider, or Intent/pool is chosen,
     // and is held to the full bar only once it is committed.
-    name: "business-processes",
-    label: "business-processes",
-    icon: "🏭",
+    name: "process",
+    label: "process",
+    icon: "🔁",
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
     defaultNodeLifecycle: "drafting",
     // Ship the BPMN perspective pre-attached and as the default tab,
-    // so a freshly-created business-processes Doco opens directly on
+    // so a freshly-created process Doco opens directly on
     // the swim-lane view (where the template's authoring rules are
     // most naturally visible). Graph + list defaults are still
     // attached behind it.
-    perspectives: [{ slug: "bpmn", isDefault: true }],
+    perspectives: [{ slug: "process", isDefault: true }],
     policies: [
       // ── Membership ──────────────────────────────────────────────
       {
@@ -607,7 +607,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in business-processes when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
+          spec: "A node belongs in process when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
           when_node_type: ["intent", "action", "decision", "eval", "reference"],
         },
       },
@@ -643,7 +643,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // associative links (`relates_to`) have no BPMN meaning, so they are
         // barred — keeping a process graph drawable as swimlanes + sequence flow.
         policy:
-          "Only these relationship edge types may be used in a business-processes Doco: `flows_to`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. Hierarchy (`has_parent`) and bare `relates_to` links belong in other Doco kinds.",
+          "Only these relationship edge types may be used in a process Doco: `flows_to`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. Hierarchy (`has_parent`) and bare `relates_to` links belong in other Doco kinds.",
         predicate: {
           kind: "requires_edge_type",
           edge_types: [
@@ -664,7 +664,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // deterministically; the ambiguous "is 'source'/'implementation'
         // business language?" calls stay with the judge.
         policy:
-          "Business-process prose must not contain raw BPMN/import scaffolding tokens — camelCase BPMN element types or generated element ids leaked from an importer.",
+          "Process prose must not contain raw BPMN/import scaffolding tokens — camelCase BPMN element types or generated element ids leaked from an importer.",
         predicate: {
           kind: "forbids_field_pattern",
           fields: [
@@ -746,7 +746,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // node type (action) carries that meaning. Authors create the Action and
         // its `attributed_to` edge together in one changeset.
         policy:
-          "Every committed (`queued` or `active`) Action in business-processes is attributed to the Principal who performs it — an `attributed_to` edge from the Action to that Principal. A `drafting` sketch may defer this — naming the actor is not required while drafting.",
+          "Every committed (`queued` or `active`) Action in process is attributed to the Principal who performs it — an `attributed_to` edge from the Action to that Principal. A `drafting` sketch may defer this — naming the actor is not required while drafting.",
         predicate: {
           kind: "requires_edge",
           edge_type: "attributed_to",
@@ -762,7 +762,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // carry the meaning. Without it the BPMN renderer can't place the node
         // in a pool, and the step floats free of the business outcome it advances.
         policy:
-          "Every committed (`queued` or `active`) flow node in business-processes — Action, gateway Decision, or milestone/event State — links to the Intent it serves with a `supports` edge to that Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances. A `drafting` sketch may defer this link.",
+          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the Intent it serves with a `supports` edge to that Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances. A `drafting` sketch may defer this link.",
         predicate: {
           kind: "requires_edge",
           edge_type: "supports",
@@ -788,7 +788,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // by `flows_to`, so it too stays single-Intent. Re-point by retiring the
         // old `supports` edge before adding the new one; endpoints are immutable.
         policy:
-          "Every committed (`queued` or `active`) flow node in business-processes — Action, gateway Decision, or milestone/event State — links to AT MOST one Intent via `supports`: it belongs to exactly one process pool. Combined with the gate that requires at least one Intent on a committed node, a flow node serves exactly one. A node linked to two Intents is ambiguous — the BPMN renderer can't place it in a single pool. A `drafting` sketch is exempt. Re-point by retiring the old `supports` edge before adding the new one.",
+          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to AT MOST one Intent via `supports`: it belongs to exactly one process pool. Combined with the gate that requires at least one Intent on a committed node, a flow node serves exactly one. A node linked to two Intents is ambiguous — the BPMN renderer can't place it in a single pool. A `drafting` sketch is exempt. Re-point by retiring the old `supports` edge before adding the new one.",
         predicate: {
           kind: "limits_edge",
           edge_type: "supports",
@@ -874,7 +874,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // sketched without a decider, but a committed one must name it or it
         // floats into the BPMN "Unassigned" lane.
         policy:
-          "Every committed (`queued` or `active`) gateway Decision in business-processes is attributed to the Principal answerable for the call — an `attributed_to` edge from the Decision to that Principal. A `drafting` sketch may defer this. A gateway with no such Principal floats into the Unassigned lane.",
+          "Every committed (`queued` or `active`) gateway Decision in process is attributed to the Principal answerable for the call — an `attributed_to` edge from the Decision to that Principal. A `drafting` sketch may defer this. A gateway with no such Principal floats into the Unassigned lane.",
         predicate: {
           kind: "requires_edge",
           edge_type: "attributed_to",
@@ -978,7 +978,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Eval ────────────────────────────────────────────────────
       {
         policy:
-          "Every Eval in business-processes links to the node whose claim it pins with a `supports` edge to that node.",
+          "Every Eval in process links to the node whose claim it pins with a `supports` edge to that node.",
         predicate: {
           kind: "requires_edge",
           edge_type: "supports",
@@ -1046,7 +1046,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Relationships in a business-processes Doco are first-class edges with lifecycle and history. Use `flows_to` for process order and the canonical families (`supports`, `attributed_to`, `constrained_by`, `has_parent`, `derived_from`, `replaces`, `relates_to`); an edge's specialized meaning comes from its type plus the node types it connects, not from a role tag. Re-point by retiring the old edge and adding the new one; endpoints are immutable.",
+          "Relationships in a process Doco are first-class edges with lifecycle and history. Use `flows_to` for process order and the canonical families (`supports`, `attributed_to`, `constrained_by`, `has_parent`, `derived_from`, `replaces`, `relates_to`); an edge's specialized meaning comes from its type plus the node types it connects, not from a role tag. Re-point by retiring the old edge and adding the new one; endpoints are immutable.",
       },
       {
         policy:
@@ -1062,7 +1062,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Rules in a business-processes Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
+          "Rules in a process Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
       },
       {
         policy:
@@ -1127,7 +1127,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // announced reorg) as `queued` — it meets the same completeness bar
     // as active but isn't in force yet — and sketch a tentative seat or
     // roster-less team as `drafting`, where the occupant or reporting
-    // line may still be unknown. (Business-processes keeps a `drafting`
+    // line may still be unknown. (Process keeps a `drafting`
     // default so a flow can be wired up incrementally.)
     perspectives: [{ slug: "org-tree", isDefault: true }],
     policies: [
@@ -1142,7 +1142,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // what they do. Policy records are Doco-scoped metadata and
         // bypass template membership gates in the authoring evaluator.
         policy:
-          "Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes. Actions describe activities (use business-processes); States describe stages; Evals describe checks; Logs describe events; Ideas live in their own home.",
+          "Only Principal, Intent, Decision, Reference, and Rule belong as org-chart nodes. Actions describe activities (use process); States describe stages; Evals describe checks; Logs describe events; Ideas live in their own home.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["principal", "intent", "decision", "reference", "rule"],
@@ -1259,7 +1259,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance (prose-only) ───────────────────────────────────
       {
         policy:
-          "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in business-processes Docos linked via Reference.",
+          "An org chart describes who reports to whom and which teams exist — not what those people do. Activities, processes, and workflows belong in process Docos linked via Reference.",
       },
       {
         // The `queued` lifecycle stage is org charting's "future-effective"
@@ -1319,7 +1319,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Seats persist across routine turnover: when one person leaves and another fills the same seat — or a seat goes vacant and is later refilled by the same kind of occupant — keep the Principal, update `body_md` (and clear or restore `kind` as the seat empties or refills), and record the change as a Decision, so reporting and membership edges stay intact and the seat's history reads continuously. Only when the seat's nature flips between person (`kind: human`) and AI agent (`kind: agent`) do you retire the old Principal and create a new one.",
       },
       {
-        // Mirrors the business-processes authoring rule. Org charts are
+        // Mirrors the process authoring rule. Org charts are
         // frequently bulk-imported or backfilled by agents (from an HRIS, a
         // Slack roster, a headcount sheet), so the changeset batch — create a
         // seat and wire its reporting edge atomically — is exactly right.
@@ -1337,7 +1337,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  *
  * Templates are stored under plain handles (`global`, `important`,
  * `architectural-decisions`, `product-decisions`, `design-decisions`,
- * `data-decisions`, `glossaries`, `business-processes`, `org-chart`).
+ * `data-decisions`, `glossaries`, `process`, `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);

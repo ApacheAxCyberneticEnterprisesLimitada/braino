@@ -34,11 +34,11 @@ describe("buildTemplatePerspectiveSeeds", () => {
 
   it("does not duplicate built-in perspectives when they are declared by slug", () => {
     const seeds = buildTemplatePerspectiveSeeds({
-      perspectives: [{ slug: "list", isDefault: true }, { slug: "graph" }, { slug: "bpmn" }],
+      perspectives: [{ slug: "list", isDefault: true }, { slug: "graph" }, { slug: "process" }],
     });
 
-    expect(seeds.map((s) => s.slug)).toEqual(["graph", "list", "bpmn"]);
+    expect(seeds.map((s) => s.slug)).toEqual(["graph", "list", "process"]);
     expect(seeds.find((s) => s.slug === "list")?.isDefault).toBe(true);
-    expect(seeds.find((s) => s.slug === "bpmn")?.position).toBe(2);
+    expect(seeds.find((s) => s.slug === "process")?.position).toBe(2);
   });
 });
