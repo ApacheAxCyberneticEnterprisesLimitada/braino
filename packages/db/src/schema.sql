@@ -1789,6 +1789,27 @@ BEGIN
   END LOOP;
 END $$;
 
+-- Reference title/body split: PR references were stored prose="title\n\nbody";
+-- move the body into attributes.body_md and leave prose = the title. Idempotent
+-- (skips rows already split) and scoped to PR-URL references so hand-written or
+-- code-locator references are untouched. Re-applied on every boot, so the WHERE
+-- guards must make a second pass a strict no-op:
+--   * body_md IS NULL          → already-split rows are skipped (no re-split)
+--   * a blank line exists       → a title-only PR ref (no body) is skipped
+--   * the locator is a /pull/   → only GitHub PR-URL references are split;
+--     issue URLs, code locators, and hand-written refs are left alone.
+-- The derived FTS / embedding rows for a migrated reference stay valid: they
+-- already contain title+body and are not recomputed here, and `nodeIndexText`
+-- now rebuilds the same title+body text on the next re-capture — so search
+-- recall is unaffected by this migration.
+UPDATE nodes
+   SET attributes = COALESCE(attributes, '{}'::jsonb)
+                    || jsonb_build_object('body_md', substring(prose FROM position(E'\n\n' IN prose) + 2)),
+       prose = left(prose, position(E'\n\n' IN prose) - 1)
+ WHERE node_type = 'reference'
+   AND (attributes->>'body_md') IS NULL
+   AND position(E'\n\n' IN prose) > 0
+   AND attributes->>'locator' ~ '^https?://github\.com/[^/]+/[^/]+/pull/[0-9]+$';
 -- ── torre-bpm policy convergence (older template snapshot → current) ─────────
 -- torre-bpm (doco_01KT7G5PCX4273VHWW8SAAVSJC) was seeded from the business-processes template BEFORE
 -- the "an edge's meaning comes from its type + endpoints, not a role tag"

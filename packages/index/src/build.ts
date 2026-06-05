@@ -21,17 +21,24 @@ const FALLBACK_INDEX_FIELDS = ["title", "citation", "locator", "name", "verb"] a
 /**
  * The text to index for a node — its FTS body and its embedding input.
  *
- * Normally the node's prose. When the prose is empty — a content-thin node
- * such as a freshly-created Reference whose body hasn't been written yet —
- * fall back to the node's identifying fields so it still enters the index.
- * Without this, an empty-prose node is dropped by the `if (!text) continue`
- * guard below: present in `nodes` (and on the page) but absent from search.
- * Pure.
+ * The node's prose, plus its `body_md` when present (a per-type free-form body
+ * that lives in `attributes`, surfaced as a flat `body_md` key on `data` by the
+ * loader). A PR Reference, for instance, stores the title in prose and the PR
+ * body in `attributes.body_md`; appending it keeps the indexed text byte-for-
+ * byte identical to the pre-split merged prose ("title\n\nbody"), so the
+ * title/body split leaves FTS recall and embeddings unchanged.
+ *
+ * When the prose is empty — a content-thin node such as a freshly-created
+ * Reference whose body hasn't been written yet — fall back to the node's
+ * identifying fields so it still enters the index. Without this, an empty-prose
+ * node is dropped by the `if (!text) continue` guard below: present in `nodes`
+ * (and on the page) but absent from search. Pure.
  */
 export function nodeIndexText(le: LoadedEntity): string {
-  const prose = le.parsed.typeNamedValue?.trim() ?? "";
-  if (prose) return prose;
   const data = (le.parsed.data ?? {}) as Record<string, unknown>;
+  const prose = le.parsed.typeNamedValue?.trim() ?? "";
+  const bodyMd = typeof data.body_md === "string" ? data.body_md.trim() : "";
+  if (prose) return bodyMd ? `${prose}\n\n${bodyMd}` : prose;
   const seen = new Set<string>();
   const parts: string[] = [];
   for (const key of FALLBACK_INDEX_FIELDS) {
