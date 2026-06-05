@@ -168,16 +168,10 @@ export async function ensurePersonalWorkspace(
 
     const id = makeEntityId("workspace", generateUlid()) as EntityId<"workspace">;
     const created = nowIso();
-    const data = {
-      id,
-      handle: username,
-      owner_id: userId,
-      created_at: created,
-    };
     await c.query(
-      `INSERT INTO workspaces (id, handle, name, data, created_at, updated_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, $5)`,
-      [id, username, username, JSON.stringify(data), created],
+      `INSERT INTO workspaces (id, handle, name, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $4)`,
+      [id, username, username, created],
     );
     await c.query(
       `INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)
@@ -247,16 +241,10 @@ export async function addWorkspaceByHandle(opts: {
     }
     const id = makeEntityId("workspace", generateUlid()) as EntityId<"workspace">;
     const created = nowIso();
-    const data = {
-      id,
-      handle: finalHandle,
-      owner_id: opts.ownerUserId,
-      created_at: created,
-    };
     await c.query(
-      `INSERT INTO workspaces (id, handle, name, constitution, data, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5::jsonb, $6, $6)`,
-      [id, finalHandle, finalHandle, DEFAULT_WORKSPACE_CONSTITUTION, JSON.stringify(data), created],
+      `INSERT INTO workspaces (id, handle, name, constitution, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $5)`,
+      [id, finalHandle, finalHandle, DEFAULT_WORKSPACE_CONSTITUTION, created],
     );
     await c.query(
       `INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)

@@ -289,14 +289,13 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
         [rec.id, github_id, github_login, email, avatar_url, dataJson, deactivated_at],
       );
     } else if (rec.entity_type === "workspace") {
-      const dataJson = JSON.stringify(fields);
       const handle = String(fields.handle ?? rec.id);
       const name = String(fields.name ?? fields.display_name ?? handle);
       await c.query(
-        `INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,$4::jsonb)
+        `INSERT INTO workspaces (id, handle, name) VALUES ($1,$2,$3)
          ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle, name=EXCLUDED.name,
-           data=EXCLUDED.data, updated_at=now()`,
-        [rec.id, handle, name, dataJson],
+           updated_at=now()`,
+        [rec.id, handle, name],
       );
     } else if (rec.entity_type === "doco") {
       const dataFields = Object.fromEntries(
@@ -491,19 +490,17 @@ export interface HostConfigRow {
   id: string;
   name: string;
   visibility: "public" | "private";
-  data: Record<string, unknown>;
 }
 
 export async function getHostConfig(): Promise<HostConfigRow | null> {
   return withClient(async (c) => {
-    const r = await c.query("SELECT id, name, visibility, data FROM hosts LIMIT 1");
+    const r = await c.query("SELECT id, name, visibility FROM hosts LIMIT 1");
     if (r.rowCount === 0) return null;
     const row = r.rows[0];
     return {
       id: String(row.id),
       name: String(row.name),
       visibility: row.visibility === "public" ? "public" : "private",
-      data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
     };
   });
 }
@@ -657,7 +654,6 @@ export interface WorkspaceRow {
    * by workspace owners. Empty string only if an owner has explicitly cleared it.
    */
   constitution: string;
-  data: Record<string, unknown>;
   member_count: number;
 }
 
@@ -668,7 +664,6 @@ function mapWorkspaceRow(row: Record<string, unknown>): WorkspaceRow {
     name: String(row.name),
     constitution:
       row.constitution === null || row.constitution === undefined ? "" : String(row.constitution),
-    data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
     member_count: Number(row.member_count),
   };
 }
@@ -676,7 +671,7 @@ function mapWorkspaceRow(row: Record<string, unknown>): WorkspaceRow {
 export async function listWorkspaces(): Promise<WorkspaceRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.handle, o.name, o.constitution, o.data,
+      `SELECT o.id, o.handle, o.name, o.constitution,
               COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = o.id), 0) AS member_count
        FROM workspaces o ORDER BY o.handle`,
     );
@@ -688,7 +683,7 @@ export async function getWorkspaceById(workspaceId: string): Promise<WorkspaceRo
   if (!workspaceId.startsWith("workspace_")) return null;
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.handle, o.name, o.constitution, o.data,
+      `SELECT o.id, o.handle, o.name, o.constitution,
               COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = o.id), 0) AS member_count
        FROM workspaces o WHERE o.id = $1`,
       [workspaceId],
@@ -704,7 +699,7 @@ export async function listWorkspacesForUser(
 ): Promise<WorkspaceRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT o.id, o.handle, o.name, o.constitution, o.data,
+      `SELECT o.id, o.handle, o.name, o.constitution,
               COALESCE((SELECT count(*) FROM workspace_users m WHERE m.workspace_id = o.id), 0) AS member_count
        FROM workspaces o
        JOIN workspace_users m ON m.workspace_id = o.id

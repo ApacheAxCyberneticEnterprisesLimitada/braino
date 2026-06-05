@@ -30,10 +30,11 @@ const DOCO = "doco_prose0000000000000000000000";
 beforeAll(async () => {
   mocks.db = new PGlite();
   await mocks.db.exec(schemaSql);
-  await mocks.db.query(
-    "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}'::jsonb)",
-    [ORG, "workspace-prose", "Workspace Prose"],
-  );
+  await mocks.db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)", [
+    ORG,
+    "workspace-prose",
+    "Workspace Prose",
+  ]);
   await mocks.db.query(
     "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
     [DOCO, "doco-prose", ORG, ORG],

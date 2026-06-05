@@ -21,10 +21,9 @@ const TO = "intent_revive0000000000000000000";
 let db: PGlite;
 
 async function seed(): Promise<void> {
-  await db.query(
-    "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,'revive','Revive','{}')",
-    [ORG],
-  );
+  await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, 'revive', 'Revive')", [
+    ORG,
+  ]);
   await db.query(
     "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'revive',$2,$2,'{}')",
     [DOCO, ORG],

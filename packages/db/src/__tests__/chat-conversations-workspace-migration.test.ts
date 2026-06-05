@@ -61,7 +61,7 @@ describe("chat_conversations workspace_id migration", () => {
 
   it("unassigns (ON DELETE SET NULL) a thread when its Workspace is removed", async () => {
     await db.query(
-      "INSERT INTO workspaces (id, handle, name, constitution, data) VALUES ('workspace_x','x','X','','{}')",
+      "INSERT INTO workspaces (id, handle, name, constitution) VALUES ('workspace_x', 'x', 'X', '')",
     );
     await db.query(
       "INSERT INTO chat_conversations (id, user_id, workspace_id) VALUES ('conv_x','user_alice','workspace_x')",

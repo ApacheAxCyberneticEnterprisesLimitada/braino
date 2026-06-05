@@ -39,8 +39,7 @@ async function ensureOrgChartDoco(
   templateHandle = "org-chart",
 ): Promise<void> {
   await db.exec(`
-    INSERT INTO workspaces (id, handle, name, data)
-      VALUES ('workspace_test', 'ws', 'WS', '{}'::jsonb)
+    INSERT INTO workspaces (id, handle, name) VALUES ('workspace_test', 'ws', 'WS')
       ON CONFLICT (id) DO NOTHING;
   `);
   await db.query(

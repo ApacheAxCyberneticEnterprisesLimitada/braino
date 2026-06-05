@@ -23,7 +23,7 @@ async function main(): Promise<void> {
     const docoId = makeEntityId("doco", generateUlid());
     const dId = makeEntityId("decision", generateUlid());
     const rId = makeEntityId("reference", generateUlid());
-    await c.query(`INSERT INTO workspaces (id,handle,name,data) VALUES ($1,$2,'O','{}')`, [
+    await c.query(`INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, 'O')`, [
       workspaceId,
       `o-${generateUlid().slice(0, 8).toLowerCase()}`,
     ]);

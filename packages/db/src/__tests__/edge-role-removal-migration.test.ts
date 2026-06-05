@@ -34,8 +34,7 @@ const DOCO = "doco_roleremoval";
 
 async function ensureDoco(): Promise<void> {
   await db.exec(`
-    INSERT INTO workspaces (id, handle, name, data)
-      VALUES ('workspace_test', 'ws', 'WS', '{}'::jsonb)
+    INSERT INTO workspaces (id, handle, name) VALUES ('workspace_test', 'ws', 'WS')
       ON CONFLICT (id) DO NOTHING;
     INSERT INTO docos (id, handle, owner_id, workspace_id, data)
       VALUES ('${DOCO}', '${DOCO}', 'workspace_test', 'workspace_test', '{}'::jsonb)

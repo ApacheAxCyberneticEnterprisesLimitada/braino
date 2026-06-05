@@ -150,16 +150,19 @@ CREATE TABLE IF NOT EXISTS hosts (
   id          text PRIMARY KEY,
   name        text NOT NULL,
   visibility  text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Slice 3 (docs/simplification-plan.md): the host carries no open-ended bag —
+-- every field it needs is a typed column. Drop the never-read `data` jsonb.
+-- Idempotent: a no-op on fresh installs (column never created above).
+ALTER TABLE hosts DROP COLUMN IF EXISTS data;
 
 -- Bootstrap host row. The seed below keeps /home from 500'ing on a
 -- fresh install (every layout reads host config). Idempotent — the
 -- ON CONFLICT keeps existing host configs untouched.
-INSERT INTO hosts (id, name, visibility, data)
-VALUES ('host', 'Doco', 'public', '{"id":"host","name":"Doco","visibility":"public"}'::jsonb)
+INSERT INTO hosts (id, name, visibility)
+VALUES ('host', 'Doco', 'public')
 ON CONFLICT (id) DO NOTHING;
 
 -- Identity layer.
@@ -194,10 +197,12 @@ CREATE TABLE IF NOT EXISTS workspaces (
   -- done here" text shared with every agent granted access to the workspace at
   -- bootstrap, and shown on the workspace home page.
   constitution text NOT NULL DEFAULT '',
-  data        jsonb NOT NULL,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+-- Slice 3: a workspace carries no open-ended bag — handle/name/constitution are
+-- typed columns. Drop the never-read `data` jsonb. Idempotent.
+ALTER TABLE workspaces DROP COLUMN IF EXISTS data;
 
 -- Heal: workspaces seeded with the pre-rename default constitution still carry
 -- the old "in this organization" wording. The default now reads "in this

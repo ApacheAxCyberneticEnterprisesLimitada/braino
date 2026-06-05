@@ -35,7 +35,7 @@ async function docoIdOf(conversationId: string): Promise<string | null> {
 
 async function seedDoco(): Promise<void> {
   await db.query(
-    "INSERT INTO workspaces (id, handle, name, constitution, data) VALUES ('workspace_x','x','X','','{}')",
+    "INSERT INTO workspaces (id, handle, name, constitution) VALUES ('workspace_x', 'x', 'X', '')",
   );
   await db.query(
     `INSERT INTO docos (id, handle, owner_id, workspace_id, visibility, data)

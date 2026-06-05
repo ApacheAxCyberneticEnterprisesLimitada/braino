@@ -22,7 +22,7 @@ let db: PGlite;
 
 async function seedDoco(): Promise<void> {
   await db.query(
-    "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}') ON CONFLICT DO NOTHING",
+    "INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
     [ORG, "workspace-test", "Workspace Test"],
   );
   await db.query(

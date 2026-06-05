@@ -53,10 +53,7 @@ describe("revoke-broad-tokens migration (single-workspace rule)", () => {
       [WS_A, "acme"],
       [WS_B, "beta"],
     ]) {
-      await db.query("INSERT INTO workspaces (id, handle, name, data) VALUES ($1, $2, $2, '{}')", [
-        id,
-        handle,
-      ]);
+      await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $2)", [id, handle]);
     }
     // doco_a1 in WS_A, doco_b1 in WS_B, doco_personal owned by the user.
     await db.query(

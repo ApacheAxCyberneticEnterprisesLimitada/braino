@@ -34,7 +34,7 @@ async function seed(): Promise<void> {
   const db = mocks.db;
   await db.query("INSERT INTO users (id, data) VALUES ($1,'{}'),($2,'{}')", [OWNER, REQ]);
   await db.query(
-    "INSERT INTO workspaces (id, handle, name, data) VALUES ($1,'workspace','Workspace','{}')",
+    "INSERT INTO workspaces (id, handle, name) VALUES ($1, 'workspace', 'Workspace')",
     [ORG],
   );
   await db.query(

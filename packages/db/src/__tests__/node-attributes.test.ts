@@ -22,7 +22,7 @@ let db: PGlite;
 beforeAll(async () => {
   db = new PGlite();
   await db.exec(schemaSql);
-  await db.query("INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}'::jsonb)", [
+  await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)", [
     ORG,
     "workspace-attrs",
     "Workspace Attrs",

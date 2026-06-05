@@ -40,7 +40,7 @@ async function main(): Promise<void> {
     const decisionId = makeEntityId("decision", generateUlid());
     const refId = makeEntityId("reference", generateUlid());
 
-    await c.query(`INSERT INTO workspaces (id, handle, name, data) VALUES ($1,$2,$3,'{}')`, [
+    await c.query("INSERT INTO workspaces (id, handle, name) VALUES (, , )", [
       workspaceId,
       `workspace-${generateUlid().slice(0, 8).toLowerCase()}`,
       "Smoke Workspace",
