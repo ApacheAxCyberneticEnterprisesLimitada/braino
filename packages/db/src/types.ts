@@ -99,7 +99,7 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   eval: [{ column: "kind", field: "kind", stripFromData: true }],
   rule: [],
   state: [{ column: "kind", field: "kind", stripFromData: true }],
-  // reference scalars (ref_type/locator/citation/title) now live in `attributes`.
+  // reference scalars (ref_type/locator/citation) now live in `attributes`.
   reference: [],
   // principal: `kind` (human/agent) is promoted to its column; name/body_md/
   // role_principal are written directly by the writer.

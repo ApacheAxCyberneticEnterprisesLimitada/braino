@@ -514,8 +514,6 @@ export interface Reference extends CommonFields {
   locator: string;
   /** Short citation string used as the in-prose-mention shortcut. */
   citation?: string | null;
-  /** Display title distinct from `reference` when the source title matters. */
-  title?: string | null;
   content_hash?: string | null;
 }
 
