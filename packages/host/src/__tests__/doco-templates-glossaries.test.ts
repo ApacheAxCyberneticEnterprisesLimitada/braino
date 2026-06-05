@@ -42,16 +42,15 @@ describe("glossaries template", () => {
     const membershipPolicy = template.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" &&
-        r.predicate.when_node_type?.includes("decision") &&
+        r.predicate.when_node_type?.includes("reference") &&
         /belongs in glossaries/i.test(r.predicate.spec),
     );
 
-    it("allows only glossary content node types", () => {
+    it("allows only glossary content node types — term entries are References, not Decisions", () => {
       expect(allowlist?.kind).toBe("requires_node_type");
       if (allowlist?.kind !== "requires_node_type") return;
-      expect([...allowlist.node_types].sort()).toEqual(
-        ["decision", "eval", "reference", "rule"].sort(),
-      );
+      expect([...allowlist.node_types].sort()).toEqual(["eval", "reference", "rule"].sort());
+      expect(allowlist.node_types).not.toContain("decision" as never);
     });
 
     it("does not list Doco policy metadata as glossary content", () => {
@@ -60,59 +59,70 @@ describe("glossaries template", () => {
       expect(allowlist.node_types).not.toContain("node_authoring_policy" as never);
     });
 
-    it("excludes activity, event, structure, and idea nodes", () => {
+    it("excludes activity, event, structure, decision, and idea nodes", () => {
       if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
-      for (const t of ["intent", "action", "log", "principal", "state", "idea"]) {
+      for (const t of ["intent", "action", "log", "principal", "state", "idea", "decision"]) {
         expect(allowlist.node_types).not.toContain(t as never);
       }
     });
 
     it("describes only glossary graph nodes, not Doco policy metadata", () => {
-      expect(allowlistPolicy).toMatch(/Only Decision, Rule, Reference, and Eval/i);
+      expect(allowlistPolicy).toMatch(/Only Reference, Rule, and Eval/i);
+      expect(allowlistPolicy).toMatch(/Term entries are References/i);
       expect(allowlistPolicy).not.toMatch(/guidance_policy|node_authoring_policy|policy records/i);
     });
 
-    it("does not run the semantic membership judge against Intents", () => {
+    it("runs the semantic membership judge over References, Rules, and Evals (not Decisions or Intents)", () => {
       expect(membershipPolicy?.predicate?.kind).toBe("probabilistic");
       if (membershipPolicy?.predicate?.kind !== "probabilistic") return;
-      expect(membershipPolicy.predicate.when_node_type).toEqual([
-        "decision",
-        "rule",
-        "reference",
-        "eval",
-      ]);
+      expect(membershipPolicy.predicate.when_node_type).toEqual(["reference", "rule", "eval"]);
     });
   });
 
-  describe("active term Decisions", () => {
-    const requiredFields = template.policies.find(
+  describe("term entry References", () => {
+    const termQuality = template.policies.find(
       (r) =>
-        r.predicate?.kind === "requires_field" &&
-        r.predicate.when_node_type?.includes("decision") &&
-        r.predicate.fields.includes("question") &&
-        r.predicate.fields.includes("chosen"),
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("reference") &&
+        /ONE CONCEPT/i.test(r.predicate.spec),
     );
-    const uniqueCanonicalTerm = template.policies.find((r) => r.predicate?.kind === "unique_field");
     const guidance = template.policies
       .filter((r) => !r.predicate)
       .map((r) => r.policy ?? "")
       .join("\n");
 
-    it("requires the concept question and canonical term only when active (no owner required)", () => {
-      expect(requiredFields?.predicate?.kind).toBe("requires_field");
-      if (requiredFields?.predicate?.kind !== "requires_field") return;
-      expect(requiredFields.predicate.fields).toEqual(["question", "chosen"]);
-      expect(requiredFields.predicate.fields).not.toContain("decided_by");
-      expect(requiredFields.fires_when_node_lifecycle).toEqual(["active"]);
+    it("judges term-entry References (not Decisions) and warns rather than blocks", () => {
+      expect(termQuality?.predicate?.kind).toBe("probabilistic");
+      if (termQuality?.predicate?.kind !== "probabilistic") return;
+      expect(termQuality.predicate.when_node_type).toEqual(["reference"]);
+      expect(termQuality.on_violation).toBe("warn");
+      expect(termQuality.fires_when_node_lifecycle).toEqual(["active"]);
     });
 
-    it("enforces case-folded uniqueness for the canonical term in `chosen`", () => {
-      expect(uniqueCanonicalTerm?.predicate?.kind).toBe("unique_field");
-      if (uniqueCanonicalTerm?.predicate?.kind !== "unique_field") return;
-      expect(uniqueCanonicalTerm.predicate.field).toBe("chosen");
-      expect(uniqueCanonicalTerm.predicate.case_fold).toBe(true);
-      expect(uniqueCanonicalTerm.predicate.when_node_type).toEqual(["decision"]);
-      expect(uniqueCanonicalTerm.fires_when_node_lifecycle).toEqual(["active"]);
+    it("checks that the prose is the bare term and the definition lives in the attributes", () => {
+      const spec =
+        termQuality?.predicate?.kind === "probabilistic" ? termQuality.predicate.spec : "";
+      // The two checks this revamp is built around.
+      expect(spec).toMatch(/PROSE IS THE TERM/i);
+      expect(spec).toMatch(/bare word or phrase being defined/i);
+      expect(spec).toMatch(/definition belongs in the `definition` attribute, NOT in the prose/i);
+      expect(spec).toMatch(/DEFINITION IN ATTRIBUTES/i);
+      expect(spec).toMatch(/the `definition` field \(or another attribute/i);
+      // A pure cited source is out of scope for the term-entry judge.
+      expect(spec).toMatch(/cited external source.*OUT OF SCOPE/is);
+    });
+
+    it("does NOT mention the dropped Decision fields (`chosen` / `question`)", () => {
+      const spec =
+        termQuality?.predicate?.kind === "probabilistic" ? termQuality.predicate.spec : "";
+      expect(spec).not.toMatch(/`chosen`/);
+      expect(spec).not.toMatch(/`question`/);
+    });
+
+    it("documents the term-entry model in guidance: word in prose, meaning in `definition`", () => {
+      expect(guidance).toMatch(/A glossary term entry is a Reference/i);
+      expect(guidance).toMatch(/word being defined/i);
+      expect(guidance).toMatch(/`definition` attribute, never in the prose/i);
     });
 
     it("documents that alternatives are optional unless real aliases or rejected labels exist", () => {
@@ -131,8 +141,8 @@ describe("glossaries template", () => {
       expect(alternatives).not.toMatch(/deprecated|historical/i);
     });
 
-    it("documents retired-term replacement links", () => {
-      expect(guidance).toMatch(/Retired glossary Decisions/i);
+    it("documents retired-term replacement links on term References", () => {
+      expect(guidance).toMatch(/Retired glossary term References/i);
       expect(guidance).toMatch(/`replaces` edge/i);
       expect(guidance).toMatch(/historical docs, UI, tickets, APIs, or code/i);
       expect(guidance).not.toMatch(/superseded_by/i);
@@ -141,7 +151,9 @@ describe("glossaries template", () => {
     it("aligns the replacement link with the simplified edge vocabulary", () => {
       const replacement = guidance
         .split("\n")
-        .find((line) => /Retired glossary Decisions/i.test(line) && /`replaces` edge/.test(line));
+        .find(
+          (line) => /Retired glossary term References/i.test(line) && /`replaces` edge/.test(line),
+        );
       expect(replacement).toBeDefined();
       expect(replacement).toMatch(/retiring the old edge and adding a new one/i);
     });
@@ -154,21 +166,22 @@ describe("glossaries template", () => {
     const summaries = template.policies.map((r) => r.policy ?? "");
     const haystack = [...specs, ...summaries].join("\n");
 
-    it("keeps one concept per glossary Decision", () => {
+    it("keeps one concept per glossary term entry", () => {
       expect(haystack).toMatch(/one concept/i);
       expect(haystack).toMatch(/multiple independent terms/i);
     });
 
-    it("requires active definitions to include scope plus example or non-example", () => {
+    it("requires the definition to include scope plus example or non-example", () => {
       expect(haystack).toMatch(/concise definition/i);
       expect(haystack).toMatch(/product or domain scope/i);
       expect(haystack).toMatch(/example or non-example/i);
     });
 
-    it("handles acronyms and abbreviations explicitly", () => {
+    it("handles acronyms and abbreviations explicitly, scoped to the headword", () => {
       expect(haystack).toMatch(/Acronyms and abbreviations/i);
-      expect(haystack).toMatch(/expanded/i);
+      expect(haystack).toMatch(/expands it/i);
       expect(haystack).toMatch(/short form/i);
+      expect(haystack).toMatch(/only inspect the headword/i);
     });
 
     it("asks borrowed or standards-based terms to cite sources", () => {
@@ -179,7 +192,7 @@ describe("glossaries template", () => {
 
     it("rejects circular definitions that merely restate the headword", () => {
       expect(haystack).toMatch(/circular/i);
-      expect(haystack).toMatch(/restate|restatement/i);
+      expect(haystack).toMatch(/restate|restatement|restates/i);
     });
   });
 

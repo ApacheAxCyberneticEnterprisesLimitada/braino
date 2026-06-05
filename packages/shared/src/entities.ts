@@ -514,6 +514,16 @@ export interface Reference extends CommonFields {
   locator: string;
   /** Short citation string used as the in-prose-mention shortcut. */
   citation?: string | null;
+  /**
+   * The definition body when a Reference is used as a glossary term entry.
+   * In the glossaries template the prose (`reference`) is the *word being
+   * defined* — the headword — and the meaning lives here, off the prose,
+   * so the node's name stays the bare term. The other Reference attributes
+   * don't fit: `citation` is the in-prose-mention shortcut and `locator`
+   * points at where a source lives — so a dedicated field is the honest
+   * home for the definition.
+   */
+  definition?: string | null;
   content_hash?: string | null;
 }
 
