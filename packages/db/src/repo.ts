@@ -333,7 +333,10 @@ export async function getEntity(entityType: string, id: string): Promise<EntityR
     const r = NODE_TYPE_SET.has(entityType)
       ? await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [id, entityType])
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE id = $1`, [id]);
-    if (r.rowCount === 0) return null;
+    // Guard on the row itself, not `rowCount`: PGlite reports `rowCount` as
+    // null (not 0) for a 0-row SELECT, so `rowCount === 0` would miss and pass
+    // `undefined` into rowToRecord. `!r.rows[0]` is correct under pg and PGlite.
+    if (!r.rows[0]) return null;
     return rowToRecord(entityType, r.rows[0]);
   });
 }
@@ -597,47 +600,36 @@ export interface PrincipalRow {
   data: Record<string, unknown>;
 }
 
-function mapPrincipalRow(row: Record<string, unknown>): PrincipalRow {
-  // Slim-down: the catch-all `data` jsonb is gone. Rebuild the principal's
-  // field bag from `attributes` (its domain fields, e.g. `owner_id`) plus the
-  // `created_by` column (a provenance field readers consult off `data`).
-  const data: Record<string, unknown> =
-    row.attributes && typeof row.attributes === "object"
-      ? { ...(row.attributes as Record<string, unknown>) }
-      : {};
-  if (row.created_by != null) data.created_by = String(row.created_by);
-  return {
-    id: String(row.id),
-    name: String(row.name),
-    doco_id: String(row.doco_id),
-    data,
-  };
+/**
+ * Adapt a Principal's canonical node record to the legacy `PrincipalRow` shape
+ * its readers expect. A Principal is an ordinary node (`node_type = 'principal'`):
+ * its name is `prose` and its domain fields (`owner_id`, …) ride in `data`
+ * (rebuilt from `attributes` + the system columns by `rowToRecord`), so there is
+ * no second read path — `getEntity` / `listEntitiesByDoco` are the one source.
+ */
+function principalRowFromRecord(rec: EntityRecord): PrincipalRow {
+  const name = rec.name ?? (typeof rec.data.prose === "string" ? rec.data.prose : "");
+  return { id: rec.id, name, doco_id: rec.doco_id, data: rec.data };
 }
 
 export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      "SELECT id, prose AS name, doco_id, attributes, created_by FROM nodes WHERE id = $1 AND node_type = 'principal'",
-      [id],
-    );
-    if (r.rowCount === 0) return null;
-    return mapPrincipalRow(r.rows[0]);
-  });
+  const rec = await getEntity("principal", id);
+  return rec ? principalRowFromRecord(rec) : null;
 }
 
 /**
- * List Principals (role-personas) in a Doco.
+ * List Principals (role-personas) in a Doco. Ordered by name, then creation, so
+ * `find`-by-name lookups in callers are deterministic (preserving the old
+ * `ORDER BY prose, created_at, id`).
  */
 export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      `SELECT id, prose AS name, doco_id, attributes, created_by
-       FROM nodes
-       WHERE node_type = 'principal' AND doco_id = $1
-       ORDER BY prose, created_at, id`,
-      [docoId],
-    );
-    return r.rows.map(mapPrincipalRow);
+  const recs = await listEntitiesByDoco("principal", docoId);
+  return recs.map(principalRowFromRecord).sort((a, b) => {
+    const byName = a.name.localeCompare(b.name);
+    if (byName !== 0) return byName;
+    const at = (r: PrincipalRow) => String(r.data.created_at ?? "");
+    const byTime = at(a).localeCompare(at(b));
+    return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
   });
 }
 
