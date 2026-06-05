@@ -1788,3 +1788,122 @@ BEGIN
     ON CONFLICT (id) DO NOTHING;
   END LOOP;
 END $$;
+
+-- ── torre-bpm policy convergence (older template snapshot → current) ─────────
+-- torre-bpm (doco_01KT7G5PCX4273VHWW8SAAVSJC) was seeded from the business-processes template BEFORE
+-- the "an edge's meaning comes from its type + endpoints, not a role tag"
+-- refactor. Its deterministic predicates were already converged by the edge
+-- `role` removal block above, but the prose (suggestion / edge-probabilistic)
+-- policies still carry the old `serves` / `performed_by` / `owned_by` /
+-- "role metadata" wording, one ceiling rule was left retired, and one guidance
+-- policy was never seeded. This converges that one Doco's policies onto the
+-- current template text. Scoped to the single doco_id on purpose (a targeted
+-- backfill, not a global model change). Each statement matches only rows still
+-- in the stale shape, so re-applying schema.sql on a later boot is a no-op, and
+-- it no-ops entirely on any database that doesn't contain this Doco.
+
+  -- sub-process judge
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('You are checking a `supports` relationship from an Action (the `action` endpoint) to a purpose Intent (the `intent` endpoint). STEP 1 — decide whether this is a SUB-PROCESS pairing: the Intent names the SAME single activity as the Action, expanded into its own process (e.g. Action `Posts a job` ↔ Intent `Post a job`). If instead the Action is merely one step within a broader process the Intent names (e.g. Action `review the application` supporting Intent `Approve a consumer loan`), this is an ordinary flow-step link, not a sub-process — PASS, the rule does not apply. STEP 2 — for a sub-process pairing, PASS when the Intent''s name is the base (imperative) verb form of the Action, i.e. the Action''s third-person verb converted to its base form (`Posts a job` → `Post a job`, `Approves the invoice` → `Approve the invoice`). FAIL with `intent name is not the base form of the action` when the Intent''s name is in the third-person singular present tense (a verb ending in `-s`) or otherwise does not read as the base-form imperative of the same activity.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%`serves` relationship from an Action%';
+
+  -- whole-step sub-process
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('When a step is itself a whole sub-process, model it as its own child process Intent and connect the calling Action to it with a `supports` edge instead of inlining dozens of Actions. The BPMN view collapses the child Intent into its own pool, keeping the parent process readable.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%connect the calling Action with a `serves` relationship%';
+
+  -- accountable owner
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('Name the single accountable process owner in the purpose Intent and link it with an `attributed_to` edge from the Intent to that Principal — the one answerable for the whole process''s outcome. This is the RACI ''Accountable'' party, distinct from the per-step ''Responsible'' performers, each named by an `attributed_to` edge from their Action.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%carrying role `owned_by`%';
+
+  -- agents/changeset
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes and their relationship edges in the same changeset, using the contract''s edge types instead of disconnected nodes or ad hoc relationship names.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%contract''s role examples%';
+
+  -- BPMN vocabulary
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('BPMN vocabulary — an edge''s meaning comes from its type plus the node types it connects, not from any role tag: `flows_to` is process order and renders source -> target with no reversal; a `supports` edge from a flow node to an Intent places it in that Intent''s pool; an `attributed_to` edge to a Principal drives actor lanes (from an Action), gateway deciders (from a Decision), and process ownership (from the purpose Intent); a `constrained_by` edge to a Rule links a policy guard; a `supports` edge from an Eval tests the node it points at, and `supports` edges from other nodes carry rationale and evidence.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%BPMN vocabulary: `flows_to`%';
+
+  -- relationships=edges
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('Relationships in a business-processes Doco are first-class edges with lifecycle and history. Use `flows_to` for process order and the canonical families (`supports`, `attributed_to`, `constrained_by`, `has_parent`, `derived_from`, `replaces`, `relates_to`); an edge''s specialized meaning comes from its type plus the node types it connects, not from a role tag. Re-point by retiring the old edge and adding the new one; endpoints are immutable.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%with role metadata for specialized meanings%';
+
+  -- use queued
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('Use `queued` for a process — or a single step, gateway, or milestone — that is fully wired and ready but not yet in force: a redesign awaiting sign-off, a step pending a scheduled go-live, or an approved-but-not-yet-rolled-out change. A `queued` node asserts readiness, so it must already satisfy the same actor attribution, supporting Intent, and forward-flow wiring an `active` node does. If it is still being sketched and that wiring is incomplete, leave it `drafting` instead of queuing it.'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%actor, `serves`, and forward-flow%';
+
+  -- lifecycle walk
+  UPDATE policies SET
+       data = jsonb_set(data, '{predicate,agent_instruction}', to_jsonb('Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — serving an Intent, naming the actor or decider Principal (an Action''s or gateway Decision''s `attributed_to` edge to a Principal), forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its actor, decider, or Intent (and BPMN pool) is chosen. `queue` it (changeset op `queue`) once it supports its Intent and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).'::text)),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%from the moment it is drafted, so neither floats free%';
+
+  -- custom BPM-import guide: its one stale edge reference (`performed_by`, a
+  -- retired role tag) → the `attributed_to` edge that now carries that meaning.
+  -- Targeted substring rewrite so the rest of the (large) instruction is left
+  -- byte-for-byte intact; idempotent because the matched phrase is gone after.
+  UPDATE policies SET
+       data = jsonb_set(
+                data, '{predicate,agent_instruction}',
+                to_jsonb(replace(
+                  data -> 'predicate' ->> 'agent_instruction',
+                  'Honor the lane for `performed_by`,',
+                  'Honor the lane as the Action''s `attributed_to` edge to its Principal,'
+                ))
+              ),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND data -> 'predicate' ->> 'agent_instruction' LIKE '%Honor the lane for `performed_by`,%';
+
+  -- Re-assert the "a committed flow node belongs to AT MOST one Intent pool"
+  -- ceiling (limits_edge supports→intent max 1). The template ships it active;
+  -- on torre-bpm it was left retired by seed/dedup churn. Mirror
+  -- transitionPolicyLifecycle: flip both the column and data.lifecycle.
+  UPDATE policies SET
+       lifecycle = 'active',
+       data = jsonb_set(data, '{lifecycle}', '"active"'::jsonb),
+       updated_at = now()
+   WHERE doco_id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC'
+     AND kind = 'deterministic'
+     AND lifecycle = 'retired'
+     AND data -> 'predicate' ->> 'sub_kind' = 'limits_edge'
+     AND data -> 'predicate' ->> 'edge_type' = 'supports'
+     AND data -> 'predicate' ->> 'target_node_type' = 'intent'
+     AND data -> 'predicate' ->> 'max_count' = '1';
+
+  -- Backfill the one template guidance policy torre-bpm never received
+  -- ("Name a sub-process by pairing…"). Fixed id keeps the INSERT idempotent.
+  INSERT INTO policies (id, doco_id, kind, lifecycle, data, created_at, updated_at)
+  SELECT 'policy_torrebpm_name_subprocess_guidance', 'doco_01KT7G5PCX4273VHWW8SAAVSJC', 'suggestion', 'active',
+         jsonb_build_object(
+           'id', 'policy_torrebpm_name_subprocess_guidance',
+           'doco_id', 'doco_01KT7G5PCX4273VHWW8SAAVSJC',
+           'kind', 'suggestion',
+           'predicate', jsonb_build_object('agent_instruction', 'Name a sub-process by pairing a calling Action with a child purpose Intent through a `supports` edge, and derive the Intent''s name from that Action: take the base form (the imperative) of the Action''s verb, which is normally written third-person. For example, the Action `Posts a job` becomes the child Intent `Post a job`. The two read as the same activity — one as the work performed, one as the goal it serves.'::text),
+           'lifecycle', 'active',
+           'created_at', now()::text
+         ),
+         now(), now()
+   WHERE EXISTS (SELECT 1 FROM docos WHERE id = 'doco_01KT7G5PCX4273VHWW8SAAVSJC')
+     AND NOT EXISTS (SELECT 1 FROM policies WHERE id = 'policy_torrebpm_name_subprocess_guidance');
+-- ── end torre-bpm policy convergence ────────────────────────────────────────
