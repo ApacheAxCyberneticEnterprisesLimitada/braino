@@ -74,6 +74,7 @@ const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   "body_md",
   // columns we keep promoted
   "kind",
+  "locator",
   "proposer_id",
   // the type-named prose fields (intent, decision, …); only the node's own is
   // ever present, but excluding all is safe since no domain field shares a name
@@ -397,14 +398,15 @@ export async function listIdentityRows(
  * domain fields come from `attributes`, merged separately below).
  */
 const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
-  // Node-shape slim-down: action/log/rule AND reference scalars are dropped
-  // columns now — they come back via the `attributes` merge below, not here.
-  // What remains are the columns NOT carried in `attributes`: `kind`
-  // (eval/state/principal), principal's `role_principal`, and idea's
-  // `proposer_id` FK (excluded from `attributes`, so surfaced from its column).
+  // Node-shape slim-down: action/log/rule scalars (and the remaining reference
+  // scalars) come back via the `attributes` merge below, not here. What remains
+  // are the columns NOT carried in `attributes`: `kind` (eval/state/principal),
+  // `locator` (the promoted reference dedup key), principal's `role_principal`,
+  // and idea's `proposer_id` FK — each surfaced from its column.
   eval: ["kind"],
   state: ["kind"],
   idea: ["proposer_id"],
+  reference: ["locator"],
   principal: ["role_principal", "kind"],
 };
 

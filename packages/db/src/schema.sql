@@ -323,11 +323,15 @@ CREATE TABLE IF NOT EXISTS nodes (
   -- moved into `attributes` and is dropped below; `kind` is the last one
   -- (eval/state, plus principal human|agent).
   kind         text,                          -- eval, state, principal
+  -- Reference dedup key, promoted out of `attributes` to its own typed column:
+  -- it is the one node domain field with a real column (the PR-import
+  -- idempotency lookup indexes it). Null for non-reference nodes.
+  locator      text,
   -- Node-shape slim-down: the unified per-node attributes bag is the single
   -- home for per-node domain fields — it replaced every per-type promoted
-  -- column (except `kind`) and the catch-all `data` jsonb (now dropped below).
-  -- Populated on every write; the read path rebuilds the record's field bag
-  -- from this plus the real columns.
+  -- column (except `kind`/`locator`) and the catch-all `data` jsonb (dropped
+  -- below). Populated on every write; the read path rebuilds the record's field
+  -- bag from this plus the real columns.
   attributes   jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at   timestamptz NOT NULL DEFAULT now(),
   created_by   text,
@@ -336,9 +340,11 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
--- Reference dedupe key (slim-down: `locator` is now in `attributes`). Keeps the
--- PR-import idempotency lookup (github-pr-import.server.ts) an indexed read.
-CREATE INDEX IF NOT EXISTS nodes_ref_locator_idx ON nodes (doco_id, (attributes->>'locator')) WHERE node_type = 'reference';
+-- Reference dedupe key on the promoted `locator` column — the PR-import
+-- idempotency lookup (github-pr-import.server.ts) is an indexed read on it. The
+-- index `nodes_ref_locator_idx` is (re)built in the migration section below,
+-- AFTER the `locator` column is added on a DB that predates it, so the index
+-- expression always resolves.
 
 -- Self-heal: `modality` was a promoted Rule column that capture always wrote
 -- as the constant "must" and no reader ever consulted (enforcement modality
@@ -461,6 +467,35 @@ ALTER TABLE nodes DROP COLUMN IF EXISTS data;
 -- still lives inline in a PR reference's `prose`. Idempotent: once stripped, the
 -- `?` guard makes a second pass a no-op.
 UPDATE nodes SET attributes = attributes - 'body_md' WHERE attributes ? 'body_md';
+
+-- Entity-shape normalization: promote `locator` (the reference dedup key — the
+-- one node domain field we keep) out of the `attributes` bag into its own typed
+-- column. Add the column on a DB that predates it, move the bag value in, then
+-- strip the key from the bag. Idempotent: the migrate only fills a still-empty
+-- column from the bag, and the `?` guard makes the strip a no-op on a second
+-- pass. (The CREATE TABLE above declares the column on fresh installs, where the
+-- migrate/strip match nothing.)
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS locator text;
+UPDATE nodes SET locator = attributes->>'locator'
+ WHERE attributes ? 'locator' AND (locator IS NULL OR locator = '');
+UPDATE nodes SET attributes = attributes - 'locator' WHERE attributes ? 'locator';
+
+-- (Re)build the reference-dedup index on the `locator` column, now that the
+-- column exists. Drop the OLD `(attributes->>'locator')` expression index first
+-- if a DB predates the column (CREATE INDEX IF NOT EXISTS is a no-op on the
+-- existing name, so it would otherwise keep the stale expression index).
+-- Idempotent: after the repoint the index is column-based, so the DROP guard
+-- skips and CREATE IF NOT EXISTS no-ops.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_indexes
+     WHERE indexname = 'nodes_ref_locator_idx' AND indexdef LIKE '%attributes%'
+  ) THEN
+    DROP INDEX nodes_ref_locator_idx;
+  END IF;
+END $$;
+CREATE INDEX IF NOT EXISTS nodes_ref_locator_idx ON nodes (doco_id, locator) WHERE node_type = 'reference';
 
 -- Audit events: one row per mutation.
 
@@ -1983,7 +2018,7 @@ UPDATE nodes
    SET prose = left(prose, position(E'\n\n' IN prose) - 1)
  WHERE node_type = 'reference'
    AND position(E'\n\n' IN prose) > 0
-   AND attributes->>'locator' ~ '^https?://github\.com/[^/]+/[^/]+/pull/[0-9]+$';
+   AND locator ~ '^https?://github\.com/[^/]+/[^/]+/pull/[0-9]+$';
 -- ── torre-bpm policy convergence (older template snapshot → current) ─────────
 -- torre-bpm (doco_01KT7G5PCX4273VHWW8SAAVSJC) was seeded from the business-processes template BEFORE
 -- the "an edge's meaning comes from its type + endpoints, not a role tag"

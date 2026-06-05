@@ -97,8 +97,9 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   eval: [{ column: "kind", field: "kind", stripFromData: true }],
   rule: [],
   state: [{ column: "kind", field: "kind", stripFromData: true }],
-  // reference scalars (ref_type/locator/citation) now live in `attributes`.
-  reference: [],
+  // `locator` is the reference dedup key — promoted to its own typed column (the
+  // remaining reference scalars stay in `attributes` until Slice C drops them).
+  reference: [{ column: "locator", field: "locator", stripFromData: true }],
   // principal: `kind` (human/agent) is promoted to its column; its name lands
   // in the shared `prose` column (written directly by the writer).
   principal: [{ column: "kind", field: "kind", stripFromData: true }],
