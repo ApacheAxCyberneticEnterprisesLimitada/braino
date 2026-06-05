@@ -208,12 +208,15 @@ describe("edge `role` removal migration", () => {
     await insertNode("principal_p", "principal");
     await insertNode("intent_i", "intent");
 
-    // Simulate a pre-Slice-2 DB: re-add the dropped `props` jsonb and the OLD
-    // role-bearing live-uniqueness index, so we can plant TWO live edges that
-    // differ ONLY by role between the same (doco, from, to, type), plus a
-    // flows_to edge whose label/condition/kind live in props. On re-exec, the
-    // migration drops the old index, dedups the colliding edges, folds
-    // props.{label,condition,kind} into the typed columns, and DROPs props.
+    // Simulate a pre-Slice-2 DB: drop the typed columns (an existing prod
+    // `edges` table never got them — `CREATE TABLE IF NOT EXISTS` is a no-op
+    // there), re-add the dropped `props` jsonb and the OLD role-bearing
+    // live-uniqueness index, so we can plant TWO live edges that differ ONLY by
+    // role between the same (doco, from, to, type), plus a flows_to edge whose
+    // label/condition/kind live in props. On re-exec, the migration must FIRST
+    // re-add the typed columns (else the fold's `SET label = …` aborts the whole
+    // schema apply), then dedup, fold props.{label,condition,kind}, and DROP props.
+    await db.exec("ALTER TABLE edges DROP COLUMN label, DROP COLUMN condition, DROP COLUMN kind;");
     await db.exec("ALTER TABLE edges ADD COLUMN IF NOT EXISTS props jsonb;");
     await db.exec("DROP INDEX IF EXISTS edges_live_uniq;");
     await db.exec(

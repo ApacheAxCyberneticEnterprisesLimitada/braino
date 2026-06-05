@@ -1468,6 +1468,14 @@ UPDATE edges
 -- above is the edge's identity). Guarded on `props` still existing, so fresh
 -- installs and an already-migrated DB both skip. The DROP runs after the
 -- constraint flush + index rebuild below (DDL can't run with pending events).
+--
+-- Add the typed columns FIRST, idempotently: `CREATE TABLE IF NOT EXISTS edges`
+-- above is a no-op on an existing (pre-Slice-2) DB, so the columns the fold
+-- below writes don't exist there yet. Without this, the fold's `SET label = …`
+-- aborts the whole schema apply with `column "label" does not exist`.
+ALTER TABLE edges ADD COLUMN IF NOT EXISTS label text;
+ALTER TABLE edges ADD COLUMN IF NOT EXISTS condition text;
+ALTER TABLE edges ADD COLUMN IF NOT EXISTS kind text;
 DO $$
 BEGIN
   IF EXISTS (
