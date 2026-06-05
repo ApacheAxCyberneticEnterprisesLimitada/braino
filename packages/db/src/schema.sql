@@ -1013,6 +1013,14 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   -- all-reachable context. ON DELETE SET NULL so deleting a Workspace
   -- unassigns its threads rather than destroying chat history.
   workspace_id             text REFERENCES workspaces(id) ON DELETE SET NULL,
+  -- The Doco this thread is attached to. Every in-app Señor Doco chat is
+  -- bound to exactly one Doco (1:1 per user — see the unique index below):
+  -- opening Señor Doco while viewing a Doco starts/opens that Doco's chat.
+  -- workspace_id is derived from this Doco's workspace at creation. Nullable
+  -- so pre-existing (workspace-only) threads keep working, and ON DELETE SET
+  -- NULL so deleting a Doco preserves the chat history rather than destroying
+  -- it (the orphaned thread just loses its Doco tag).
+  doco_id                  text REFERENCES docos(id) ON DELETE SET NULL,
   attached_workspace_handles text[] NOT NULL DEFAULT '{}',
   attached_doco_ids        text[] NOT NULL DEFAULT '{}',
   created_at               timestamptz NOT NULL DEFAULT now(),
@@ -1021,8 +1029,16 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
 -- Migration for DBs created before workspace scoping existed.
 ALTER TABLE chat_conversations
   ADD COLUMN IF NOT EXISTS workspace_id text REFERENCES workspaces(id) ON DELETE SET NULL;
+-- Migration for DBs created before per-Doco chat scoping existed.
+ALTER TABLE chat_conversations
+  ADD COLUMN IF NOT EXISTS doco_id text REFERENCES docos(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_chat_conversations_user_active
   ON chat_conversations (user_id, updated_at DESC) WHERE archived = false;
+-- One chat per (user, Doco). Enforces "a Doco can only have a chat" — the
+-- get-or-create path keys on this pair and un-archives rather than minting a
+-- second. Partial (doco_id IS NOT NULL) so Doco-less threads stay exempt.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_conversations_user_doco
+  ON chat_conversations (user_id, doco_id) WHERE doco_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
   id               text PRIMARY KEY,
