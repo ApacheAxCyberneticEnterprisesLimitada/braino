@@ -157,7 +157,7 @@ export async function loadDocoFromPostgres(
           data: fm,
           body: row.body_md ?? "",
           format: "postgres",
-          typeNamedValue: row.type_named_value ?? null,
+          typeNamedValue: typeof fm.prose === "string" ? fm.prose : null,
         },
       };
       entities.set(id as EntityId, loaded);

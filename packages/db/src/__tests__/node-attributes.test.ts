@@ -218,7 +218,7 @@ describe("node attributes column (Stage 1 — expand)", () => {
       data: {},
     });
     expect(rec.attributes).toEqual({ ref_type: "url", locator: "https://x", pr_body: "the body" });
-    expect(rec.type_named_value).toBe("ACME PR #1");
+    expect(rec.data.prose).toBe("ACME PR #1");
   });
 
   it("no longer writes the dropped data column; the write path persists only attributes (Stage 3 — drop)", async () => {

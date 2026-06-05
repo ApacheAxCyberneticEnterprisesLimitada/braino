@@ -26,7 +26,7 @@ function decisionRecord(): EntityRecord {
       id: DECISION,
       doco_id: DOCO,
       node_type: "decision",
-      decision: "Pick the path",
+      prose: "Pick the path",
       question: "Which path?",
       chosen: "Route to the action.",
       decided_by: "principal_test000000000000000000",
@@ -34,7 +34,6 @@ function decisionRecord(): EntityRecord {
       sequence_to: [{ target: ACTION, label: "next" }],
       lifecycle: "active",
     },
-    type_named_value: "Pick the path",
     lifecycle: "active",
   } as unknown as EntityRecord;
 }

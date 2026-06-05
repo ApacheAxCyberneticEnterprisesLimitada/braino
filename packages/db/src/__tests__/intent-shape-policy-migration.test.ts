@@ -141,7 +141,7 @@ describe("business-processes Intent-shape policy migration", () => {
 
   it("leaves unrelated probabilistic policies untouched", async () => {
     const other =
-      "Check the Principal's `name` and `body_md`. PASS when it names a role, team, external party, or system.";
+      "Check the Decision. PASS when it records a clear, single choice with its rationale.";
     const id = await seedProbabilistic(other);
     // Make it a non-intent policy so the when_node_type guard also excludes it.
     await db.query(

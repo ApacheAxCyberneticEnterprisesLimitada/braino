@@ -1482,7 +1482,7 @@ UPDATE policies
 SET data = jsonb_set(
       data,
       '{predicate,agent_instruction}',
-      to_jsonb($intent_purpose_spec$Read the ENTIRE `intent` field. PASS when it identifies a single repeatable business process — recognizable as a verb + object (e.g. `publish a job`), optionally with an adjective or adverb — and reads as a concise statement of that process's purpose. FAIL when no single process is identifiable, when several distinct processes are bundled together, or when it sprawls into a multi-paragraph specification instead of a focused purpose. Grade the whole field; do not privilege or judge any single line.$intent_purpose_spec$::text)
+      to_jsonb($intent_purpose_spec$Read the ENTIRE `prose` field. PASS when it identifies a single repeatable business process — recognizable as a verb + object (e.g. `publish a job`), optionally with an adjective or adverb — and reads as a concise statement of that process's purpose. FAIL when no single process is identifiable, when several distinct processes are bundled together, or when it sprawls into a multi-paragraph specification instead of a focused purpose. Grade the whole field; do not privilege or judge any single line.$intent_purpose_spec$::text)
     ),
     updated_at = now()
 WHERE kind = 'probabilistic'
@@ -1498,6 +1498,37 @@ SET lifecycle = 'retired',
 WHERE kind = 'deterministic'
   AND data -> 'predicate' ->> 'sub_kind' = 'field-line-shape'
   AND lifecycle = 'active';
+
+-- ── A node's text has one name everywhere: `prose` ──────────────────────────
+-- Slice 1 of the entity-shape normalization (docs/simplification-plan.md): the
+-- field bag handed to the authoring-policy judge surfaces a node's text under
+-- the single key `prose` — never a type-named key (`intent`/`action`/…) nor a
+-- principal `name`. Re-point every deployed probabilistic node spec that still
+-- names the old type-named field at `prose`. Each UPDATE is idempotent: the
+-- LIKE guard stops matching once the rename is applied, so re-boots are no-ops.
+UPDATE policies
+SET data = jsonb_set(data, '{predicate,agent_instruction}',
+      to_jsonb(replace(data -> 'predicate' ->> 'agent_instruction',
+                       'ENTIRE `intent` field', 'ENTIRE `prose` field'))),
+    updated_at = now()
+WHERE kind = 'probabilistic'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%ENTIRE `intent` field%';
+
+UPDATE policies
+SET data = jsonb_set(data, '{predicate,agent_instruction}',
+      to_jsonb(replace(data -> 'predicate' ->> 'agent_instruction',
+                       'the Action''s `action` and `verb`', 'the Action''s `prose` and `verb`'))),
+    updated_at = now()
+WHERE kind = 'probabilistic'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%the Action''s `action` and `verb`%';
+
+UPDATE policies
+SET data = jsonb_set(data, '{predicate,agent_instruction}',
+      to_jsonb(replace(data -> 'predicate' ->> 'agent_instruction',
+                       'the Principal''s `name` and `body_md`', 'the Principal''s `prose` and `body_md`'))),
+    updated_at = now()
+WHERE kind = 'probabilistic'
+  AND data -> 'predicate' ->> 'agent_instruction' LIKE '%the Principal''s `name` and `body_md`%';
 
 -- ── Business-processes: backfill the sub-process Intent-naming EDGE policy ────
 -- The business-processes template gained an EDGE-scoped probabilistic policy:

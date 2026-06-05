@@ -160,7 +160,7 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
     rec.doco_id,
     t,
     lifecycleCol,
-    rec.type_named_value ?? "",
+    typeof rec.data.prose === "string" ? rec.data.prose : "",
     JSON.stringify(buildAttributes(rec.data)),
   ];
   for (const pc of NODE_PROMOTED_COLUMNS[t] ?? []) {
@@ -458,10 +458,12 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
   if ("name" in row && row.name !== null) rec.name = String(row.name);
-  // Hydrate the prose content. Unified `nodes` rows carry it in `prose`.
-  // Empty string means "not set yet".
+  // Hydrate the prose content under its single canonical name. Unified `nodes`
+  // rows carry the text in the `prose` column; it lands in the field bag as
+  // `data.prose` (never a type-named key), so the bag IS a complete judge
+  // candidate on re-evaluation. Empty string means "not set yet".
   if ("prose" in row && row.prose !== null && row.prose !== "") {
-    rec.type_named_value = String(row.prose);
+    data.prose = String(row.prose);
   }
   // Node-shape slim-down (raw-schema phase): surface the unified `attributes`
   // bag so callers/the API can read the row shape directly.
@@ -472,7 +474,7 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   // them from `prose` + the `attributes` bag so existing `rec.name` /
   // `rec.body_md` readers keep working without a sweep.
   if (entityType === "principal") {
-    if (rec.type_named_value != null && rec.name == null) rec.name = rec.type_named_value;
+    if (typeof data.prose === "string" && rec.name == null) rec.name = data.prose;
     const bm = rec.attributes?.body_md;
     if (typeof bm === "string" && rec.body_md == null) rec.body_md = bm;
   }
