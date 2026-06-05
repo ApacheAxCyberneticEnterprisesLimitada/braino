@@ -197,6 +197,35 @@ export interface EdgeCandidate {
  *
  * Node-scoped policies are ignored here.
  */
+/**
+ * Whether an edge-scoped policy applies to a given edge. The single source of
+ * truth shared by `evaluateEdgePolicies` (which produces the violations) and
+ * `runEdgeAuthoringPolicies` (which counts how many policies were evaluated, so
+ * the capture footer can report "N authoring policies passed"). Two kinds apply:
+ * the deterministic `requires_edge_type` allowlist (a structural gate, so it
+ * always applies — even for a `drafting` edge), and edge-scoped `probabilistic`
+ * quality checks whose scoping (`edge_type`, optional endpoint node types)
+ * matches the edge (skipped for a `drafting` edge when `includeProbabilistic`
+ * is false). Node-scoped policies never apply.
+ */
+export function edgePolicyAppliesToEdge(
+  p: LoadedPolicy,
+  edge: EdgeCandidate,
+  includeProbabilistic: boolean,
+): boolean {
+  const pred = p.predicate;
+  if (p.kind === "deterministic" && "sub_kind" in pred && pred.sub_kind === "requires_edge_type") {
+    return true;
+  }
+  if (p.kind !== "probabilistic" || !includeProbabilistic) return false;
+  if (!("edge_type" in pred) || !("agent_instruction" in pred)) return false;
+  if (pred.edge_type !== edge.edge_type) return false;
+  if (pred.from_node_type !== undefined && pred.from_node_type !== edge.from_node_type)
+    return false;
+  if (pred.to_node_type !== undefined && pred.to_node_type !== edge.to_node_type) return false;
+  return true;
+}
+
 export function evaluateEdgePolicies(opts: {
   edge: EdgeCandidate;
   policies: LoadedPolicy[];
@@ -207,8 +236,9 @@ export function evaluateEdgePolicies(opts: {
   const includeProbabilistic = opts.includeProbabilistic ?? true;
   const violations: Violation[] = [];
   for (const p of policies) {
+    if (!edgePolicyAppliesToEdge(p, edge, includeProbabilistic)) continue;
     const pred = p.predicate;
-    // Deterministic edge-type allowlist — always applies (structural gate).
+    // Deterministic edge-type allowlist — fires only when the type is barred.
     if (
       p.kind === "deterministic" &&
       "sub_kind" in pred &&
@@ -225,18 +255,16 @@ export function evaluateEdgePolicies(opts: {
       }
       continue;
     }
-    if (p.kind !== "probabilistic" || !includeProbabilistic) continue;
-    if (!("edge_type" in pred) || !("agent_instruction" in pred)) continue;
-    if (pred.edge_type !== edge.edge_type) continue;
-    if (pred.from_node_type !== undefined && pred.from_node_type !== edge.from_node_type) continue;
-    if (pred.to_node_type !== undefined && pred.to_node_type !== edge.to_node_type) continue;
-    violations.push({
-      policy_id: p.policy_id,
-      kind: "probabilistic",
-      on_violation: p.on_violation ?? "block",
-      reason: pred.agent_instruction,
-      pending_spec: pred.agent_instruction,
-    });
+    // Edge-scoped probabilistic — applicability guaranteed the scoping matches.
+    if ("agent_instruction" in pred) {
+      violations.push({
+        policy_id: p.policy_id,
+        kind: "probabilistic",
+        on_violation: p.on_violation ?? "block",
+        reason: pred.agent_instruction,
+        pending_spec: pred.agent_instruction,
+      });
+    }
   }
   return violations;
 }
