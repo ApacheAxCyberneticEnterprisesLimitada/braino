@@ -35,7 +35,7 @@ function tableFor(entityType: string): {
  * content already lives in the `prose` column; keeping a stale copy in `data`
  * would diverge on subsequent updates and leak into JSON API responses.
  */
-const LEGACY_PROSE_KEYS = ["summary", "title", "name", "description"] as const;
+const LEGACY_PROSE_KEYS = ["summary", "name", "description"] as const;
 
 function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = { ...data };
@@ -72,6 +72,16 @@ const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   "name",
   "role_principal",
   "body_md",
+  // Entity-shape normalization (slice C): retired fields. A reference's type is
+  // implied by its `locator`; rule enforcement lives in Policy records, not a
+  // `severity` string; the title is the `prose`. Excluded so a stale client that
+  // still sends one never re-persists it into the bag (the schema.sql migration
+  // strips any already stored).
+  "ref_type",
+  "citation",
+  "severity",
+  "title",
+  "body",
   // columns we keep promoted
   "kind",
   "locator",

@@ -56,7 +56,6 @@ export const CAPTURE_SCHEMAS = {
     field("rule", "required", "full prose: rule statement, rationale, scope, exceptions"),
     field("predicate", "required", "machine-checkable or prose predicate"),
     field("enforced_by", "optional", '"runtime" | "review" | "manual"'),
-    field("severity", "optional", '"hard" | "soft"'),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   eval: schema("eval", "Eval", "evals", "active", [
@@ -71,7 +70,6 @@ export const CAPTURE_SCHEMAS = {
   ]),
   reference: schema("reference", "Reference", "references", "active", [
     field("reference", "required", "full prose: human-readable label for the source"),
-    field("ref_type", "required", '"file" | "url" | "ticket" | "commit" | "document" | "other"'),
     field("locator", "required", "path, URL, ticket id, commit sha, or other locator"),
     field("content_hash", "optional", "source content hash"),
     ...COMMON_OPTIONAL_FIELDS,

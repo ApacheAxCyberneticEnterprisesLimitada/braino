@@ -84,8 +84,8 @@ describe("promote locator to a column migration", () => {
     const row = await readRef("reference_move00000000000000000");
     expect(row.locator).toBe("https://github.com/acme/store/pull/9");
     expect(row.attributes).not.toHaveProperty("locator");
-    // The other reference scalars are untouched (Slice C drops those).
-    expect(row.attributes).toMatchObject({ ref_type: "url" });
+    // `ref_type` is also dropped from the bag (slice C).
+    expect(row.attributes).not.toHaveProperty("ref_type");
   });
 
   it("(2) repoints the reference-dedup index onto the `locator` column", async () => {

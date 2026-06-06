@@ -302,7 +302,6 @@ export interface Rule extends CommonFields {
    *  carried by `Policy` records, not by this string). */
   predicate?: string;
   fires_when_node_lifecycle?: Lifecycle[];
-  severity?: "blocker" | "warning" | "info";
   phase?: "declared" | "pre" | "post" | "invariant";
   on_violation?: "block" | "warn" | "log";
 }
@@ -506,18 +505,15 @@ export interface Reference extends CommonFields {
   node_type: "reference";
   /** Full prose: human-readable label for the external thing. */
   reference: string;
-  ref_type: "file" | "url" | "ticket" | "commit" | "document" | "other";
+  /** Where the source lives — a path, URL, ticket id, or commit sha. The
+   *  reference's kind is implied by the locator's shape (no separate type). */
   locator: string;
-  /** Short citation string used as the in-prose-mention shortcut. */
-  citation?: string | null;
   /**
    * The definition body when a Reference is used as a glossary term entry.
    * In the glossaries template the prose (`reference`) is the *word being
-   * defined* — the headword — and the meaning lives here, off the prose,
-   * so the node's name stays the bare term. The other Reference attributes
-   * don't fit: `citation` is the in-prose-mention shortcut and `locator`
-   * points at where a source lives — so a dedicated field is the honest
-   * home for the definition.
+   * defined* — the headword — and the meaning lives here, off the prose, so the
+   * node's name stays the bare term: `locator` points at where a source lives,
+   * so a dedicated field is the honest home for the definition.
    */
   definition?: string | null;
   content_hash?: string | null;

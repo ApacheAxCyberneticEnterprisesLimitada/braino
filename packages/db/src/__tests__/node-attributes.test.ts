@@ -66,14 +66,15 @@ describe("node attributes column (Stage 1 — expand)", () => {
     // `locator` is promoted to its own typed column, not the bag.
     expect(rows[0].locator).toBe("https://example.com/acme/pull/1");
     expect(attrs).not.toHaveProperty("locator");
-    // The remaining per-type fields land in the unified bag…
+    // The free-form per-type fields land in the unified bag…
     expect(attrs).toMatchObject({
-      ref_type: "url",
-      citation: "PR#1",
-      title: "Add the widget",
       content_hash: "abc123",
       pr_body: "The full body of the pull request goes here.",
     });
+    // …the retired reference scalars (slice C) never reach it…
+    expect(attrs).not.toHaveProperty("ref_type");
+    expect(attrs).not.toHaveProperty("citation");
+    expect(attrs).not.toHaveProperty("title");
     // …and prose / identity / lifecycle never leak into it.
     expect(attrs).not.toHaveProperty("reference");
     expect(attrs).not.toHaveProperty("prose");
@@ -142,12 +143,11 @@ describe("node attributes column (Stage 1 — expand)", () => {
     // typed column (Slice B), not left in the bag.
     expect(rows[0].locator).toBe("https://example.com/acme/pull/9");
     expect(rows[0].attributes).not.toHaveProperty("locator");
-    expect(rows[0].attributes).toMatchObject({
-      ref_type: "url",
-      title: "Legacy title",
-      // the stray field that lived only in `data` survived the backfill.
-      note: "kept",
-    });
+    // ref_type / title fold out of the legacy columns but are then dropped from
+    // the bag (slice C); only the stray `data`-only field survives the backfill.
+    expect(rows[0].attributes).toMatchObject({ note: "kept" });
+    expect(rows[0].attributes).not.toHaveProperty("ref_type");
+    expect(rows[0].attributes).not.toHaveProperty("title");
     const after = await db.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
     );

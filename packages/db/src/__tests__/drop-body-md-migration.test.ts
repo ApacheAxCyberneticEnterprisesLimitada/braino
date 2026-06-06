@@ -128,7 +128,10 @@ describe("drop body_md migration", () => {
 
     const row = await readNode("reference_strip0000000000000000");
     expect(row.attributes).not.toHaveProperty("body_md");
-    expect(row.attributes).toMatchObject({ ref_type: "url" });
+    // ref_type is also stripped from the bag (slice C); locator is promoted to
+    // its column (slice B) — so the bag is left empty.
+    expect(row.attributes).not.toHaveProperty("ref_type");
+    expect(row.attributes).not.toHaveProperty("locator");
   });
 
   it("(3) retires the org-chart body_md presence floor", async () => {

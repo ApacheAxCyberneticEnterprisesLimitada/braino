@@ -497,6 +497,19 @@ BEGIN
 END $$;
 CREATE INDEX IF NOT EXISTS nodes_ref_locator_idx ON nodes (doco_id, locator) WHERE node_type = 'reference';
 
+-- Entity-shape normalization (slice C): drop the folded reference/rule cruft for
+-- good. `ref_type`, `citation`, `severity`, `title`, and `body` were folded into
+-- the bag by the column-drop migrations above; the canonical node shape retires
+-- them entirely (a reference's type is implied by its `locator`; rule
+-- enforcement lives in Policy records, not a `severity` string; the title is the
+-- `prose`). Strip the keys from every node's bag. Idempotent: the `?|` guard
+-- makes a second pass a no-op once they're gone. The write path also excludes
+-- these keys (repo.ts ATTRIBUTE_EXCLUDED_KEYS), so a stale client that still
+-- sends one never re-persists it.
+UPDATE nodes
+   SET attributes = attributes - 'ref_type' - 'citation' - 'severity' - 'title' - 'body'
+ WHERE attributes ?| array['ref_type', 'citation', 'severity', 'title', 'body'];
+
 -- Audit events: one row per mutation.
 
 CREATE TABLE IF NOT EXISTS audit_events (

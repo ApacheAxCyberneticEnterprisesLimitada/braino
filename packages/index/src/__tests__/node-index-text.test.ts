@@ -25,10 +25,10 @@ describe("nodeIndexText", () => {
     );
   });
 
-  it("falls back to title + locator when the prose is empty", () => {
+  it("falls back to locator + name (in field order) when the prose is empty", () => {
     expect(
-      nodeIndexText(le("", { title: "Draft PR title", locator: "https://github.com/o/r/pull/9" })),
-    ).toBe("Draft PR title — https://github.com/o/r/pull/9");
+      nodeIndexText(le("", { name: "Draft seat", locator: "https://github.com/o/r/pull/9" })),
+    ).toBe("https://github.com/o/r/pull/9 — Draft seat");
   });
 
   it("falls back to the locator alone when that is all the node carries", () => {
@@ -38,7 +38,7 @@ describe("nodeIndexText", () => {
   });
 
   it("de-duplicates identical fallback fields", () => {
-    expect(nodeIndexText(le("   ", { title: "same", citation: "same" }))).toBe("same");
+    expect(nodeIndexText(le("   ", { name: "same", verb: "same" }))).toBe("same");
   });
 
   it("returns an empty string when there is genuinely nothing to index", () => {

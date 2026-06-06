@@ -16,7 +16,7 @@ import { loadDocoFromPostgres } from "./loadDoco.js";
 
 // Identifying fields to index when a node has no prose yet. Order is the
 // fallback preference; deduped at join time.
-const FALLBACK_INDEX_FIELDS = ["title", "citation", "locator", "name", "verb"] as const;
+const FALLBACK_INDEX_FIELDS = ["locator", "name", "verb"] as const;
 
 /**
  * The text to index for a node — its FTS body and its embedding input: the
