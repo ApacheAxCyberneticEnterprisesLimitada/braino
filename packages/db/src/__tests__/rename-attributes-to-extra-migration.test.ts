@@ -92,7 +92,7 @@ describe("rename the node bag attributes -> extra (slice D)", () => {
       "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
       [DOCO, "doco-extra", ORG, ORG],
     );
-    const { upsertEntity, rowToRecord } = await import("../repo.js");
+    const { upsertEntity, rowToEntity } = await import("../repo.js");
     const id = "action_extra00000000000000000000";
     await upsertEntity(
       {
@@ -114,7 +114,7 @@ describe("rename the node bag attributes -> extra (slice D)", () => {
     const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [
       id,
     ]);
-    const rec = rowToRecord("action", rows[0]);
+    const rec = rowToEntity("action", rows[0]);
     // The free-form field lands in the `extra` bag and is surfaced on read.
     expect((rows[0] as { extra: Record<string, unknown> }).extra).toMatchObject({ verb: "do" });
     expect(rec.extra).toMatchObject({ verb: "do" });

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { rowToRecord, upsertEntity } from "../repo.js";
+import { rowToEntity, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
 
 // Node-shape slim-down: a single `extra` jsonb that replaces the per-type
@@ -208,14 +208,14 @@ describe("node extra column (Stage 1 — expand)", () => {
     const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [
       id,
     ]);
-    const rec = rowToRecord("action", rows[0]);
+    const rec = rowToEntity("action", rows[0]);
     // verb is gone as a column but still reachable on the record, via extra.
     expect(rec.extra).toMatchObject({ verb: "deploy" });
     expect(rec.data.verb).toBe("deploy");
   });
 
   it("surfaces the extra column onto the record on read (Stage 2 — raw schema)", () => {
-    const rec = rowToRecord("reference", {
+    const rec = rowToEntity("reference", {
       id: "reference_read000000000000000000",
       doco_id: DOCO,
       node_type: "reference",
@@ -298,7 +298,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     const fullRow = (
       await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [id])
     ).rows[0];
-    const rec = rowToRecord("idea", fullRow);
+    const rec = rowToEntity("idea", fullRow);
     // System keys injected from real columns…
     expect(rec.data.id).toBe(id);
     expect(rec.data.doco_id).toBe(DOCO);
@@ -311,8 +311,8 @@ describe("node extra column (Stage 1 — expand)", () => {
     expect(rec.data.tradeoffs).toBe("cheap but slow");
   });
 
-  it("rowToRecord injects system keys from columns without any data column present", () => {
-    const rec = rowToRecord("decision", {
+  it("rowToEntity injects system keys from columns without any data column present", () => {
+    const rec = rowToEntity("decision", {
       id: "decision_sys000000000000000000000",
       doco_id: DOCO,
       node_type: "decision",

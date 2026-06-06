@@ -148,11 +148,10 @@ export interface EntityRecord {
   /** Bag of structured fields. Stored as `data jsonb` in Postgres;
    *  node-pg parses jsonb columns to JS objects on read. */
   data: Record<string, unknown>;
-  /** Mirrored hot-path columns for indexes — derived from data. */
-  summary?: string | null;
+  /** Mirrored from the `lifecycle` column; the write path's source of truth
+   *  for the column (see `deriveLifecycleColumn`). */
   lifecycle?: string | null;
-  name?: string | null;
-  /** Node-shape slim-down: the unified per-node extra bag (jsonb). */
+  /** The author-owned per-node bag (the `extra` jsonb), surfaced raw on read. */
   extra?: Record<string, unknown> | null;
   created_at?: string | null;
   created_by?: string | null;

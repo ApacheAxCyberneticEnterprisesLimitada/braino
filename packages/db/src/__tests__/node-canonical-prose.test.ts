@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // no type-named key (`intent`/`decision`/…). The read path must surface the
 // stored `prose` column as `data.prose`, so the field bag handed to the
 // authoring-policy judge on RE-EVALUATION carries the text. The original bug:
-// `rowToRecord` routed `prose` into a separate `type_named_value` property and
+// `rowToEntity` routed `prose` into a separate `type_named_value` property and
 // the update/re-eval loader forwarded only `data`, so the judge saw a candidate
 // with no text under any key ("the candidate lacks a `prose` field entirely").
 

@@ -475,7 +475,7 @@ END $$;
 -- Node-shape slim-down: drop the catch-all `data` jsonb. Every per-node domain
 -- field already lives in `extra` (the guarded backfill above folded any
 -- stragglers in before this runs), so no further copy is needed. The read path
--- (rowToRecord) now rebuilds a record's field bag from `extra` + the real
+-- (rowToEntity) now rebuilds a record's field bag from `extra` + the real
 -- columns. Idempotent — drops it where present, a no-op on fresh installs (the
 -- CREATE TABLE above no longer declares it) and on every boot thereafter.
 ALTER TABLE nodes DROP COLUMN IF EXISTS data;

@@ -343,9 +343,9 @@ export async function getEntity(entityType: string, id: string): Promise<EntityR
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE id = $1`, [id]);
     // Guard on the row itself, not `rowCount`: PGlite reports `rowCount` as
     // null (not 0) for a 0-row SELECT, so `rowCount === 0` would miss and pass
-    // `undefined` into rowToRecord. `!r.rows[0]` is correct under pg and PGlite.
+    // `undefined` into rowToEntity. `!r.rows[0]` is correct under pg and PGlite.
     if (!r.rows[0]) return null;
-    return rowToRecord(entityType, r.rows[0]);
+    return rowToEntity(entityType, r.rows[0]);
   });
 }
 
@@ -360,7 +360,7 @@ export async function listEntitiesByDoco(
           entityType,
         ])
       : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1`, [docoId]);
-    return r.rows.map((row) => rowToRecord(entityType, row));
+    return r.rows.map((row) => rowToEntity(entityType, row));
   });
 }
 
@@ -385,7 +385,7 @@ export async function listEntitiesByDocoAndIds(
           `SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
           [docoId, ids],
         );
-    return r.rows.map((row) => rowToRecord(entityType, row));
+    return r.rows.map((row) => rowToEntity(entityType, row));
   });
 }
 
@@ -397,7 +397,7 @@ export async function listIdentityRows(
       entityType === "principal"
         ? await c.query("SELECT * FROM nodes WHERE node_type = 'principal'")
         : await c.query(`SELECT * FROM ${tableFor(entityType).table}`);
-    return r.rows.map((row) => rowToRecord(entityType, row));
+    return r.rows.map((row) => rowToEntity(entityType, row));
   });
 }
 
@@ -420,7 +420,7 @@ const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
   principal: ["role_principal", "kind"],
 };
 
-export function rowToRecord(entityType: string, row: Record<string, unknown>): EntityRecord {
+export function rowToEntity(entityType: string, row: Record<string, unknown>): EntityRecord {
   // Node-shape slim-down: the catch-all `data` jsonb is gone, so rebuild the
   // record's `data` field bag from its real homes:
   //   1. the system/identity/audit keys, injected from their real columns
@@ -465,9 +465,7 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
     entity_type: entityType,
     data,
   };
-  if ("summary" in row && row.summary !== null) rec.summary = String(row.summary);
   if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
-  if ("name" in row && row.name !== null) rec.name = String(row.name);
   // Hydrate the prose content under its single canonical name. Unified `nodes`
   // rows carry the text in the `prose` column; it lands in the field bag as
   // `data.prose` (never a type-named key), so the bag IS a complete judge
@@ -479,11 +477,6 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   // bag so callers/the API can read the row shape directly.
   if ("extra" in row && row.extra && typeof row.extra === "object") {
     rec.extra = row.extra as Record<string, unknown>;
-  }
-  // Slim-down compat: a principal's name is its `prose`. Surface it as `rec.name`
-  // so existing `rec.name` readers (PrincipalRow) keep working without a sweep.
-  if (entityType === "principal") {
-    if (typeof data.prose === "string" && rec.name == null) rec.name = data.prose;
   }
   if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
   if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
@@ -609,11 +602,12 @@ export interface PrincipalRow {
  * Adapt a Principal's canonical node record to the legacy `PrincipalRow` shape
  * its readers expect. A Principal is an ordinary node (`node_type = 'principal'`):
  * its name is `prose` and its domain fields (`owner_id`, …) ride in `data`
- * (rebuilt from `extra` + the system columns by `rowToRecord`), so there is
+ * (rebuilt from `extra` + the system columns by `rowToEntity`), so there is
  * no second read path — `getEntity` / `listEntitiesByDoco` are the one source.
  */
 function principalRowFromRecord(rec: EntityRecord): PrincipalRow {
-  const name = rec.name ?? (typeof rec.data.prose === "string" ? rec.data.prose : "");
+  // A principal's name is its `prose` (rebuilt into `data.prose` by rowToEntity).
+  const name = typeof rec.data.prose === "string" ? rec.data.prose : "";
   return { id: rec.id, name, doco_id: rec.doco_id, data: rec.data };
 }
 
