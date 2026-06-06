@@ -2,14 +2,14 @@
 // has one text home (`prose`); the only sanctioned bag is the author-owned one,
 // which the system never writes to. This pins the schema.sql migrations that
 // converge already-seeded production data onto the new shape:
-//   1. strip `body_md` from every node's attributes bag,
+//   1. strip `body_md` from every node's extra bag,
 //   2. retire the org-chart `body_md` presence floor (it would block every
 //      principal capture now that principals carry no `body_md`),
 //   3. converge the org-chart person/agent/vacant judge + guidance to read
 //      `kind` + `prose` (never `body_md`),
 //   4. the PR-reference title/body "split" now DROPS the body (prose = title),
 //   5. the principal column-fold drops `body_md` instead of folding it into the
-//      attributes bag.
+//      extra bag.
 // Every case asserts the apply does not throw, converges the data, and is
 // idempotent on a second apply (the upgrade path the PGlite-fresh tests miss).
 import { readFileSync } from "node:fs";
@@ -48,20 +48,18 @@ async function insertNode(
   id: string,
   nodeType: string,
   prose: string,
-  attributes: Record<string, unknown>,
+  extra: Record<string, unknown>,
 ): Promise<void> {
   await db.query(
-    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes)
+    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra)
      VALUES ($1, $2, $3, 'active', $4, $5::jsonb)`,
-    [id, DOCO, nodeType, prose, JSON.stringify(attributes)],
+    [id, DOCO, nodeType, prose, JSON.stringify(extra)],
   );
 }
 
-async function readNode(
-  id: string,
-): Promise<{ prose: string; attributes: Record<string, unknown> }> {
-  const r = await db.query<{ prose: string; attributes: Record<string, unknown> }>(
-    "SELECT prose, attributes FROM nodes WHERE id = $1",
+async function readNode(id: string): Promise<{ prose: string; extra: Record<string, unknown> }> {
+  const r = await db.query<{ prose: string; extra: Record<string, unknown> }>(
+    "SELECT prose, extra FROM nodes WHERE id = $1",
     [id],
   );
   return r.rows[0];
@@ -102,7 +100,7 @@ describe("drop body_md migration", () => {
     await seedDoco("org-chart");
   });
 
-  it("(1) strips body_md from a principal's attributes bag", async () => {
+  it("(1) strips body_md from a principal's extra bag", async () => {
     await insertNode("principal_strip0000000000000000", "principal", "Ada — Staff Engineer", {
       body_md: "Long bio that no longer has a home.",
       kind: "human",
@@ -112,12 +110,12 @@ describe("drop body_md migration", () => {
 
     const row = await readNode("principal_strip0000000000000000");
     expect(row.prose).toBe("Ada — Staff Engineer");
-    expect(row.attributes).not.toHaveProperty("body_md");
+    expect(row.extra).not.toHaveProperty("body_md");
     // The author-owned content beside it is untouched.
-    expect(row.attributes).toMatchObject({ kind: "human" });
+    expect(row.extra).toMatchObject({ kind: "human" });
   });
 
-  it("(2) strips body_md from a reference's attributes bag", async () => {
+  it("(2) strips body_md from a reference's extra bag", async () => {
     await insertNode("reference_strip0000000000000000", "reference", "Some PR title", {
       body_md: "The PR body, now dropped.",
       ref_type: "url",
@@ -127,11 +125,11 @@ describe("drop body_md migration", () => {
     await db.exec(schemaSql);
 
     const row = await readNode("reference_strip0000000000000000");
-    expect(row.attributes).not.toHaveProperty("body_md");
+    expect(row.extra).not.toHaveProperty("body_md");
     // ref_type is also stripped from the bag (slice C); locator is promoted to
     // its column (slice B) — so the bag is left empty.
-    expect(row.attributes).not.toHaveProperty("ref_type");
-    expect(row.attributes).not.toHaveProperty("locator");
+    expect(row.extra).not.toHaveProperty("ref_type");
+    expect(row.extra).not.toHaveProperty("locator");
   });
 
   it("(3) retires the org-chart body_md presence floor", async () => {
@@ -245,7 +243,7 @@ describe("drop body_md migration", () => {
 
     const row = await readNode("reference_prbody00000000000000000");
     expect(row.prose).toBe("PR title");
-    expect(row.attributes).not.toHaveProperty("body_md");
+    expect(row.extra).not.toHaveProperty("body_md");
   });
 
   it("(6b) leaves non-PR-URL references untouched (code-locator / issue URL)", async () => {
@@ -290,19 +288,19 @@ describe("drop body_md migration", () => {
     };
 
     expect(twice).toEqual(once);
-    expect(twice.principal.attributes).not.toHaveProperty("body_md");
+    expect(twice.principal.extra).not.toHaveProperty("body_md");
     expect(twice.reference.prose).toBe("Title");
     expect(twice.floor.lifecycle).toBe("retired");
   });
 });
 
 describe("drop body_md migration — principal column fold (old DB upgrade path)", () => {
-  it("(8) drops the principal body_md column instead of folding it into attributes", async () => {
+  it("(8) drops the principal body_md column instead of folding it into extra", async () => {
     db = new PGlite();
     // Recreate the pre-slim-down `nodes` shape: a real `name` + `body_md`
     // column. The principal fold (guarded on the `name` column existing) must
     // move `name` → `prose` and DROP `body_md` — never carry its content into
-    // the attributes bag.
+    // the extra bag.
     await db.exec(`
       CREATE TABLE nodes (
         id text PRIMARY KEY,
@@ -311,7 +309,7 @@ describe("drop body_md migration — principal column fold (old DB upgrade path)
         lifecycle text NOT NULL DEFAULT 'active',
         prose text NOT NULL DEFAULT '',
         kind text,
-        attributes jsonb NOT NULL DEFAULT '{}'::jsonb,
+        extra jsonb NOT NULL DEFAULT '{}'::jsonb,
         name text,
         body_md text,
         role_principal boolean,
@@ -328,7 +326,7 @@ describe("drop body_md migration — principal column fold (old DB upgrade path)
 
     const row = await readNode("principal_old0000000000000000000");
     expect(row.prose).toBe("Carol");
-    expect(row.attributes).not.toHaveProperty("body_md");
+    expect(row.extra).not.toHaveProperty("body_md");
 
     // Idempotent second apply.
     await db.exec(schemaSql);

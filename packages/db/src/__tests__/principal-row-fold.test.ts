@@ -9,7 +9,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // through the ONE canonical node path (getEntity / listEntitiesByDoco →
 // rowToRecord) — no bespoke `prose AS name` SQL + `mapPrincipalRow`. This pins
 // the legacy `PrincipalRow` shape those readers depend on: name (from prose),
-// `data.owner_id` (from attributes), `data.created_by` (from the column).
+// `data.owner_id` (from extra), `data.created_by` (from the column).
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
@@ -38,21 +38,21 @@ beforeAll(async () => {
     "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'pfold',$2,$2,'{}'::jsonb)",
     [DOCO, ORG],
   );
-  // Two principals: "alice" carries an owner_id in attributes; "bob" is bare.
+  // Two principals: "alice" carries an owner_id in extra; "bob" is bare.
   await mocks.db.query(
-    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes, created_by)
+    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra, created_by)
        VALUES ($1,$2,'principal','active','alice','{"owner_id":"user_x"}'::jsonb,$3)`,
     [P1, DOCO, USER],
   );
   await mocks.db.query(
-    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes)
+    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra)
        VALUES ($1,$2,'principal','active','bob','{}'::jsonb)`,
     [P2, DOCO],
   );
 });
 
 describe("principal read folded onto the canonical node path", () => {
-  it("getPrincipalById surfaces name (prose), owner_id (attributes), created_by (column)", async () => {
+  it("getPrincipalById surfaces name (prose), owner_id (extra), created_by (column)", async () => {
     const p = await getPrincipalById(P1);
     expect(p).not.toBeNull();
     expect(p?.id).toBe(P1);

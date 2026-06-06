@@ -44,7 +44,7 @@ function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unk
 }
 
 /**
- * Node-shape slim-down (expand phase). Build the unified `attributes` bag: the
+ * Node-shape slim-down (expand phase). Build the unified `extra` bag: the
  * per-node domain fields, with everything that lives in a real column or in
  * `prose` excluded. This is the future single home for the per-type promoted
  * scalars (severity, verb, locator, …) plus any free-form per-type data (a
@@ -52,7 +52,7 @@ function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unk
  *
  * The schema.sql backfill mirrors this exclusion set for pre-existing rows.
  */
-const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
+const EXTRA_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   // identity / audit / lifecycle — real columns
   "id",
   "doco_id",
@@ -91,11 +91,11 @@ const ATTRIBUTE_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   ...NODE_TYPE_SET,
 ]);
 
-function buildAttributes(data: Record<string, unknown>): Record<string, unknown> {
+function buildExtra(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
     if (v === undefined || v === null) continue;
-    if (ATTRIBUTE_EXCLUDED_KEYS.has(k) || BLOCKED_NODE_JSON_EDGE_FIELD_SET.has(k)) continue;
+    if (EXTRA_EXCLUDED_KEYS.has(k) || BLOCKED_NODE_JSON_EDGE_FIELD_SET.has(k)) continue;
     out[k] = v;
   }
   return out;
@@ -151,7 +151,7 @@ function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): s
  *
  * Prose: every node carries its content in `prose`; a principal's name is its
  * `prose`. Promoted scalar columns come from NODE_PROMOTED_COLUMNS; every other
- * per-node domain field lives in the unified `attributes` bag (the catch-all
+ * per-node domain field lives in the unified `extra` bag (the catch-all
  * `data` jsonb was dropped). Graph links live in `edges`. `data.lifecycle` is
  * the source of truth for the lifecycle column.
  */
@@ -166,14 +166,14 @@ async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<vo
   // Slim-down: principals are ordinary prose nodes now — their name lives in
   // `prose` (set by capture); the dropped `name`/`body_md`/`role_principal`
   // columns are gone and there is no separate body.
-  const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "attributes"];
+  const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "extra"];
   const vals: unknown[] = [
     rec.id,
     rec.doco_id,
     t,
     lifecycleCol,
     typeof rec.data.prose === "string" ? rec.data.prose : "",
-    JSON.stringify(buildAttributes(rec.data)),
+    JSON.stringify(buildExtra(rec.data)),
   ];
   for (const pc of NODE_PROMOTED_COLUMNS[t] ?? []) {
     cols.push(pc.column);
@@ -405,12 +405,12 @@ export async function listIdentityRows(
  * Real columns whose values we merge into the record's `data` field bag on read
  * so downstream code that reads `rec.data.kind`, `rec.data.proposer_id`, etc.
  * still finds them now that the catch-all `data` jsonb is gone (the rest of the
- * domain fields come from `attributes`, merged separately below).
+ * domain fields come from `extra`, merged separately below).
  */
 const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
   // Node-shape slim-down: action/log/rule scalars (and the remaining reference
-  // scalars) come back via the `attributes` merge below, not here. What remains
-  // are the columns NOT carried in `attributes`: `kind` (eval/state/principal),
+  // scalars) come back via the `extra` merge below, not here. What remains
+  // are the columns NOT carried in `extra`: `kind` (eval/state/principal),
   // `locator` (the promoted reference dedup key), principal's `role_principal`,
   // and idea's `proposer_id` FK — each surfaced from its column.
   eval: ["kind"],
@@ -427,7 +427,7 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   //      (these used to be stored verbatim in the `data` jsonb), then
   //   2. the still-promoted typed columns (kind / proposer_id / role_principal),
   //      then
-  //   3. the unified `attributes` bag — every other per-node domain field.
+  //   3. the unified `extra` bag — every other per-node domain field.
   const data: Record<string, unknown> = {};
   // 1. System keys, only when present on the row (a column may be absent from a
   // narrowed SELECT). node_type is the discriminator we were handed.
@@ -453,10 +453,10 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
       data[col] = v instanceof Date ? v.toISOString() : v;
     }
   }
-  // 3. The unified `attributes` bag — the source of truth for per-type domain
+  // 3. The unified `extra` bag — the source of truth for per-type domain
   // fields (incl. the dropped action/log/rule scalars like verb / severity).
-  if (row.attributes && typeof row.attributes === "object") {
-    Object.assign(data, row.attributes as Record<string, unknown>);
+  if (row.extra && typeof row.extra === "object") {
+    Object.assign(data, row.extra as Record<string, unknown>);
   }
 
   const rec: EntityRecord = {
@@ -475,10 +475,10 @@ export function rowToRecord(entityType: string, row: Record<string, unknown>): E
   if ("prose" in row && row.prose !== null && row.prose !== "") {
     data.prose = String(row.prose);
   }
-  // Node-shape slim-down (raw-schema phase): surface the unified `attributes`
+  // Node-shape slim-down (raw-schema phase): surface the unified `extra`
   // bag so callers/the API can read the row shape directly.
-  if ("attributes" in row && row.attributes && typeof row.attributes === "object") {
-    rec.attributes = row.attributes as Record<string, unknown>;
+  if ("extra" in row && row.extra && typeof row.extra === "object") {
+    rec.extra = row.extra as Record<string, unknown>;
   }
   // Slim-down compat: a principal's name is its `prose`. Surface it as `rec.name`
   // so existing `rec.name` readers (PrincipalRow) keep working without a sweep.
@@ -609,7 +609,7 @@ export interface PrincipalRow {
  * Adapt a Principal's canonical node record to the legacy `PrincipalRow` shape
  * its readers expect. A Principal is an ordinary node (`node_type = 'principal'`):
  * its name is `prose` and its domain fields (`owner_id`, …) ride in `data`
- * (rebuilt from `attributes` + the system columns by `rowToRecord`), so there is
+ * (rebuilt from `extra` + the system columns by `rowToRecord`), so there is
  * no second read path — `getEntity` / `listEntitiesByDoco` are the one source.
  */
 function principalRowFromRecord(rec: EntityRecord): PrincipalRow {

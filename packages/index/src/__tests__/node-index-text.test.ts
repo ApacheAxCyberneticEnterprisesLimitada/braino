@@ -46,7 +46,7 @@ describe("nodeIndexText", () => {
   });
 
   // A node's only text is its `prose` — there is no separate body to append.
-  it("uses the prose alone, ignoring other per-node attributes", () => {
+  it("uses the prose alone, ignoring other per-node extra", () => {
     expect(nodeIndexText(le("Fix X", { ref_type: "url", locator: "https://x/9" }))).toBe("Fix X");
   });
 });

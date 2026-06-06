@@ -320,19 +320,19 @@ CREATE TABLE IF NOT EXISTS nodes (
   prose          text NOT NULL DEFAULT '',   -- unified label/prose for every node type, including the principal's name
   proposer_id               text CONSTRAINT nodes_proposer_fk               REFERENCES users(id) ON DELETE SET NULL,             -- idea → users(id) (OAuth identity)
   -- Promoted scalar columns. Slim-down contract phase: every per-type scalar
-  -- moved into `attributes` and is dropped below; `kind` is the last one
+  -- moved into `extra` and is dropped below; `kind` is the last one
   -- (eval/state, plus principal human|agent).
   kind         text,                          -- eval, state, principal
-  -- Reference dedup key, promoted out of `attributes` to its own typed column:
+  -- Reference dedup key, promoted out of `extra` to its own typed column:
   -- it is the one node domain field with a real column (the PR-import
   -- idempotency lookup indexes it). Null for non-reference nodes.
   locator      text,
-  -- Node-shape slim-down: the unified per-node attributes bag is the single
+  -- Node-shape slim-down: the unified per-node extra bag is the single
   -- home for per-node domain fields — it replaced every per-type promoted
   -- column (except `kind`/`locator`) and the catch-all `data` jsonb (dropped
   -- below). Populated on every write; the read path rebuilds the record's field
   -- bag from this plus the real columns.
-  attributes   jsonb NOT NULL DEFAULT '{}'::jsonb,
+  extra   jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at   timestamptz NOT NULL DEFAULT now(),
   created_by   text,
   updated_at   timestamptz NOT NULL DEFAULT now(),
@@ -346,19 +346,41 @@ CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
 -- AFTER the `locator` column is added on a DB that predates it, so the index
 -- expression always resolves.
 
+-- Entity-shape normalization (slice D): the one sanctioned per-node bag is named
+-- `extra` (author-owned, empty by default — the system stores nothing in it). A
+-- database provisioned before this rename still calls the column `attributes`;
+-- rename it in place HERE, BEFORE the `ADD COLUMN IF NOT EXISTS extra` + the
+-- backfill below would otherwise mint a SECOND, empty `extra` column beside it.
+-- Guarded on `attributes` still existing (and `extra` not), so it runs once per
+-- database and is a no-op on fresh installs and on every boot thereafter. The
+-- bag's contents ride along; the reference-dedup index is on the `locator`
+-- column, so it is untouched.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'nodes' AND column_name = 'attributes'
+  ) AND NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_name = 'nodes' AND column_name = 'extra'
+  ) THEN
+    ALTER TABLE nodes RENAME COLUMN attributes TO extra;
+  END IF;
+END $$;
+
 -- Self-heal: `modality` was a promoted Rule column that capture always wrote
 -- as the constant "must" and no reader ever consulted (enforcement modality
 -- lives in Policy records, not Rule nodes). Drop it. Idempotent — removed
 -- where present, a no-op on fresh installs (never created above).
 ALTER TABLE nodes DROP COLUMN IF EXISTS modality;
 
--- Node-shape slim-down. Add the unified `attributes` bag and backfill it from
+-- Node-shape slim-down. Add the unified `extra` bag and backfill it from
 -- `data` + the retained promoted columns (defensive: the writer already fills
 -- it on every write, this only touches rows still on the empty default).
 -- Guarded on the `data` column still existing, so a fresh install (which never
 -- creates `data`) and a boot after the drop below both skip it — the writer is
 -- the only populator once `data` is gone.
-ALTER TABLE nodes ADD COLUMN IF NOT EXISTS attributes jsonb NOT NULL DEFAULT '{}'::jsonb;
+ALTER TABLE nodes ADD COLUMN IF NOT EXISTS extra jsonb NOT NULL DEFAULT '{}'::jsonb;
 DO $$
 BEGIN
   IF EXISTS (
@@ -366,25 +388,25 @@ BEGIN
      WHERE table_name = 'nodes' AND column_name = 'data'
   ) THEN
     UPDATE nodes
-       SET attributes = jsonb_strip_nulls(
+       SET extra = jsonb_strip_nulls(
              COALESCE(data, '{}'::jsonb)
                 -- identity / audit / lifecycle live in real columns
                 - 'id' - 'doco_id' - 'node_type' - 'lifecycle'
                 - 'created_at' - 'created_by' - 'updated_at' - 'updated_by'
                 -- prose + its historical aliases live in `prose`
                 - 'prose' - 'summary' - 'description'
-                -- principal label/body (folded into prose / attributes) + dropped flag
+                -- principal label/body (folded into prose / extra) + dropped flag
                 - 'name' - 'body_md' - 'role_principal'
                 -- columns we keep promoted
                 - 'kind' - 'proposer_id'
                 -- the type-named prose field, duplicated into data on old writes
                 - 'intent' - 'idea' - 'rule' - 'decision' - 'action'
                 - 'log' - 'eval' - 'reference' - 'state')
-     WHERE attributes = '{}'::jsonb;
+     WHERE extra = '{}'::jsonb;
   END IF;
 END $$;
 
--- Contract phase: the action/log/rule scalar columns now live in `attributes`.
+-- Contract phase: the action/log/rule scalar columns now live in `extra`.
 -- Fold any straggler values in, then DROP the columns. Guarded on the `verb`
 -- column so a fresh install (never created them) and an already-migrated DB
 -- both skip — idempotent across every prod boot.
@@ -395,7 +417,7 @@ BEGIN
      WHERE table_name = 'nodes' AND column_name = 'verb'
   ) THEN
     UPDATE nodes
-       SET attributes = attributes || jsonb_strip_nulls(jsonb_build_object(
+       SET extra = extra || jsonb_strip_nulls(jsonb_build_object(
              'verb', verb, 'performed_at', performed_at, 'happened_at', happened_at,
              'severity', severity, 'phase', phase, 'on_violation', on_violation));
     ALTER TABLE nodes
@@ -409,7 +431,7 @@ BEGIN
 END $$;
 
 -- Contract phase: the reference scalar columns (ref_type / locator / citation
--- / title) now live in `attributes`. Fold any straggler values in, then DROP.
+-- / title) now live in `extra`. Fold any straggler values in, then DROP.
 -- Guarded on `ref_type` so fresh installs and already-migrated DBs both skip.
 DO $$
 BEGIN
@@ -418,7 +440,7 @@ BEGIN
      WHERE table_name = 'nodes' AND column_name = 'ref_type'
   ) THEN
     UPDATE nodes
-       SET attributes = attributes || jsonb_strip_nulls(jsonb_build_object(
+       SET extra = extra || jsonb_strip_nulls(jsonb_build_object(
              'ref_type', ref_type, 'locator', locator,
              'citation', citation, 'title', title));
     ALTER TABLE nodes
@@ -431,7 +453,7 @@ END $$;
 
 -- Contract phase: principals join the prose nodes. Their `name` becomes `prose`,
 -- and `name`/`body_md`/`role_principal` are dropped. `body_md` content is NOT
--- carried into `attributes` — the entity-shape normalization gives a principal
+-- carried into `extra` — the entity-shape normalization gives a principal
 -- one text home (`prose`); the body is dropped, no backward compatibility.
 -- Guarded on `name` so fresh installs and migrated DBs both skip.
 DO $$
@@ -451,9 +473,9 @@ BEGIN
 END $$;
 
 -- Node-shape slim-down: drop the catch-all `data` jsonb. Every per-node domain
--- field already lives in `attributes` (the guarded backfill above folded any
+-- field already lives in `extra` (the guarded backfill above folded any
 -- stragglers in before this runs), so no further copy is needed. The read path
--- (rowToRecord) now rebuilds a record's field bag from `attributes` + the real
+-- (rowToRecord) now rebuilds a record's field bag from `extra` + the real
 -- columns. Idempotent — drops it where present, a no-op on fresh installs (the
 -- CREATE TABLE above no longer declares it) and on every boot thereafter.
 ALTER TABLE nodes DROP COLUMN IF EXISTS data;
@@ -461,27 +483,27 @@ ALTER TABLE nodes DROP COLUMN IF EXISTS data;
 -- Entity-shape normalization: `body_md` is dropped from the node model. No node
 -- field lives in `body_md` any more — a principal's text is its `prose`, and a
 -- PR Reference keeps the title in `prose` and drops the body. Strip the key from
--- every node's attributes bag so the only non-`extra` content is real columns
+-- every node's extra bag so the only non-`extra` content is real columns
 -- (earlier shapes folded a principal's body / a PR body into the bag). The
 -- reference title/body convergence near the end of this file drops the body that
 -- still lives inline in a PR reference's `prose`. Idempotent: once stripped, the
 -- `?` guard makes a second pass a no-op.
-UPDATE nodes SET attributes = attributes - 'body_md' WHERE attributes ? 'body_md';
+UPDATE nodes SET extra = extra - 'body_md' WHERE extra ? 'body_md';
 
 -- Entity-shape normalization: promote `locator` (the reference dedup key — the
--- one node domain field we keep) out of the `attributes` bag into its own typed
+-- one node domain field we keep) out of the `extra` bag into its own typed
 -- column. Add the column on a DB that predates it, move the bag value in, then
 -- strip the key from the bag. Idempotent: the migrate only fills a still-empty
 -- column from the bag, and the `?` guard makes the strip a no-op on a second
 -- pass. (The CREATE TABLE above declares the column on fresh installs, where the
 -- migrate/strip match nothing.)
 ALTER TABLE nodes ADD COLUMN IF NOT EXISTS locator text;
-UPDATE nodes SET locator = attributes->>'locator'
- WHERE attributes ? 'locator' AND (locator IS NULL OR locator = '');
-UPDATE nodes SET attributes = attributes - 'locator' WHERE attributes ? 'locator';
+UPDATE nodes SET locator = extra->>'locator'
+ WHERE extra ? 'locator' AND (locator IS NULL OR locator = '');
+UPDATE nodes SET extra = extra - 'locator' WHERE extra ? 'locator';
 
 -- (Re)build the reference-dedup index on the `locator` column, now that the
--- column exists. Drop the OLD `(attributes->>'locator')` expression index first
+-- column exists. Drop the OLD `(extra->>'locator')` expression index first
 -- if a DB predates the column (CREATE INDEX IF NOT EXISTS is a no-op on the
 -- existing name, so it would otherwise keep the stale expression index).
 -- Idempotent: after the repoint the index is column-based, so the DROP guard
@@ -490,7 +512,7 @@ DO $$
 BEGIN
   IF EXISTS (
     SELECT 1 FROM pg_indexes
-     WHERE indexname = 'nodes_ref_locator_idx' AND indexdef LIKE '%attributes%'
+     WHERE indexname = 'nodes_ref_locator_idx' AND indexdef LIKE '%extra%'
   ) THEN
     DROP INDEX nodes_ref_locator_idx;
   END IF;
@@ -507,8 +529,8 @@ CREATE INDEX IF NOT EXISTS nodes_ref_locator_idx ON nodes (doco_id, locator) WHE
 -- these keys (repo.ts ATTRIBUTE_EXCLUDED_KEYS), so a stale client that still
 -- sends one never re-persists it.
 UPDATE nodes
-   SET attributes = attributes - 'ref_type' - 'citation' - 'severity' - 'title' - 'body'
- WHERE attributes ?| array['ref_type', 'citation', 'severity', 'title', 'body'];
+   SET extra = extra - 'ref_type' - 'citation' - 'severity' - 'title' - 'body'
+ WHERE extra ?| array['ref_type', 'citation', 'severity', 'title', 'body'];
 
 -- Audit events: one row per mutation.
 
@@ -2016,7 +2038,7 @@ BEGIN
 END $$;
 
 -- Reference title/body DROP: PR references were once stored prose="title\n\nbody"
--- (a later migration split the body out into attributes.body_md). The
+-- (a later migration split the body out into extra.body_md). The
 -- entity-shape normalization drops the PR body entirely — a Reference's text is
 -- the title in `prose`, with no body anywhere — so truncate any PR-reference
 -- prose down to the title. (The strip-`body_md` migration near the top of this

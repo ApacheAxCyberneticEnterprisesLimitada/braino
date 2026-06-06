@@ -1,6 +1,6 @@
 // Entity-shape normalization, slice C — drop the folded reference/rule cruft
 // for good. `ref_type`, `citation`, `severity`, `title`, and `body` were folded
-// into the `attributes` bag by earlier column-drop migrations; the owner's plan
+// into the `extra` bag by earlier column-drop migrations; the owner's plan
 // retires them entirely (glossary/SLA stop showing ref_type/citation, the rule
 // severity control is gone, the list/search title fallback is gone). After this
 // the only non-`extra` content in a node row is real columns.
@@ -36,21 +36,21 @@ async function seeded(): Promise<PGlite> {
 }
 
 async function bag(db: PGlite, id: string): Promise<Record<string, unknown>> {
-  const r = await db.query<{ attributes: Record<string, unknown> }>(
-    "SELECT attributes FROM nodes WHERE id = $1",
+  const r = await db.query<{ extra: Record<string, unknown> }>(
+    "SELECT extra FROM nodes WHERE id = $1",
     [id],
   );
-  return r.rows[0].attributes;
+  return r.rows[0].extra;
 }
 
 const CRUFT = ["ref_type", "citation", "severity", "title", "body"] as const;
 
 describe("drop reference/rule cruft from the bag (slice C)", () => {
-  it("strips ref_type/citation/severity/title/body from every node's attributes", async () => {
+  it("strips ref_type/citation/severity/title/body from every node's extra", async () => {
     const db = await seeded();
     // A reference carrying the dropped reference scalars in its bag…
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, locator, attributes)
+      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, locator, extra)
        VALUES ('reference_cruft0000000000000000', $1, 'reference', 'active', 'PR title',
                'https://github.com/a/b/pull/1',
                jsonb_build_object('ref_type','url','citation','PR#1','title','Old title','content_hash','h1'))`,
@@ -58,7 +58,7 @@ describe("drop reference/rule cruft from the bag (slice C)", () => {
     );
     // …and a rule carrying the dropped severity + a kept domain field.
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes)
+      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra)
        VALUES ('rule_cruft000000000000000000000', $1, 'rule', 'active', 'Always X',
                jsonb_build_object('severity','hard','enforced_by','policy_1','body','stale'))`,
       [DOCO],
@@ -84,7 +84,7 @@ describe("drop reference/rule cruft from the bag (slice C)", () => {
   it("is idempotent — a second apply leaves the stripped bag unchanged", async () => {
     const db = await seeded();
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes)
+      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra)
        VALUES ('reference_idem00000000000000000', $1, 'reference', 'active', 'Title',
                jsonb_build_object('ref_type','url','note','kept'))`,
       [DOCO],
@@ -108,7 +108,7 @@ describe("drop reference/rule cruft from the bag (slice C)", () => {
         lifecycle text NOT NULL DEFAULT 'active',
         prose text NOT NULL DEFAULT '',
         kind text,
-        attributes jsonb NOT NULL DEFAULT '{}'::jsonb,
+        extra jsonb NOT NULL DEFAULT '{}'::jsonb,
         ref_type text, locator text, citation text, title text, severity text,
         created_at timestamptz NOT NULL DEFAULT now(),
         created_by text,

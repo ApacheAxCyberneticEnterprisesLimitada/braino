@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { rowToRecord, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
 
-// Node-shape slim-down: a single `attributes` jsonb that replaces the per-type
+// Node-shape slim-down: a single `extra` jsonb that replaces the per-type
 // promoted columns + `data`. These tests pin the write-path population, the
 // idempotent production backfill, the read-path surfacing, and the contract
 // drop of the action/log/rule scalar columns (verb / severity / …).
@@ -33,8 +33,8 @@ beforeAll(async () => {
   );
 });
 
-describe("node attributes column (Stage 1 — expand)", () => {
-  it("collapses a reference's per-type fields into attributes on write", async () => {
+describe("node extra column (Stage 1 — expand)", () => {
+  it("collapses a reference's per-type fields into extra on write", async () => {
     const id = "reference_attrs00000000000000000";
     const rec = {
       id,
@@ -60,9 +60,9 @@ describe("node attributes column (Stage 1 — expand)", () => {
 
     const { rows } = await db.query<{
       locator: string | null;
-      attributes: Record<string, unknown>;
-    }>("SELECT locator, attributes FROM nodes WHERE id = $1", [id]);
-    const attrs = rows[0].attributes;
+      extra: Record<string, unknown>;
+    }>("SELECT locator, extra FROM nodes WHERE id = $1", [id]);
+    const attrs = rows[0].extra;
     // `locator` is promoted to its own typed column, not the bag.
     expect(rows[0].locator).toBe("https://example.com/acme/pull/1");
     expect(attrs).not.toHaveProperty("locator");
@@ -83,7 +83,7 @@ describe("node attributes column (Stage 1 — expand)", () => {
     expect(attrs).not.toHaveProperty("lifecycle");
   });
 
-  it("keeps a per-type scalar (action.verb) in attributes, not as a leaked key", async () => {
+  it("keeps a per-type scalar (action.verb) in extra, not as a leaked key", async () => {
     const id = "action_attrs00000000000000000000";
     const rec = {
       id,
@@ -103,18 +103,18 @@ describe("node attributes column (Stage 1 — expand)", () => {
     } as unknown as EntityRecord;
     await upsertEntity(rec, db as never);
 
-    const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
-      "SELECT attributes FROM nodes WHERE id = $1",
+    const { rows } = await db.query<{ extra: Record<string, unknown> }>(
+      "SELECT extra FROM nodes WHERE id = $1",
       [id],
     );
-    expect(rows[0].attributes).toMatchObject({ verb: "deploy", outputs: { url: "https://x" } });
-    expect(rows[0].attributes).not.toHaveProperty("action");
+    expect(rows[0].extra).toMatchObject({ verb: "deploy", outputs: { url: "https://x" } });
+    expect(rows[0].extra).not.toHaveProperty("action");
   });
 
-  it("folds legacy reference columns + the dropped data jsonb into attributes, then drops them (contract migration)", async () => {
+  it("folds legacy reference columns + the dropped data jsonb into extra, then drops them (contract migration)", async () => {
     // Simulate a DB written before the slim-down: re-add the dropped reference
     // columns AND the catch-all `data` jsonb, then insert a row carrying its
-    // values in those columns with `attributes` still empty and a stray
+    // values in those columns with `extra` still empty and a stray
     // non-promoted field living only in `data`.
     await db.exec(
       `ALTER TABLE nodes ADD COLUMN IF NOT EXISTS ref_type text,
@@ -125,29 +125,29 @@ describe("node attributes column (Stage 1 — expand)", () => {
     );
     const id = "reference_legacy0000000000000000";
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes, ref_type, locator, title, data)
+      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra, ref_type, locator, title, data)
        VALUES ($1,$2,'reference','active','Legacy ref','{}'::jsonb,'url',$3,'Legacy title',$4::jsonb)`,
       [id, DOCO, "https://example.com/acme/pull/9", JSON.stringify({ note: "kept" })],
     );
 
-    // Re-applying schema.sql runs the guarded `data`→attributes backfill, the
+    // Re-applying schema.sql runs the guarded `data`→extra backfill, the
     // reference-column fold, and the column drops — production does this on
     // every boot.
     await db.exec(schemaSql);
 
     const { rows } = await db.query<{
       locator: string | null;
-      attributes: Record<string, unknown>;
-    }>("SELECT locator, attributes FROM nodes WHERE id = $1", [id]);
+      extra: Record<string, unknown>;
+    }>("SELECT locator, extra FROM nodes WHERE id = $1", [id]);
     // `locator` is folded out of the legacy column AND promoted to its own
     // typed column (Slice B), not left in the bag.
     expect(rows[0].locator).toBe("https://example.com/acme/pull/9");
-    expect(rows[0].attributes).not.toHaveProperty("locator");
+    expect(rows[0].extra).not.toHaveProperty("locator");
     // ref_type / title fold out of the legacy columns but are then dropped from
     // the bag (slice C); only the stray `data`-only field survives the backfill.
-    expect(rows[0].attributes).toMatchObject({ note: "kept" });
-    expect(rows[0].attributes).not.toHaveProperty("ref_type");
-    expect(rows[0].attributes).not.toHaveProperty("title");
+    expect(rows[0].extra).toMatchObject({ note: "kept" });
+    expect(rows[0].extra).not.toHaveProperty("ref_type");
+    expect(rows[0].extra).not.toHaveProperty("title");
     const after = await db.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
     );
@@ -157,7 +157,7 @@ describe("node attributes column (Stage 1 — expand)", () => {
     expect(remaining).not.toContain("data");
   });
 
-  it("drops every per-type scalar column, serving them from attributes (contract)", async () => {
+  it("drops every per-type scalar column, serving them from extra (contract)", async () => {
     const cols = await db.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
     );
@@ -172,11 +172,11 @@ describe("node attributes column (Stage 1 — expand)", () => {
       "ref_type",
       "citation",
       "title",
-      // principal columns folded into prose / attributes
+      // principal columns folded into prose / extra
       "name",
       "body_md",
       "role_principal",
-      // the catch-all jsonb, now replaced entirely by `attributes`
+      // the catch-all jsonb, now replaced entirely by `extra`
       "data",
     ]) {
       expect(names).not.toContain(dropped);
@@ -209,25 +209,25 @@ describe("node attributes column (Stage 1 — expand)", () => {
       id,
     ]);
     const rec = rowToRecord("action", rows[0]);
-    // verb is gone as a column but still reachable on the record, via attributes.
-    expect(rec.attributes).toMatchObject({ verb: "deploy" });
+    // verb is gone as a column but still reachable on the record, via extra.
+    expect(rec.extra).toMatchObject({ verb: "deploy" });
     expect(rec.data.verb).toBe("deploy");
   });
 
-  it("surfaces the attributes column onto the record on read (Stage 2 — raw schema)", () => {
+  it("surfaces the extra column onto the record on read (Stage 2 — raw schema)", () => {
     const rec = rowToRecord("reference", {
       id: "reference_read000000000000000000",
       doco_id: DOCO,
       node_type: "reference",
       prose: "ACME PR #1",
-      attributes: { ref_type: "url", locator: "https://x", pr_body: "the body" },
+      extra: { ref_type: "url", locator: "https://x", pr_body: "the body" },
       data: {},
     });
-    expect(rec.attributes).toEqual({ ref_type: "url", locator: "https://x", pr_body: "the body" });
+    expect(rec.extra).toEqual({ ref_type: "url", locator: "https://x", pr_body: "the body" });
     expect(rec.data.prose).toBe("ACME PR #1");
   });
 
-  it("no longer writes the dropped data column; the write path persists only attributes (Stage 3 — drop)", async () => {
+  it("no longer writes the dropped data column; the write path persists only extra (Stage 3 — drop)", async () => {
     const cols = await db.query<{ column_name: string }>(
       "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
     );
@@ -253,15 +253,15 @@ describe("node attributes column (Stage 1 — expand)", () => {
       } as unknown as EntityRecord,
       db as never,
     );
-    const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
-      "SELECT attributes FROM nodes WHERE id = $1",
+    const { rows } = await db.query<{ extra: Record<string, unknown> }>(
+      "SELECT extra FROM nodes WHERE id = $1",
       [id],
     );
-    // The domain field round-trips through `attributes`, not a `data` column.
-    expect(rows[0].attributes).toMatchObject({ chosen: "Route A" });
+    // The domain field round-trips through `extra`, not a `data` column.
+    expect(rows[0].extra).toMatchObject({ chosen: "Route A" });
   });
 
-  it("rebuilds rec.data from attributes + the real columns once data is gone, incl. idea.proposer_id", async () => {
+  it("rebuilds rec.data from extra + the real columns once data is gone, incl. idea.proposer_id", async () => {
     const id = "idea_proposer00000000000000000000";
     const proposer = "user_proposer00000000000000000000";
     // proposer_id FKs to users(id); seed the OAuth identity first.
@@ -286,14 +286,14 @@ describe("node attributes column (Stage 1 — expand)", () => {
       } as unknown as EntityRecord,
       db as never,
     );
-    // `proposer_id` lives ONLY in its real column — excluded from attributes,
+    // `proposer_id` lives ONLY in its real column — excluded from extra,
     // and the `data` column is gone — so it must come back via the column merge.
-    const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
-      "SELECT attributes FROM nodes WHERE id = $1",
+    const { rows } = await db.query<{ extra: Record<string, unknown> }>(
+      "SELECT extra FROM nodes WHERE id = $1",
       [id],
     );
-    expect(rows[0].attributes).not.toHaveProperty("proposer_id");
-    expect(rows[0].attributes).toMatchObject({ tradeoffs: "cheap but slow" });
+    expect(rows[0].extra).not.toHaveProperty("proposer_id");
+    expect(rows[0].extra).toMatchObject({ tradeoffs: "cheap but slow" });
 
     const fullRow = (
       await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [id])
@@ -307,7 +307,7 @@ describe("node attributes column (Stage 1 — expand)", () => {
     expect(rec.data.created_by).toBe(proposer);
     // …the promoted FK column surfaced…
     expect(rec.data.proposer_id).toBe(proposer);
-    // …and the per-type domain field from attributes.
+    // …and the per-type domain field from extra.
     expect(rec.data.tradeoffs).toBe("cheap but slow");
   });
 
@@ -318,7 +318,7 @@ describe("node attributes column (Stage 1 — expand)", () => {
       node_type: "decision",
       lifecycle: "queued",
       prose: "Pick the path",
-      attributes: { chosen: "Route A" },
+      extra: { chosen: "Route A" },
       created_by: "user_alice0000000000000000000000",
       created_at: new Date("2026-01-02T03:04:05.000Z"),
     });

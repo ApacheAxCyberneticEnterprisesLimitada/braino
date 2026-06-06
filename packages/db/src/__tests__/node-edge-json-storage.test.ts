@@ -53,20 +53,20 @@ beforeAll(async () => {
 });
 
 describe("node edge JSON storage", () => {
-  it("strips graph-link fields from the stored node attributes bag", async () => {
+  it("strips graph-link fields from the stored node extra bag", async () => {
     await upsertEntity(decisionRecord(), db as never);
 
     // Slim-down: the catch-all `data` jsonb is gone; per-node fields persist in
-    // `attributes`. Graph-link fields belong in `edges`, so they must never
-    // leak into the attributes bag.
-    const { rows } = await db.query<{ attributes: Record<string, unknown> }>(
-      "SELECT attributes FROM nodes WHERE id = $1",
+    // `extra`. Graph-link fields belong in `edges`, so they must never
+    // leak into the extra bag.
+    const { rows } = await db.query<{ extra: Record<string, unknown> }>(
+      "SELECT extra FROM nodes WHERE id = $1",
       [DECISION],
     );
-    expect(rows[0].attributes).not.toHaveProperty("decided_by");
-    expect(rows[0].attributes).not.toHaveProperty("intent_ids");
-    expect(rows[0].attributes).not.toHaveProperty("sequence_to");
+    expect(rows[0].extra).not.toHaveProperty("decided_by");
+    expect(rows[0].extra).not.toHaveProperty("intent_ids");
+    expect(rows[0].extra).not.toHaveProperty("sequence_to");
     // The non-link domain field still rides along.
-    expect(rows[0].attributes).toMatchObject({ question: "Which path?" });
+    expect(rows[0].extra).toMatchObject({ question: "Which path?" });
   });
 });

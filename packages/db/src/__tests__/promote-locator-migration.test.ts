@@ -3,9 +3,9 @@
 // so it earns a typed column instead of living in the open-ended bag. This pins
 // the schema.sql migration that converges already-seeded production data:
 //   1. add the `nodes.locator` column,
-//   2. move `attributes->>'locator'` into it and strip it from the bag,
+//   2. move `extra->>'locator'` into it and strip it from the bag,
 //   3. repoint the reference-dedup index `nodes_ref_locator_idx` from the
-//      `(attributes->>'locator')` expression onto the `locator` column,
+//      `(extra->>'locator')` expression onto the `locator` column,
 //   4. the PR-reference body-drop migration reads the `locator` column.
 // Each case asserts the apply doesn't throw, converges, and is idempotent on a
 // second apply (the upgrade path the PGlite-fresh tests miss).
@@ -38,23 +38,23 @@ async function seedDoco(): Promise<void> {
 async function insertReference(
   id: string,
   prose: string,
-  attributes: Record<string, unknown>,
+  extra: Record<string, unknown>,
 ): Promise<void> {
   await db.query(
-    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, attributes)
+    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra)
      VALUES ($1, $2, 'reference', 'active', $3, $4::jsonb)`,
-    [id, DOCO, prose, JSON.stringify(attributes)],
+    [id, DOCO, prose, JSON.stringify(extra)],
   );
 }
 
 async function readRef(
   id: string,
-): Promise<{ prose: string; locator: string | null; attributes: Record<string, unknown> }> {
+): Promise<{ prose: string; locator: string | null; extra: Record<string, unknown> }> {
   const r = await db.query<{
     prose: string;
     locator: string | null;
-    attributes: Record<string, unknown>;
-  }>("SELECT prose, locator, attributes FROM nodes WHERE id = $1", [id]);
+    extra: Record<string, unknown>;
+  }>("SELECT prose, locator, extra FROM nodes WHERE id = $1", [id]);
   return r.rows[0];
 }
 
@@ -73,7 +73,7 @@ describe("promote locator to a column migration", () => {
     await seedDoco();
   });
 
-  it("(1) moves attributes.locator into the locator column and strips it from the bag", async () => {
+  it("(1) moves extra.locator into the locator column and strips it from the bag", async () => {
     await insertReference("reference_move00000000000000000", "Some PR title", {
       locator: "https://github.com/acme/store/pull/9",
       ref_type: "url",
@@ -83,18 +83,18 @@ describe("promote locator to a column migration", () => {
 
     const row = await readRef("reference_move00000000000000000");
     expect(row.locator).toBe("https://github.com/acme/store/pull/9");
-    expect(row.attributes).not.toHaveProperty("locator");
+    expect(row.extra).not.toHaveProperty("locator");
     // `ref_type` is also dropped from the bag (slice C).
-    expect(row.attributes).not.toHaveProperty("ref_type");
+    expect(row.extra).not.toHaveProperty("ref_type");
   });
 
   it("(2) repoints the reference-dedup index onto the `locator` column", async () => {
     await db.exec(schemaSql);
     const def = await indexDef("nodes_ref_locator_idx");
     expect(def).toBeDefined();
-    // The index is now on the column, not the `attributes->>'locator'` expression.
+    // The index is now on the column, not the `extra->>'locator'` expression.
     expect(def).toMatch(/\blocator\b/);
-    expect(def).not.toMatch(/attributes/);
+    expect(def).not.toMatch(/extra/);
   });
 
   it("(3) the PR-reference body drop reads the `locator` column", async () => {
@@ -138,7 +138,7 @@ describe("promote locator to a column migration", () => {
 
     expect(twice).toEqual(once);
     expect(twice.locator).toBe("https://github.com/acme/store/pull/7");
-    expect(twice.attributes).not.toHaveProperty("locator");
+    expect(twice.extra).not.toHaveProperty("locator");
   });
 });
 
@@ -146,7 +146,7 @@ describe("promote locator migration — old DB upgrade path (no locator column)"
   it("(6) adds the locator column to an old nodes table and migrates the bag value in", async () => {
     db = new PGlite();
     // Pre-slice-B shape: a `nodes` table WITHOUT the `locator` column, with the
-    // locator living in the attributes bag and the OLD expression index.
+    // locator living in the extra bag and the OLD expression index.
     await db.exec(`
       CREATE TABLE nodes (
         id text PRIMARY KEY,
@@ -155,14 +155,14 @@ describe("promote locator migration — old DB upgrade path (no locator column)"
         lifecycle text NOT NULL DEFAULT 'active',
         prose text NOT NULL DEFAULT '',
         kind text,
-        attributes jsonb NOT NULL DEFAULT '{}'::jsonb,
+        extra jsonb NOT NULL DEFAULT '{}'::jsonb,
         created_at timestamptz NOT NULL DEFAULT now(),
         created_by text,
         updated_at timestamptz NOT NULL DEFAULT now(),
         updated_by text
       );
-      CREATE INDEX nodes_ref_locator_idx ON nodes (doco_id, (attributes->>'locator')) WHERE node_type = 'reference';
-      INSERT INTO nodes (id, doco_id, node_type, prose, attributes)
+      CREATE INDEX nodes_ref_locator_idx ON nodes (doco_id, (extra->>'locator')) WHERE node_type = 'reference';
+      INSERT INTO nodes (id, doco_id, node_type, prose, extra)
       VALUES ('reference_old00000000000000000', '${DOCO}', 'reference', 'Old PR',
               jsonb_build_object('locator','https://github.com/acme/store/pull/1','ref_type','url'));
     `);
@@ -171,10 +171,10 @@ describe("promote locator migration — old DB upgrade path (no locator column)"
 
     const row = await readRef("reference_old00000000000000000");
     expect(row.locator).toBe("https://github.com/acme/store/pull/1");
-    expect(row.attributes).not.toHaveProperty("locator");
+    expect(row.extra).not.toHaveProperty("locator");
     const def = await indexDef("nodes_ref_locator_idx");
     expect(def).toMatch(/\blocator\b/);
-    expect(def).not.toMatch(/attributes/);
+    expect(def).not.toMatch(/extra/);
 
     // Idempotent second apply.
     await db.exec(schemaSql);

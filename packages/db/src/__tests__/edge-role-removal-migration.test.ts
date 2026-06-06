@@ -79,7 +79,7 @@ async function predicateOf(id: string): Promise<Record<string, unknown>> {
 }
 
 async function insertNode(id: string, nodeType: string): Promise<void> {
-  // `nodes.data` was dropped (per-node data lives in `attributes` now); the
+  // `nodes.data` was dropped (per-node data lives in `extra` now); the
   // role-removal migration only touches edges + policies, so a bare node row
   // (just enough to satisfy edge FKs + carry the entity-type id prefix) is fine.
   await db.query(

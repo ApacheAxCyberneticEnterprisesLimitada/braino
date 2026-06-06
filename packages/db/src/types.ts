@@ -90,7 +90,7 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   idea: [{ column: "proposer_id", field: "proposer_id" }],
   decision: [],
   // Node-shape slim-down (contract phase): action/log/rule scalars no longer
-  // get their own columns — they live in the unified `attributes` bag. Only
+  // get their own columns — they live in the unified `extra` bag. Only
   // `kind` (eval/state) stays promoted, plus idea's `proposer_id` FK.
   action: [],
   log: [],
@@ -98,7 +98,7 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   rule: [],
   state: [{ column: "kind", field: "kind", stripFromData: true }],
   // `locator` is the reference dedup key — promoted to its own typed column (the
-  // remaining reference scalars stay in `attributes` until Slice C drops them).
+  // remaining reference scalars stay in `extra` until Slice C drops them).
   reference: [{ column: "locator", field: "locator", stripFromData: true }],
   // principal: `kind` (human/agent) is promoted to its column; its name lands
   // in the shared `prose` column (written directly by the writer).
@@ -152,8 +152,8 @@ export interface EntityRecord {
   summary?: string | null;
   lifecycle?: string | null;
   name?: string | null;
-  /** Node-shape slim-down: the unified per-node attributes bag (jsonb). */
-  attributes?: Record<string, unknown> | null;
+  /** Node-shape slim-down: the unified per-node extra bag (jsonb). */
+  extra?: Record<string, unknown> | null;
   created_at?: string | null;
   created_by?: string | null;
   updated_at?: string | null;
