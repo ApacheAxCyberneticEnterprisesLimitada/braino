@@ -6,6 +6,7 @@
  */
 
 import type {
+  AgentInstructionPredicate,
   DeterministicPredicate,
   EdgeAgentInstructionPredicate,
   PolicyKind,
@@ -130,6 +131,28 @@ export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
       break;
   }
   if ("when_node_type" in p && p.when_node_type && p.when_node_type.length > 0) {
+    parts.push({ label: "when node type", value: p.when_node_type.join(", ") });
+  }
+  return parts;
+}
+
+/**
+ * Scope of a suggestion / probabilistic predicate as labeled parts — the same
+ * "labeled rows" shape `deterministicParts` produces, so prose policies render
+ * their scope identically. A node check shows the node type(s) it judges
+ * (`when_node_type`); an edge-scoped check shows the edge it fires on and
+ * whichever endpoint types it pins. An unscoped node check (fires on every
+ * node) yields no parts.
+ */
+export function agentInstructionParts(
+  p: AgentInstructionPredicate | EdgeAgentInstructionPredicate,
+): PredicatePart[] {
+  const parts: PredicatePart[] = [];
+  if (isEdgePredicate(p)) {
+    parts.push({ label: "edge type", value: p.edge_type });
+    if (p.from_node_type) parts.push({ label: "from node type", value: p.from_node_type });
+    if (p.to_node_type) parts.push({ label: "to node type", value: p.to_node_type });
+  } else if (p.when_node_type && p.when_node_type.length > 0) {
     parts.push({ label: "when node type", value: p.when_node_type.join(", ") });
   }
   return parts;
