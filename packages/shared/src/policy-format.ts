@@ -3,8 +3,14 @@
  * "[kind] / Agent instruction / structured deterministic" presentation so the
  * web UI, the agent-facing `.txt` surfaces, Slack, and violation messages stay
  * in sync.
+ *
+ * Deterministic rendering (the headline and the "composed of parts" breakdown)
+ * is derived from the check registry's field schema — see
+ * `deterministic-checks.ts` — so there is no per-sub_kind switch to keep in
+ * step here.
  */
 
+import { type FieldSpec, checkFields, checkLabel } from "./deterministic-checks.js";
 import type {
   AgentInstructionPredicate,
   DeterministicPredicate,
@@ -42,96 +48,44 @@ export interface PredicatePart {
   value: string;
 }
 
-const SUB_KIND_HEADLINE: Record<DeterministicPredicate["sub_kind"], string> = {
-  requires_edge: "Requires edge",
-  limits_edge: "Limits edge",
-  forbids_edge: "Forbids edge",
-  requires_field: "Requires field",
-  forbids_field: "Forbids field",
-  forbids_field_pattern: "Forbids field pattern",
-  "flow-wiring": "Flow wiring",
-  unique_field: "Unique field",
-  requires_node_type: "Allowed node types",
-  requires_edge_type: "Allowed edge types",
-  requires_entity_type: "Allowed entity types",
-  "graph-completeness": "Graph completeness",
-  requires_field_resolves_to_principal: "Field resolves to Principal",
-};
-
 /** The headline name of a deterministic check. */
 export function deterministicHeadline(p: DeterministicPredicate): string {
-  return SUB_KIND_HEADLINE[p.sub_kind];
+  return checkLabel(p.sub_kind);
+}
+
+/** Render one configured field as a labeled part, or null when it carries no value. */
+function formatPart(field: FieldSpec, value: unknown): string | null {
+  switch (field.control) {
+    case "checkbox":
+      return value === true ? "yes" : null;
+    case "condition": {
+      if (!value || typeof value !== "object") return null;
+      const c = value as { field?: unknown; equals?: unknown };
+      if (typeof c.field !== "string" || typeof c.equals !== "string") return null;
+      return `${c.field}=${c.equals}`;
+    }
+    case "number":
+      return typeof value === "number" ? String(value) : null;
+    case "node-type-csv":
+    case "entity-type-csv":
+    case "edge-type-csv":
+    case "field-csv":
+      return Array.isArray(value) && value.length > 0
+        ? value.filter((v) => typeof v === "string").join(", ")
+        : null;
+    default:
+      // edge-type / node-type / direction / text — a non-empty string.
+      return typeof value === "string" && value.length > 0 ? value : null;
+  }
 }
 
 /** Break a deterministic predicate into labeled parts for human-readable rendering. */
 export function deterministicParts(p: DeterministicPredicate): PredicatePart[] {
+  const rec = p as Record<string, unknown>;
   const parts: PredicatePart[] = [];
-  switch (p.sub_kind) {
-    case "requires_edge":
-      parts.push({ label: "edge type", value: p.edge_type });
-      if (p.direction) parts.push({ label: "direction", value: p.direction });
-      if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
-      if (p.min_count && p.min_count > 1)
-        parts.push({ label: "min count", value: String(p.min_count) });
-      if (p.exempt_when_other_node_type)
-        parts.push({ label: "exempt when other", value: p.exempt_when_other_node_type });
-      break;
-    case "forbids_edge":
-      parts.push({ label: "edge type", value: p.edge_type });
-      if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
-      break;
-    case "limits_edge":
-      parts.push({ label: "edge type", value: p.edge_type });
-      if (p.direction) parts.push({ label: "direction", value: p.direction });
-      if (p.target_node_type) parts.push({ label: "target", value: p.target_node_type });
-      parts.push({ label: "max count", value: String(p.max_count ?? 1) });
-      break;
-    case "requires_field":
-    case "forbids_field":
-      parts.push({ label: "fields", value: p.fields.join(", ") });
-      break;
-    case "forbids_field_pattern":
-      parts.push({ label: "fields", value: p.fields.join(", ") });
-      parts.push({ label: "pattern", value: p.pattern });
-      break;
-    case "flow-wiring":
-      parts.push({ label: "edge type", value: p.edge_type });
-      if (p.initial_when)
-        parts.push({
-          label: "initial when",
-          value: `${p.initial_when.field}=${p.initial_when.equals}`,
-        });
-      if (p.terminal_when)
-        parts.push({
-          label: "terminal when",
-          value: `${p.terminal_when.field}=${p.terminal_when.equals}`,
-        });
-      break;
-    case "unique_field":
-      parts.push({ label: "field", value: p.field });
-      if (p.case_fold) parts.push({ label: "case-insensitive", value: "yes" });
-      break;
-    case "requires_node_type":
-      parts.push({ label: "node types", value: p.node_types.join(", ") });
-      break;
-    case "requires_edge_type":
-      parts.push({ label: "edge types", value: p.edge_types.join(", ") });
-      break;
-    case "requires_entity_type":
-      parts.push({ label: "entity types", value: p.entity_types.join(", ") });
-      break;
-    case "requires_field_resolves_to_principal":
-      parts.push({ label: "field", value: p.field });
-      break;
-    case "graph-completeness":
-      parts.push({ label: "list field", value: p.list_field });
-      parts.push({ label: "edge type", value: p.edge_type });
-      parts.push({ label: "incoming node", value: p.incoming_node_type });
-      parts.push({ label: "must match", value: p.incoming_field_must_match });
-      break;
-  }
-  if ("when_node_type" in p && p.when_node_type && p.when_node_type.length > 0) {
-    parts.push({ label: "when node type", value: p.when_node_type.join(", ") });
+  for (const field of checkFields(p.sub_kind)) {
+    const value = formatPart(field, rec[field.name]);
+    if (value !== null) parts.push({ label: field.partLabel, value });
   }
   return parts;
 }
