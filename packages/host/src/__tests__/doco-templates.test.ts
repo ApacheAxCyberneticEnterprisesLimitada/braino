@@ -34,6 +34,33 @@ describe("orphaned pre-unification templates are gone", () => {
   }
 });
 
+describe("removed templates are gone", () => {
+  // The glossaries, org-chart, and four decision-record templates were
+  // deleted; only `process` and `github-pull-requests` ship now. Keep them
+  // out so a request for a removed handle can't resurrect a half-wired
+  // template.
+  for (const name of [
+    "glossaries",
+    "org-chart",
+    "architectural-decisions",
+    "product-decisions",
+    "design-decisions",
+    "data-decisions",
+  ]) {
+    it(`does not register the removed \`${name}\` template`, () => {
+      expect(findDocoTemplateByName(name)).toBeUndefined();
+      expect(DEFAULT_DOCO_TEMPLATES.some((t) => t.name === name)).toBe(false);
+    });
+  }
+
+  it("ships exactly the surviving templates", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.map((t) => t.name).sort()).toEqual([
+      "github-pull-requests",
+      "process",
+    ]);
+  });
+});
+
 describe("process template", () => {
   const template = findDocoTemplateByName("process");
   if (!template) throw new Error("process template not registered");
@@ -642,43 +669,6 @@ describe("edge-type allowlists (requires_edge_type)", () => {
     expect(a).toContain("has_parent");
     expect(a).not.toContain("relates_to");
   });
-
-  it("org-chart allows has_parent + attributed_to and bars flows_to", () => {
-    const a = allowlistOf("org-chart");
-    expect(a && new Set(a)).toEqual(
-      new Set([
-        "has_parent",
-        "attributed_to",
-        "relates_to",
-        "supports",
-        "replaces",
-        "derived_from",
-      ]),
-    );
-    expect(a).not.toContain("flows_to");
-  });
-
-  it("glossaries allows relates_to / derived_from / replaces / supports", () => {
-    expect(allowlistOf("glossaries") && new Set(allowlistOf("glossaries"))).toEqual(
-      new Set(["relates_to", "derived_from", "replaces", "supports"]),
-    );
-  });
-
-  for (const name of [
-    "architectural-decisions",
-    "product-decisions",
-    "design-decisions",
-    "data-decisions",
-  ]) {
-    it(`${name} allows decision-record edge types and bars flows_to / has_parent`, () => {
-      const a = allowlistOf(name);
-      expect(a && new Set(a)).toEqual(
-        new Set(["supports", "attributed_to", "relates_to", "replaces", "derived_from"]),
-      );
-      expect(a).not.toContain("flows_to");
-      expect(a).not.toContain("has_parent");
-    });
-  }
 
   it("seeds as a blocking deterministic policy carrying the edge_types allowlist", () => {
     const template = findDocoTemplateByName("process");
