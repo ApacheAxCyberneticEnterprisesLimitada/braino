@@ -19,6 +19,9 @@ const DROPPED_TABLES = [
   // Collapsed into the single `policies` table.
   "guidance_policies",
   "node_authoring_policies",
+  // The live "all my workspaces" person-to-person delegation was retired; that
+  // breadth now lives only on tokens. Grants to people name concrete targets.
+  "account_grants",
 ];
 
 function declaresTable(table: string): boolean {

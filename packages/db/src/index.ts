@@ -42,12 +42,6 @@ export {
   isWorkspaceUser,
   getWorkspaceRole,
   getWorkspaceGrant,
-  listWorkspaceOwnerUserIds,
-  // Account-level grants
-  type AccountGrantRow,
-  getAccountGrant,
-  upsertAccountGrant,
-  removeAccountGrant,
   getWorkspaceConstitutionsByIds,
   updateWorkspaceConstitution,
   type WorkspaceRow,

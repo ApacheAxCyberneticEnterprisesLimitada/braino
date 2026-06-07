@@ -86,22 +86,6 @@ CREATE TABLE IF NOT EXISTS workspace_users (
 );
 CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
 
--- Account-level access grants. An account grant from grantor to grantee gives
--- the grantee `role` (+ optional per-type write_types) on every workspace the
--- grantor owns and, via the workspace-to-Doco cascade in the access engine, every
--- Doco under those workspaces. Live grant: workspaces the grantor creates later are
--- covered automatically.
-CREATE TABLE IF NOT EXISTS account_grants (
-  grantor_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  grantee_user_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role            text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
-  write_types     text[] NOT NULL DEFAULT ARRAY[]::text[],
-  created_at      timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (grantor_user_id, grantee_user_id)
-);
-CREATE INDEX IF NOT EXISTS account_grants_grantee_idx
-  ON account_grants (grantee_user_id);
-
 -- Every Doco has a single public `handle`. It lives in the same flat
 -- namespace as top-level host routes. The internal ULID `id` stays as
 -- the FK target for entity tables; `handle` is what URLs and public API
@@ -933,3 +917,33 @@ ALTER TABLE oauth_refresh_tokens
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS actor_role text
   CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- account_grants retirement. The live person-to-person "all my workspaces,
+-- including ones I create later" delegation is gone: that breadth now lives
+-- ONLY on tokens (the actor / mint-time snapshot paths). A grant to another
+-- PERSON must name concrete, existing targets, so the table is dropped. To
+-- avoid silently revoking access, first convert every surviving grant into the
+-- memberships it currently confers — a snapshot of the grantor's owned
+-- workspaces and personally-owned docos (the access cascade is now pure
+-- workspace_users + doco_users). Guarded + self-removing: runs once on the
+-- first boot that still has the table, then never again.
+DO $$
+BEGIN
+  IF to_regclass('public.account_grants') IS NOT NULL THEN
+    INSERT INTO workspace_users (workspace_id, user_id, role, write_types)
+    SELECT wu.workspace_id, ag.grantee_user_id, ag.role, ag.write_types
+      FROM account_grants ag
+      JOIN workspace_users wu
+        ON wu.user_id = ag.grantor_user_id AND wu.role = 'owner'
+    ON CONFLICT (workspace_id, user_id) DO NOTHING;
+
+    INSERT INTO doco_users (doco_id, user_id, role, write_types)
+    SELECT d.id, ag.grantee_user_id, ag.role, ag.write_types
+      FROM account_grants ag
+      JOIN docos d ON d.owner_id = ag.grantor_user_id
+    ON CONFLICT (doco_id, user_id) DO NOTHING;
+
+    DROP TABLE account_grants;
+  END IF;
+END $$;
