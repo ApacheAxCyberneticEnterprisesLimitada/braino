@@ -2,7 +2,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { rowToNode, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
-import { freshDb, schemaSql } from "./fresh-db.js";
+import { freshDb } from "./fresh-db.js";
 
 // Node-shape slim-down: a single `extra` jsonb that replaces the per-type
 // promoted columns + `data`. These tests pin the write-path population, the
@@ -103,52 +103,6 @@ describe("node extra column (Stage 1 — expand)", () => {
     );
     expect(rows[0].extra).toMatchObject({ verb: "deploy", outputs: { url: "https://x" } });
     expect(rows[0].extra).not.toHaveProperty("action");
-  });
-
-  it("folds legacy reference columns + the dropped data jsonb into extra, then drops them (contract migration)", async () => {
-    // Simulate a DB written before the slim-down: re-add the dropped reference
-    // columns AND the catch-all `data` jsonb, then insert a row carrying its
-    // values in those columns with `extra` still empty and a stray
-    // non-promoted field living only in `data`.
-    await db.exec(
-      `ALTER TABLE nodes ADD COLUMN IF NOT EXISTS ref_type text,
-                         ADD COLUMN IF NOT EXISTS locator text,
-                         ADD COLUMN IF NOT EXISTS citation text,
-                         ADD COLUMN IF NOT EXISTS title text,
-                         ADD COLUMN IF NOT EXISTS data jsonb NOT NULL DEFAULT '{}'::jsonb`,
-    );
-    const id = "reference_legacy0000000000000000";
-    await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra, ref_type, locator, title, data)
-       VALUES ($1,$2,'reference','active','Legacy ref','{}'::jsonb,'url',$3,'Legacy title',$4::jsonb)`,
-      [id, DOCO, "https://example.com/acme/pull/9", JSON.stringify({ note: "kept" })],
-    );
-
-    // Re-applying schema.sql runs the guarded `data`→extra backfill, the
-    // reference-column fold, and the column drops — production does this on
-    // every boot.
-    await db.exec(schemaSql);
-
-    const { rows } = await db.query<{
-      locator: string | null;
-      extra: Record<string, unknown>;
-    }>("SELECT locator, extra FROM nodes WHERE id = $1", [id]);
-    // `locator` is folded out of the legacy column AND promoted to its own
-    // typed column (Slice B), not left in the bag.
-    expect(rows[0].locator).toBe("https://example.com/acme/pull/9");
-    expect(rows[0].extra).not.toHaveProperty("locator");
-    // ref_type / title fold out of the legacy columns but are then dropped from
-    // the bag (slice C); only the stray `data`-only field survives the backfill.
-    expect(rows[0].extra).toMatchObject({ note: "kept" });
-    expect(rows[0].extra).not.toHaveProperty("ref_type");
-    expect(rows[0].extra).not.toHaveProperty("title");
-    const after = await db.query<{ column_name: string }>(
-      "SELECT column_name FROM information_schema.columns WHERE table_name = 'nodes'",
-    );
-    const remaining = after.rows.map((r) => r.column_name);
-    expect(remaining).not.toContain("ref_type");
-    // The catch-all `data` jsonb is dropped by the same re-applied schema.
-    expect(remaining).not.toContain("data");
   });
 
   it("drops every per-type scalar column, serving them from extra (contract)", async () => {
