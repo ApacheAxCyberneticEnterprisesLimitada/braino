@@ -132,6 +132,16 @@ export interface DocoTemplate {
  */
 const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
+/**
+ * The glossary template, like process, defaults new terms to `drafting` so a
+ * headword can be captured before it is fully defined, and fires its
+ * completeness + quality gates on the two committed stages — `queued` (ready
+ * for review) and `active` (the approved, in-force definition). A `drafting`
+ * stub may be a bare headword with no definition yet; once a term is committed
+ * it must carry its meaning and read as a real dictionary entry.
+ */
+const GLOSSARY_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Repeatable business processes modeled on BPMN swimlanes and
@@ -566,6 +576,140 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Don't model every click, method call, or DB mutation — only the steps that mean something to a business operator. Implementation detail belongs in `apis` or code Docos, not here.",
+      },
+    ],
+  },
+  {
+    // A shared vocabulary — a controlled set of terms, each defined once.
+    // Grounded in terminology-management practice (ISO 704 / 1087): a glossary
+    // is concept-oriented (one entry per concept, not per word), every concept
+    // has a single preferred headword and a concise, substitutable definition,
+    // synonyms and deprecated variants hang off that one entry, and related
+    // concepts are cross-referenced rather than re-defined.
+    //
+    // The Doco shape that carries this: each term is a Reference — its `prose`
+    // is the headword (the bare word being defined) and its `definition`
+    // attribute is the meaning, so the node's name stays the term and never
+    // swallows its definition. `locator` cites a source; `alternatives` hold
+    // synonyms / deprecated forms. Stewards are Principals. Terms are wired with
+    // `relates_to` (see-also), `has_parent` (a narrower term under its broader
+    // term or category), `replaces` (a preferred term supersedes a deprecated
+    // one), `derived_from` (a definition cites its source), and `attributed_to`
+    // (the steward who owns the term). The four-stage lifecycle IS the
+    // governance flow: `drafting` (proposed) → `queued` (in review) → `active`
+    // (approved, in force) → `retired` (deprecated).
+    name: "glossary",
+    label: "Glossary",
+    icon: "📖",
+    description:
+      "Define a shared vocabulary — one canonical term per entry, each with a concise definition, synonyms, related terms, and a stewarding owner. Grounded in terminology-management practice (ISO 704 / 1087).",
+    defaultNodeLifecycle: "drafting",
+    // Open a new glossary directly on the dictionary reading (headwords,
+    // definitions, A–Z index). Graph + list defaults sit behind it.
+    perspectives: [{ slug: "glossary", isDefault: true }],
+    policies: [
+      // ── Membership ──────────────────────────────────────────────
+      {
+        // Soft semantic gate — a `warn`, not a block. The author opted into the
+        // glossary; this only surfaces "this isn't really a defined term" so
+        // they can reconsider. Principals (stewards) are exempt — they aren't
+        // headwords — by omitting them from `when_node_type`.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in a glossary when it defines exactly one term. Each Reference is one entry: its prose is the headword (the word being defined) and its `definition` gives the meaning. PASS when the candidate names and defines a single concept a reader of this domain would look up. FAIL only when it bundles several unrelated terms into one entry, is a passing note, task, or decision record rather than a definable term, or carries no definable concept at all.",
+          when_node_type: ["reference"],
+        },
+      },
+      {
+        // Deterministic node-type allowlist. A glossary is terms + the people
+        // who steward them: Reference (the term entries) and Principal (the
+        // stewards). Everything else — a process step, a decision record, a
+        // free-form note — belongs in its own Doco.
+        policy:
+          "Only Reference and Principal belong in a glossary. Each term is a Reference — its prose is the headword and its `definition` carries the meaning; Principals are the stewards who own terms. A process step, decision record, or free-form note belongs in its own Doco.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["reference", "principal"],
+        },
+      },
+      {
+        // Edge-type allowlist (the edge analogue of the node-type allowlist). A
+        // glossary wires cross-references and term relationships only.
+        policy:
+          "Only these edge types may be used in a glossary: `relates_to` (see-also between related terms), `has_parent` (place a narrower term under its broader term or category), `replaces` (a preferred term supersedes a deprecated one), `derived_from` (cite the source a definition is drawn from), and `attributed_to` (name the Principal who stewards the term).",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: ["relates_to", "has_parent", "replaces", "derived_from", "attributed_to"],
+        },
+      },
+
+      // ── Term completeness & quality ─────────────────────────────
+      {
+        // Completeness floor — fires on the committed stages only
+        // (GLOSSARY_COMMITTED_LIFECYCLES): a `drafting` stub may be a bare
+        // headword, but a committed term must carry its meaning in `definition`.
+        // A headword with no definition is not yet an entry. (`definition` lives
+        // in the node's `extra` bag, which the evaluator reads as a field.)
+        policy:
+          "Every committed (`queued` or `active`) term carries a `definition` — a headword with no meaning is not yet an entry. A `drafting` stub may capture the word first and fill in the definition later.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["definition"],
+          when_node_type: ["reference"],
+        },
+        fires_when_node_lifecycle: GLOSSARY_COMMITTED_LIFECYCLES,
+      },
+      {
+        // Definition quality — LLM-judged, so a `warn`, not a block (an
+        // identical retry could differ; a warn nudges without trapping the
+        // author). Encodes the intensional-definition rule: concise,
+        // substitutable, plain-language, non-circular.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the term's `definition`. PASS when it is a concise, self-contained explanation of the concept (roughly one to three sentences) in plain language: it states what the concept *is* — its category and what distinguishes it — and could stand in for the headword in a sentence. FAIL with a reason when the definition is circular (it defines the term using the term itself), is merely an example or a bare synonym rather than an explanation, is empty or a placeholder, or rambles well beyond a few sentences.",
+          when_node_type: ["reference"],
+        },
+        fires_when_node_lifecycle: GLOSSARY_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Guidance (prose-only) ───────────────────────────────────
+      {
+        policy:
+          "Keep one entry per concept. Give each concept a single canonical entry under its preferred term, and do not create a second entry for the same idea. When two words mean the same thing, keep the preferred one as the entry and record the others as synonyms on it.",
+      },
+      {
+        policy:
+          "Record synonyms and deprecated variants as `alternatives` on the canonical entry, not as separate terms. Each alternative is `{ name, note }` (or `{ name, rejected_because }` to mark a form readers should stop using), so a reader who looks up a synonym still lands on the one real definition.",
+      },
+      {
+        policy:
+          "Keep the headword bare: put only the term in the prose and the meaning in `definition`. Don't restate the term inside its own definition (no circular definitions), and don't fold the part of speech, pronunciation, or source into the headword.",
+      },
+      {
+        policy:
+          "Cross-reference related concepts with `relates_to`, and place a narrower term under its broader term or category with `has_parent`, so the glossary reads as a connected vocabulary rather than a flat list of isolated words.",
+      },
+      {
+        policy:
+          "When a new preferred term replaces an old one, retire the old entry (lifecycle `retired`) and link the new term to it with a `replaces` edge (the `supersede` changeset op creates the replacement and the edge together), so a reader who looks up the old word is redirected to the current term instead of finding two live definitions.",
+      },
+      {
+        policy:
+          "Cite where a definition comes from when it is drawn from an external standard, contract, or document: add a source Reference whose `locator` points at it (and which carries no `definition` of its own) and link the term to it with a `derived_from` edge.",
+      },
+      {
+        policy:
+          "Name a steward by attributing a term — or the glossary's anchor terms — to a Principal with an `attributed_to` edge, so there is a clear owner accountable for reviewing and approving changes. A glossary is a living document; it needs someone to keep it current.",
+      },
+      {
+        policy:
+          "Walk a term through the lifecycle as it matures: `drafting` while you are still capturing or wording it, `queued` once it is ready for review, `active` when it is the approved, in-force definition, and `retired` when it is deprecated or superseded. Completeness and quality rules apply once a term is committed (`queued` or `active`); a `drafting` stub may be incomplete.",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write entries with `POST /<handle>/api/changesets.json` — create each term as a Reference with its `definition` (and any `alternatives`), and add its `relates_to` / `has_parent` / `derived_from` / `attributed_to` edges in the same changeset rather than as disconnected nodes.",
       },
     ],
   },

@@ -35,10 +35,10 @@ describe("orphaned pre-unification templates are gone", () => {
 });
 
 describe("removed templates are gone", () => {
-  // The glossaries, org-chart, and four decision-record templates were
-  // deleted; only `process` and `github-pull-requests` ship now. Keep them
-  // out so a request for a removed handle can't resurrect a half-wired
-  // template.
+  // The plural `glossaries`, `org-chart`, and four decision-record templates
+  // were deleted. The glossary concept returns as the singular `glossary`
+  // template (reshaped around References) tested below; the old plural handle
+  // stays gone so a request for it can't resurrect a half-wired template.
   for (const name of [
     "glossaries",
     "org-chart",
@@ -56,8 +56,111 @@ describe("removed templates are gone", () => {
   it("ships exactly the surviving templates", () => {
     expect(DEFAULT_DOCO_TEMPLATES.map((t) => t.name).sort()).toEqual([
       "github-pull-requests",
+      "glossary",
       "process",
     ]);
+  });
+});
+
+describe("glossary template", () => {
+  const template = findDocoTemplateByName("glossary");
+  if (!template) throw new Error("glossary template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "glossary")).toBeDefined();
+  });
+
+  it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
+    expect(template.icon).toBe("📖");
+    expect(template.label).toBe("Glossary");
+    // A term is captured before it is fully defined, so new nodes start as
+    // `drafting` and the completeness/quality gates spare a sketch.
+    expect(template.defaultNodeLifecycle).toBe("drafting");
+    expect(template.description).toMatch(/vocabulary|terms?|glossary|definition/i);
+  });
+
+  it("ships with the Glossary perspective attached as the default", () => {
+    expect(template.perspectives).toEqual([{ slug: "glossary", isDefault: true }]);
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("admits only Reference (terms) and Principal (stewards)", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(["principal", "reference"]);
+    });
+  });
+
+  describe("edge-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge_type",
+    )?.predicate;
+
+    it("admits only the glossary relationship edges", () => {
+      expect(allowlist?.kind).toBe("requires_edge_type");
+      if (allowlist?.kind !== "requires_edge_type") return;
+      expect([...allowlist.edge_types].sort()).toEqual([
+        "attributed_to",
+        "derived_from",
+        "has_parent",
+        "relates_to",
+        "replaces",
+      ]);
+    });
+  });
+
+  it("requires a `definition` on every committed term (queued/active) via requires_field", () => {
+    const rule = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_field" && r.predicate.when_node_type?.includes("reference"),
+    );
+    expect(rule?.predicate?.kind).toBe("requires_field");
+    if (rule?.predicate?.kind !== "requires_field") return;
+    expect(rule.predicate.fields).toEqual(["definition"]);
+    // A `drafting` stub may capture the headword first; the definition is
+    // required only once the term is committed.
+    expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("gates membership softly (warn, all stages) so an off-topic node is surfaced, not blocked", () => {
+    const membership = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("reference") &&
+        r.on_violation === "warn" &&
+        r.fires_when_node_lifecycle === undefined,
+    );
+    expect(membership).toBeDefined();
+  });
+
+  it("judges definition quality probabilistically as a warn on committed terms", () => {
+    const quality = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("reference") &&
+        Array.isArray(r.fires_when_node_lifecycle),
+    );
+    expect(quality?.predicate?.kind).toBe("probabilistic");
+    expect(quality?.on_violation).toBe("warn");
+    expect(quality?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("guides preferred terms, synonyms, cross-references, provenance, stewardship, and lifecycle in prose", () => {
+    const prose = template.policies
+      .filter((p) => !p.predicate)
+      .map((p) => p.policy ?? "")
+      .join("\n");
+    expect(prose).toMatch(/synonym|alias|alternativ/i);
+    expect(prose).toMatch(/relates_to|cross-reference/i);
+    expect(prose).toMatch(/has_parent|broader|categor/i);
+    expect(prose).toMatch(/replaces|deprecat|supersede/i);
+    expect(prose).toMatch(/derived_from|source|cite/i);
+    expect(prose).toMatch(/attributed_to|steward|owner/i);
+    expect(prose).toMatch(/lifecycle|drafting|queued|active|retired/i);
   });
 });
 
