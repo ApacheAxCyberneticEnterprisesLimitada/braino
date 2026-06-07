@@ -144,6 +144,18 @@ const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 const GLOSSARY_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
 /**
+ * The AI-eval template, like process and glossary, defaults new nodes to
+ * `drafting` so an eval can be sketched and a run captured before either is
+ * finalized, and fires its completeness + quality gates on the two committed
+ * stages — `queued` (ready for review) and `active` (the in-force eval / a
+ * recorded run). A `drafting` Eval may name an intent before its grader is
+ * chosen, and a `drafting` Log may be jotted before it is linked to its eval;
+ * once committed, an Eval must declare how it grades and a run must link to the
+ * Eval it ran.
+ */
+const EVALS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
+/**
  * The product-roadmap template, like the decision-record and glossary
  * templates, fires its completeness gates on the two *committed* stages —
  * `queued` (planned / Next) and `active` (in progress / Now) — and exempts
@@ -803,6 +815,204 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Keep the chart current: update it after every reorganization, hire, departure, and role change. When a seat's occupant changes, update its `prose`; when reporting lines move, retire the old `has_parent` edge and add the new one. An org chart is only useful while it is accurate.",
+      },
+    ],
+  },
+  {
+    // AI test-eval log — document and track evaluations of AI systems. It
+    // distills the durable two-layer shape every modern eval stack converges on
+    // (OpenAI Evals, Anthropic's agent-eval and success-criteria guidance,
+    // Inspect, Braintrust, Langfuse, Evidently) onto Doco's existing primitives,
+    // adding NO new node type:
+    //
+    //   Layer 1 — the eval DEFINITION (the stable spine): WHAT behaviour is
+    //   measured, on WHAT data, HOW the output is graded, and WHAT counts as
+    //   success. This is the existing `eval` node — `prose` is what's checked +
+    //   why, `criterion` is the grading method ({kind: exact | shape | llm-judge,
+    //   spec}), with `how_to_run` / `expected` for reproduction. An eval changes
+    //   rarely; when its methodology changes it is superseded, not edited.
+    //
+    //   Layer 2 — the run RESULT (append-only): ONE record per execution carrying
+    //   the score(s), the pass/fail verdict, and the versions it ran against
+    //   (model + prompt/agent, dataset, commit). This is the existing `log` node
+    //   (`happened_at`, `inputs`, `outputs`, `outcome`), linked to the Eval it is
+    //   a run of by a `supports` edge — the spine that makes a number comparable.
+    //
+    // Supporting cast (the expansion points that fit specific scenarios —
+    // classification, RAG, agent/trajectory, safety/red-team — without bloating
+    // the core): References hold the versioned dataset / golden set, the system
+    // under test (a model + prompt version), the harness/code, and external
+    // benchmarks or reports; Rules capture the SMART success criteria and release
+    // gates (a threshold like "F1 ≥ 0.85" or "0 critical safety failures") linked
+    // by `constrained_by`; Principals are the owners — human OR agent — who keep
+    // an eval healthy. Suites group related evals under a parent Eval with
+    // `has_parent`; a superseded eval is `replaces`-linked to the one it retires.
+    //
+    // What sets this template apart from `process` (which pushes recorded runs to
+    // a sibling Doco): here the RESULTS are the point, so Logs live in the Doco
+    // alongside the evals that produced them, building the longitudinal record
+    // that catches regressions.
+    //
+    // Lifecycle: nodes default to `drafting`; completeness + quality gates fire on
+    // the committed stages only (EVALS_COMMITTED_LIFECYCLES).
+    name: "evals",
+    label: "AI evals",
+    icon: "🧪",
+    description:
+      "Document and track test evals for AI systems — each eval's task, dataset, grading method, and success criteria, plus an append-only log of every run's scores and pass/fail verdict, pinned to the model and prompt versions it tested. Grounded in current LLM-eval practice (dataset + grader + metrics; capability vs regression; pass@k).",
+    defaultNodeLifecycle: "drafting",
+    // An eval log is fundamentally a filterable list of evals and their runs, so
+    // open the overview on the built-in List perspective. (Graph stays behind it.)
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership ──────────────────────────────────────────────
+      {
+        // Soft semantic gate — a `warn`, not a block. The author opted into the
+        // eval log; this only surfaces "this isn't an eval, a run, or a
+        // dataset/system" so they can reconsider. Owners (Principal) and
+        // criteria/gates (Rule) are supporting cast, exempt by omission from
+        // when_node_type.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in an AI-eval log when it is one of: an Eval (a test that measures some behaviour of an AI system — its task, the data it runs on, how the output is graded, and what counts as success); a Log (one recorded run of an eval, carrying its score and pass/fail verdict and the versions it ran against); or a Reference (the dataset / golden set being tested, the system under test such as a model + prompt version, the eval harness/code, or an external benchmark or report). PASS when the candidate is one of these. FAIL when it is a free-form note, a product or process artifact, or anything with no role in defining or recording an evaluation.",
+          when_node_type: ["eval", "log", "reference"],
+        },
+      },
+      {
+        // Deterministic node-type allowlist. Flow/work nodes (Action, State) and
+        // free-form Ideas, plus ship/rollback Decisions (which belong in a
+        // decision-record Doco), are out; an eval log is evals + runs + the
+        // data/systems they concern + their owners and gates.
+        policy:
+          "Only Eval, Log, Reference, Rule, and Principal belong in an AI-eval log. An Eval is the test definition (what is measured, on what data, how it is graded, the target); a Log is one recorded run of an eval (its score and verdict, and the versions it ran against); a Reference is the versioned dataset / golden set, the system under test (model + prompt version), the harness/code, or an external benchmark or report; a Rule captures a success criterion or release gate; a Principal is the owner — person or agent — accountable for the eval. Process steps, free-form notes, and ship decisions belong in their own Docos.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["eval", "log", "reference", "rule", "principal"],
+        },
+      },
+      {
+        // Edge-type allowlist (the edge analogue of the node-type allowlist). An
+        // eval log wires runs to their evals, evals to their data/criteria/owners,
+        // and evals into suites and supersession chains. Process sequence flow
+        // (`flows_to`) has no meaning here, so it is barred.
+        policy:
+          "Only these relationship edge types may be used in an AI-eval log: `supports` (a Log → the Eval it is a run of; a dataset/report Reference → the Eval it informs; an Eval → a claim it validates), `derived_from` (a Log → the system-under-test or dataset version it ran against; an Eval → a benchmark it adapts), `attributed_to` (an Eval or suite → the Principal who owns it), `constrained_by` (an Eval → a Rule stating its success criterion or release gate), `has_parent` (an Eval → the suite it belongs to), `replaces` (a new Eval version → the one it supersedes), and `relates_to` (a see-also link between related evals).",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "supports",
+            "derived_from",
+            "attributed_to",
+            "constrained_by",
+            "has_parent",
+            "replaces",
+            "relates_to",
+          ],
+        },
+      },
+
+      // ── Eval (definition) completeness & quality ────────────────
+      {
+        // Completeness floor — a committed eval declares HOW it decides pass/fail.
+        // `criterion` is the grading method ({kind: exact | shape | llm-judge,
+        // spec}); an eval with no grader can't be run, so it isn't yet an eval.
+        // (`criterion` lives in the node's `extra` bag, which the evaluator reads
+        // as a field; an empty object reads as missing.) A `drafting` sketch may
+        // capture the intent first and choose the grader later.
+        policy:
+          "Every committed (`queued` or `active`) Eval declares its grading method in `criterion` — how a run's output is turned into a pass/fail or score: an exact/programmatic check, a shape/structural check, or an LLM-as-judge rubric. An eval with no grader can't be run; a `drafting` sketch may add it later.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["criterion"],
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: EVALS_COMMITTED_LIFECYCLES,
+      },
+      {
+        // Eval-definition quality — LLM-judged, so a `warn`, not a block (a retry
+        // could differ; warn nudges without trapping). Encodes the SMART
+        // success-criteria rule: specific, measurable target tied to a dataset
+        // and a grader.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the Eval's `prose` and `criterion`. PASS when the eval is well-formed: it states WHAT behaviour is measured, on WHAT input or dataset, HOW the output is graded, and WHAT counts as success — a specific, measurable target (e.g. `exact-match accuracy ≥ 0.9 on the 200-case golden set`, `0 responses leak PII over 10k red-team prompts`, `LLM-judge rates tone ≥ 4/5 on 100 inquiries`). FAIL with a reason when it is vague about what success means (`works well`, `good quality`), names no way to grade the output, or bundles several unrelated checks into one eval.",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: EVALS_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Run (result) completeness & quality ─────────────────────
+      {
+        // The SPINE: every committed run links to the eval it is a run of, via a
+        // `supports` edge to that Eval. A result with no eval is an orphan number
+        // — there is nothing to compare it against or attribute it to. A hard
+        // block once committed; a `drafting` jot may defer the link.
+        policy:
+          "Every committed (`queued` or `active`) Log is one run of an eval: it links to that Eval with a `supports` edge. A run with no eval it belongs to is an orphaned number — there is nothing to compare it against, trend it over time, or attribute it to. A `drafting` run may defer the link.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "supports",
+          target_node_type: "eval",
+          when_node_type: ["log"],
+        },
+        fires_when_node_lifecycle: EVALS_COMMITTED_LIFECYCLES,
+      },
+      {
+        // Run quality — LLM-judged `warn`. A run is only useful later if it
+        // records BOTH its result AND the versions it ran against, because an eval
+        // measures the harness AND the model together; without the pins a later
+        // reader can't tell whether a change moved the number.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the Log's `prose`, `outputs`, `inputs`, and `happened_at`. PASS when the run records BOTH (a) its result — the score(s) and/or the pass/fail verdict for this execution — AND (b) the versions it ran against, enough to reproduce and compare it: the system under test (model + prompt/agent version, or commit) and, where relevant, the dataset version. FAIL with a reason when it records a bare verdict with no score, or no pinned versions, so a later reader can't tell what was tested or whether a change moved the number.",
+          when_node_type: ["log"],
+        },
+        fires_when_node_lifecycle: EVALS_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Guidance (prose-only) ───────────────────────────────────
+      {
+        policy:
+          "Keep the two layers distinct: the Eval is the durable DEFINITION (what is measured, on what data, how it is graded, the target) and changes rarely; each run is a separate, append-only Log RESULT linked to it by `supports`. Never overwrite a past run to record a new one — add a new Log — so the trend over time stays visible and regressions are catchable.",
+      },
+      {
+        policy:
+          "Choose the grading method deliberately and record it in the Eval's `criterion`: prefer a code-based / programmatic check (exact match, string/shape assertion, tool-call or final-state verification) when the answer is checkable — it is fast, cheap, and deterministic; use an LLM-as-judge with a clear, empirical rubric for open-ended or subjective output, and calibrate it against human labels before trusting it at scale; reserve human grading for the gold-standard spot checks that keep the automated graders honest. Many evals combine more than one.",
+      },
+      {
+        policy:
+          "Make success criteria SMART — specific, measurable, achievable, relevant. Capture the threshold or release gate as a Rule linked to the Eval with `constrained_by` (e.g. `F1 ≥ 0.85 on the held-out set`, `< 0.1% of 10k trials flagged toxic`, `p95 latency < 200ms`), so pass/fail is judged against an explicit bar rather than a vibe. Most real evals are multidimensional — quality plus safety plus latency plus cost — so attach more than one Rule when they apply.",
+      },
+      {
+        policy:
+          "Keep the test cases as a versioned dataset: model the golden set / eval data as a Reference whose `locator` points at where it lives, and cite it from the Eval with `supports` (or `derived_from`). Version it with immutable snapshots, keep it small but ruthlessly curated, and grow it by turning real production failures and user-reported bugs into new cases.",
+      },
+      {
+        policy:
+          "Pin what was evaluated on every run: an eval measures the harness AND the model together, so record the system under test — model + version, prompt/agent version, config, and code commit — on the Log (in its `inputs`, and/or as a `derived_from` edge to a Reference for that version). Two runs are only comparable when you can see exactly what changed between them.",
+      },
+      {
+        policy:
+          "Record the metric and the aggregate score, not just a verdict: accuracy, F1, precision/recall, an LLM-judge score, or operational numbers like latency, cost, and tokens. For non-deterministic systems, run multiple trials and report the right aggregate — `pass@k` (succeeds at least once in k tries) for capability, `pass^k` (succeeds on every one of k tries) for reliability — since the two diverge sharply as k grows.",
+      },
+      {
+        policy:
+          "Distinguish capability evals from regression evals. A capability eval targets behaviour the system struggles with and starts at a low pass rate; once it passes reliably, graduate it to a regression eval kept near 100% to guard against backsliding. Say which an eval is in its `prose`, and watch for saturation — when a capability eval nears 100% it has stopped discriminating and needs harder cases.",
+      },
+      {
+        policy:
+          "Give every eval an owner — a person OR an agent — by attributing it (or its suite) to a Principal with `attributed_to`, and set that Principal's `kind` to `human` or `agent`. Eval suites rot without maintenance: someone has to read the transcripts, confirm the graders still grade correctly, retire saturated cases, and add new ones from fresh failures.",
+      },
+      {
+        policy:
+          "Group related evals into a suite: make the suite a parent Eval and link each member to it with `has_parent`, so a capability or product area reads as one set with a shared pass rate. When an eval's methodology changes, do NOT edit it in place — create the new version and link it to the old one with `replaces` (retiring the old), so past results stay interpretable against the definition that produced them.",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json`. Create each run as a Log together with its `supports` edge to the Eval (and a `derived_from` edge to the system-under-test Reference) in the same changeset, recording the score, the verdict, and the pinned model / prompt / dataset versions — rather than leaving disconnected nodes.",
       },
     ],
   },

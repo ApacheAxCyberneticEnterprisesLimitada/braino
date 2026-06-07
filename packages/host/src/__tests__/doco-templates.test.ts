@@ -52,6 +52,7 @@ describe("removed templates are gone", () => {
       "architectural-decisions",
       "data-decisions",
       "design-decisions",
+      "evals",
       "github-pull-requests",
       "glossary",
       "org-chart",
@@ -59,6 +60,190 @@ describe("removed templates are gone", () => {
       "product-decisions",
       "product-roadmap",
     ]);
+  });
+});
+
+describe("evals template", () => {
+  const template = findDocoTemplateByName("evals");
+  if (!template) throw new Error("evals template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "evals")).toBeDefined();
+  });
+
+  it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
+    expect(template.icon).toBe("🧪");
+    expect(template.label).toBe("AI evals");
+    // An eval is sketched and a run captured before either is finalized, so new
+    // nodes start `drafting` and the completeness/quality gates spare a sketch.
+    expect(template.defaultNodeLifecycle).toBe("drafting");
+    expect(template.description).toMatch(/eval/i);
+  });
+
+  it("opens on the built-in List perspective (an eval log is a list of evals and runs)", () => {
+    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("admits Eval (definitions), Log (runs), Reference (data/system), Rule (criteria), Principal (owners)", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["eval", "log", "principal", "reference", "rule"].sort(),
+      );
+    });
+
+    it("excludes flow/work and free-form node types (action, state, intent, idea, decision)", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      for (const t of ["action", "state", "intent", "idea", "decision"]) {
+        expect(allowlist.node_types).not.toContain(t as never);
+      }
+    });
+  });
+
+  describe("edge-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge_type",
+    )?.predicate;
+
+    it("admits the eval-log relationship edges and bars sequence flow", () => {
+      expect(allowlist?.kind).toBe("requires_edge_type");
+      if (allowlist?.kind !== "requires_edge_type") return;
+      expect(new Set(allowlist.edge_types)).toEqual(
+        new Set([
+          "supports",
+          "derived_from",
+          "attributed_to",
+          "constrained_by",
+          "has_parent",
+          "replaces",
+          "relates_to",
+        ]),
+      );
+      // Process sequence flow has no meaning in an eval log.
+      expect(allowlist.edge_types).not.toContain("flows_to");
+    });
+  });
+
+  it("requires a grading `criterion` on every committed Eval (queued/active) via requires_field", () => {
+    const rule = template.policies.find(
+      (r) => r.predicate?.kind === "requires_field" && r.predicate.when_node_type?.includes("eval"),
+    );
+    expect(rule?.predicate?.kind).toBe("requires_field");
+    if (rule?.predicate?.kind !== "requires_field") return;
+    expect(rule.predicate.fields).toEqual(["criterion"]);
+    // A `drafting` eval may capture the intent first and choose the grader later.
+    expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  describe("the run→eval spine (every committed run links to the eval it ran)", () => {
+    const spine = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "supports" &&
+        r.predicate.target_node_type === "eval" &&
+        (r.predicate.when_node_type?.includes("log") ?? false),
+    );
+
+    it("ties a committed Log to its Eval via a supports edge, on committed stages only", () => {
+      expect(spine?.predicate?.kind).toBe("requires_edge");
+      expect(spine?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("seeds as a blocking deterministic policy carrying the predicate verbatim", () => {
+      if (!spine) throw new Error("run→eval spine gate missing");
+      const seeded = templatePolicyToPolicyRow(spine);
+      expect(seeded.kind).toBe("deterministic");
+      expect(seeded.on_violation).toBe("block");
+      expect(seeded.predicate.sub_kind).toBe("requires_edge");
+      expect(seeded.predicate.edge_type).toBe("supports");
+      expect(seeded.predicate.target_node_type).toBe("eval");
+    });
+  });
+
+  it("gates membership softly (warn, all stages) on the primary content node types", () => {
+    const membership = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.on_violation === "warn" &&
+        r.fires_when_node_lifecycle === undefined &&
+        /belongs in an AI-eval log/i.test(r.predicate.spec),
+    );
+    expect(membership?.predicate?.kind).toBe("probabilistic");
+    if (membership?.predicate?.kind !== "probabilistic") return;
+    expect([...(membership.predicate.when_node_type ?? [])].sort()).toEqual(
+      ["eval", "log", "reference"].sort(),
+    );
+    // Owners (Principal) and criteria/gates (Rule) are supporting cast, not
+    // membership candidates.
+    expect(membership.predicate.when_node_type).not.toContain("principal");
+    expect(membership.predicate.when_node_type).not.toContain("rule");
+  });
+
+  it("judges eval-definition quality probabilistically as a warn on committed evals", () => {
+    const quality = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("eval") &&
+        Array.isArray(r.fires_when_node_lifecycle) &&
+        /what counts as success/i.test(r.predicate.spec),
+    );
+    expect(quality?.on_violation).toBe("warn");
+    expect(quality?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("judges run quality probabilistically as a warn on committed runs", () => {
+    const quality = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("log") &&
+        /records BOTH/i.test(r.predicate.spec),
+    );
+    expect(quality?.on_violation).toBe("warn");
+    expect(quality?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("encodes the eval best practices in prose guidance", () => {
+    const prose = template.policies
+      .filter((p) => !p.predicate)
+      .map((p) => p.policy ?? "")
+      .join("\n");
+    // Two-layer model: stable definition vs append-only run log.
+    expect(prose).toMatch(/append-only/i);
+    // Grading methods: code-based / LLM-as-judge / human.
+    expect(prose).toMatch(/LLM-as-judge/i);
+    expect(prose).toMatch(/code-based|programmatic/i);
+    expect(prose).toMatch(/human/i);
+    // SMART success criteria captured as a Rule threshold.
+    expect(prose).toMatch(/SMART/);
+    expect(prose).toMatch(/constrained_by/);
+    // Versioned dataset / golden set.
+    expect(prose).toMatch(/golden|dataset/i);
+    // Pin the model/prompt versions per run.
+    expect(prose).toMatch(/pin/i);
+    // pass@k / pass^k for non-deterministic systems.
+    expect(prose).toMatch(/pass@k/);
+    expect(prose).toMatch(/pass\^k/);
+    // Capability vs regression evals.
+    expect(prose).toMatch(/regression/i);
+    // Ownership by a Principal that is a person OR an agent.
+    expect(prose).toMatch(/attributed_to/);
+    expect(prose).toMatch(/agent/i);
+    // Suite grouping + supersession.
+    expect(prose).toMatch(/has_parent|suite/i);
+    expect(prose).toMatch(/replaces/);
+  });
+
+  it("does not gate one committed stage without the other", () => {
+    for (const p of template.policies) {
+      const lifecycles = p.fires_when_node_lifecycle;
+      if (!lifecycles) continue;
+      expect(lifecycles.includes("queued")).toBe(lifecycles.includes("active"));
+    }
   });
 });
 
