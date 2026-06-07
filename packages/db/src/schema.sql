@@ -114,9 +114,6 @@ CREATE TABLE IF NOT EXISTS docos (
   -- never collides.
   deleted_at      timestamptz
 );
--- Sweeper lookup: only ever scans tombstoned rows, so a partial index keeps it
--- tiny no matter how many live Docos exist.
-CREATE INDEX IF NOT EXISTS docos_deleted_at_idx ON docos (deleted_at) WHERE deleted_at IS NOT NULL;
 
 -- Per-Doco policies. Every policy is an authoring policy; the standalone
 -- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and
@@ -919,9 +916,15 @@ END $$;
 -- explicitly here. Idempotent (ADD COLUMN IF NOT EXISTS), re-asserted on every
 -- cold start; a no-op once the column is present (incl. on a fresh DB, where
 -- the CREATE TABLE already made it). The CHECK matches the inline definition.
--- Soft-delete tombstone for Docos created before the column shipped.
+-- Soft-delete tombstone for Docos created before the column shipped. The
+-- partial sweeper index lives HERE, after the ADD COLUMN — not in the docos
+-- table block above — because schema.sql re-applies top-to-bottom on every
+-- boot: on a pre-existing docos table the inline CREATE TABLE is a no-op, so an
+-- index that referenced `deleted_at` earlier in the file would hit a column
+-- that this migration hasn't added yet and abort the entire schema-apply.
 ALTER TABLE docos
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+CREATE INDEX IF NOT EXISTS docos_deleted_at_idx ON docos (deleted_at) WHERE deleted_at IS NOT NULL;
 
 ALTER TABLE oauth_authorization_codes
   ADD COLUMN IF NOT EXISTS actor_role text
