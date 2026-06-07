@@ -849,11 +849,22 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   granted_workspace_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- 'actor' = a user-level credential whose breadth is the user's LIVE
+  -- workspace membership (resolved at exchange), down-scoped to ONE workspace
+  -- per access token via the RFC 8707 `resource`. 'regular' (default) = a
+  -- single-workspace refresh whose grants copy through to the access token
+  -- verbatim. An actor refresh carries NO explicit workspace/doco grants.
+  grant_type        text NOT NULL DEFAULT 'regular'
+                    CHECK (grant_type IN ('regular', 'actor')),
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
+-- Migrate existing deployments (CREATE TABLE IF NOT EXISTS skips the column
+-- on a table that already exists). Idempotent.
+ALTER TABLE oauth_refresh_tokens
+  ADD COLUMN IF NOT EXISTS grant_type text NOT NULL DEFAULT 'regular';
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_user_idx ON oauth_refresh_tokens (user_id);
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
