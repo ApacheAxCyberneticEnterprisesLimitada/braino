@@ -916,3 +916,20 @@ BEGIN
     EXECUTE format('CREATE TRIGGER %I_append_only_stmt BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION doco_block_history_mutation()', t, t);
   END LOOP;
 END $$;
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Column backfills. A column added inline to a `CREATE TABLE IF NOT EXISTS`
+-- above does NOT alter a table that already exists — the CREATE is a no-op on
+-- re-boot — so a column introduced after a table first shipped must be added
+-- explicitly here. Idempotent (ADD COLUMN IF NOT EXISTS), re-asserted on every
+-- cold start; a no-op once the column is present (incl. on a fresh DB, where
+-- the CREATE TABLE already made it). The CHECK matches the inline definition.
+ALTER TABLE oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS actor_role text
+  CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
+ALTER TABLE oauth_refresh_tokens
+  ADD COLUMN IF NOT EXISTS actor_role text
+  CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS actor_role text
+  CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
