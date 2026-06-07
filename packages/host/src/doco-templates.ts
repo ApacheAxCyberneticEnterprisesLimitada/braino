@@ -143,6 +143,18 @@ const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
  */
 const GLOSSARY_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
+/**
+ * The product-roadmap template, like the decision-record and glossary
+ * templates, fires its completeness gates on the two *committed* stages —
+ * `queued` (planned / Next) and `active` (in progress / Now) — and exempts
+ * `drafting`, a parked / Later idea still being shaped. A committed item asserts
+ * it is on the roadmap, so it must already name the Principal accountable for
+ * its outcome and the Now/Next/Later `horizon` it sits in; only a `drafting`
+ * parking-lot idea may defer both. The result Eval is held to the same bar: a
+ * committed result links the item it measures.
+ */
+const ROADMAP_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Repeatable business processes modeled on BPMN swimlanes and
@@ -791,6 +803,224 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Keep the chart current: update it after every reorganization, hire, departure, and role change. When a seat's occupant changes, update its `prose`; when reporting lines move, retire the old `has_parent` edge and add the new one. An org chart is only useful while it is accurate.",
+      },
+    ],
+  },
+  {
+    // Product roadmap — document a team's outcome-oriented bets over time and,
+    // crucially, CLOSE THE LOOP on whether each one worked. The shape distills
+    // the durable consensus of modern product practice (Cagan / SVPG, Teresa
+    // Torres' continuous discovery, Roman Pichler's GO roadmap, Melissa Perri,
+    // and ProdPad's Now/Next/Later) onto Doco's primitives:
+    //   - OUTCOMES OVER OUTPUTS. A roadmap item is an Intent — a desired outcome
+    //     (a change in user behavior or a business result) with the metric that
+    //     tells you it happened — not a feature to ship. The widely-cited claim
+    //     is that ~95% of roadmaps are output, not outcome; the membership and
+    //     outcome gates here steer authors the other way.
+    //   - NOW / NEXT / LATER. Each item carries a `horizon` bucket — the
+    //     lowest-commitment, most widely-applicable roadmap shape, where
+    //     commitment and detail fall off the further out you look. Precise
+    //     far-future dates are an EXTENSION, not the core: a dated roadmap reads
+    //     as a promise it can't keep and assumes the first solution works.
+    //   - ONE ACCOUNTABLE OWNER. Every committed item is `attributed_to` a
+    //     Principal — the person, role, or team answerable for the outcome.
+    //   - CLOSE THE LOOP (the differentiator the literature plans richly but
+    //     rarely ships). Shipping is not success: a bet is done when it is
+    //     MEASURED. Each item's result is an Eval that `supports` it, carrying
+    //     the target (`expected`) and the actual measured result, its
+    //     `last_status` running pending (measuring) → pass (validated) / fail
+    //     (invalidated). The decision that follows — persevere, iterate, pivot,
+    //     or kill — and the learning are recorded so the next bet compounds.
+    //
+    // Lifecycle maps onto the roadmap's own progression: `drafting` = a parked
+    // idea / Later candidate still being shaped (it may lack an owner or a
+    // horizon); `queued` = planned and committed (Next); `active` = in progress
+    // (Now); `retired` = shipped and closed. Completeness gates fire on the
+    // committed stages (`queued`/`active`) only (ROADMAP_COMMITTED_LIFECYCLES),
+    // so a parking-lot idea can be sketched freely and is held to the full bar
+    // only once it is committed to the roadmap.
+    //
+    // Out of scope, kept in sibling Docos and referenced from here: the
+    // delivery PROCESS (Action/State flow → a `process` Doco) and the dated
+    // shipped CHANGELOG (Logs). A roadmap documents intent and outcomes — not
+    // the backlog of tasks nor the release plan.
+    name: "product-roadmap",
+    label: "Product roadmap",
+    icon: "🗺️",
+    description:
+      "Document outcome-oriented product bets over Now / Next / Later horizons — each with an accountable owner, a measurable target, and a result that closes the loop on whether it worked. Grounded in outcome-over-output roadmap practice.",
+    defaultNodeLifecycle: "drafting",
+    // A roadmap is fundamentally a filterable list of bets, so open the overview
+    // on the built-in List perspective. (Graph stays attached behind it.)
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership (soft semantic gate) ──────────────────────────────
+      {
+        // Warn, not block: the author opted into the roadmap by picking the
+        // template, so this only surfaces "this looks like delivery/backlog
+        // content, not a roadmap bet" for reconsideration. Principals (owners)
+        // and Rules (criteria/guardrails) are supporting cast, not bets, so they
+        // are exempt — omitted from `when_node_type`.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs on a product roadmap when it documents an outcome-oriented bet or its result: an Intent (a desired outcome — a user-behavior change or business result — the team is betting on), an Eval (the measurement that says whether an outcome was met), a Decision (a prioritization call about what to bet on and why), or a Reference (the discovery, research, or data informing a bet). PASS when the candidate is one of these. FAIL when it instead describes HOW work gets built or delivered — a process step or implementation task, a release / changelog event, a UI spec, or a one-off incident — which belongs in a process Doco or the backlog, not on the roadmap.",
+          when_node_type: ["intent", "eval", "decision", "reference"],
+        },
+      },
+      // ── Node-type allowlist (hard block) ─────────────────────────────
+      {
+        policy:
+          "Only Intent, Eval, Principal, Reference, Decision, and Rule belong on a product roadmap. An Intent is a roadmap item — a desired outcome the team is betting on; an Eval is that bet's result — the measurement of whether the outcome was met; a Principal is the accountable owner; a Reference links the discovery, research, or data behind a bet; a Decision records a prioritization call; a Rule captures success criteria or guardrails. Delivery steps (Action), milestones (State), and shipped-event logs (Log) describe how and when work is built — they belong in a process Doco or a changelog, not on the roadmap.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["intent", "eval", "principal", "reference", "decision", "rule"],
+        },
+      },
+      // ── Edge-type allowlist (hard block) ─────────────────────────────
+      {
+        policy:
+          "Only these relationship edge types belong on a product roadmap: `has_parent` (group an initiative under the outcome, theme, or objective it serves), `attributed_to` (a roadmap item → its accountable owner Principal), `supports` (an Eval result, or a Reference's evidence, → the item it measures or informs), `constrained_by` (an item → a Rule that sets its success criteria or guardrails), `relates_to` (a dependency or see-also between items), `derived_from` (a bet's provenance from discovery or a prior item), and `replaces` (a re-scoped item supersedes the one it replaces). Process sequence flow (`flows_to`) describes delivery, not strategy, and has no place on a roadmap.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "has_parent",
+            "attributed_to",
+            "supports",
+            "constrained_by",
+            "relates_to",
+            "derived_from",
+            "replaces",
+          ],
+        },
+      },
+      // ── Owner accountability (deterministic, committed only) ──────────
+      {
+        // Every committed bet names who is answerable for its outcome, via an
+        // `attributed_to` edge to a Principal — the roadmap analogue of the
+        // decision-record decider gate. A `drafting` (Later / parked) idea may
+        // defer naming an owner.
+        policy:
+          "Every committed (`queued` or `active`) roadmap item is attributed to the Principal accountable for its outcome — an `attributed_to` edge from the Intent to that owner. A `drafting` (parked / Later) idea may defer naming an owner.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
+          when_node_type: ["intent"],
+        },
+        fires_when_node_lifecycle: ROADMAP_COMMITTED_LIFECYCLES,
+      },
+      // ── Horizon placement (deterministic, committed only) ─────────────
+      {
+        // The `horizon` field (Now / Next / Later) is what places an item ON the
+        // roadmap; a committed item without one isn't really on it yet.
+        // Engine-checked for presence via `requires_field`; the Now/Next/Later
+        // vocabulary itself is guidance (the engine checks shape, the prose
+        // carries meaning). A `drafting` parking-lot idea may defer its horizon.
+        policy:
+          "Every committed (`queued` or `active`) roadmap item carries a `horizon` — its Now / Next / Later bucket — so the roadmap stays ordered by time-confidence rather than by precise dates. A `drafting` idea in the parking lot may defer its horizon until it is committed.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["horizon"],
+          when_node_type: ["intent"],
+        },
+        fires_when_node_lifecycle: ROADMAP_COMMITTED_LIFECYCLES,
+      },
+      // ── Result links its target (deterministic, committed only) ───────
+      {
+        // A result must measure something. A committed Eval links the item it
+        // measures with an outgoing `supports` edge — the same gate the process
+        // template puts on its Evals. Without it the result is a dangling metric
+        // the roadmap can't attach to a bet.
+        policy:
+          "Every committed (`queued` or `active`) result links to the item it measures with a `supports` edge to that Intent. A result that measures nothing is a dangling metric; the `supports` edge is what lets the roadmap show whether a bet paid off.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "supports",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: ROADMAP_COMMITTED_LIFECYCLES,
+      },
+      // ── Outcome over output (probabilistic, warn, committed) ──────────
+      {
+        // The spine of modern roadmapping, encoded as an LLM-judged warn (a
+        // block would be non-deterministic and could trap a legitimate item).
+        // Fires on the committed stages only — a drafting sketch isn't nagged.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the roadmap item's `prose`. PASS when it frames a desired OUTCOME — a change in user behavior or a business result, for a stated audience — together with how success will be measured (a metric and a target). A good item reads like `cut new-team setup time so 40% reach first value in week one`, not `build an onboarding checklist`. FAIL with a reason when it names only a feature or output to ship with no outcome behind it, states a vague theme with no measurable target, or reads as an implementation task. The point of a roadmap is the outcome, not the output.",
+          when_node_type: ["intent"],
+        },
+        fires_when_node_lifecycle: ROADMAP_COMMITTED_LIFECYCLES,
+      },
+      // ── Result closes the loop (probabilistic, warn, committed) ───────
+      {
+        // The differentiator: most roadmaps never check whether a shipped bet
+        // moved its metric. This judges that a result actually closes the loop.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the Eval result. PASS when it closes the loop on its bet: it states the target that was set (the `expected` metric value), the actual measured result, whether the target was met (its `last_status`: pending while still measuring, pass = validated, fail = invalidated), and the decision that follows — persevere, iterate, pivot, or kill — with the learning to carry forward. FAIL with a reason when it records a target with no result, a result with no target to judge it against, or a verdict with no decision or learning. A result that does not close the loop teaches the next bet nothing.",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: ROADMAP_COMMITTED_LIFECYCLES,
+      },
+      // ── Owner shape (probabilistic, warn) ────────────────────────────
+      {
+        // Nudge toward a single, clearly accountable owner. Warn, since the
+        // Principal endpoint permits a quick name-only create.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the Principal's `prose`. PASS when it names a single accountable owner for outcomes — a person, role, or team answerable for whether a bet pays off. FAIL when it is a vague label (`the team`, `product`) with no clear accountability, or an empty shell with only a bare name.",
+          when_node_type: ["principal"],
+        },
+      },
+      // ── Guidance (prose-only suggestions) ────────────────────────────
+      {
+        policy:
+          "Lead with outcomes, not outputs. Frame each item as the change you want to see — a shift in user behavior or a business result — not the feature you will ship. `Build dark mode` is an output; `raise long-session retention by giving night readers a comfortable view` is the outcome behind it. The feature is just one bet on that outcome; name the outcome so a better bet can replace the feature without rewriting the roadmap.",
+      },
+      {
+        policy:
+          "Bucket every item into a Now / Next / Later `horizon`, and let commitment and detail fall off with distance: Now is in progress and fully specified, Next is coming up with less detail, Later is a direction — a problem worth solving with no committed solution yet. Resist putting precise far-future dates on the roadmap; they get read as promises and assume the estimate holds and the first solution works. Reserve real dates for high-integrity commitments made AFTER discovery (an extension: add a target date to a Now item, or coordinate the launch in a delivery Doco).",
+      },
+      {
+        policy:
+          "Give every committed item one accountable owner — an `attributed_to` edge to the Principal answerable for the outcome, not merely whoever builds it. Shared ownership is no ownership.",
+      },
+      {
+        policy:
+          "Group bets under the outcome, theme, or objective they serve with `has_parent`, so the roadmap reads as a few goals with bets beneath them rather than a flat feature list. To align with OKRs, model the Objective as the parent Intent and each bet's Key Result as its target Eval — map outcomes to Key Results, never features to Key Results.",
+      },
+      {
+        policy:
+          "Prioritize explicitly and show your work. Record a prioritization call as a Decision (what you are betting on over what, and why), and capture the criteria or scoring behind it — value vs. effort, or RICE (Reach × Impact × Confidence ÷ Effort), or whatever your team trusts — as a Rule linked with `constrained_by`. Keep the score together with its inputs so the ranking stays auditable; the framework itself is your team's choice, not the roadmap's.",
+      },
+      {
+        policy:
+          "Ground bets in evidence. Link the discovery that informs an item — user interviews, an experiment, analytics, a brief, or an opportunity from a discovery tree — as a Reference via `supports` (or `derived_from` when the bet grew directly out of that finding), so a reader can tell whether a bet rests on insight or on a hunch.",
+      },
+      {
+        policy:
+          "Wire dependencies between items with `relates_to`, so a bet that is blocked by or must coordinate with another shows the link rather than failing silently when its prerequisite slips.",
+      },
+      {
+        policy:
+          "Close the loop — this is the half most roadmaps skip. Shipping is not success; a bet is done when it is MEASURED. When an item ships, give it a result Eval linked by `supports` that carries the target you set (`expected`) and, over the measurement window, the actual result; move its `last_status` from pending (measuring) to pass (validated) or fail (invalidated); and record the decision that follows — persevere, iterate, pivot, or kill — with the learning, before you `retire` the item. A failed bet that taught you something is worth more than a shipped feature nobody measured.",
+      },
+      {
+        policy:
+          "Revisit the roadmap on a cadence — quarterly to re-prioritize bets and score outcomes, more often (every week or two) when uncertainty is high — rather than setting it once and treating it as a contract. Re-bucket horizons as you learn. When a bet's direction changes, supersede it instead of rewriting it: create the re-scoped item, link it to the old one with `replaces`, and `retire` the original, so the roadmap keeps a history of what you bet on and why it changed.",
+      },
+      {
+        policy:
+          "A roadmap is not a backlog and not a release plan. Keep stories, tasks, and bug lists in the backlog, the delivery flow in a `process` Doco, and the dated shipped history in a changelog of Logs. Reference those siblings from a roadmap item rather than absorbing them — the roadmap stays at the altitude of outcomes and bets, linking down to execution rather than becoming it.",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json`. Create each roadmap item as an Intent with its `horizon`, its `attributed_to` owner, and (once it ships) its result Eval and the `supports` edge in the same changeset, rather than as disconnected nodes.",
       },
     ],
   },
