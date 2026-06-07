@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { agentInstructionParts } from "../policy-format.js";
+import type { DeterministicPredicate } from "../entities.js";
+import {
+  agentInstructionParts,
+  deterministicHeadline,
+  deterministicParts,
+  summarizePredicate,
+} from "../policy-format.js";
 
 describe("agentInstructionParts", () => {
   it("surfaces the node type a node-scoped predicate is scoped to", () => {
@@ -51,5 +57,27 @@ describe("agentInstructionParts", () => {
         edge_type: "supports",
       }),
     ).toEqual([{ label: "edge type", value: "supports" }]);
+  });
+});
+
+describe("deterministic rendering tolerates an unknown sub_kind", () => {
+  // A stored policy whose `sub_kind` is no longer in the registry (legacy /
+  // imported / hand-edited jsonb) must still render. Before, these helpers
+  // indexed the registry blindly and threw, taking down the whole policies
+  // page with `undefined is not an object (evaluating 'w[e].fields')`.
+  const orphan = { sub_kind: "obsolete_check", edge_type: "supports" } as DeterministicPredicate;
+
+  it("yields no parts instead of throwing", () => {
+    expect(() => deterministicParts(orphan)).not.toThrow();
+    expect(deterministicParts(orphan)).toEqual([]);
+  });
+
+  it("uses the raw sub_kind as the headline", () => {
+    expect(deterministicHeadline(orphan)).toBe("obsolete_check");
+  });
+
+  it("summarizes to the raw sub_kind without throwing", () => {
+    expect(() => summarizePredicate(orphan)).not.toThrow();
+    expect(summarizePredicate(orphan)).toBe("obsolete_check");
   });
 });

@@ -545,14 +545,22 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
  */
 export const DETERMINISTIC_SUB_KINDS = Object.keys(DETERMINISTIC_CHECKS) as DeterministicSubKind[];
 
-/** The field schema for a check. */
+// Stored policy `data` is jsonb that can predate the current registry, arrive
+// from a BPMN import, or be hand-edited — so a policy's `sub_kind` can be a
+// value the registry no longer knows. The lookups below stay TOTAL for that
+// case (like `checkFieldsValidationErrors`, which already guards): a check that
+// indexed the registry blindly threw `undefined is not an object (evaluating
+// 'w[e].fields')` and crashed the whole policies page, hiding every other
+// policy and leaving no way to even open and retire the offending one.
+
+/** The field schema for a check — `[]` for a sub_kind the registry doesn't know. */
 export function checkFields(sub_kind: DeterministicSubKind): FieldSpec[] {
-  return DETERMINISTIC_CHECKS[sub_kind].fields;
+  return DETERMINISTIC_CHECKS[sub_kind]?.fields ?? [];
 }
 
-/** The human headline for a check. */
+/** The human headline for a check — the raw sub_kind when the registry doesn't know it. */
 export function checkLabel(sub_kind: DeterministicSubKind): string {
-  return DETERMINISTIC_CHECKS[sub_kind].label;
+  return DETERMINISTIC_CHECKS[sub_kind]?.label ?? sub_kind;
 }
 
 const EDGE_TYPE_SET: ReadonlySet<string> = new Set(EDGE_TYPES);
