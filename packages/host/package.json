@@ -23,9 +23,5 @@
   "dependencies": {
     "@doco/db": "workspace:*",
     "@doco/shared": "workspace:*"
-  },
-  "devDependencies": {
-    "@types/pg": "^8.13.0",
-    "pg": "^8.13.1"
   }
 }
