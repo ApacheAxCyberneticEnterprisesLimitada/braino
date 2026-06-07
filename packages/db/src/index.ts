@@ -72,6 +72,8 @@ export {
   getDocoById,
   getDocoByHandle,
   getDocoByIdOrHandle,
+  markDocoDeleted,
+  purgeDocosDeletedBefore,
   type DocoRow,
   type HostConfigRow,
 } from "./repo.js";

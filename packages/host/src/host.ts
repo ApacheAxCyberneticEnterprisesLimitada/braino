@@ -504,37 +504,22 @@ export async function renameDocoHandle(opts: {
   });
 }
 
+/**
+ * Soft-delete a Doco. Stamps `deleted_at` so the Doco vanishes from every
+ * read path immediately, while its rows are retained for a 30-day grace
+ * window; the `admin.purge-deleted-docos` cron hard-deletes it (cascading
+ * everything) once the window lapses. Throws if the Doco is absent or already
+ * tombstoned, matching the old "not found" contract.
+ */
 export async function softDeleteDoco(opts: {
   handle?: string;
   docoId?: string;
 }): Promise<{ deletedPath: string }> {
-  const { withClient } = await import("@doco/db");
-
-  let label: string;
-  let result: { rowCount: number | null; rows: Array<{ id: string; handle: string }> };
-  if (opts.docoId) {
-    label = opts.docoId;
-    result = await withClient((c) =>
-      c.query<{ id: string; handle: string }>(
-        "DELETE FROM docos WHERE id = $1 RETURNING id, handle",
-        [opts.docoId],
-      ),
-    );
-  } else {
-    const handle = opts.handle;
-    if (!handle) throw new Error("Doco id or handle is required.");
-    label = handle;
-    result = await withClient((c) =>
-      c.query<{ id: string; handle: string }>(
-        "DELETE FROM docos WHERE handle = $1 RETURNING id, handle",
-        [handle],
-      ),
-    );
+  if (!opts.docoId && !opts.handle) throw new Error("Doco id or handle is required.");
+  const { markDocoDeleted } = await import("@doco/db");
+  const deleted = await markDocoDeleted(opts);
+  if (!deleted) {
+    throw new Error(`Doco "${opts.docoId ?? opts.handle}" not found.`);
   }
-
-  if (result.rowCount === 0) {
-    throw new Error(`Doco "${label}" not found.`);
-  }
-  const deleted = result.rows[0];
   return { deletedPath: `postgres:docos/${deleted.handle}` };
 }

@@ -668,8 +668,13 @@ export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
 
 export async function listDocoIdsForUser(userId: string): Promise<string[]> {
   return withClient(async (c) => {
+    // Join docos so a tombstoned Doco drops out of the member's listing even
+    // though its doco_users grant rows are retained for the grace window.
     const r = await c.query<{ doco_id: string }>(
-      "SELECT doco_id FROM doco_users WHERE user_id = $1",
+      `SELECT du.doco_id
+         FROM doco_users du
+         JOIN docos d ON d.id = du.doco_id
+        WHERE du.user_id = $1 AND d.deleted_at IS NULL`,
       [userId],
     );
     return r.rows.map((row) => String(row.doco_id));
@@ -795,7 +800,7 @@ export async function listPendingAccessRequestCountsByDoco(): Promise<
       `SELECT d.id AS doco_id, d.owner_id, count(*)::int AS n
          FROM access_requests r
          JOIN docos d ON d.id = r.doco_id
-        WHERE r.status = 'pending'
+        WHERE r.status = 'pending' AND d.deleted_at IS NULL
         GROUP BY d.id, d.owner_id`,
     );
     return r.rows.map((row) => ({
@@ -892,26 +897,31 @@ const DOCO_SELECT = `
     LEFT JOIN users c ON c.id = d.owner_id
     LEFT JOIN workspaces o ON o.id = d.owner_id`;
 
+// Tombstoned (soft-deleted) Docos are invisible to every resolution and
+// listing path — `getDocoByIdOrHandle` returning null is what makes a deleted
+// Doco 404 from every route. The only callers that see tombstoned rows are the
+// soft-delete write, the purge sweep, and host.ts's handle-availability checks
+// (which must keep the handle reserved). All read here filters `deleted_at`.
 export async function listAllDocos(): Promise<DocoRow[]> {
   return withClient(async (c) => {
-    const r = await c.query(`${DOCO_SELECT} ORDER BY d.handle`);
+    const r = await c.query(`${DOCO_SELECT} WHERE d.deleted_at IS NULL ORDER BY d.handle`);
     return r.rows.map(mapDocoRow);
   });
 }
 
 export async function getDocoById(docoId: string): Promise<DocoRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(`${DOCO_SELECT} WHERE d.id = $1`, [docoId]);
-    if (r.rowCount === 0) return null;
-    return mapDocoRow(r.rows[0]);
+    const r = await c.query(`${DOCO_SELECT} WHERE d.id = $1 AND d.deleted_at IS NULL`, [docoId]);
+    return r.rows[0] ? mapDocoRow(r.rows[0]) : null;
   });
 }
 
 export async function getDocoByHandle(handle: string): Promise<DocoRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(`${DOCO_SELECT} WHERE d.handle = $1`, [handle]);
-    if (r.rowCount === 0) return null;
-    return mapDocoRow(r.rows[0]);
+    const r = await c.query(`${DOCO_SELECT} WHERE d.handle = $1 AND d.deleted_at IS NULL`, [
+      handle,
+    ]);
+    return r.rows[0] ? mapDocoRow(r.rows[0]) : null;
   });
 }
 
@@ -921,6 +931,61 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
     if (byId) return byId;
   }
   return getDocoByHandle(idOrHandle);
+}
+
+/**
+ * Soft-delete a Doco: stamp `deleted_at` so it vanishes from every read path
+ * while its rows are retained for the 30-day grace window. Resolves by id or
+ * handle. Idempotent — a Doco that is already tombstoned (or absent) returns
+ * null. The handle stays reserved (the UNIQUE constraint counts the tombstoned
+ * row), so the slot can't be reused until the purge sweep frees it.
+ */
+export async function markDocoDeleted(opts: {
+  docoId?: string;
+  handle?: string;
+}): Promise<{ id: string; handle: string } | null> {
+  return withClient(async (c) => {
+    const r = opts.docoId
+      ? await c.query<{ id: string; handle: string }>(
+          `UPDATE docos SET deleted_at = now(), updated_at = now()
+            WHERE id = $1 AND deleted_at IS NULL
+            RETURNING id, handle`,
+          [opts.docoId],
+        )
+      : opts.handle
+        ? await c.query<{ id: string; handle: string }>(
+            `UPDATE docos SET deleted_at = now(), updated_at = now()
+              WHERE handle = $1 AND deleted_at IS NULL
+              RETURNING id, handle`,
+            [opts.handle],
+          )
+        : (() => {
+            throw new Error("Doco id or handle is required.");
+          })();
+    const row = r.rows[0];
+    return row ? { id: String(row.id), handle: String(row.handle) } : null;
+  });
+}
+
+/**
+ * Hard-delete every Doco tombstoned before `cutoff` — the purge sweep behind
+ * the 30-day grace window. Reuses the proven `DELETE FROM docos` cascade
+ * (ON DELETE CASCADE + the allow-history-delete trigger) so the Doco and all
+ * its rows — nodes, edges, immutable history, grants — go in one shot. Returns
+ * the purged Docos for the sweep's audit log.
+ */
+export async function purgeDocosDeletedBefore(
+  cutoff: Date,
+): Promise<{ id: string; handle: string }[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ id: string; handle: string }>(
+      `DELETE FROM docos
+        WHERE deleted_at IS NOT NULL AND deleted_at < $1
+        RETURNING id, handle`,
+      [cutoff.toISOString()],
+    );
+    return r.rows.map((row) => ({ id: String(row.id), handle: String(row.handle) }));
+  });
 }
 
 /**
