@@ -591,14 +591,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // The Doco shape that carries this: each term is a Reference — its `prose`
     // is the headword (the bare word being defined) and its `definition`
     // attribute is the meaning, so the node's name stays the term and never
-    // swallows its definition. `locator` cites a source; `alternatives` hold
-    // synonyms / deprecated forms. Stewards are Principals. Terms are wired with
-    // `relates_to` (see-also), `has_parent` (a narrower term under its broader
-    // term or category), `replaces` (a preferred term supersedes a deprecated
-    // one), `derived_from` (a definition cites its source), and `attributed_to`
-    // (the steward who owns the term). The four-stage lifecycle IS the
-    // governance flow: `drafting` (proposed) → `queued` (in review) → `active`
-    // (approved, in force) → `retired` (deprecated).
+    // swallows its definition. A term cites its source inline in `locator` (a
+    // URL, standard number, or doc id — provenance is a property of the entry,
+    // not a separate node); `alternatives` hold synonyms / deprecated forms.
+    // Stewards are Principals. Terms are wired with `relates_to` (see-also),
+    // `has_parent` (a narrower term under its broader term or category),
+    // `replaces` (a preferred term supersedes a deprecated one), and
+    // `attributed_to` (the steward who owns the term). The four-stage lifecycle
+    // IS the governance flow: `drafting` (proposed) → `queued` (in review) →
+    // `active` (approved, in force) → `retired` (deprecated).
     name: "glossary",
     label: "Glossary",
     icon: "📖",
@@ -638,10 +639,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Edge-type allowlist (the edge analogue of the node-type allowlist). A
         // glossary wires cross-references and term relationships only.
         policy:
-          "Only these edge types may be used in a glossary: `relates_to` (see-also between related terms), `has_parent` (place a narrower term under its broader term or category), `replaces` (a preferred term supersedes a deprecated one), `derived_from` (cite the source a definition is drawn from), and `attributed_to` (name the Principal who stewards the term).",
+          "Only these edge types may be used in a glossary: `relates_to` (see-also between related terms), `has_parent` (place a narrower term under its broader term or category), `replaces` (a preferred term supersedes a deprecated one), and `attributed_to` (name the Principal who stewards the term). A term cites its source inline in its `locator`, not via an edge.",
         predicate: {
           kind: "requires_edge_type",
-          edge_types: ["relates_to", "has_parent", "replaces", "derived_from", "attributed_to"],
+          edge_types: ["relates_to", "has_parent", "replaces", "attributed_to"],
         },
       },
 
@@ -698,7 +699,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Cite where a definition comes from when it is drawn from an external standard, contract, or document: add a source Reference whose `locator` points at it (and which carries no `definition` of its own) and link the term to it with a `derived_from` edge.",
+          "Cite where a definition comes from when it is drawn from an external standard, contract, or document: put the citation in the term's own `locator` (a URL, standard number, or document id). Source provenance is a property of the entry, not a separate node.",
       },
       {
         policy:
@@ -710,7 +711,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Agents: read `GET /<handle>/api/authoring-contract.json` and write entries with `POST /<handle>/api/changesets.json` — create each term as a Reference with its `definition` (and any `alternatives`), and add its `relates_to` / `has_parent` / `derived_from` / `attributed_to` edges in the same changeset rather than as disconnected nodes.",
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write entries with `POST /<handle>/api/changesets.json` — create each term as a Reference with its `definition` (and any `alternatives`, plus a `locator` when citing a source), and add its `relates_to` / `has_parent` / `attributed_to` edges in the same changeset rather than as disconnected nodes.",
       },
     ],
   },

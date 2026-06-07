@@ -104,7 +104,6 @@ describe("glossary template", () => {
       if (allowlist?.kind !== "requires_edge_type") return;
       expect([...allowlist.edge_types].sort()).toEqual([
         "attributed_to",
-        "derived_from",
         "has_parent",
         "relates_to",
         "replaces",
