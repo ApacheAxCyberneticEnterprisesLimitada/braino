@@ -134,7 +134,19 @@ export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): P
   const t = rec.entity_type;
   if (t === "workspace" || t === "doco" || t === "user") return upsertIdentity(rec, client);
   if (t === "policy") return upsertPolicy(rec, client);
-  if (NODE_TYPE_SET.has(t)) return upsertNode(rec, client);
+  if (NODE_TYPE_SET.has(t)) {
+    // Split the captured bag into the honest NodeRow at the boundary, then write
+    // it. The record's top-level lifecycle/audit win over any stale copy in the
+    // bag, matching the previous `deriveLifecycleColumn` / `rec.created_at ?? …`
+    // precedence.
+    const fields: Record<string, unknown> = { ...rec.data, id: rec.id, doco_id: rec.doco_id };
+    if (rec.lifecycle != null) fields.lifecycle = rec.lifecycle;
+    if (rec.created_at != null) fields.created_at = rec.created_at;
+    if (rec.created_by != null) fields.created_by = rec.created_by;
+    if (rec.updated_at != null) fields.updated_at = rec.updated_at;
+    if (rec.updated_by != null) fields.updated_by = rec.updated_by;
+    return upsertNode(nodeRowFromFields(t, fields), client);
+  }
   throw new Error(`Unknown entity type for storage: ${t}`);
 }
 
@@ -147,44 +159,64 @@ function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): s
 }
 
 /**
- * Upsert a graph node (any of the 10 types) into the unified `nodes` table.
- *
- * Prose: every node carries its content in `prose`; a principal's name is its
- * `prose`. Promoted scalar columns come from NODE_PROMOTED_COLUMNS; every other
- * per-node domain field lives in the unified `extra` bag (the catch-all
- * `data` jsonb was dropped). Graph links live in `edges`. `data.lifecycle` is
- * the source of truth for the lifecycle column.
+ * Split a captured field bag into the honest `NodeRow` the writer stores: the
+ * one boundary where a loose request shape becomes typed columns + `extra`.
+ * `prose` is the text column; the promoted scalars (`kind`/`locator`/
+ * `proposer_id`, per `NODE_PROMOTED_COLUMNS`) become their columns; every other
+ * domain field lands in `extra`; identity/audit/lifecycle map straight across.
+ * This is the WRITE counterpart of `rowToNode` (the read mapper) — both yield a
+ * `NodeRow`, so a node has one in-memory shape on both sides.
  */
-async function upsertNode(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
-  const t = rec.entity_type;
-  // `cleanData` is no longer persisted (the `data` column is gone); we still
-  // derive it to resolve the lifecycle column from `data.lifecycle`.
-  const baseData = stripLegacyProseKeys(rec.data);
-  const cleanData = stripPromotedKeys(t, baseData);
-  const lifecycleCol = deriveLifecycleColumn(rec, cleanData);
+export function nodeRowFromFields(nodeType: string, fields: Record<string, unknown>): NodeRow {
+  const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+  const promoted = (column: string): string | null => {
+    const pc = (NODE_PROMOTED_COLUMNS[nodeType] ?? []).find((p) => p.column === column);
+    return pc ? promotedValue(pc, fields) : null;
+  };
+  return {
+    id: String(fields.id),
+    doco_id: fields.doco_id ? String(fields.doco_id) : "",
+    node_type: nodeType,
+    lifecycle: str(fields.lifecycle),
+    prose: typeof fields.prose === "string" ? fields.prose : "",
+    extra: buildExtra(stripLegacyProseKeys(fields)),
+    kind: promoted("kind"),
+    locator: promoted("locator"),
+    proposer_id: promoted("proposer_id"),
+    created_at: str(fields.created_at),
+    created_by: str(fields.created_by),
+    updated_at: str(fields.updated_at),
+    updated_by: str(fields.updated_by),
+  };
+}
 
-  // Slim-down: principals are ordinary prose nodes now — their name lives in
-  // `prose` (set by capture); the dropped `name`/`body_md`/`role_principal`
-  // columns are gone and there is no separate body.
+/**
+ * Upsert a graph node (any of the 10 types) into the unified `nodes` table from
+ * the honest `NodeRow`: every field maps straight to its column, `extra` to the
+ * jsonb. No bag-splitting here — that's `nodeRowFromFields`'s job at the write
+ * boundary. Graph links live in `edges`. `node.lifecycle` drives the column.
+ */
+async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise<void> {
+  const t = node.node_type;
   const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "extra"];
   const vals: unknown[] = [
-    rec.id,
-    rec.doco_id,
+    node.id,
+    node.doco_id,
     t,
-    lifecycleCol,
-    typeof rec.data.prose === "string" ? rec.data.prose : "",
-    JSON.stringify(buildExtra(rec.data)),
+    node.lifecycle,
+    node.prose,
+    JSON.stringify(node.extra),
   ];
   for (const pc of NODE_PROMOTED_COLUMNS[t] ?? []) {
     cols.push(pc.column);
-    vals.push(promotedValue(pc, rec.data));
+    vals.push((node as unknown as Record<string, unknown>)[pc.column] ?? null);
   }
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
-    rec.created_at ?? new Date().toISOString(),
-    rec.created_by ?? null,
-    rec.updated_at ?? new Date().toISOString(),
-    rec.updated_by ?? null,
+    node.created_at ?? new Date().toISOString(),
+    node.created_by ?? null,
+    node.updated_at ?? new Date().toISOString(),
+    node.updated_by ?? null,
   );
   const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
   // node_type is immutable (the id prefix encodes it); exclude it, id, and
@@ -244,39 +276,6 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
       await run(c);
     });
   }
-}
-
-/**
- * Keys stripped from the `data` jsonb before storage, so the typed column or
- * first-class edge is the single source of truth. DERIVED from
- * `NODE_PROMOTED_COLUMNS` (the `stripFromData` fields) — no per-type override:
- *   - scalars promoted to typed columns (`kind`, `locator`)
- *   - graph-link field names; links live in `edges` (added below).
- *
- * (The long-dead `role_principal` is not stripped here — it has no column and
- * is kept out of `extra` by `EXTRA_EXCLUDED_KEYS`, so it persists nowhere.)
- */
-const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() => {
-  const out: Record<string, Set<string>> = {};
-  for (const [type, columns] of Object.entries(NODE_PROMOTED_COLUMNS)) {
-    const keys = new Set<string>();
-    for (const pc of columns) if (pc.stripFromData) keys.add(pc.field);
-    if (keys.size > 0) out[type] = keys;
-  }
-  return out;
-})();
-
-function stripPromotedKeys(
-  entityType: string,
-  fm: Record<string, unknown>,
-): Record<string, unknown> {
-  const promoted = STRIP_KEYS_BY_TYPE[entityType];
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(fm)) {
-    if (promoted?.has(k) || BLOCKED_NODE_JSON_EDGE_FIELD_SET.has(k)) continue;
-    out[k] = v;
-  }
-  return out;
 }
 
 async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
