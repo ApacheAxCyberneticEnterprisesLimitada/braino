@@ -67,12 +67,13 @@ describe("process template", () => {
       (r) => r.predicate?.kind === "requires_node_type",
     )?.predicate;
 
-    it("includes only process node types", () => {
+    it("includes only process node types (no Intent — a process is an Action)", () => {
       expect(allowlist?.kind).toBe("requires_node_type");
       if (allowlist?.kind !== "requires_node_type") return;
       expect([...allowlist.node_types].sort()).toEqual(
-        ["action", "decision", "eval", "intent", "principal", "reference", "rule", "state"].sort(),
+        ["action", "decision", "eval", "principal", "reference", "rule", "state"].sort(),
       );
+      expect(allowlist.node_types).not.toContain("intent");
     });
 
     it("does not list Doco policy metadata as business-process content", () => {
@@ -86,7 +87,7 @@ describe("process template", () => {
         (r) => r.predicate?.kind === "requires_node_type",
       )?.policy;
       expect(policy ?? "").toMatch(
-        /Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal/i,
+        /Only Action, Decision, State, Eval, Reference, Rule, and Principal/i,
       );
       expect(policy ?? "").not.toMatch(/guidance_policy|node_authoring_policy|policy records/i);
     });
@@ -123,7 +124,7 @@ describe("process template", () => {
     // role-free `requires_edge` distinguished by edge_type + target_node_type +
     // the candidate node type (`when_node_type`). E.g. the Action-performer gate
     // is `requires_edge`(attributed_to → principal) scoped to `action`; the
-    // serves gate is `requires_edge`(supports → intent) scoped to the flow node.
+    // membership gate is `requires_edge`(has_parent → action) scoped to the flow node.
     function requiresEdge(edgeType: string, target: string | null, on: string) {
       return template.policies.find(
         (r) =>
@@ -139,14 +140,14 @@ describe("process template", () => {
       );
     }
 
-    it("Action serves Intent (supports → intent)", () => {
-      expect(requiresEdge("supports", "intent", "action")).toBeDefined();
+    it("Action belongs to a process (has_parent → action)", () => {
+      expect(requiresEdge("has_parent", "action", "action")).toBeDefined();
     });
-    it("Decision serves Intent (supports → intent)", () => {
-      expect(requiresEdge("supports", "intent", "decision")).toBeDefined();
+    it("Decision belongs to a process (has_parent → action)", () => {
+      expect(requiresEdge("has_parent", "action", "decision")).toBeDefined();
     });
-    it("State serves Intent (supports → intent)", () => {
-      expect(requiresEdge("supports", "intent", "state")).toBeDefined();
+    it("State belongs to a process (has_parent → action)", () => {
+      expect(requiresEdge("has_parent", "action", "state")).toBeDefined();
     });
     it("Action attributed to its performer Principal (attributed_to → principal)", () => {
       expect(requiresEdge("attributed_to", "principal", "action")).toBeDefined();
@@ -178,23 +179,35 @@ describe("process template", () => {
       expect(rule?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("fires the flow serves-Intent gate only on committed stages, NOT drafting", () => {
-      // Completeness, not Principal-attachment: serving an Intent is deferrable
-      // while drafting (a step can be sketched before its Intent/pool is
-      // chosen), so the gate fires only on `queued`/`active`. The Principal
-      // attribution gates above still fire in `drafting`.
-      expect(requiresEdge("supports", "intent", "action")?.fires_when_node_lifecycle).toEqual([
+    it("fires the process-membership gate only on committed stages, NOT drafting", () => {
+      // Completeness, not Principal-attachment: belonging to a process is
+      // deferrable while drafting (a step can be sketched before its parent
+      // process/pool is chosen), so the gate fires only on `queued`/`active`.
+      // The Principal attribution gates above still fire in `drafting`.
+      expect(requiresEdge("has_parent", "action", "action")?.fires_when_node_lifecycle).toEqual([
         "queued",
         "active",
       ]);
-      expect(requiresEdge("supports", "intent", "decision")?.fires_when_node_lifecycle).toEqual([
+      expect(requiresEdge("has_parent", "action", "decision")?.fires_when_node_lifecycle).toEqual([
         "queued",
         "active",
       ]);
-      expect(requiresEdge("supports", "intent", "state")?.fires_when_node_lifecycle).toEqual([
+      expect(requiresEdge("has_parent", "action", "state")?.fires_when_node_lifecycle).toEqual([
         "queued",
         "active",
       ]);
+    });
+
+    it("exempts a process container (incoming has_parent) from the membership floor", () => {
+      // The membership floor is a hard block, but a top-level process Action —
+      // the TARGET of its children's `has_parent` — is the root and is excused
+      // via exempt_when_incoming_edge_type so it is never falsely blocked.
+      const floor = requiresEdge("has_parent", "action", "action");
+      expect(floor?.predicate?.kind).toBe("requires_edge");
+      if (floor?.predicate?.kind !== "requires_edge") return;
+      expect(floor.predicate.exempt_when_incoming_edge_type).toBe("has_parent");
+      // A hard block (default), not a warn.
+      expect(floor.on_violation ?? "block").toBe("block");
     });
 
     it("describes edge meaning by type + endpoint node types, never a role tag", () => {
@@ -211,23 +224,23 @@ describe("process template", () => {
     });
   });
 
-  describe("a flow node serves exactly one Intent (serves ceiling)", () => {
-    // The serves floor (requires_edge supports → intent, ≥1) gets a matching
-    // CEILING: every flow node serves AT MOST one Intent, so a flow node belongs
-    // to exactly one BPMN pool. With `role` gone this is a role-free
-    // `limits_edge`(supports → intent, max 1). Like the floor, the ceiling fires
-    // only on the committed stages (`queued`/`active`) — a `drafting` sketch is exempt.
+  describe("a flow node belongs to exactly one process (membership ceiling)", () => {
+    // The membership floor (requires_edge has_parent → action, ≥1) gets a
+    // matching CEILING: every flow node has AT MOST one `has_parent`, so it
+    // belongs to exactly one BPMN pool. A role-free `limits_edge`(has_parent →
+    // action, max 1). Like the floor, the ceiling fires only on the committed
+    // stages (`queued`/`active`) — a `drafting` sketch is exempt.
     const ceiling = template.policies.find(
       (r) =>
         r.predicate?.kind === "limits_edge" &&
-        r.predicate.edge_type === "supports" &&
-        r.predicate.target_node_type === "intent",
+        r.predicate.edge_type === "has_parent" &&
+        r.predicate.target_node_type === "action",
     );
 
-    it("seeds a limits_edge gate on the `supports` edge to an Intent, capped at one", () => {
+    it("seeds a limits_edge gate on the `has_parent` edge to a process Action, capped at one", () => {
       expect(ceiling?.predicate?.kind).toBe("limits_edge");
       if (ceiling?.predicate?.kind !== "limits_edge") return;
-      expect(ceiling.predicate.target_node_type).toBe("intent");
+      expect(ceiling.predicate.target_node_type).toBe("action");
       expect(ceiling.predicate.max_count).toBe(1);
       expect([...(ceiling.predicate.when_node_type ?? [])].sort()).toEqual([
         "action",
@@ -237,8 +250,8 @@ describe("process template", () => {
     });
 
     it("blocks (hard) and fires only on committed stages — NOT drafting", () => {
-      // A node never serves two Intents once committed; while drafting the
-      // ceiling is exempt, symmetric with the `serves` floor it complements.
+      // A node never belongs to two processes once committed; while drafting the
+      // ceiling is exempt, symmetric with the membership floor it complements.
       expect(ceiling?.on_violation ?? "block").toBe("block");
       expect(ceiling?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
@@ -249,80 +262,27 @@ describe("process template", () => {
       expect(seeded.kind).toBe("deterministic");
       expect(seeded.on_violation).toBe("block");
       expect(seeded.predicate.sub_kind).toBe("limits_edge");
-      expect(seeded.predicate.edge_type).toBe("supports");
-      expect(seeded.predicate.target_node_type).toBe("intent");
+      expect(seeded.predicate.edge_type).toBe("has_parent");
+      expect(seeded.predicate.target_node_type).toBe("action");
       expect(seeded.predicate.max_count).toBe(1);
       expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
   });
 
-  describe("sub-process naming (edge-scoped)", () => {
-    // A sub-process pairs a calling Action with a child purpose Intent through
-    // a `supports` edge; the Intent's name should be the base (imperative) form
-    // of the third-person Action (`Posts a job` → `Post a job`). The convention
-    // spans two nodes, so it is enforced on the EDGE, where the judge sees both
-    // endpoints — not on either node alone. With `role` gone the edge is scoped
-    // by edge_type + endpoint node types only.
-    const edgeRule = template.policies.find((r) => r.predicate?.kind === "edge-probabilistic");
-
-    it("is an edge-probabilistic policy on the Action→Intent supports edge", () => {
-      expect(edgeRule).toBeDefined();
-      if (edgeRule?.predicate?.kind !== "edge-probabilistic") throw new Error("missing edge rule");
-      expect(edgeRule.predicate.edge_type).toBe("supports");
-      expect(edgeRule.predicate).not.toHaveProperty("edge_role");
-      expect(edgeRule.predicate.from_node_type).toBe("action");
-      expect(edgeRule.predicate.to_node_type).toBe("intent");
+  describe("no Intent / subprocess-naming policies remain", () => {
+    it("seeds no edge-probabilistic subprocess-naming policy (a process is an Action now)", () => {
+      expect(
+        template.policies.find((r) => r.predicate?.kind === "edge-probabilistic"),
+      ).toBeUndefined();
     });
 
-    it("spec compares both endpoints and gates ordinary flow-step serves edges", () => {
-      if (edgeRule?.predicate?.kind !== "edge-probabilistic") throw new Error("missing edge rule");
-      const { spec } = edgeRule.predicate;
-      // Names both endpoints, the base-form rule, and the worked example.
-      expect(spec).toMatch(/base \(imperative\) verb form|base form/i);
-      expect(spec).toMatch(/Posts a job/);
-      expect(spec).toMatch(/Post a job/);
-      // A STEP-1 gate so ordinary step→purpose `serves` edges PASS (not graded).
-      expect(spec).toMatch(/STEP 1/i);
-      expect(spec).toMatch(/sub-?process/i);
-    });
-
-    it("seeds as a blocking probabilistic policy carrying the edge scoping", () => {
-      if (!edgeRule) throw new Error("missing edge rule");
-      const seeded = templatePolicyToPolicyRow(edgeRule);
-      expect(seeded.kind).toBe("probabilistic");
-      expect(seeded.on_violation).toBe("block");
-      // The edge scoping rides on the seeded predicate; no node-type filter,
-      // and no role tag (role is gone).
-      expect(seeded.predicate.agent_instruction).toMatch(/sub-?process|base form/i);
-      expect(seeded.predicate.edge_type).toBe("supports");
-      expect(seeded.predicate).not.toHaveProperty("edge_role");
-      expect(seeded.predicate.from_node_type).toBe("action");
-      expect(seeded.predicate.to_node_type).toBe("intent");
-      expect(seeded.predicate.when_node_type).toBeUndefined();
-    });
-  });
-
-  describe("Intent shape", () => {
-    const intentRule = template.policies.find(
-      (r) =>
-        r.predicate?.kind === "probabilistic" &&
-        r.predicate.when_node_type?.includes("intent") &&
-        /Read the ENTIRE/i.test(r.predicate.spec),
-    );
-
-    it("grades the WHOLE intent field for a concise process purpose, never a line", () => {
-      expect(intentRule?.predicate?.kind).toBe("probabilistic");
-      if (intentRule?.predicate?.kind !== "probabilistic") return;
-      // Graded over the entire field — a concise process purpose…
-      expect(intentRule.predicate.spec).toMatch(/entire|whole field/i);
-      expect(intentRule.predicate.spec).toMatch(/concise|focused/i);
-      expect(intentRule.predicate.spec).toMatch(/repeatable (business )?process/i);
-      // …and it must NOT grade or privilege "the first line" (the line-shaped
-      // check distorted the field's vector embedding).
-      expect(intentRule.predicate.spec).not.toMatch(/first line/i);
-      // The Intent also no longer restates trigger / outcome / out-of-scope.
-      expect(intentRule.predicate.spec).not.toMatch(/trigger/i);
-      expect(intentRule.predicate.spec).not.toMatch(/out of scope|out-of-scope/i);
+    it("scopes no policy to the Intent node type", () => {
+      for (const p of template.policies) {
+        const pred = p.predicate;
+        if (pred && "when_node_type" in pred && pred.when_node_type) {
+          expect(pred.when_node_type).not.toContain("intent" as never);
+        }
+      }
     });
   });
 
@@ -391,11 +351,11 @@ describe("process template", () => {
   });
 
   describe("actor coverage (enforced)", () => {
-    it("ENFORCES that each actor Principal performs ≥1 Action, exempting the owner", () => {
-      // With `role` gone, the per-step coverage gate is an INCOMING
-      // `requires_edge`(attributed_to) on a Principal, constrained so the far
-      // (from) end is an Action, and exempt when the principal is the target of
-      // an attributed_to edge from an Intent (the accountable process owner).
+    it("ENFORCES that each actor Principal is named by ≥1 Action's attributed_to", () => {
+      // The per-step coverage gate is an INCOMING `requires_edge`(attributed_to)
+      // on a Principal, constrained so the far (from) end is an Action. The
+      // process owner is covered too — a process is an Action, so the edge naming
+      // its owner is itself "an Action's attributed_to", needing no exemption.
       const rule = template.policies.find(
         (r) =>
           r.predicate?.kind === "requires_edge" &&
@@ -406,28 +366,9 @@ describe("process template", () => {
       if (rule?.predicate?.kind !== "requires_edge") return;
       expect(rule.predicate.edge_type).toBe("attributed_to");
       expect(rule.predicate.target_node_type).toBe("action");
-      expect(rule.predicate.exempt_when_other_node_type).toBe("intent");
+      // No Intent exemption — the Intent node type is gone from the process model.
+      expect(rule.predicate.exempt_when_other_node_type).toBeUndefined();
       expect(rule.predicate.when_node_type).toEqual(["principal"]);
-      // A nudge, not a hard block — the owner exemption keeps it from false-firing.
-      expect(rule.on_violation).toBe("warn");
-      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
-    });
-
-    it("ENFORCES that the process Intent names an accountable owner", () => {
-      // The owner gate is an OUTGOING `requires_edge`(attributed_to → principal)
-      // scoped to Intents (no direction). With `role` gone, the source node type
-      // (intent) is what marks this attribution as ownership.
-      const rule = template.policies.find(
-        (r) =>
-          r.predicate?.kind === "requires_edge" &&
-          r.predicate.edge_type === "attributed_to" &&
-          r.predicate.direction !== "incoming" &&
-          (r.predicate.when_node_type?.includes("intent") ?? false),
-      );
-      expect(rule?.predicate?.kind).toBe("requires_edge");
-      if (rule?.predicate?.kind !== "requires_edge") return;
-      expect(rule.predicate.edge_type).toBe("attributed_to");
-      expect(rule.predicate.target_node_type).toBe("principal");
       expect(rule.on_violation).toBe("warn");
       expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
@@ -519,9 +460,10 @@ describe("process template", () => {
       expect(rule?.predicate?.kind).toBe("probabilistic");
       if (rule?.predicate?.kind !== "probabilistic") return;
       expect(rule.predicate.when_node_type).toEqual(
-        expect.arrayContaining(["intent", "action", "decision", "state", "eval", "rule"]),
+        expect.arrayContaining(["action", "decision", "state", "eval", "rule"]),
       );
       expect(rule.predicate.when_node_type).not.toContain("reference");
+      expect(rule.predicate.when_node_type).not.toContain("intent");
       expect(rule.predicate.spec).toMatch(/Implementation status/i);
       expect(rule.predicate.spec).toMatch(/Source type/i);
       expect(rule.predicate.spec).toMatch(/exclusiveGateway/i);
@@ -541,19 +483,10 @@ describe("process template", () => {
     it("tells agents to use relate_many for gateway siblings", () => {
       expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
     });
-    it("tells agents to name a subprocess Intent as the base form of the calling Action", () => {
-      // A subprocess pairs a calling Action with a child purpose Intent via
-      // `serves`. The Action verb is typically third-person (`Posts a job`);
-      // its child Intent should be the base/imperative form (`Post a job`).
-      expect(
-        summaries.some(
-          (s) =>
-            /sub-?process/i.test(s) &&
-            /base form/i.test(s) &&
-            /Posts a job/i.test(s) &&
-            /Post a job/i.test(s),
-        ),
-      ).toBe(true);
+    it("tells agents a subprocess is a member Action with its own has_parent children", () => {
+      // A subprocess is no longer a calling-Action ↔ purpose-Intent pairing: it
+      // is simply a member Action that itself has `has_parent` children.
+      expect(summaries.some((s) => /sub-?process/i.test(s) && /has_parent/i.test(s))).toBe(true);
     });
     it("documents the four-stage lifecycle (drafting → queued → active → retired) and its changeset ops", () => {
       expect(
@@ -613,10 +546,9 @@ describe("process template", () => {
       expect(gate?.predicate?.kind).toBe("probabilistic");
       if (gate?.predicate?.kind !== "probabilistic") return;
       const types = gate.predicate.when_node_type ?? [];
-      expect(types).toEqual(
-        expect.arrayContaining(["intent", "action", "decision", "eval", "reference"]),
-      );
+      expect(types).toEqual(expect.arrayContaining(["action", "decision", "eval", "reference"]));
       expect(types).not.toContain("rule");
+      expect(types).not.toContain("intent");
     });
 
     it("exempts State — milestone States are structural flow nodes, not membership candidates", () => {
@@ -694,11 +626,12 @@ describe("edge-type allowlists (requires_edge_type)", () => {
     return p?.predicate?.kind === "requires_edge_type" ? [...p.predicate.edge_types] : undefined;
   }
 
-  it("process allows BPMN edge types and bars has_parent / relates_to", () => {
+  it("process allows BPMN edge types incl. has_parent (process membership) and bars relates_to", () => {
     const a = allowlistOf("process");
     expect(a && new Set(a)).toEqual(
       new Set([
         "flows_to",
+        "has_parent",
         "supports",
         "attributed_to",
         "constrained_by",
@@ -706,7 +639,7 @@ describe("edge-type allowlists (requires_edge_type)", () => {
         "derived_from",
       ]),
     );
-    expect(a).not.toContain("has_parent");
+    expect(a).toContain("has_parent");
     expect(a).not.toContain("relates_to");
   });
 

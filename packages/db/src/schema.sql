@@ -2216,3 +2216,67 @@ UPDATE policies
 -- it MUST run before the built-in seed, or the seed's `kind='process'` row trips
 -- the old constraint and aborts the whole apply. See that block above.
 -- ── end business-processes → process rename ─────────────────────────────────
+
+-- ── Process model: promote process Intents to Actions ───────────────────────
+-- The BPMN/process perspective no longer groups work under Intents. A process
+-- is now an Action with `has_parent` children (its members). Existing process
+-- Docos modeled pools as Intents and membership as `supports` (flow node →
+-- Intent), so migrate them ONCE:
+--
+--   • Each Intent in a `process` Doco is renamed `intent_<ulid>` → `action_<ulid>`
+--     and its node_type set to `action`. The id prefix is load-bearing (the
+--     authoring evaluator types edge endpoints from the id), so the rename
+--     cascades to every table that references a node id — edges (real FKs,
+--     DEFERRABLE), node_versions, embeddings, entity_fts_nodes, audit_events.
+--   • Each membership edge — a flow node's `supports` → that former Intent —
+--     becomes `has_parent` → the promoted Action.
+--
+-- Guarded by a one-shot marker; a fresh DB has no process Intents and simply
+-- records the marker. Runs AFTER the business-processes → process rename above,
+-- so process Docos already carry template_handle = 'process'.
+DO $$
+DECLARE rec record;
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM schema_oneshots WHERE name = 'process_intent_to_action') THEN
+    IF to_regclass('public.nodes') IS NOT NULL AND to_regclass('public.edges') IS NOT NULL THEN
+      FOR rec IN
+        SELECT n.id AS old_id, ('action_' || substr(n.id, 8)) AS new_id
+          FROM nodes n
+          JOIN docos d ON d.id = n.doco_id
+         WHERE n.node_type = 'intent'
+           AND d.data ->> 'template_handle' IN ('process', 'business-processes')
+      LOOP
+        -- Insert the promoted Action under the new id (copying the Intent's
+        -- columns), re-point everything that referenced the old id, then drop
+        -- the old Intent. This insert-then-repoint-then-delete order keeps the
+        -- edges→nodes FKs satisfied at every step (no reliance on deferral):
+        -- both ids exist while edges move, and the old node is removed only
+        -- once nothing points at it.
+        INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, proposer_id, kind, locator,
+                           extra, created_at, created_by, updated_at, updated_by)
+          SELECT rec.new_id, doco_id, 'action', lifecycle, prose, proposer_id, kind, locator,
+                 extra, created_at, created_by, updated_at, updated_by
+            FROM nodes WHERE id = rec.old_id;
+        UPDATE edges           SET from_id   = rec.new_id WHERE from_id   = rec.old_id;
+        UPDATE edges           SET to_id     = rec.new_id WHERE to_id     = rec.old_id;
+        UPDATE node_versions   SET entity_id = rec.new_id WHERE entity_id = rec.old_id;
+        UPDATE embeddings      SET entity_id = rec.new_id WHERE entity_id = rec.old_id;
+        UPDATE entity_fts_nodes SET entity_id = rec.new_id WHERE entity_id = rec.old_id;
+        UPDATE audit_events    SET entity_id = rec.new_id WHERE entity_id = rec.old_id;
+        DELETE FROM nodes WHERE id = rec.old_id;
+        -- A flow node's `supports` → this former Intent WAS its pool membership;
+        -- it is now `has_parent` → the promoted process Action.
+        UPDATE edges
+           SET edge_type = 'has_parent', to_node_type = 'action'
+         WHERE to_id = rec.new_id
+           AND edge_type = 'supports'
+           AND from_node_type IN ('action', 'decision', 'state');
+        -- Any remaining edge endpoint that still typed the node as an Intent.
+        UPDATE edges SET to_node_type   = 'action' WHERE to_id   = rec.new_id AND to_node_type   = 'intent';
+        UPDATE edges SET from_node_type = 'action' WHERE from_id = rec.new_id AND from_node_type = 'intent';
+      END LOOP;
+    END IF;
+    INSERT INTO schema_oneshots (name) VALUES ('process_intent_to_action');
+  END IF;
+END $$;
+-- ── end process-Intent → Action promotion ───────────────────────────────────

@@ -184,6 +184,12 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Exempt when other endpoint is node type (optional)",
         partLabel: "exempt when other",
       },
+      {
+        name: "exempt_when_incoming_edge_type",
+        control: "edge-type",
+        formLabel: "Exempt when target of incoming edge type (optional)",
+        partLabel: "exempt when incoming",
+      },
       WHEN_NODE_TYPE_FIELD,
     ],
     evaluate: (pred, ctx) => {
@@ -201,6 +207,19 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
           return false;
         });
         if (exempt) return null;
+      }
+      // Container exemption: a candidate that is the TARGET of ≥1 incoming edge
+      // of `exempt_when_incoming_edge_type` is a parent/process container, not a
+      // per-step member — excuse it from the floor (e.g. a process Action with
+      // `has_parent` children needs no `has_parent` of its own).
+      if (
+        pred.exempt_when_incoming_edge_type &&
+        ctx.edges.some(
+          (s) =>
+            s.to_id === ctx.candidate.id && s.edge_type === pred.exempt_when_incoming_edge_type,
+        )
+      ) {
+        return null;
       }
       const { matches, direction } = directedMatchingEdges(pred, ctx);
       const min = pred.min_count && pred.min_count > 0 ? pred.min_count : 1;
@@ -366,9 +385,27 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Terminal when",
         partLabel: "terminal when",
       },
+      {
+        name: "exempt_when_incoming_edge_type",
+        control: "edge-type",
+        formLabel: "Exempt when target of incoming edge type (optional)",
+        partLabel: "exempt when incoming",
+      },
       WHEN_NODE_TYPE_FIELD,
     ],
     evaluate: (pred, ctx) => {
+      // A process container (the target of ≥1 incoming `has_parent`) is a pool,
+      // not a sequenced step, so it carries no `flows_to` and is excused from
+      // the wiring checks below.
+      if (
+        pred.exempt_when_incoming_edge_type &&
+        ctx.edges.some(
+          (s) =>
+            s.to_id === ctx.candidate.id && s.edge_type === pred.exempt_when_incoming_edge_type,
+        )
+      ) {
+        return null;
+      }
       const isInitial =
         pred.initial_when !== undefined &&
         ctx.candidate[pred.initial_when.field] === pred.initial_when.equals;

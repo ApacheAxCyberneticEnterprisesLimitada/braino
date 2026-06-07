@@ -240,9 +240,9 @@ function decisionRecordPolicies(opts: DecisionRecordTemplatePolicyOptions): Temp
  * `drafting → queued → active → retired`. A node an author has explicitly
  * `queue`d is asserting it is ready to go live, so it must already satisfy
  * the same actor attribution (an `attributed_to` edge to a Principal), the
- * Intent it serves (a `supports` edge), and forward `flows_to` wiring an
- * `active` node does — otherwise "ready" is a lie the BPMN renderer can't
- * draw. Only a `drafting` sketch may be incomplete.
+ * process it belongs to (a `has_parent` edge to its process Action), and
+ * forward `flows_to` wiring an `active` node does — otherwise "ready" is a lie
+ * the BPMN renderer can't draw. Only a `drafting` sketch may be incomplete.
  *
  * This is scoped to process on purpose: it is the one template
  * that defaults new nodes to `drafting` and carries a real
@@ -565,12 +565,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // treated as BPMN arrows.
     //
     // Lifecycle: nodes default to `drafting` so a process can be sketched
-    // freely; the completeness + shape rules — including serving an Intent and
-    // naming the actor / decider Principal (an Action's and a gateway Decision's
-    // `attributed_to` edge to a Principal) — fire on the committed stages
-    // (`queued` and `active`) only (BUSINESS_PROCESS_COMMITTED_LIFECYCLES), so a
-    // step can be drafted before its actor, decider, or Intent/pool is chosen,
-    // and is held to the full bar only once it is committed.
+    // freely; the completeness + shape rules — including `has_parent` process
+    // membership and naming the actor / decider Principal (an Action's and a
+    // gateway Decision's `attributed_to` edge to a Principal) — fire on the
+    // committed stages (`queued` and `active`) only
+    // (BUSINESS_PROCESS_COMMITTED_LIFECYCLES), so a step can be drafted before
+    // its actor, decider, or parent process/pool is chosen, and is held to the
+    // full bar only once it is committed.
     name: "process",
     label: "process",
     icon: "🔁",
@@ -608,7 +609,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           spec: "A node belongs in process when it describes a workflow — a sequence of steps with actors and an outcome — or a policy/guard for one. Workflows can be commercial, operational, or personal; what matters is that the work is repeatable and the steps can be named. Pass when the candidate describes a step, gateway, milestone, validation, reference, or policy for such a workflow. Fail only when the candidate is a one-off incident with no repeatable structure, a UI-specific user journey, or a pure state machine without a workflow outcome.",
-          when_node_type: ["intent", "action", "decision", "eval", "reference"],
+          when_node_type: ["action", "decision", "eval", "reference"],
         },
       },
       {
@@ -618,36 +619,29 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Doco-scoped metadata and bypass template membership gates in the
         // authoring evaluator.
         policy:
-          "Only Intent, Action, Decision, State, Eval, Reference, Rule, and Principal belong here. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
+          "Only Action, Decision, State, Eval, Reference, Rule, and Principal belong here. A process is an Action with one or more flow nodes linked to it by `has_parent` (its members); there is no separate Intent node. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
           kind: "requires_node_type",
-          node_types: [
-            "intent",
-            "action",
-            "decision",
-            "state",
-            "eval",
-            "reference",
-            "rule",
-            "principal",
-          ],
+          node_types: ["action", "decision", "state", "eval", "reference", "rule", "principal"],
         },
       },
       {
         // Edge-type allowlist (the edge analogue of the node-type allowlist
-        // above). A business process wires sequence flow (`flows_to`), pool
-        // membership and validation/rationale/evidence (`supports`), actor /
-        // decider / owner attribution (`attributed_to`), policy guards
+        // above). A business process wires sequence flow (`flows_to`), process
+        // membership / subprocess nesting (`has_parent`, flow node → its parent
+        // process Action), validation/rationale/evidence (`supports`), actor /
+        // decider attribution (`attributed_to`), policy guards
         // (`constrained_by`), supersession (`replaces`), and provenance
-        // (`derived_from`). Org-chart hierarchy (`has_parent`) and bare
-        // associative links (`relates_to`) have no BPMN meaning, so they are
-        // barred — keeping a process graph drawable as swimlanes + sequence flow.
+        // (`derived_from`). Bare associative links (`relates_to`) have no BPMN
+        // meaning, so they are barred — keeping a process graph drawable as
+        // swimlanes + sequence flow.
         policy:
-          "Only these relationship edge types may be used in a process Doco: `flows_to`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. Hierarchy (`has_parent`) and bare `relates_to` links belong in other Doco kinds.",
+          "Only these relationship edge types may be used in a process Doco: `flows_to`, `has_parent`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. A flow node's `has_parent` to a process Action is its pool membership. Bare `relates_to` links belong in other Doco kinds.",
         predicate: {
           kind: "requires_edge_type",
           edge_types: [
             "flows_to",
+            "has_parent",
             "supports",
             "attributed_to",
             "constrained_by",
@@ -667,21 +661,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           "Process prose must not contain raw BPMN/import scaffolding tokens — camelCase BPMN element types or generated element ids leaked from an importer.",
         predicate: {
           kind: "forbids_field_pattern",
-          fields: [
-            "intent",
-            "action",
-            "decision",
-            "question",
-            "chosen",
-            "state",
-            "rule",
-            "eval",
-            "name",
-          ],
+          fields: ["action", "decision", "question", "chosen", "state", "rule", "eval", "name"],
           pattern:
             "(exclusiveGateway|parallelGateway|inclusiveGateway|eventBasedGateway|(?:Gateway|Task|UserTask|ServiceTask|SequenceFlow|StartEvent|EndEvent|BoundaryEvent|SubProcess|DataObject)_[A-Za-z0-9]+|user asks:)",
           flags: "i",
-          when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
+          when_node_type: ["action", "decision", "state", "eval", "rule", "principal"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
@@ -694,8 +678,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "block",
         predicate: {
           kind: "probabilistic",
-          spec: 'Check the candidate\'s visible user-facing text fields, including name, intent, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
-          when_node_type: ["intent", "action", "decision", "state", "eval", "rule", "principal"],
+          spec: 'Check the candidate\'s visible user-facing text fields, including name, action, decision, question, chosen, state, rule, and eval text. PASS when the text reads as business-process language for an operator or process reader, and any BPMN/source/import/code-evidence details are absent from visible prose or kept only in structured metadata, References, or audit/history. FAIL when visible text contains raw import scaffolding or implementation/source metadata, including phrases or patterns like "BPMN gateway", "BPMN task", "Gateway_...", "Implementation status", "Code evidence", "Source type", "exclusiveGateway", "user asks:", raw BPMN ids, generated object ids, or notes about code evidence discovered during import. Do not fail merely because a real business term happens to mention a job type, gateway, source, or implementation in ordinary process language; fail only when the prose exposes importer/debug/source metadata instead of the process meaning.',
+          when_node_type: ["action", "decision", "state", "eval", "rule", "principal"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
@@ -714,25 +698,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
 
-      // ── Intent shape ────────────────────────────────────────────
+      // ── Process shape (prose guidance) ──────────────────────────
       {
-        // Whole-field judge: the purpose Intent identifies a single
-        // repeatable business process and reads as a concise statement of its
-        // purpose. Graded over the ENTIRE `intent` field — never a single
-        // line. A line-shaped check (the former `field-line-shape` floor +
-        // "first line" judge) distorted the field's vector embedding and
-        // forced a headline structure into the prose; if a short process name
-        // is wanted it is the author's to phrase within the field, not a
-        // separately-graded first line. The Intent also no longer restates the
-        // trigger, terminal outcome, or out-of-scope boundary — those live
-        // structurally as the process's initial State, terminal State, and
-        // flow wiring.
-        predicate: {
-          kind: "probabilistic",
-          spec: "Read the ENTIRE `prose` field. PASS when it identifies a single repeatable business process — recognizable as a verb + object (e.g. `publish a job`), optionally with an adjective or adverb — and reads as a concise statement of that process's purpose. FAIL when no single process is identifiable, when several distinct processes are bundled together, or when it sprawls into a multi-paragraph specification instead of a focused purpose. Grade the whole field; do not privilege or judge any single line.",
-          when_node_type: ["intent"],
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+        // A process is an Action with `has_parent` children. Its prose names
+        // the whole repeatable process (a verb + object, e.g. `publish a
+        // job`), while its member Actions name the individual steps. There is
+        // no separate Intent node and no calling-Action ↔ purpose-Intent
+        // pairing: the process Action *is* the pool, and a member Action that
+        // itself has children simply renders as a collapsed subprocess.
+        policy:
+          "Model a process as an Action that names the whole repeatable activity (a verb + object, e.g. `publish a job`) and give it member flow nodes via `has_parent` edges pointing at it. A step that is itself a whole process becomes a subprocess automatically — it is a member Action that also has its own `has_parent` children; do not create a separate purpose node for it.",
       },
 
       // ── Action shape ────────────────────────────────────────────
@@ -755,66 +730,43 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
-        // One rule for all three flow-node types, filtered by `when_node_type`.
-        // With roles gone, a flow node's `supports` edge to an Intent IS its
-        // pool membership ("serves") — the endpoint types (flow node → intent)
-        // carry the meaning. Without it the BPMN renderer can't place the node
-        // in a pool, and the step floats free of the business outcome it advances.
+        // Process membership — one rule for all three flow-node types. A flow
+        // node belongs to a process through a `has_parent` edge to the process
+        // Action; that edge IS its BPMN pool membership. A hard block once
+        // committed: an unattached step has no pool. The one structural
+        // exemption (`exempt_when_incoming_edge_type: has_parent`) excuses a
+        // top-level process Action — the root, which is the TARGET of its
+        // children's `has_parent` and so needs no parent of its own.
         policy:
-          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the Intent it serves with a `supports` edge to that Intent. Without it the BPMN renderer can't place the node in a pool, and the step floats free of the business outcome it advances. A `drafting` sketch may defer this link.",
+          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. A top-level process Action (the target of its members' `has_parent`) is the root and is exempt; a `drafting` sketch may defer the link.",
         predicate: {
           kind: "requires_edge",
-          edge_type: "supports",
-          target_node_type: "intent",
+          edge_type: "has_parent",
+          target_node_type: "action",
+          // A process Action (the target of incoming `has_parent` children) is a
+          // pool, not a member — it needs no parent of its own.
+          exempt_when_incoming_edge_type: "has_parent",
           when_node_type: ["action", "decision", "state"],
         },
-        // Completeness — a flow node need NOT serve an Intent while it is a
-        // `drafting` sketch (so a step can be drafted before its Intent/pool is
-        // chosen); the link is required once the node is committed (`queued` or
-        // `active`), like the actor/decider completeness gates.
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
-        // The CEILING that complements the serves FLOOR above. With roles gone, a
-        // flow node's `supports` edge to an Intent IS its pool membership; this
-        // caps it at one, so combined with the ≥1 gate a committed flow node
-        // belongs to EXACTLY one BPMN pool. A node linked to two Intents is
-        // ambiguous: the renderer can't decide which pool owns it, and the step's
-        // business purpose is no longer singular. Like the floor it mirrors, it
-        // fires on the committed stages only (BUSINESS_PROCESS_COMMITTED_LIFECYCLES)
-        // — a `drafting` sketch is exempt. A sub-process calling Action links only
-        // to its child purpose Intent (its pool) and is woven into the parent flow
-        // by `flows_to`, so it too stays single-Intent. Re-point by retiring the
-        // old `supports` edge before adding the new one; endpoints are immutable.
+        // The CEILING that complements the membership FLOOR above: a flow node's
+        // `has_parent` to a process Action is its pool membership, capped at one,
+        // so a committed flow node belongs to EXACTLY one BPMN pool. A node
+        // linked to two parent processes is ambiguous — the renderer can't decide
+        // which pool owns it. A `drafting` sketch is exempt. Re-point by retiring
+        // the old `has_parent` edge before adding the new one; endpoints are immutable.
         policy:
-          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to AT MOST one Intent via `supports`: it belongs to exactly one process pool. Combined with the gate that requires at least one Intent on a committed node, a flow node serves exactly one. A node linked to two Intents is ambiguous — the BPMN renderer can't place it in a single pool. A `drafting` sketch is exempt. Re-point by retiring the old `supports` edge before adding the new one.",
+          "Every committed (`queued` or `active`) flow node in process belongs to AT MOST one process: it carries at most one `has_parent` edge to a process Action. A node linked to two parent processes is ambiguous — the BPMN renderer can't place it in a single pool. A `drafting` sketch is exempt. Re-point by retiring the old `has_parent` edge before adding the new one.",
         predicate: {
           kind: "limits_edge",
-          edge_type: "supports",
-          target_node_type: "intent",
+          edge_type: "has_parent",
+          target_node_type: "action",
           max_count: 1,
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-      {
-        // Sub-process naming, enforced on the EDGE (not on either node). A
-        // sub-process is designed by connecting a calling Action to a child
-        // purpose Intent with a `supports` edge; the Intent's name should be the
-        // base (imperative) form of that Action (`Posts a job` → `Post a job`).
-        // The convention spans two nodes, so it can't live on either alone — the
-        // node judge sees only its own candidate. This edge-scoped check fires
-        // when the Action→Intent `supports` edge is created and hands the judge
-        // BOTH endpoints. A STEP-1 gate makes ordinary flow-step links (an Action
-        // that is merely one step, not a sub-process expansion) PASS, so only
-        // true sub-process pairings are graded.
-        predicate: {
-          kind: "edge-probabilistic",
-          edge_type: "supports",
-          from_node_type: "action",
-          to_node_type: "intent",
-          spec: "You are checking a `supports` relationship from an Action (the `action` endpoint) to a purpose Intent (the `intent` endpoint). STEP 1 — decide whether this is a SUB-PROCESS pairing: the Intent names the SAME single activity as the Action, expanded into its own process (e.g. Action `Posts a job` ↔ Intent `Post a job`). If instead the Action is merely one step within a broader process the Intent names (e.g. Action `review the application` supporting Intent `Approve a consumer loan`), this is an ordinary flow-step link, not a sub-process — PASS, the rule does not apply. STEP 2 — for a sub-process pairing, PASS when the Intent's name is the base (imperative) verb form of the Action, i.e. the Action's third-person verb converted to its base form (`Posts a job` → `Post a job`, `Approves the invoice` → `Approve the invoice`). FAIL with `intent name is not the base form of the action` when the Intent's name is in the third-person singular present tense (a verb ending in `-s`) or otherwise does not read as the base-form imperative of the same activity.",
-        },
       },
       {
         // Atomic activity prose — surface umbrella phases and
@@ -919,6 +871,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           edge_type: "flows_to",
           initial_when: { field: "kind", equals: "initial" },
           terminal_when: { field: "kind", equals: "terminal" },
+          // A process container Action (with `has_parent` children) is a pool,
+          // not a sequenced step — it carries no `flows_to` and is exempt.
+          exempt_when_incoming_edge_type: "has_parent",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
@@ -937,39 +892,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Coverage ────────────────────────────────────────────────
       {
         // Every actor Principal earns its swim lane by being the target of ≥1
-        // Action's `attributed_to` edge (an incoming performer link). A `warn`,
-        // and structurally exempt for the accountable owner — the Principal an
-        // Intent is `attributed_to` — who performs no step yet is legitimately
-        // present. With roles gone, performer vs owner is told apart by the
-        // OTHER endpoint's type: an incoming `attributed_to` from an Action is a
-        // performer link; one from an Intent marks the owner.
+        // Action's `attributed_to` edge (an incoming performer link). A `warn`.
+        // The process owner is covered too: a process is an Action, so the
+        // `attributed_to` edge naming its owner is itself "an Action's
+        // attributed_to edge" — no special exemption is needed anymore.
         on_violation: "warn",
         policy:
-          "Each actor Principal in the process is the target of at least one Action's `attributed_to` edge. The single accountable process owner — the Principal an Intent is attributed to — is exempt.",
+          "Each actor Principal in the process is the target of at least one Action's `attributed_to` edge — either as a step's performer or as a process Action's accountable owner.",
         predicate: {
           kind: "requires_edge",
           edge_type: "attributed_to",
           direction: "incoming",
           target_node_type: "action",
-          exempt_when_other_node_type: "intent",
           when_node_type: ["principal"],
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-      {
-        // The accountable process owner — a `warn` gate. A committed process
-        // Intent should be attributed to its owner via an `attributed_to` edge
-        // to a Principal. Kept as `warn` (not block) because a sub-process child
-        // Intent may inherit ownership rather than re-declare it, and we don't
-        // want to false-positive on those.
-        on_violation: "warn",
-        policy:
-          "Name the single accountable process owner in the purpose Intent and link it with an `attributed_to` edge to the Principal answerable for the whole process's outcome (the RACI 'Accountable' role, distinct from the per-step performers).",
-        predicate: {
-          kind: "requires_edge",
-          edge_type: "attributed_to",
-          target_node_type: "principal",
-          when_node_type: ["intent"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
@@ -993,27 +928,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Use one linked Intent per concrete process when the Doco is large. Split on a durable ownership boundary, reuse across multiple parents, or pure readability.",
+          "Split a large process into nested subprocesses on a durable ownership boundary, for reuse across multiple parents, or for pure readability. A subprocess is just a member Action that has its own `has_parent` children.",
       },
       {
         policy:
-          "When a step is itself a whole sub-process, model it as its own child process Intent and connect the calling Action to it with a `supports` edge instead of inlining dozens of Actions. The BPMN view collapses the child Intent into its own pool, keeping the parent process readable.",
-      },
-      {
-        // The naming convention that keeps an Action→Intent `supports` pairing
-        // legible: the same activity is named once as work performed (the
-        // Action, third-person — `Posts a job`) and once as the goal it serves
-        // (the child purpose Intent, imperative base form — `Post a job`). This
-        // is authoring guidance, not an enforced gate: the convention spans two
-        // nodes (compare the child Intent's name against the calling Action's),
-        // and the write-time judge only sees the single candidate's fields, so
-        // it can't compare across the `supports` edge.
-        policy:
-          "Name a sub-process by pairing a calling Action with a child purpose Intent through a `supports` edge, and derive the Intent's name from that Action: take the base form (the imperative) of the Action's verb, which is normally written third-person. For example, the Action `Posts a job` becomes the child Intent `Post a job`. The two read as the same activity — one as the work performed, one as the goal it serves.",
+          "When a step is itself a whole subprocess, give that step Action its own member flow nodes via `has_parent` edges instead of inlining dozens of Actions in the parent. The BPMN view renders the step collapsed (with a 'View subprocess' affordance) in the parent's pool and expands it into its own pool on demand, keeping the parent process readable.",
       },
       {
         policy:
-          "Name the single accountable process owner in the purpose Intent and link it with an `attributed_to` edge from the Intent to that Principal — the one answerable for the whole process's outcome. This is the RACI 'Accountable' party, distinct from the per-step 'Responsible' performers, each named by an `attributed_to` edge from their Action.",
+          "Name the accountable process owner by attributing the process Action to a Principal — an `attributed_to` edge from the process Action to the one answerable for the whole process's outcome (the RACI 'Accountable' party), distinct from the per-step 'Responsible' performers, each named by an `attributed_to` edge from their step Action.",
       },
       {
         policy:
@@ -1025,7 +948,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "BPMN vocabulary — an edge's meaning comes from its type plus the node types it connects, not from any role tag: `flows_to` is process order and renders source -> target with no reversal; a `supports` edge from a flow node to an Intent places it in that Intent's pool; an `attributed_to` edge to a Principal drives actor lanes (from an Action), gateway deciders (from a Decision), and process ownership (from the purpose Intent); a `constrained_by` edge to a Rule links a policy guard; a `supports` edge from an Eval tests the node it points at, and `supports` edges from other nodes carry rationale and evidence.",
+          "BPMN vocabulary — an edge's meaning comes from its type plus the node types it connects, not from any role tag: `flows_to` is process order and renders source -> target with no reversal; a `has_parent` edge from a flow node to a process Action places it in that process's pool (and makes the parent Action a process, or a subprocess if it has a parent of its own); an `attributed_to` edge to a Principal drives actor lanes (from an Action), gateway deciders (from a Decision), and process ownership (from the process Action); a `constrained_by` edge to a Rule links a policy guard; a `supports` edge from an Eval tests the node it points at, and `supports` edges from other nodes carry rationale and evidence.",
       },
       {
         policy:
@@ -1049,11 +972,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — serving an Intent, naming the actor or decider Principal (an Action's or gateway Decision's `attributed_to` edge to a Principal), forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its actor, decider, or Intent (and BPMN pool) is chosen. `queue` it (changeset op `queue`) once it supports its Intent and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
+          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — its `has_parent` process membership, naming the actor or decider Principal (an Action's or gateway Decision's `attributed_to` edge to a Principal), forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its actor, decider, or parent process (and BPMN pool) is chosen. `queue` it (changeset op `queue`) once it has a parent process and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
       },
       {
         policy:
-          "Use `queued` for a process — or a single step, gateway, or milestone — that is fully wired and ready but not yet in force: a redesign awaiting sign-off, a step pending a scheduled go-live, or an approved-but-not-yet-rolled-out change. A `queued` node asserts readiness, so it must already satisfy the same actor attribution, supporting Intent, and forward-flow wiring an `active` node does. If it is still being sketched and that wiring is incomplete, leave it `drafting` instead of queuing it.",
+          "Use `queued` for a process — or a single step, gateway, or milestone — that is fully wired and ready but not yet in force: a redesign awaiting sign-off, a step pending a scheduled go-live, or an approved-but-not-yet-rolled-out change. A `queued` node asserts readiness, so it must already satisfy the same actor attribution, `has_parent` process membership, and forward-flow wiring an `active` node does. If it is still being sketched and that wiring is incomplete, leave it `drafting` instead of queuing it.",
       },
       {
         policy:
