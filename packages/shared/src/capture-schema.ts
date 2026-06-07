@@ -21,6 +21,19 @@ const COMMON_OPTIONAL_FIELDS: readonly CaptureFieldSpec[] = [
   field("outcome", "optional", '"succeeded" | "failed"'),
 ];
 
+// BPMN sequence-flow markings (see entities.ts `BpmnFlowPoint`) — author-set
+// booleans carried in `extra` that drive the process template's flow floors and
+// the BPMN renderer. `entry_point`/`exit_point` apply to every flow node;
+// `top_level_process` (the pool container) is action-only, added in its schema.
+const BPMN_FLOW_POINT_FIELDS: readonly CaptureFieldSpec[] = [
+  field(
+    "entry_point",
+    "optional",
+    "true if this node is a way INTO the process: a start, exempt from needing an incoming flows_to but required to lead somewhere (≥1 outgoing flows_to)",
+  ),
+  field("exit_point", "optional", "true if this node is a way OUT of the process: an end"),
+];
+
 export const CAPTURE_SCHEMAS = {
   decision: schema("decision", "Decision", "decisions", "active", [
     field("prose", "required", "full prose of the decision; first line is the label"),
@@ -31,6 +44,7 @@ export const CAPTURE_SCHEMAS = {
       "chosen resolution; templates that need it can require it with authoring policy",
     ),
     field("alternatives", "optional", '[{ "name": "...", "rejected_because": "..." }, ...]'),
+    ...BPMN_FLOW_POINT_FIELDS,
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   intent: schema("intent", "Intent", "intents", "active", [
@@ -42,6 +56,12 @@ export const CAPTURE_SCHEMAS = {
     field("verb", "required", 'short verb such as "refactor", "migrate", "deploy"'),
     field("inputs", "optional", "verb-specific inputs, any JSON shape"),
     field("outputs", "optional", "verb-specific outputs, any JSON shape"),
+    field(
+      "top_level_process",
+      "optional",
+      "true if this Action is a root process pool (the container): no parent process, not a sequenced step",
+    ),
+    ...BPMN_FLOW_POINT_FIELDS,
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   log: schema("log", "Log", "logs", "retired", [
@@ -78,6 +98,7 @@ export const CAPTURE_SCHEMAS = {
     field("prose", "required", "full prose: state description, invariants explained"),
     field("kind", "required", '"initial" | "intermediate" | "terminal"'),
     field("invariants", "optional", "array of free-form predicates true while in this State"),
+    ...BPMN_FLOW_POINT_FIELDS,
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   idea: schema("idea", "Idea", "ideas", "drafting", [

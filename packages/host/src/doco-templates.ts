@@ -302,32 +302,27 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // Process membership — one rule for all three flow-node types. A flow
-        // node belongs to a process through a `has_parent` edge to the process
-        // Action; that edge IS its BPMN pool membership. A hard block once
-        // committed: an unattached step has no pool. Two structural exemptions
-        // excuse a node that legitimately has no parent: a top-level process
-        // Action (`exempt_when_incoming_edge_type: has_parent` — the root, the
-        // TARGET of its children's `has_parent`), and an Action explicitly
-        // catalogued as an entry point (`exempt_when_field_truthy: entry_point`,
-        // a flag in the node's `extra`), which stands on its own as a way into
-        // the work and so needs no parent process.
+        // node belongs to a process through an OUTGOING `has_parent` edge to the
+        // process Action; that edge IS its BPMN pool membership. A hard block
+        // once committed: an unattached step has no pool. The ONLY exemption is
+        // an explicit `top_level_process` flag (a boolean in the node's `extra`):
+        // a top-level process Action is the root pool and has no parent of its
+        // own. (There is no structural incoming-edge exemption — being pointed at
+        // by children does not, by itself, excuse a node from declaring its own
+        // parent; the author marks the root explicitly instead.)
         policy:
-          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. A top-level process Action (the target of its members' `has_parent`) is the root and is exempt, as is an Action explicitly catalogued as an entry point (an `entry_point` flag in its `extra`); a `drafting` sketch may defer the link.",
+          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. The only exception is a top-level process Action, which the author marks with a `top_level_process` flag (a boolean in its `extra`); a `drafting` sketch may defer the link.",
         predicate: {
           kind: "requires_edge",
           edge_type: "has_parent",
           target_node_type: "action",
           // The required relationship is the flow node's OUTGOING `has_parent` to
           // its parent process Action. Stated explicitly so the rendered policy
-          // is unambiguous next to the incoming-edge exemption just below, which
-          // fires the other way (for a node that is itself a parent).
+          // is unambiguous.
           direction: "outgoing",
-          // A process Action (the target of incoming `has_parent` children) is a
-          // pool, not a member — it needs no parent of its own.
-          exempt_when_incoming_edge_type: "has_parent",
-          // An Action explicitly catalogued as an entry point (an `entry_point`
-          // flag in its `extra`) stands on its own and needs no parent process.
-          exempt_when_field_truthy: "entry_point",
+          // A top-level process Action is the root pool and has no parent of its
+          // own, so it is excused — but only when the author marks it explicitly.
+          exempt_when_field_truthy: "top_level_process",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
@@ -346,6 +341,43 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           edge_type: "has_parent",
           target_node_type: "action",
           max_count: 1,
+          when_node_type: ["action", "decision", "state"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
+        // Sequence-flow REACHABILITY floor: a committed flow node is reached by
+        // the flow — it has ≥1 INCOMING `flows_to` — unless the author has flagged
+        // it an `entry_point` (a way into the process, which by definition has no
+        // predecessor). Keeps a committed process free of orphaned, unreachable
+        // steps. A `drafting` sketch may dangle.
+        policy:
+          "Every committed (`queued` or `active`) flow node in process is reached by the flow: it has at least one incoming `flows_to` edge — unless it is marked as an entry point (an `entry_point` flag in its `extra`), which is a way into the process and so needs no predecessor. A `drafting` sketch may be unreachable while you wire it up.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "flows_to",
+          direction: "incoming",
+          // An entry point is the start of the flow (no predecessor), and a
+          // top-level process is the pool container (not a sequenced step) — both
+          // are excused from needing an incoming `flows_to`.
+          exempt_when_field_truthy: "entry_point, top_level_process",
+          when_node_type: ["action", "decision", "state"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
+        // The dual, scoped to entry points only: an `entry_point` LEADS SOMEWHERE
+        // — it has ≥1 OUTGOING `flows_to`. The `require_when_field_truthy` gate
+        // fires this floor only for nodes flagged `entry_point`; an entry that
+        // goes nowhere is a dead start.
+        policy:
+          "A node marked as an entry point (an `entry_point` flag in its `extra`) must lead somewhere: once committed (`queued` or `active`) it has at least one outgoing `flows_to` edge to the first step of the process. A `drafting` sketch may be incomplete.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "flows_to",
+          direction: "outgoing",
+          // Only flow nodes the author flagged `entry_point` are held to this.
+          require_when_field_truthy: "entry_point",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,

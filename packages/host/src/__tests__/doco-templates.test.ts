@@ -326,14 +326,15 @@ describe("process template", () => {
       ]);
     });
 
-    it("exempts a process container (incoming has_parent) from the membership floor", () => {
-      // The membership floor is a hard block, but a top-level process Action —
-      // the TARGET of its children's `has_parent` — is the root and is excused
-      // via exempt_when_incoming_edge_type so it is never falsely blocked.
+    it("exempts a top-level process from the membership floor via the top_level_process flag", () => {
+      // The membership floor is a hard block, but a top-level process Action has
+      // no parent of its own. The ONLY thing that excuses it is the explicit
+      // `top_level_process` flag — there is no structural incoming-edge exemption.
       const floor = requiresEdge("has_parent", "action", "action");
       expect(floor?.predicate?.kind).toBe("requires_edge");
       if (floor?.predicate?.kind !== "requires_edge") return;
-      expect(floor.predicate.exempt_when_incoming_edge_type).toBe("has_parent");
+      expect(floor.predicate.exempt_when_field_truthy).toBe("top_level_process");
+      expect(floor.predicate.exempt_when_incoming_edge_type).toBeUndefined();
       // A hard block (default), not a warn.
       expect(floor.on_violation ?? "block").toBe("block");
     });
@@ -483,10 +484,12 @@ describe("process template", () => {
     });
   });
 
-  describe("entry-point exemption on the membership floor", () => {
-    // An Action explicitly catalogued as an entry point (an `entry_point` flag
-    // in its `extra`) is excused from the `has_parent` membership floor — it
-    // stands on its own as a way into the work and needs no parent process.
+  describe("top-level-process exemption on the membership floor", () => {
+    // A top-level process Action has no parent. The ONLY thing that excuses a
+    // flow node from the `has_parent` membership floor is the explicit
+    // `top_level_process` flag — the structural incoming-`has_parent` exemption
+    // is gone, and `entry_point` no longer waives membership (it now governs
+    // sequence-flow wiring, not pool membership).
     const floor = template.policies.find(
       (r) =>
         r.predicate?.kind === "requires_edge" &&
@@ -495,25 +498,66 @@ describe("process template", () => {
         r.predicate.direction !== "incoming",
     );
 
-    it("carries exempt_when_field_truthy: entry_point alongside the root exemption", () => {
+    it("is exempted only by the top_level_process flag (no structural incoming exemption)", () => {
       expect(floor?.predicate?.kind).toBe("requires_edge");
       if (floor?.predicate?.kind !== "requires_edge") return;
-      expect(floor.predicate.exempt_when_field_truthy).toBe("entry_point");
-      expect(floor.predicate.exempt_when_incoming_edge_type).toBe("has_parent");
+      expect(floor.predicate.exempt_when_field_truthy).toBe("top_level_process");
+      expect(floor.predicate.exempt_when_incoming_edge_type).toBeUndefined();
     });
 
     it("requires the flow node's OUTGOING has_parent (direction stated, not implied)", () => {
       // The required relationship is the flow node → its parent process Action:
       // an OUTGOING `has_parent`. Stating it explicitly keeps the rendered policy
-      // unambiguous next to its incoming-edge exemption (which fires the other
-      // way, for a node that is itself a parent).
+      // unambiguous.
       expect(floor?.predicate?.kind).toBe("requires_edge");
       if (floor?.predicate?.kind !== "requires_edge") return;
       expect(floor.predicate.direction).toBe("outgoing");
     });
 
-    it("documents the entry-point exemption in its prose", () => {
-      expect(floor?.policy ?? "").toMatch(/entry point/i);
+    it("documents the top-level-process exemption in its prose", () => {
+      expect(floor?.policy ?? "").toMatch(/top.level process/i);
+    });
+  });
+
+  describe("sequence-flow wiring rules (entry points)", () => {
+    // Two role-free `requires_edge` floors keep a committed process wired up:
+    //  - reach: every flow node is reached by the flow (≥1 INCOMING `flows_to`)
+    //    unless it is an `entry_point`;
+    //  - lead:  an `entry_point` leads somewhere (≥1 OUTGOING `flows_to`).
+    // Both fire on the committed stages only — a `drafting` sketch may dangle.
+    const reach = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "flows_to" &&
+        r.predicate.direction === "incoming",
+    );
+    const lead = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "flows_to" &&
+        r.predicate.require_when_field_truthy === "entry_point",
+    );
+
+    it("a flow node must be reached (≥1 incoming flows_to) unless entry point or top-level process", () => {
+      expect(reach?.predicate?.kind).toBe("requires_edge");
+      if (reach?.predicate?.kind !== "requires_edge") return;
+      // Excused for the flow start (entry_point) and the pool container
+      // (top_level_process) — both are not reached-by-flow steps.
+      expect(reach.predicate.exempt_when_field_truthy).toBe("entry_point, top_level_process");
+      expect([...(reach.predicate.when_node_type ?? [])].sort()).toEqual([
+        "action",
+        "decision",
+        "state",
+      ]);
+      expect(reach.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("an entry point must lead somewhere (≥1 outgoing flows_to)", () => {
+      expect(lead?.predicate?.kind).toBe("requires_edge");
+      if (lead?.predicate?.kind !== "requires_edge") return;
+      expect(lead.predicate.direction).toBe("outgoing");
+      expect(lead.predicate.require_when_field_truthy).toBe("entry_point");
+      expect(lead.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
   });
 
@@ -523,6 +567,7 @@ describe("process template", () => {
         (r) =>
           r.predicate?.kind === "requires_edge" &&
           r.predicate.edge_type === "flows_to" &&
+          r.predicate.min_count === 2 &&
           (r.predicate.when_node_type?.includes("decision") ?? false),
       );
       expect(rule?.predicate?.kind).toBe("requires_edge");

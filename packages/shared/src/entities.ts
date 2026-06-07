@@ -181,13 +181,22 @@ export interface DeterministicChecks {
      */
     exempt_when_incoming_edge_type?: string;
     /**
-     * Skip the check when the candidate carries a truthy value at this field —
-     * an explicit, author-set opt-out. A field-based escape hatch (vs. the
-     * structural `exempt_when_*` edge exemptions above): e.g. an Action
-     * catalogued as an entry point (`entry_point` flag in its `extra`) stands on
-     * its own as a way into the work, so the process-membership floor excuses it.
+     * Skip the check when the candidate carries a truthy value at ANY of these
+     * fields (comma-separated) — an explicit, author-set opt-out. A field-based
+     * escape hatch (vs. the structural `exempt_when_*` edge exemptions above):
+     * e.g. the sequence-flow reachability floor excuses both a flagged
+     * `entry_point` (the start of the flow) and a `top_level_process` (the pool
+     * container, which is not a sequenced step) — `"entry_point, top_level_process"`.
      */
     exempt_when_field_truthy?: string;
+    /**
+     * Inclusion gate — the mirror of `exempt_when_field_truthy`. When set, the
+     * check applies ONLY to candidates carrying a truthy value at this field, and
+     * is skipped for everyone else. Lets a floor target an author-flagged subset:
+     * e.g. "an `entry_point` must lead somewhere" fires the ≥1 outgoing
+     * `flows_to` requirement only for nodes flagged `entry_point`.
+     */
+    require_when_field_truthy?: string;
     when_node_type?: NodeType[];
   };
   /**
@@ -390,7 +399,27 @@ export interface DecisionAlternative {
   rejected_because?: string;
 }
 
-export interface Decision extends CommonFields {
+/**
+ * BPMN sequence-flow markings on a flow node (Action / Decision / State).
+ * Explicit, author-set booleans carried in the node's `extra` and surfaced flat
+ * — never deduced from the edges. They drive both the process template's
+ * deterministic floors and the BPMN renderer.
+ */
+export interface BpmnFlowPoint {
+  /**
+   * A way INTO the process. Exempt from the reachability floor (needs no
+   * incoming `flows_to`) but must lead somewhere (≥1 outgoing `flows_to`).
+   * Rendered in the pool's first column with a BPMN start-event marking.
+   */
+  entry_point?: boolean;
+  /**
+   * A way OUT of the process — the flow ends here. Rendered with a BPMN
+   * end-event marking.
+   */
+  exit_point?: boolean;
+}
+
+export interface Decision extends CommonFields, BpmnFlowPoint {
   node_type: "decision";
   /** Full prose: the decision narrative — context, chosen path, why. */
   prose: string;
@@ -402,7 +431,7 @@ export interface Decision extends CommonFields {
 
 // ─── Action (designed step) ───────────────────────────────────────────────
 
-export interface Action extends CommonFields {
+export interface Action extends CommonFields, BpmnFlowPoint {
   node_type: "action";
   /** Full prose: past-tense verb phrase describing what was done + context. */
   prose: string;
@@ -411,6 +440,14 @@ export interface Action extends CommonFields {
   inputs?: Record<string, unknown>;
   outputs?: Record<string, unknown>;
   triggered_by?: EntityId<"action">[];
+  /**
+   * This Action is a root process pool (the container), not a sequenced step: it
+   * has no parent process and is not reached by the flow, so it is exempt from
+   * the `has_parent` membership floor and the reachability floor. The author
+   * marks it explicitly — being pointed at by children does not, by itself,
+   * excuse a node from declaring its own parent.
+   */
+  top_level_process?: boolean;
 }
 
 // ─── Log (recorded happening) ─────────────────────────────────────────────
@@ -475,7 +512,7 @@ export interface Reference extends CommonFields {
 
 export type StateKind = "initial" | "intermediate" | "terminal";
 
-export interface State extends CommonFields {
+export interface State extends CommonFields, BpmnFlowPoint {
   node_type: "state";
   /** Full prose: state description, invariants explained. */
   prose: string;

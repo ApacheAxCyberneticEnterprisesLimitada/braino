@@ -90,6 +90,20 @@ function isNonEmpty(value: unknown): boolean {
   return true;
 }
 
+/**
+ * Whether the candidate carries a truthy value at ANY of the comma-separated
+ * field names. Powers both `exempt_when_field_truthy` (skip the check) and
+ * `require_when_field_truthy` (only run the check) — one node may be excused by
+ * several flags at once (e.g. `entry_point` OR `top_level_process`).
+ */
+function anyFieldTruthy(candidate: CandidateFields, fieldList: string | undefined): boolean {
+  if (!fieldList) return false;
+  return fieldList
+    .split(",")
+    .map((f) => f.trim())
+    .some((f) => f.length > 0 && Boolean(candidate[f]));
+}
+
 function entityTypeFromId(id: string): string {
   const i = id.lastIndexOf("_");
   return i <= 0 ? "" : id.slice(0, i);
@@ -204,15 +218,32 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Exempt when field is set (optional)",
         partLabel: "exempt when field set",
       },
+      {
+        name: "require_when_field_truthy",
+        control: "text",
+        formLabel: "Only apply when field is set (optional)",
+        partLabel: "only when field set",
+      },
       WHEN_NODE_TYPE_FIELD,
     ],
     evaluate: (pred, ctx) => {
-      // Field opt-out: a candidate carrying a truthy value at
-      // `exempt_when_field_truthy` is explicitly excused — e.g. an Action
-      // catalogued as an entry point (`entry_point` flag in its `extra`) needs
-      // no parent process. An author-set escape hatch, distinct from the
-      // structural edge exemptions below.
-      if (pred.exempt_when_field_truthy && ctx.candidate[pred.exempt_when_field_truthy]) {
+      // Inclusion gate: when set, the floor applies ONLY to candidates carrying a
+      // truthy value at the named field(s) — the mirror of the field opt-out
+      // below. (e.g. the "an entry point must lead somewhere" rule fires its
+      // outgoing `flows_to` requirement only for nodes flagged `entry_point`.)
+      if (
+        pred.require_when_field_truthy &&
+        !anyFieldTruthy(ctx.candidate, pred.require_when_field_truthy)
+      ) {
+        return null;
+      }
+      // Field opt-out: a candidate carrying a truthy value at ANY of the named
+      // fields (comma-separated) is explicitly excused — an author-set escape
+      // hatch, distinct from the structural edge exemptions below. e.g. the
+      // sequence-flow reachability floor excuses both a flagged `entry_point`
+      // (the start of the flow) and a `top_level_process` (the pool container,
+      // not a sequenced step).
+      if (anyFieldTruthy(ctx.candidate, pred.exempt_when_field_truthy)) {
         return null;
       }
       // Endpoint-type exemption: a candidate already participating in an

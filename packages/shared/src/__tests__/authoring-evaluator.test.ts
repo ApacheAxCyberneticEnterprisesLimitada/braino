@@ -880,6 +880,47 @@ describe("authoring evaluator — requires_edge exempt_when_field_truthy", () =>
   });
 });
 
+describe("authoring evaluator — requires_edge require_when_field_truthy", () => {
+  // The mirror of exempt_when_field_truthy: an INCLUSION gate. The check applies
+  // ONLY when the candidate carries a truthy value at the named field; otherwise
+  // it is skipped entirely. The process "an entry point leads somewhere" rule
+  // uses it so the ≥1 OUTGOING `flows_to` floor fires only for nodes the author
+  // has flagged `entry_point`.
+  const entryLeadsSomewhere = () =>
+    P({
+      sub_kind: "requires_edge",
+      edge_type: "flows_to",
+      direction: "outgoing",
+      require_when_field_truthy: "entry_point",
+      when_node_type: ["action", "decision", "state"],
+    });
+
+  it("skips a node that does not carry the flag (gate not met)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [entryLeadsSomewhere()]);
+    expect(v).toEqual([]);
+  });
+
+  it("fails a flagged node with no outgoing flows_to", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", entry_point: true }, [
+      entryLeadsSomewhere(),
+    ]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("requires_edge");
+    expect(v[0]?.reason).toMatch(/flows_to/);
+  });
+
+  it("passes a flagged node that has an outgoing flows_to", () => {
+    const v = evaluate(
+      { id: "action_01", node_type: "action", entry_point: true },
+      [entryLeadsSomewhere()],
+      {
+        candidateEdges: [{ from_id: "action_01", to_id: "action_02", edge_type: "flows_to" }],
+      },
+    );
+    expect(v).toEqual([]);
+  });
+});
+
 describe("authoring evaluator — forbids_field_pattern", () => {
   const scaffolding = () =>
     P({
