@@ -125,16 +125,40 @@ export interface EntityRecord {
   id: string;
   doco_id: string;
   entity_type: string;
-  /** Bag of structured fields. Stored as `data jsonb` in Postgres;
-   *  node-pg parses jsonb columns to JS objects on read. */
+  /** Bag of structured fields. Split on write into columns + the `extra` jsonb. */
   data: Record<string, unknown>;
   /** Mirrored from the `lifecycle` column; the write path's source of truth
    *  for the column (see `deriveLifecycleColumn`). */
   lifecycle?: string | null;
-  /** The author-owned per-node bag (the `extra` jsonb), surfaced raw on read. */
-  extra?: Record<string, unknown> | null;
   created_at?: string | null;
   created_by?: string | null;
   updated_at?: string | null;
   updated_by?: string | null;
+}
+
+/**
+ * The honest READ shape of a graph node — one field per real column of the
+ * `nodes` table, plus the author-owned `extra` bag. There is no synthetic
+ * `data` bag: `rowToNode` maps a row to this 1:1, and `getEntity` /
+ * `listEntitiesByDoco` return it for every node type.
+ */
+export interface NodeRow {
+  id: string;
+  doco_id: string;
+  node_type: string;
+  lifecycle: string | null;
+  /** The node's one canonical text. */
+  prose: string;
+  /** Author-owned per-node domain fields (the `extra` jsonb). */
+  extra: Record<string, unknown>;
+  /** Promoted classifier — eval / state / principal (human|agent). */
+  kind: string | null;
+  /** Promoted reference dedup key (reference nodes). */
+  locator: string | null;
+  /** Promoted FK to users(id) — an idea's proposer. */
+  proposer_id: string | null;
+  created_at: string | null;
+  created_by: string | null;
+  updated_at: string | null;
+  updated_by: string | null;
 }

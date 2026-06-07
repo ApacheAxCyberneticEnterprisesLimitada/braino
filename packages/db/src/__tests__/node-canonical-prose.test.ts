@@ -61,10 +61,10 @@ describe("canonical node prose (slice 1)", () => {
 
     const loaded = await getEntity("intent", id);
     expect(loaded).not.toBeNull();
-    // The text comes back under the single canonical key…
-    expect(loaded?.data.prose).toBe("Find candidates");
-    // …and NOT under the legacy type-named key.
-    expect(loaded?.data).not.toHaveProperty("intent");
+    // The text comes back under the single canonical field…
+    expect(loaded?.prose).toBe("Find candidates");
+    // …and NOT under a legacy type-named key in `extra`.
+    expect(loaded?.extra).not.toHaveProperty("intent");
   });
 
   it("the read-path field bag is a complete judge candidate — it carries the prose", async () => {
@@ -84,9 +84,10 @@ describe("canonical node prose (slice 1)", () => {
     } as unknown as EntityRecord;
     await upsertEntity(rec, mocks.db as never);
 
-    // This is exactly the bag a re-evaluation hands the LLM judge.
-    const candidate = (await getEntity("intent", id))?.data ?? {};
-    expect(candidate).toMatchObject({
+    // The honest read row carries the text on read — the data a re-evaluation
+    // flattens into the judge candidate.
+    const loaded = await getEntity("intent", id);
+    expect(loaded).toMatchObject({
       id,
       node_type: "intent",
       lifecycle: "active",

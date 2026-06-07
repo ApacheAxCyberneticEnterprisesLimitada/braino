@@ -56,10 +56,10 @@ describe("principal read folded onto the canonical node path", () => {
     const p = await getPrincipalById(P1);
     expect(p).not.toBeNull();
     expect(p?.id).toBe(P1);
-    expect(p?.name).toBe("alice");
+    expect(p?.prose).toBe("alice");
     expect(p?.doco_id).toBe(DOCO);
-    expect(p?.data.owner_id).toBe("user_x");
-    expect(p?.data.created_by).toBe(USER);
+    expect(p?.extra.owner_id).toBe("user_x");
+    expect(p?.created_by).toBe(USER);
   });
 
   it("returns null for a missing / non-principal id", async () => {
@@ -68,7 +68,7 @@ describe("principal read folded onto the canonical node path", () => {
 
   it("listPrincipals returns every principal, name-ordered", async () => {
     const rows = await listPrincipals(DOCO);
-    expect(rows.map((r) => r.name)).toEqual(["alice", "bob"]);
-    expect(rows.find((r) => r.name === "alice")?.data.owner_id).toBe("user_x");
+    expect(rows.map((r) => r.prose)).toEqual(["alice", "bob"]);
+    expect(rows.find((r) => r.prose === "alice")?.extra.owner_id).toBe("user_x");
   });
 });

@@ -3,14 +3,13 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { rowToEntity, upsertEntity } from "../repo.js";
-import type { EntityRecord } from "../types.js";
+import { type NodeRow, rowToNode, upsertEntity } from "../repo.js";
 
 // `NODE_PROMOTED_COLUMNS` is the one source of truth for which scalars get their
-// own typed column. The read-back merge and the write-path strip set are both
-// derived from it — these round-trips guard that consolidation: every genuinely
-// promoted column survives a write→read cycle, and the long-dead
-// `role_principal` (no column, never persisted) never reappears.
+// own typed column. `rowToNode` reads those columns straight off the row — these
+// round-trips guard that every genuinely promoted column survives a write→read
+// cycle, and the long-dead `role_principal` (no column, never persisted) never
+// reappears.
 
 const here = dirname(fileURLToPath(import.meta.url));
 const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
@@ -20,9 +19,9 @@ const ORG = "workspace_promoted00000000000";
 
 let db: PGlite;
 
-async function readBack(entityType: string, id: string): Promise<EntityRecord> {
+async function readBack(id: string): Promise<NodeRow> {
   const r = await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [id]);
-  return rowToEntity(entityType, r.rows[0] as Record<string, unknown>);
+  return rowToNode(r.rows[0] as Record<string, unknown>);
 }
 
 beforeAll(async () => {
@@ -88,9 +87,9 @@ describe("promoted columns — single source of truth round-trips", () => {
         } as unknown as EntityRecord,
         db as never,
       );
-      const rec = await readBack(c.type, c.id);
+      const rec = await readBack(c.id);
       const [field, value] = c.expect;
-      expect(rec.data[field]).toBe(value);
+      expect((rec as unknown as Record<string, unknown>)[field]).toBe(value);
     }
   });
 
@@ -116,9 +115,9 @@ describe("promoted columns — single source of truth round-trips", () => {
       } as unknown as EntityRecord,
       db as never,
     );
-    const rec = await readBack("principal", id);
-    expect(rec.data.kind).toBe("agent");
-    expect(rec.data.prose).toBe("Reviewer");
-    expect(rec.data).not.toHaveProperty("role_principal");
+    const rec = await readBack(id);
+    expect(rec.kind).toBe("agent");
+    expect(rec.prose).toBe("Reviewer");
+    expect(rec.extra).not.toHaveProperty("role_principal");
   });
 });

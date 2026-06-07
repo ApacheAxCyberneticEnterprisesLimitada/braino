@@ -30,7 +30,7 @@ const FALLBACK_INDEX_FIELDS = ["locator", "name", "verb"] as const;
  */
 export function nodeIndexText(le: LoadedEntity): string {
   const data = (le.parsed.data ?? {}) as Record<string, unknown>;
-  const prose = le.parsed.typeNamedValue?.trim() ?? "";
+  const prose = le.parsed.prose?.trim() ?? "";
   if (prose) return prose;
   const seen = new Set<string>();
   const parts: string[] = [];

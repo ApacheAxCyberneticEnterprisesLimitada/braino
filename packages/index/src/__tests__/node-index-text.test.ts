@@ -10,11 +10,11 @@ import type { LoadedEntity } from "@doco/shared";
 import { describe, expect, it } from "vitest";
 import { nodeIndexText } from "../build.js";
 
-function le(typeNamedValue: string | null, data: Record<string, unknown> = {}): LoadedEntity {
+function le(prose: string | null, data: Record<string, unknown> = {}): LoadedEntity {
   return {
     entity: data as unknown as LoadedEntity["entity"],
     filePath: "<test>",
-    parsed: { data, format: "postgres", typeNamedValue },
+    parsed: { data, format: "postgres", prose },
   } as LoadedEntity;
 }
 

@@ -3,7 +3,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { rowToEntity, upsertEntity } from "../repo.js";
+import { rowToNode, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
 
 // Node-shape slim-down: a single `extra` jsonb that replaces the per-type
@@ -208,23 +208,21 @@ describe("node extra column (Stage 1 — expand)", () => {
     const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [
       id,
     ]);
-    const rec = rowToEntity("action", rows[0]);
+    const rec = rowToNode(rows[0]);
     // verb is gone as a column but still reachable on the record, via extra.
     expect(rec.extra).toMatchObject({ verb: "deploy" });
-    expect(rec.data.verb).toBe("deploy");
   });
 
   it("surfaces the extra column onto the record on read (Stage 2 — raw schema)", () => {
-    const rec = rowToEntity("reference", {
+    const rec = rowToNode({
       id: "reference_read000000000000000000",
       doco_id: DOCO,
       node_type: "reference",
       prose: "ACME PR #1",
       extra: { ref_type: "url", locator: "https://x", pr_body: "the body" },
-      data: {},
     });
     expect(rec.extra).toEqual({ ref_type: "url", locator: "https://x", pr_body: "the body" });
-    expect(rec.data.prose).toBe("ACME PR #1");
+    expect(rec.prose).toBe("ACME PR #1");
   });
 
   it("no longer writes the dropped data column; the write path persists only extra (Stage 3 — drop)", async () => {
@@ -261,7 +259,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     expect(rows[0].extra).toMatchObject({ chosen: "Route A" });
   });
 
-  it("rebuilds rec.data from extra + the real columns once data is gone, incl. idea.proposer_id", async () => {
+  it("maps a node row to the honest NodeRow — columns + extra, incl. idea.proposer_id", async () => {
     const id = "idea_proposer00000000000000000000";
     const proposer = "user_proposer00000000000000000000";
     // proposer_id FKs to users(id); seed the OAuth identity first.
@@ -298,21 +296,21 @@ describe("node extra column (Stage 1 — expand)", () => {
     const fullRow = (
       await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [id])
     ).rows[0];
-    const rec = rowToEntity("idea", fullRow);
-    // System keys injected from real columns…
-    expect(rec.data.id).toBe(id);
-    expect(rec.data.doco_id).toBe(DOCO);
-    expect(rec.data.node_type).toBe("idea");
-    expect(rec.data.lifecycle).toBe("active");
-    expect(rec.data.created_by).toBe(proposer);
+    const rec = rowToNode(fullRow);
+    // System keys from real columns…
+    expect(rec.id).toBe(id);
+    expect(rec.doco_id).toBe(DOCO);
+    expect(rec.node_type).toBe("idea");
+    expect(rec.lifecycle).toBe("active");
+    expect(rec.created_by).toBe(proposer);
     // …the promoted FK column surfaced…
-    expect(rec.data.proposer_id).toBe(proposer);
+    expect(rec.proposer_id).toBe(proposer);
     // …and the per-type domain field from extra.
-    expect(rec.data.tradeoffs).toBe("cheap but slow");
+    expect(rec.extra.tradeoffs).toBe("cheap but slow");
   });
 
-  it("rowToEntity injects system keys from columns without any data column present", () => {
-    const rec = rowToEntity("decision", {
+  it("rowToNode reads system keys straight off the columns", () => {
+    const rec = rowToNode({
       id: "decision_sys000000000000000000000",
       doco_id: DOCO,
       node_type: "decision",
@@ -322,16 +320,17 @@ describe("node extra column (Stage 1 — expand)", () => {
       created_by: "user_alice0000000000000000000000",
       created_at: new Date("2026-01-02T03:04:05.000Z"),
     });
-    expect(rec.data).toMatchObject({
+    expect(rec).toMatchObject({
       id: "decision_sys000000000000000000000",
       doco_id: DOCO,
       node_type: "decision",
       lifecycle: "queued",
+      prose: "Pick the path",
       created_by: "user_alice0000000000000000000000",
       created_at: "2026-01-02T03:04:05.000Z",
-      chosen: "Route A",
     });
-    // No stray `data` round-trip and no leaked prose key.
-    expect(rec.data).not.toHaveProperty("decision");
+    expect(rec.extra).toMatchObject({ chosen: "Route A" });
+    // No leaked type-named prose key.
+    expect(rec.extra).not.toHaveProperty("decision");
   });
 });

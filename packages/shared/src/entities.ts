@@ -113,7 +113,7 @@ export interface Doco {
 export interface Intent extends CommonFields {
   node_type: "intent";
   /** Full prose: what someone wants, why, success criteria. */
-  intent: string;
+  prose: string;
   priority?: "p0" | "p1" | "p2" | "p3";
 }
 
@@ -122,7 +122,7 @@ export interface Intent extends CommonFields {
 export interface Idea extends CommonFields {
   node_type: "idea";
   /** Full prose: the idea, context, tradeoffs. */
-  idea: string;
+  prose: string;
   /** Who proposed it. User (the OAuth identity), not a principal. */
   proposer_id?: EntityId<"user">;
   promoted_to?: EntityId; // Intent / Decision / Action when picked up
@@ -297,7 +297,7 @@ export type AuthoringPredicate =
 export interface Rule extends CommonFields {
   node_type: "rule";
   /** Full prose: the rule statement, rationale, scope, exceptions. */
-  rule: string;
+  prose: string;
   /** Prose or machine-checkable assertion the rule states (enforcement is
    *  carried by `Policy` records, not by this string). */
   predicate?: string;
@@ -385,7 +385,7 @@ export interface DecisionAlternative {
 export interface Decision extends CommonFields {
   node_type: "decision";
   /** Full prose: the decision narrative — context, chosen path, why. */
-  decision: string;
+  prose: string;
   question: string;
   chosen: string | null; // null while lifecycle is "drafting"
   alternatives?: DecisionAlternative[];
@@ -397,7 +397,7 @@ export interface Decision extends CommonFields {
 export interface Action extends CommonFields {
   node_type: "action";
   /** Full prose: past-tense verb phrase describing what was done + context. */
-  action: string;
+  prose: string;
   verb: string;
   target?: EntityId;
   inputs?: Record<string, unknown>;
@@ -410,7 +410,7 @@ export interface Action extends CommonFields {
 export interface Log extends CommonFields {
   node_type: "log";
   /** Full prose: what happened, when, in what state. */
-  log: string;
+  prose: string;
   verb: string;
   happened_at: string;
   target?: EntityId;
@@ -430,7 +430,7 @@ export type EvalKind = "unit" | "integration" | "eval" | "process" | "doc-consis
 export interface Eval extends CommonFields {
   node_type: "eval";
   /** Full prose: what's being checked, plus rationale. */
-  eval: string;
+  prose: string;
   kind?: EvalKind;
   expected_status?: "pass" | "fail";
   how_to_run?: string;
@@ -448,7 +448,7 @@ export interface Eval extends CommonFields {
 export interface Reference extends CommonFields {
   node_type: "reference";
   /** Full prose: human-readable label for the external thing. */
-  reference: string;
+  prose: string;
   /** Where the source lives — a path, URL, ticket id, or commit sha. The
    *  reference's kind is implied by the locator's shape (no separate type). */
   locator: string;
@@ -470,7 +470,7 @@ export type StateKind = "initial" | "intermediate" | "terminal";
 export interface State extends CommonFields {
   node_type: "state";
   /** Full prose: state description, invariants explained. */
-  state: string;
+  prose: string;
   kind: StateKind;
   invariants?: string[];
 }

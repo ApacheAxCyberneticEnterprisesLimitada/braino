@@ -13,7 +13,7 @@ export interface LoadedEntityParsed {
    * Full node prose from the storage row — a node's single text home. The
    * indexer reads this for FTS body + embedding text.
    */
-  typeNamedValue?: string | null;
+  prose?: string | null;
 }
 
 /** A loaded entity plus the source identifier that produced it. */

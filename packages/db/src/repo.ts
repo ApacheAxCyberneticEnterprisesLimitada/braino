@@ -14,6 +14,7 @@ import {
   type EntityRecord,
   NODE_PROMOTED_COLUMNS,
   NODE_TABLES,
+  type NodeRow,
   type PromotedColumnSpec,
 } from "./types.js";
 
@@ -336,31 +337,30 @@ async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promis
   }
 }
 
-export async function getEntity(entityType: string, id: string): Promise<EntityRecord | null> {
+// Reads are node-only: policies are read through the bespoke policy path and
+// identity rows (user/doco/workspace) through their own row readers. Every node
+// type lives in the `nodes` table; `node_type` is the discriminator.
+
+export async function getEntity(entityType: string, id: string): Promise<NodeRow | null> {
   return withClient(async (c) => {
-    const r = NODE_TYPE_SET.has(entityType)
-      ? await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [id, entityType])
-      : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE id = $1`, [id]);
+    const r = await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [
+      id,
+      entityType,
+    ]);
     // Guard on the row itself, not `rowCount`: PGlite reports `rowCount` as
-    // null (not 0) for a 0-row SELECT, so `rowCount === 0` would miss and pass
-    // `undefined` into rowToEntity. `!r.rows[0]` is correct under pg and PGlite.
+    // null (not 0) for a 0-row SELECT. `!r.rows[0]` is correct under pg and PGlite.
     if (!r.rows[0]) return null;
-    return rowToEntity(entityType, r.rows[0]);
+    return rowToNode(r.rows[0]);
   });
 }
 
-export async function listEntitiesByDoco(
-  entityType: string,
-  docoId: string,
-): Promise<EntityRecord[]> {
+export async function listEntitiesByDoco(entityType: string, docoId: string): Promise<NodeRow[]> {
   return withClient(async (c) => {
-    const r = NODE_TYPE_SET.has(entityType)
-      ? await c.query("SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2", [
-          docoId,
-          entityType,
-        ])
-      : await c.query(`SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1`, [docoId]);
-    return r.rows.map((row) => rowToEntity(entityType, row));
+    const r = await c.query("SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2", [
+      docoId,
+      entityType,
+    ]);
+    return r.rows.map(rowToNode);
   });
 }
 
@@ -373,107 +373,43 @@ export async function listEntitiesByDocoAndIds(
   entityType: string,
   docoId: string,
   ids: string[],
-): Promise<EntityRecord[]> {
+): Promise<NodeRow[]> {
   if (ids.length === 0) return [];
   return withClient(async (c) => {
-    const r = NODE_TYPE_SET.has(entityType)
-      ? await c.query(
-          "SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2 AND id = ANY($3::text[])",
-          [docoId, entityType, ids],
-        )
-      : await c.query(
-          `SELECT * FROM ${tableFor(entityType).table} WHERE doco_id = $1 AND id = ANY($2::text[])`,
-          [docoId, ids],
-        );
-    return r.rows.map((row) => rowToEntity(entityType, row));
-  });
-}
-
-export async function listIdentityRows(
-  entityType: "principal" | "workspace" | "doco" | "user",
-): Promise<EntityRecord[]> {
-  return withClient(async (c) => {
-    const r =
-      entityType === "principal"
-        ? await c.query("SELECT * FROM nodes WHERE node_type = 'principal'")
-        : await c.query(`SELECT * FROM ${tableFor(entityType).table}`);
-    return r.rows.map((row) => rowToEntity(entityType, row));
+    const r = await c.query(
+      "SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2 AND id = ANY($3::text[])",
+      [docoId, entityType, ids],
+    );
+    return r.rows.map(rowToNode);
   });
 }
 
 /**
- * Read counterpart of `NODE_PROMOTED_COLUMNS`, DERIVED from it so the two can't
- * drift: the typed columns merged back into the record's `data` field bag on
- * read are exactly the columns the writer promotes — `kind` (eval/state/
- * principal), `proposer_id` (idea), `locator` (reference). Every other domain
- * field comes from `extra`, merged separately below.
+ * Map a `nodes` row to the honest `NodeRow` — one field per real column, the
+ * `extra` jsonb parsed, timestamps ISO-formatted. There is no synthetic `data`
+ * bag: the promoted columns (`kind`/`locator`/`proposer_id`) and `prose` are
+ * read straight off their columns, and every other per-node domain field lives
+ * in `extra`.
  */
-const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = Object.fromEntries(
-  Object.entries(NODE_PROMOTED_COLUMNS).map(([type, pcs]) => [type, pcs.map((pc) => pc.column)]),
-);
-
-export function rowToEntity(entityType: string, row: Record<string, unknown>): EntityRecord {
-  // Node-shape slim-down: the catch-all `data` jsonb is gone, so rebuild the
-  // record's `data` field bag from its real homes:
-  //   1. the system/identity/audit keys, injected from their real columns
-  //      (these used to be stored verbatim in the `data` jsonb), then
-  //   2. the still-promoted typed columns (kind / proposer_id / locator), then
-  //   3. the unified `extra` bag — every other per-node domain field.
-  const data: Record<string, unknown> = {};
-  // 1. System keys, only when present on the row (a column may be absent from a
-  // narrowed SELECT). node_type is the discriminator we were handed.
-  data.id = String(row.id);
-  if (row.doco_id != null) data.doco_id = String(row.doco_id);
-  data.node_type = entityType;
-  if (row.lifecycle != null) data.lifecycle = String(row.lifecycle);
-  for (const key of ["created_at", "updated_at"] as const) {
-    const v = row[key];
-    if (v instanceof Date) data[key] = v.toISOString();
-    else if (typeof v === "string" && v !== "") data[key] = v;
-  }
-  for (const key of ["created_by", "updated_by"] as const) {
-    if (row[key] != null) data[key] = String(row[key]);
-  }
-  // 2. Promoted typed columns.
-  const promoted = PROMOTED_COLUMNS_BY_TYPE[entityType] ?? [];
-  for (const col of promoted) {
-    if (col in row && row[col] !== null && row[col] !== undefined) {
-      const v = row[col];
-      // Timestamps come back as Date objects; serialize so the data
-      // bag stays JSON-shaped.
-      data[col] = v instanceof Date ? v.toISOString() : v;
-    }
-  }
-  // 3. The unified `extra` bag — the source of truth for per-type domain
-  // fields (incl. the dropped action/log/rule scalars like verb / severity).
-  if (row.extra && typeof row.extra === "object") {
-    Object.assign(data, row.extra as Record<string, unknown>);
-  }
-
-  const rec: EntityRecord = {
+export function rowToNode(row: Record<string, unknown>): NodeRow {
+  const iso = (v: unknown): string | null =>
+    v instanceof Date ? v.toISOString() : typeof v === "string" && v !== "" ? v : null;
+  const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
+  return {
     id: String(row.id),
     doco_id: row.doco_id ? String(row.doco_id) : "",
-    entity_type: entityType,
-    data,
+    node_type: row.node_type ? String(row.node_type) : "",
+    lifecycle: str(row.lifecycle),
+    prose: typeof row.prose === "string" ? row.prose : "",
+    extra: row.extra && typeof row.extra === "object" ? (row.extra as Record<string, unknown>) : {},
+    kind: str(row.kind),
+    locator: str(row.locator),
+    proposer_id: str(row.proposer_id),
+    created_at: iso(row.created_at),
+    created_by: str(row.created_by),
+    updated_at: iso(row.updated_at),
+    updated_by: str(row.updated_by),
   };
-  if ("lifecycle" in row && row.lifecycle !== null) rec.lifecycle = String(row.lifecycle);
-  // Hydrate the prose content under its single canonical name. Unified `nodes`
-  // rows carry the text in the `prose` column; it lands in the field bag as
-  // `data.prose` (never a type-named key), so the bag IS a complete judge
-  // candidate on re-evaluation. Empty string means "not set yet".
-  if ("prose" in row && row.prose !== null && row.prose !== "") {
-    data.prose = String(row.prose);
-  }
-  // Node-shape slim-down (raw-schema phase): surface the unified `extra`
-  // bag so callers/the API can read the row shape directly.
-  if ("extra" in row && row.extra && typeof row.extra === "object") {
-    rec.extra = row.extra as Record<string, unknown>;
-  }
-  if (row.created_at instanceof Date) rec.created_at = row.created_at.toISOString();
-  if ("created_by" in row && row.created_by !== null) rec.created_by = String(row.created_by);
-  if (row.updated_at instanceof Date) rec.updated_at = row.updated_at.toISOString();
-  if ("updated_by" in row && row.updated_by !== null) rec.updated_by = String(row.updated_by);
-  return rec;
 }
 
 // ─── Host config ──────────────────────────────────────────────────────────
@@ -582,43 +518,24 @@ export async function listUsers(): Promise<UserRow[]> {
 // Each Doco owns its own role-personas; the same name in two different Docos
 // is two different rows.
 
-export interface PrincipalRow {
-  id: string;
-  name: string;
-  doco_id: string;
-  data: Record<string, unknown>;
+// A Principal is an ordinary node (`node_type = 'principal'`): its name is its
+// `prose`, its seat kind is `kind`, and its domain fields (`owner_id`, …) live
+// in `extra`. So its readers consume the plain `NodeRow` — no adapter.
+
+export async function getPrincipalById(id: string): Promise<NodeRow | null> {
+  return getEntity("principal", id);
 }
 
 /**
- * Adapt a Principal's canonical node record to the legacy `PrincipalRow` shape
- * its readers expect. A Principal is an ordinary node (`node_type = 'principal'`):
- * its name is `prose` and its domain fields (`owner_id`, …) ride in `data`
- * (rebuilt from `extra` + the system columns by `rowToEntity`), so there is
- * no second read path — `getEntity` / `listEntitiesByDoco` are the one source.
+ * List Principals (role-personas) in a Doco, ordered by name (`prose`) then
+ * creation, so `find`-by-name lookups in callers are deterministic.
  */
-function principalRowFromRecord(rec: EntityRecord): PrincipalRow {
-  // A principal's name is its `prose` (rebuilt into `data.prose` by rowToEntity).
-  const name = typeof rec.data.prose === "string" ? rec.data.prose : "";
-  return { id: rec.id, name, doco_id: rec.doco_id, data: rec.data };
-}
-
-export async function getPrincipalById(id: string): Promise<PrincipalRow | null> {
-  const rec = await getEntity("principal", id);
-  return rec ? principalRowFromRecord(rec) : null;
-}
-
-/**
- * List Principals (role-personas) in a Doco. Ordered by name, then creation, so
- * `find`-by-name lookups in callers are deterministic (preserving the old
- * `ORDER BY prose, created_at, id`).
- */
-export async function listPrincipals(docoId: string): Promise<PrincipalRow[]> {
+export async function listPrincipals(docoId: string): Promise<NodeRow[]> {
   const recs = await listEntitiesByDoco("principal", docoId);
-  return recs.map(principalRowFromRecord).sort((a, b) => {
-    const byName = a.name.localeCompare(b.name);
+  return recs.sort((a, b) => {
+    const byName = a.prose.localeCompare(b.prose);
     if (byName !== 0) return byName;
-    const at = (r: PrincipalRow) => String(r.data.created_at ?? "");
-    const byTime = at(a).localeCompare(at(b));
+    const byTime = (a.created_at ?? "").localeCompare(b.created_at ?? "");
     return byTime !== 0 ? byTime : a.id.localeCompare(b.id);
   });
 }

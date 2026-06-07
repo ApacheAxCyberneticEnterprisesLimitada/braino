@@ -23,7 +23,7 @@ const COMMON_OPTIONAL_FIELDS: readonly CaptureFieldSpec[] = [
 
 export const CAPTURE_SCHEMAS = {
   decision: schema("decision", "Decision", "decisions", "active", [
-    field("decision", "required", "full prose of the decision; first line is the label"),
+    field("prose", "required", "full prose of the decision; first line is the label"),
     field("question", "required", "the question the Decision answers"),
     field(
       "chosen",
@@ -34,18 +34,18 @@ export const CAPTURE_SCHEMAS = {
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   intent: schema("intent", "Intent", "intents", "active", [
-    field("intent", "required", "full prose: what someone wants, why, success criteria"),
+    field("prose", "required", "full prose: what someone wants, why, success criteria"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   action: schema("action", "Action", "actions", "retired", [
-    field("action", "required", "full prose: what was done plus context"),
+    field("prose", "required", "full prose: what was done plus context"),
     field("verb", "required", 'short verb such as "refactor", "migrate", "deploy"'),
     field("inputs", "optional", "verb-specific inputs, any JSON shape"),
     field("outputs", "optional", "verb-specific outputs, any JSON shape"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   log: schema("log", "Log", "logs", "retired", [
-    field("log", "required", "full prose: what happened, when, in what state"),
+    field("prose", "required", "full prose: what happened, when, in what state"),
     field("verb", "required", 'past-tense verb such as "pushed", "deployed", "verified"'),
     field("happened_at", "required", "ISO 8601 timestamp"),
     field("outputs", "required", "non-empty object with concrete results"),
@@ -53,13 +53,13 @@ export const CAPTURE_SCHEMAS = {
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   rule: schema("rule", "Rule", "rules", "active", [
-    field("rule", "required", "full prose: rule statement, rationale, scope, exceptions"),
+    field("prose", "required", "full prose: rule statement, rationale, scope, exceptions"),
     field("predicate", "required", "machine-checkable or prose predicate"),
     field("enforced_by", "optional", '"runtime" | "review" | "manual"'),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   eval: schema("eval", "Eval", "evals", "active", [
-    field("eval", "required", "full prose: what is being checked plus rationale"),
+    field("prose", "required", "full prose: what is being checked plus rationale"),
     field("criterion", "required", '{ "kind": "exact" | "shape" | "llm-judge", "spec": "..." }'),
     field("kind", "optional", '"unit" | "integration" | "eval" | "process" | "doc-consistency"'),
     field("expected_status", "optional", '"pass" | "fail"'),
@@ -69,19 +69,19 @@ export const CAPTURE_SCHEMAS = {
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   reference: schema("reference", "Reference", "references", "active", [
-    field("reference", "required", "full prose: human-readable label for the source"),
+    field("prose", "required", "full prose: human-readable label for the source"),
     field("locator", "required", "path, URL, ticket id, commit sha, or other locator"),
     field("content_hash", "optional", "source content hash"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   state: schema("state", "State", "states", "active", [
-    field("state", "required", "full prose: state description, invariants explained"),
+    field("prose", "required", "full prose: state description, invariants explained"),
     field("kind", "required", '"initial" | "intermediate" | "terminal"'),
     field("invariants", "optional", "array of free-form predicates true while in this State"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   idea: schema("idea", "Idea", "ideas", "drafting", [
-    field("idea", "required", "full prose: the idea, context, tradeoffs"),
+    field("prose", "required", "full prose: the idea, context, tradeoffs"),
     field("promoted_to", "optional", "entity id once the idea is picked up"),
     field("rejection_reason", "optional", "why the idea was rejected or parked"),
     ...COMMON_OPTIONAL_FIELDS,
@@ -106,13 +106,13 @@ const ENVELOPE_FIELDS: ReadonlySet<string> = new Set([
 
 /**
  * Classify a schema field for the raw `{prose, kind?, extra}` body shape:
- *  - the type-named prose field → `prose`
+ *  - `prose` → the node's text
  *  - `kind` → the top-level promoted classifier
  *  - lifecycle envelope keys → top-level
  *  - everything else → an `extra.<name>` hint
  */
-function fieldSlot(spec: CaptureSchema, name: string): "prose" | "kind" | "envelope" | "extra" {
-  if (name === spec.entityType) return "prose";
+function fieldSlot(name: string): "prose" | "kind" | "envelope" | "extra" {
+  if (name === "prose") return "prose";
   if (name === "kind") return "kind";
   if (ENVELOPE_FIELDS.has(name)) return "envelope";
   return "extra";
@@ -129,11 +129,11 @@ export function renderCaptureBodyFields(type: string, indent = "  "): string {
   if (!spec) return "";
 
   const proseDesc =
-    spec.fields.find((f) => f.name === spec.entityType)?.description ??
+    spec.fields.find((f) => f.name === "prose")?.description ??
     "full prose; first line is the label";
   const kindField = spec.fields.find((f) => f.name === "kind");
-  const extraFields = spec.fields.filter((f) => fieldSlot(spec, f.name) === "extra");
-  const envelopeFields = spec.fields.filter((f) => fieldSlot(spec, f.name) === "envelope");
+  const extraFields = spec.fields.filter((f) => fieldSlot(f.name) === "extra");
+  const envelopeFields = spec.fields.filter((f) => fieldSlot(f.name) === "envelope");
 
   // Width covers the deepest label so the descriptions line up; extra rows
   // are indented one extra step under the `extra` heading.
@@ -178,7 +178,7 @@ export function renderCaptureCheatsheet(): string {
       const top: string[] = ["prose*"];
       const kindField = spec.fields.find((f) => f.name === "kind");
       if (kindField) top.push(mark(kindField));
-      const attrs = spec.fields.filter((f) => fieldSlot(spec, f.name) === "extra").map(mark);
+      const attrs = spec.fields.filter((f) => fieldSlot(f.name) === "extra").map(mark);
       const parts = [...top, ...(attrs.length > 0 ? [`extra: { ${attrs.join(", ")} }`] : [])];
       return `- ${spec.label}: { ${parts.join(", ")} }`;
     })

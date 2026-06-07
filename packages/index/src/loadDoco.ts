@@ -3,21 +3,13 @@
 // Returns the `LoadedDoco` shape expected by the index pipeline.
 //
 // Two modes:
-//   - Full load (no `opts.entityIds`): every entity in the Doco (all 10
-//     node types), plus the host's workspaces. Used for first-build
-//     and bulk rebuilds.
-//   - Scoped load (`opts.entityIds` set): only the named ids are read from
-//     their own tables, and host-wide workspace rows are skipped
-//     entirely. The incremental reindex path only consumes the entities
-//     whose ids it passed in; loading the rest was pure waste.
+//   - Full load (no `opts.entityIds`): every node in the Doco (all 10 node
+//     types). Used for first-build and bulk rebuilds.
+//   - Scoped load (`opts.entityIds` set): only the named ids are read. The
+//     incremental reindex path only consumes the entities whose ids it passed
+//     in; loading the rest was pure waste.
 
-import {
-  type EntityRecord,
-  listEntitiesByDoco,
-  listEntitiesByDocoAndIds,
-  listIdentityRows,
-  withClient,
-} from "@doco/db";
+import { type NodeRow, listEntitiesByDoco, listEntitiesByDocoAndIds, withClient } from "@doco/db";
 import type {
   Doco,
   Entity,
@@ -35,9 +27,8 @@ const DOCO_SCOPED_NODE_TYPES: EntityType[] = [...NODE_TYPES] as EntityType[];
 
 export interface LoadDocoOptions {
   /**
-   * When set, load only these specific entity ids (and skip host-wide
-   * principal/workspace rows). Grouped by id prefix so each entity
-   * type only does one targeted SQL. Used by the incremental reindex
+   * When set, load only these specific entity ids. Grouped by id prefix so each
+   * entity type only does one targeted SQL. Used by the incremental reindex
    * path — every other consumer wants the full load.
    */
   entityIds?: string[];
@@ -78,34 +69,6 @@ export async function loadDocoFromPostgres(
 
   const scoped = opts.entityIds && opts.entityIds.length > 0;
 
-  // Host-level identity rows are loaded once (no doco_id filter). Only
-  // needed by the full-rebuild path; incremental captures don't consume
-  // them because the indexer's FTS/embedding writers don't need workspace text.
-  if (!scoped) {
-    let rows: EntityRecord[] = [];
-    try {
-      rows = await listIdentityRows("workspace");
-    } catch (err) {
-      failures.push({
-        filePath: "<postgres>:workspace",
-        reason: `listIdentityRows(workspace) failed: ${(err as Error).message}`,
-      });
-      rows = [];
-    }
-    for (const row of rows) {
-      const fm = row.data ?? {};
-      const id = fm.id;
-      if (!isEntityId(id)) continue;
-      const loaded: LoadedEntity = {
-        entity: fm as unknown as Entity,
-        filePath: `<postgres>:workspace/${row.id}`,
-        parsed: { data: fm, format: "postgres" },
-      };
-      entities.set(id as EntityId, loaded);
-      byType.get("workspace" as EntityType)?.push(loaded);
-    }
-  }
-
   // Group the requested ids by their type prefix so each type gets at
   // most one query — most captures touch one entity, so this is one SQL
   // round trip total instead of one-per-type.
@@ -120,7 +83,7 @@ export async function loadDocoFromPostgres(
   }
 
   for (const t of DOCO_SCOPED_NODE_TYPES) {
-    let rows: EntityRecord[] = [];
+    let rows: NodeRow[] = [];
     try {
       if (scoped) {
         const ids = idsByType.get(t);
@@ -137,31 +100,39 @@ export async function loadDocoFromPostgres(
       });
       continue;
     }
-    for (const row of rows) {
-      const fm = row.data ?? {};
-      const id = fm.id;
-      if (!isEntityId(id)) {
+    for (const rec of rows) {
+      if (!isEntityId(rec.id)) {
         failures.push({
-          filePath: `<postgres>:${t}/${row.id}`,
-          reason: "Missing or malformed 'id' field in data",
+          filePath: `<postgres>:${t}/${rec.id}`,
+          reason: "Missing or malformed 'id'",
         });
         continue;
       }
-      const entity = fm as unknown as Entity;
-      // Carry full node prose through `parsed` so the indexer can route it to
-      // the FTS body / embedding text without re-reading the row.
+      // The honest node row, flattened for the index's search-text needs:
+      // `prose` rides in `prose`; the domain fields (`extra` + the
+      // promoted scalars) are the fallback index text.
+      const data: Record<string, unknown> = {
+        ...rec.extra,
+        ...(rec.kind != null ? { kind: rec.kind } : {}),
+        ...(rec.locator != null ? { locator: rec.locator } : {}),
+      };
+      const entity = {
+        id: rec.id,
+        doco_id: rec.doco_id,
+        node_type: rec.node_type,
+        prose: rec.prose,
+        ...data,
+      } as unknown as Entity;
       const loaded: LoadedEntity = {
         entity,
-        filePath: `<postgres>:${t}/${row.id}`,
+        filePath: `<postgres>:${t}/${rec.id}`,
         parsed: {
-          data: fm,
-          // No node carries a separate body — a node's only text is its `prose`
-          // (carried via `typeNamedValue`). Policies index by their label.
+          data,
           format: "postgres",
-          typeNamedValue: typeof fm.prose === "string" ? fm.prose : null,
+          prose: rec.prose || null,
         },
       };
-      entities.set(id as EntityId, loaded);
+      entities.set(rec.id as EntityId, loaded);
       byType.get(t)?.push(loaded);
     }
   }

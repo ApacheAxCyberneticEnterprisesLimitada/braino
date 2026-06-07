@@ -16,7 +16,7 @@ export {
   getEntity,
   listEntitiesByDoco,
   listEntitiesByDocoAndIds,
-  listIdentityRows,
+  rowToNode,
   appendAuditEventRow,
   readAuditEventRows,
   type AuditEventRow,
@@ -31,7 +31,6 @@ export {
   // Principals (role-personas — node type)
   getPrincipalById,
   listPrincipals,
-  type PrincipalRow,
   // Workspaces
   listWorkspaces,
   getWorkspaceById,
@@ -90,6 +89,7 @@ export {
   USER_TABLES,
   CONTAINER_TABLES,
   type EntityRecord,
+  type NodeRow,
   type EntityTableSpec,
 } from "./types.js";
 
