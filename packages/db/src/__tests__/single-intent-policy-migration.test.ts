@@ -11,14 +11,9 @@
 // seeds. This test seeds such a Doco WITHOUT the ceiling, re-applies the
 // baseline (what every boot does), and asserts the ceiling row is inserted —
 // idempotently, scoped to business-processes Docos, and never duplicated.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -114,8 +109,7 @@ async function ceilingRows(docoId: string): Promise<CeilingRow[]> {
 
 describe("business-processes serves-ceiling policy migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline (migration is a no-op on an empty DB)
+    db = await freshDb();
   });
 
   it("inserts the serves ceiling into a business-processes Doco that lacks it", async () => {

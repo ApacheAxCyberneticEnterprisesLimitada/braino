@@ -4,14 +4,9 @@
 // broad token is a self-healing block in the baseline. This test seeds broad
 // and narrow tokens, re-applies the baseline (what every boot does), and
 // asserts exactly the broad ones get revoked.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const WS_A = "workspace_01AAAAAAAAAAAAAAAAAAAAAAAA";
 const WS_B = "workspace_01BBBBBBBBBBBBBBBBBBBBBBBB";
@@ -42,8 +37,7 @@ async function revoked(table: string, token: string): Promise<boolean> {
 
 describe("revoke-broad-tokens migration (single-workspace rule)", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline (DO block runs, no tokens yet)
+    db = await freshDb();
 
     await db.query("INSERT INTO users (id, data) VALUES ('user_alice', '{}')");
     await db.query(

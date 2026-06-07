@@ -12,14 +12,9 @@
 //      extra bag.
 // Every case asserts the apply does not throw, converges the data, and is
 // idempotent on a second apply (the upgrade path the PGlite-fresh tests miss).
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const DOCO = "doco_dropbodymd00000000000000000";
 const ORG = "workspace_dropbodymd0000000000";
@@ -95,8 +90,7 @@ async function readPolicy(
 
 describe("drop body_md migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql);
+    db = await freshDb();
     await seedDoco("org-chart");
   });
 

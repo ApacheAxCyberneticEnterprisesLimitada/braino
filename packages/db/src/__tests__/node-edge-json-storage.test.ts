@@ -1,13 +1,8 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb } from "./fresh-db.js";
 
 const DOCO = "doco_test0000000000000000000000";
 const ORG = "workspace_test000000000000000";
@@ -39,8 +34,7 @@ function decisionRecord(): EntityRecord {
 }
 
 beforeAll(async () => {
-  db = new PGlite();
-  await db.exec(schemaSql);
+  db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)", [
     ORG,
     "workspace-test",

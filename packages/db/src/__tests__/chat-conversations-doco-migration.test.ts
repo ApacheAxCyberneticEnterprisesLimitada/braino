@@ -6,14 +6,9 @@
 // restored leaving existing threads Doco-less (NULL); the unique index rejects
 // a second live chat for the same (user, Doco); and ON DELETE SET NULL
 // preserves chat history (orphaning the thread) when the Doco is removed.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -45,8 +40,7 @@ async function seedDoco(): Promise<void> {
 
 describe("chat_conversations doco_id migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline — column present via CREATE TABLE
+    db = await freshDb();
     await db.query("INSERT INTO users (id, data) VALUES ('user_alice', '{}')");
   });
 

@@ -5,14 +5,9 @@
 // it runs exactly once. This test removes the marker to mimic a pre-migration
 // DB, re-applies the baseline, and asserts the one-time wipe + that later state
 // survives.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -46,8 +41,7 @@ async function seedSlackState(team: string) {
 
 describe("slack reset-on-bind-at-install migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline records the marker
+    db = await freshDb();
     await db.query("INSERT INTO users (id, data) VALUES ('user_alice', '{}')");
     // Mimic a pre-migration DB: drop the one-shot marker, then seed Slack state.
     await db.query("DELETE FROM schema_oneshots WHERE name = 'slack_reset_bind_at_install'");

@@ -5,14 +5,9 @@
 // re-applies the baseline, and asserts the column is restored, pre-existing
 // threads are left unassigned (NULL), and the ON DELETE SET NULL FK unassigns
 // rather than deletes a thread when its Workspace is removed.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -34,8 +29,7 @@ async function workspaceIdOf(conversationId: string): Promise<string | null> {
 
 describe("chat_conversations workspace_id migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline — column present via CREATE TABLE
+    db = await freshDb();
     await db.query("INSERT INTO users (id, data) VALUES ('user_alice', '{}')");
   });
 

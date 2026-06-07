@@ -5,14 +5,9 @@
 // simulates the pre-binding shape (column dropped), re-applies the baseline,
 // and asserts: links revoked once, column restored, and a re-link survives a
 // later boot.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -39,8 +34,7 @@ async function seedLink(chatUser: string) {
 
 describe("slack team→workspace binding migration (revoke personal links once)", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // full baseline (column present on a fresh DB)
+    db = await freshDb();
     await db.query("INSERT INTO users (id, data) VALUES ('user_alice', '{}')");
     await db.query(
       "INSERT INTO group_chat_installations (id, provider, workspace_id) VALUES ('gci_1','slack','T_TEAM')",

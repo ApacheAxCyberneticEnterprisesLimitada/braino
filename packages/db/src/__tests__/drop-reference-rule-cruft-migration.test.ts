@@ -8,21 +8,15 @@
 // This pins the idempotent schema.sql migration that converges already-seeded
 // production data: it strips the keys from every node's bag, doesn't throw, and
 // is a no-op on a second apply (the upgrade path the PGlite-fresh tests miss).
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const DOCO = "doco_cruft00000000000000000000000";
 const ORG = "workspace_cruft000000000000000";
 
 async function seeded(): Promise<PGlite> {
-  const db = new PGlite();
-  await db.exec(schemaSql);
+  const db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1,$2,$3)", [
     ORG,
     "ws-cruft",

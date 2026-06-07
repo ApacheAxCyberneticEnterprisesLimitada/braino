@@ -4,14 +4,9 @@
 // schema.sql migration that renames the column in place on an already-seeded
 // database (a fresh DB gets `extra` straight from CREATE TABLE), preserving the
 // bag contents — the upgrade path the PGlite-fresh tests miss.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const DOCO = "doco_extra00000000000000000000000";
 const ORG = "workspace_extra000000000000000";
@@ -25,8 +20,7 @@ async function columnNames(db: PGlite): Promise<string[]> {
 
 describe("rename the node bag attributes -> extra (slice D)", () => {
   it("a fresh schema has the `extra` column and no `attributes` column", async () => {
-    const db = new PGlite();
-    await db.exec(schemaSql);
+    const db = await freshDb();
     const cols = await columnNames(db);
     expect(cols).toContain("extra");
     expect(cols).not.toContain("attributes");
@@ -81,8 +75,7 @@ describe("rename the node bag attributes -> extra (slice D)", () => {
   });
 
   it("round-trips a write through the renamed column via the repo", async () => {
-    const db = new PGlite();
-    await db.exec(schemaSql);
+    const db = await freshDb();
     await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1,$2,$3)", [
       ORG,
       "ws-extra",

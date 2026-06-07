@@ -1,14 +1,9 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { freshDb } from "./fresh-db.js";
 
 // Exercise the REAL repo functions against the REAL schema by pointing
 // withClient at an in-process PGlite (its .query matches pg's PoolClient).
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
-
 const mocks = vi.hoisted(() => ({ db: null as unknown as InstanceType<typeof PGlite> }));
 vi.mock("../client.js", () => ({
   withClient: (fn: (c: unknown) => unknown) => fn(mocks.db),
@@ -45,8 +40,7 @@ async function seed(): Promise<void> {
 
 describe("access requests", () => {
   beforeEach(async () => {
-    mocks.db = new PGlite();
-    await mocks.db.exec(schemaSql);
+    mocks.db = await freshDb();
     await seed();
   });
 

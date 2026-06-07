@@ -8,14 +8,9 @@
 // is a data migration in schema.sql, re-applied on every boot. This test seeds
 // the legacy prose, re-applies the baseline, and asserts it converges to the
 // new wording — idempotently, without touching unrelated suggestions.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 // The pre-#1005 lifecycle-walk prose, as the earliest-seeded Docos carry it.
 const OLD_PROSE =
@@ -75,8 +70,7 @@ async function proseOf(id: string): Promise<string> {
 
 describe("business-processes lifecycle-walk suggestion prose migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline
+    db = await freshDb();
   });
 
   it("converges the earliest (pre-#1005) lifecycle-walk prose to the current wording", async () => {

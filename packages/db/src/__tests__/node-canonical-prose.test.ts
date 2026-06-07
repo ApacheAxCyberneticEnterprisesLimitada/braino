@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { freshDb } from "./fresh-db.js";
 
 // Slice 1 of the entity-shape normalization (docs/simplification-plan.md):
 // a node's text has ONE name everywhere — `prose`. No `type_named_value`,
@@ -12,9 +10,6 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // `rowToEntity` routed `prose` into a separate `type_named_value` property and
 // the update/re-eval loader forwarded only `data`, so the judge saw a candidate
 // with no text under any key ("the candidate lacks a `prose` field entirely").
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
 const mocks = vi.hoisted(() => ({ db: null as unknown as InstanceType<typeof PGlite> }));
 vi.mock("../client.js", () => ({
@@ -28,8 +23,7 @@ const ORG = "workspace_prose000000000000000";
 const DOCO = "doco_prose0000000000000000000000";
 
 beforeAll(async () => {
-  mocks.db = new PGlite();
-  await mocks.db.exec(schemaSql);
+  mocks.db = await freshDb();
   await mocks.db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)", [
     ORG,
     "workspace-prose",

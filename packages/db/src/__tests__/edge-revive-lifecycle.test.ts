@@ -3,15 +3,10 @@
 // non-retired lifecycle with a retirement timestamp still set. The edge
 // lifecycle buttons in the dialog drive exactly this transition.
 
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createChangeset, createEdge, retireEdge, updateEdge } from "../index.js";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb } from "./fresh-db.js";
 
 const ORG = "workspace_revive00000000000000";
 const DOCO = "doco_revive00000000000000000000";
@@ -43,8 +38,7 @@ async function seed(): Promise<void> {
 }
 
 beforeEach(async () => {
-  db = new PGlite();
-  await db.exec(schemaSql);
+  db = await freshDb();
   await seed();
 });
 

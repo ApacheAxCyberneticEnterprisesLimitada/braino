@@ -9,14 +9,9 @@
 //   4. the PR-reference body-drop migration reads the `locator` column.
 // Each case asserts the apply doesn't throw, converges, and is idempotent on a
 // second apply (the upgrade path the PGlite-fresh tests miss).
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const DOCO = "doco_locator0000000000000000000";
 const ORG = "workspace_locator000000000000";
@@ -68,8 +63,7 @@ async function indexDef(name: string): Promise<string | undefined> {
 
 describe("promote locator to a column migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql);
+    db = await freshDb();
     await seedDoco();
   });
 

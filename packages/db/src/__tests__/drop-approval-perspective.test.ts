@@ -3,14 +3,9 @@
 // carry the seed row + Doco attachments — schema.sql is re-applied on every
 // boot, so a self-healing DELETE is how the removal reaches production
 // (mirrors the #721 CHECK-heal precedent, in reverse).
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const ORG = "workspace_test000000000000000";
 const DOCO = "doco_test0000000000000000000000";
@@ -19,8 +14,7 @@ let db: PGlite;
 
 describe("the Proposed (approval) perspective is gone", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql);
+    db = await freshDb();
   });
 
   it("does not seed the approval perspective into a fresh database", async () => {

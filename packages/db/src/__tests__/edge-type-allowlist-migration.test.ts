@@ -6,14 +6,9 @@
 // allowlist (WITHOUT the edge allowlist), re-applies the baseline (what every
 // boot does), and asserts the right edge allowlist is inserted — idempotently,
 // scoped per template, and never duplicated.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -91,8 +86,7 @@ const DECISION_NODES = ["intent", "decision", "eval", "reference", "rule", "prin
 
 describe("edge-type allowlist (requires_edge_type) backfill migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline (migration is a no-op on an empty DB)
+    db = await freshDb();
   });
 
   it("backfills the business-processes edge allowlist", async () => {

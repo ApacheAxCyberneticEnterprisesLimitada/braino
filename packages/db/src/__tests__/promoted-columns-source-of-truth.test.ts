@@ -1,18 +1,13 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type NodeRow, rowToNode, upsertEntity } from "../repo.js";
+import { freshDb } from "./fresh-db.js";
 
 // `NODE_PROMOTED_COLUMNS` is the one source of truth for which scalars get their
 // own typed column. `rowToNode` reads those columns straight off the row — these
 // round-trips guard that every genuinely promoted column survives a write→read
 // cycle, and the long-dead `role_principal` (no column, never persisted) never
 // reappears.
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
 const DOCO = "doco_promoted0000000000000000000";
 const ORG = "workspace_promoted00000000000";
@@ -25,8 +20,7 @@ async function readBack(id: string): Promise<NodeRow> {
 }
 
 beforeAll(async () => {
-  db = new PGlite();
-  await db.exec(schemaSql);
+  db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)", [
     ORG,
     "workspace-promoted",

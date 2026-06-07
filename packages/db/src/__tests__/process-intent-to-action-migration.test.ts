@@ -10,14 +10,9 @@
 // re-apply re-runs the guarded block), re-applies the schema, and asserts the
 // promotion landed — id rename cascaded, membership converted, and a
 // non-process Doco left untouched. Idempotent: a second re-apply is a no-op.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 let db: PGlite;
 
@@ -75,8 +70,7 @@ async function clearMarkerAndReapply(): Promise<void> {
 
 describe("process_intent_to_action migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // baseline (no-op on an empty DB; records the marker)
+    db = await freshDb();
   });
 
   it("promotes a process Doco's Intent to an Action and converts membership to has_parent", async () => {

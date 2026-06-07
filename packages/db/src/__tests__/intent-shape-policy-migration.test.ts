@@ -11,14 +11,9 @@
 // legacy rows in EITHER prior state, re-applies the baseline (what every boot
 // does), and asserts the rows converge — idempotently, and without touching
 // unrelated policies.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 // The original (PR #991-and-earlier) two-clause spec demanding trigger/outcome/scope.
 const TWO_CLAUSE_SPEC =
@@ -105,8 +100,7 @@ function expectWholeFieldSpec(spec: string): void {
 
 describe("business-processes Intent-shape policy migration", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql); // fresh baseline
+    db = await freshDb();
   });
 
   it("converges the original two-clause spec to the whole-field judge", async () => {

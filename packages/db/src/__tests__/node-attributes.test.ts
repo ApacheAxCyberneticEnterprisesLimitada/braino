@@ -1,18 +1,13 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { rowToNode, upsertEntity } from "../repo.js";
 import type { EntityRecord } from "../types.js";
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 // Node-shape slim-down: a single `extra` jsonb that replaces the per-type
 // promoted columns + `data`. These tests pin the write-path population, the
 // idempotent production backfill, the read-path surfacing, and the contract
 // drop of the action/log/rule scalar columns (verb / severity / …).
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
 const DOCO = "doco_attrs0000000000000000000000";
 const ORG = "workspace_attrs00000000000000";
@@ -20,8 +15,7 @@ const ORG = "workspace_attrs00000000000000";
 let db: PGlite;
 
 beforeAll(async () => {
-  db = new PGlite();
-  await db.exec(schemaSql);
+  db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, $3)", [
     ORG,
     "workspace-attrs",

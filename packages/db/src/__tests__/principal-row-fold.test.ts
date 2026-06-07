@@ -1,8 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
+import { freshDb } from "./fresh-db.js";
 
 // Slice teardown (docs/simplification-plan.md): a Principal is an ordinary node
 // (`node_type = 'principal'`), so `getPrincipalById` / `listPrincipals` read it
@@ -10,9 +8,6 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 // rowToEntity) — no bespoke `prose AS name` SQL + `mapPrincipalRow`. This pins
 // the legacy `PrincipalRow` shape those readers depend on: name (from prose),
 // `data.owner_id` (from extra), `data.created_by` (from the column).
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
 
 const mocks = vi.hoisted(() => ({ db: null as unknown as InstanceType<typeof PGlite> }));
 vi.mock("../client.js", () => ({
@@ -28,8 +23,7 @@ const P1 = "principal_pfold1000000000000000";
 const P2 = "principal_pfold2000000000000000";
 
 beforeAll(async () => {
-  mocks.db = new PGlite();
-  await mocks.db.exec(schemaSql);
+  mocks.db = await freshDb();
   await mocks.db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1,'pfold','PFold')", [
     ORG,
   ]);

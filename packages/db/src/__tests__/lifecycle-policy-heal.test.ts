@@ -6,14 +6,9 @@
 // `active` before adding the CHECK — otherwise ADD CONSTRAINT throws and
 // schema apply (run on every boot/deploy) fails. This test simulates that
 // legacy state and asserts re-applying schema.sql heals it.
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { PGlite } from "@electric-sql/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-
-const here = dirname(fileURLToPath(import.meta.url));
-const schemaSql = readFileSync(join(here, "..", "schema.sql"), "utf8");
+import { freshDb, schemaSql } from "./fresh-db.js";
 
 const ORG = "workspace_test000000000000000";
 const DOCO = "doco_test0000000000000000000000";
@@ -33,8 +28,7 @@ async function seedDoco(): Promise<void> {
 
 describe("lifecycle migration heals legacy policy rows", () => {
   beforeEach(async () => {
-    db = new PGlite();
-    await db.exec(schemaSql);
+    db = await freshDb();
     await seedDoco();
   });
 
