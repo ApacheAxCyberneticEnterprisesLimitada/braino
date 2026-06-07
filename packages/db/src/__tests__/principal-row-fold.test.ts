@@ -2,7 +2,7 @@ import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { freshDb } from "./fresh-db.js";
 
-// Slice teardown (docs/simplification-plan.md): a Principal is an ordinary node
+// A Principal is an ordinary node
 // (`node_type = 'principal'`), so `getPrincipalById` / `listPrincipals` read it
 // through the ONE canonical node path (getEntity / listEntitiesByDoco →
 // rowToEntity) — no bespoke `prose AS name` SQL + `mapPrincipalRow`. This pins

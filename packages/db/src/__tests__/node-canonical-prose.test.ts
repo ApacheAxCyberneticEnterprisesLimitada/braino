@@ -2,8 +2,8 @@ import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { freshDb } from "./fresh-db.js";
 
-// Slice 1 of the entity-shape normalization (docs/simplification-plan.md):
-// a node's text has ONE name everywhere — `prose`. No `type_named_value`,
+// Entity-shape normalization: a node's text has ONE name everywhere — `prose`.
+// No `type_named_value`,
 // no type-named key (`intent`/`decision`/…). The read path must surface the
 // stored `prose` column as `data.prose`, so the field bag handed to the
 // authoring-policy judge on RE-EVALUATION carries the text. The original bug:
