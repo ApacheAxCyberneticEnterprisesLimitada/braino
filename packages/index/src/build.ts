@@ -152,7 +152,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
         summary = typeof e.policy === "string" ? e.policy : "";
-        body = le.parsed.body ?? "";
+        body = "";
       }
       pgFts.push({
         entity_id: le.entity.id,
@@ -188,7 +188,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
         summary = typeof e.policy === "string" ? e.policy : "";
-        body = le.parsed.body ?? "";
+        body = "";
         text = `${summary}\n\n${body}`.trim();
       }
       if (!text) continue;

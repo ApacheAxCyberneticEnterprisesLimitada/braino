@@ -14,7 +14,7 @@ function le(typeNamedValue: string | null, data: Record<string, unknown> = {}): 
   return {
     entity: data as unknown as LoadedEntity["entity"],
     filePath: "<test>",
-    parsed: { data, body: "", format: "postgres", typeNamedValue },
+    parsed: { data, format: "postgres", typeNamedValue },
   } as LoadedEntity;
 }
 

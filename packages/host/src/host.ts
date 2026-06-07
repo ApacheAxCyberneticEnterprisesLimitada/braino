@@ -2,7 +2,6 @@ import {
   DEFAULT_WORKSPACE_CONSTITUTION,
   type EntityId,
   HOST_RESERVED_SLUGS,
-  type Workspace,
   generateUlid,
   makeEntityId,
   nowIso,
@@ -539,5 +538,3 @@ export async function softDeleteDoco(opts: {
   const deleted = result.rows[0];
   return { deletedPath: `postgres:docos/${deleted.handle}` };
 }
-
-export type { Workspace };

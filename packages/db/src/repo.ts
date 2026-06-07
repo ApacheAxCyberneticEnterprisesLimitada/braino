@@ -22,7 +22,6 @@ const NODE_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(NODE_TABLES));
 
 function tableFor(entityType: string): {
   table: string;
-  body: boolean;
   typeNamedColumn?: string;
 } {
   const spec = ALL_ENTITY_TABLES[entityType];
@@ -248,10 +247,13 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
 
 /**
  * Keys stripped from the `data` jsonb before storage, so the typed column or
- * first-class edge is the single source of truth:
- *   - scalars promoted to typed columns (from NODE_PROMOTED_COLUMNS)
- *   - principal.role_principal (promoted to its own column by the writer)
- *   - graph-link field names; links live in `edges`.
+ * first-class edge is the single source of truth. DERIVED from
+ * `NODE_PROMOTED_COLUMNS` (the `stripFromData` fields) — no per-type override:
+ *   - scalars promoted to typed columns (`kind`, `locator`)
+ *   - graph-link field names; links live in `edges` (added below).
+ *
+ * (The long-dead `role_principal` is not stripped here — it has no column and
+ * is kept out of `extra` by `EXTRA_EXCLUDED_KEYS`, so it persists nowhere.)
  */
 const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() => {
   const out: Record<string, Set<string>> = {};
@@ -260,8 +262,6 @@ const STRIP_KEYS_BY_TYPE: Readonly<Record<string, ReadonlySet<string>>> = (() =>
     for (const pc of columns) if (pc.stripFromData) keys.add(pc.field);
     if (keys.size > 0) out[type] = keys;
   }
-  // Principal's role_principal + kind are promoted to their own columns.
-  out.principal = new Set(["role_principal", "kind"]);
   return out;
 })();
 
@@ -402,31 +402,22 @@ export async function listIdentityRows(
 }
 
 /**
- * Real columns whose values we merge into the record's `data` field bag on read
- * so downstream code that reads `rec.data.kind`, `rec.data.proposer_id`, etc.
- * still finds them now that the catch-all `data` jsonb is gone (the rest of the
- * domain fields come from `extra`, merged separately below).
+ * Read counterpart of `NODE_PROMOTED_COLUMNS`, DERIVED from it so the two can't
+ * drift: the typed columns merged back into the record's `data` field bag on
+ * read are exactly the columns the writer promotes — `kind` (eval/state/
+ * principal), `proposer_id` (idea), `locator` (reference). Every other domain
+ * field comes from `extra`, merged separately below.
  */
-const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = {
-  // Node-shape slim-down: action/log/rule scalars (and the remaining reference
-  // scalars) come back via the `extra` merge below, not here. What remains
-  // are the columns NOT carried in `extra`: `kind` (eval/state/principal),
-  // `locator` (the promoted reference dedup key), principal's `role_principal`,
-  // and idea's `proposer_id` FK — each surfaced from its column.
-  eval: ["kind"],
-  state: ["kind"],
-  idea: ["proposer_id"],
-  reference: ["locator"],
-  principal: ["role_principal", "kind"],
-};
+const PROMOTED_COLUMNS_BY_TYPE: Record<string, readonly string[]> = Object.fromEntries(
+  Object.entries(NODE_PROMOTED_COLUMNS).map(([type, pcs]) => [type, pcs.map((pc) => pc.column)]),
+);
 
 export function rowToEntity(entityType: string, row: Record<string, unknown>): EntityRecord {
   // Node-shape slim-down: the catch-all `data` jsonb is gone, so rebuild the
   // record's `data` field bag from its real homes:
   //   1. the system/identity/audit keys, injected from their real columns
   //      (these used to be stored verbatim in the `data` jsonb), then
-  //   2. the still-promoted typed columns (kind / proposer_id / role_principal),
-  //      then
+  //   2. the still-promoted typed columns (kind / proposer_id / locator), then
   //   3. the unified `extra` bag — every other per-node domain field.
   const data: Record<string, unknown> = {};
   // 1. System keys, only when present on the row (a column may be absent from a

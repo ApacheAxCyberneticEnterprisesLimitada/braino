@@ -99,7 +99,7 @@ export async function loadDocoFromPostgres(
       const loaded: LoadedEntity = {
         entity: fm as unknown as Entity,
         filePath: `<postgres>:workspace/${row.id}`,
-        parsed: { data: fm, body: "", format: "postgres" },
+        parsed: { data: fm, format: "postgres" },
       };
       entities.set(id as EntityId, loaded);
       byType.get("workspace" as EntityType)?.push(loaded);
@@ -157,7 +157,6 @@ export async function loadDocoFromPostgres(
           data: fm,
           // No node carries a separate body — a node's only text is its `prose`
           // (carried via `typeNamedValue`). Policies index by their label.
-          body: "",
           format: "postgres",
           typeNamedValue: typeof fm.prose === "string" ? fm.prose : null,
         },

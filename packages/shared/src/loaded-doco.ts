@@ -8,11 +8,10 @@ export type LoadedEntitySourceFormat = "postgres";
 
 export interface LoadedEntityParsed {
   data: Record<string, unknown>;
-  body: string;
   format?: LoadedEntitySourceFormat;
   /**
-   * Full node prose from the storage row. The indexer reads this for FTS body
-   * + embedding text.
+   * Full node prose from the storage row — a node's single text home. The
+   * indexer reads this for FTS body + embedding text.
    */
   typeNamedValue?: string | null;
 }

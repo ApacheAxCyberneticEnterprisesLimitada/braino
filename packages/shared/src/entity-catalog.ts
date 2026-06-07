@@ -4,7 +4,6 @@ export interface NodeCatalogEntry {
   proseField: string;
   storage: {
     table: "nodes";
-    body: boolean;
     typeNamedColumn: "prose";
   };
   capture: "generic" | "bespoke";
@@ -43,7 +42,7 @@ function node(type: string, segment: string, proseField: string): NodeCatalogEnt
     type,
     segment,
     proseField,
-    storage: { table: "nodes", body: false, typeNamedColumn: "prose" },
+    storage: { table: "nodes", typeNamedColumn: "prose" },
     capture: "generic",
     searchable: true,
   };

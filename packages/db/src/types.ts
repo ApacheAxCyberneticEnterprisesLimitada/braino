@@ -9,35 +9,20 @@ import { GENERIC_CAPTURE_NODE_TYPES, NODE_CATALOG, NODE_TYPES } from "@doco/shar
 /**
  * The 10 node types (graph-knowledge entities).
  *
- * `typeNamedColumn`, where present, is the per-table text column that
- * holds the full prose content for that node.
- *
- * `body` is legacy and always false: no node carries a separate body
- * column — a node's text is its single `prose` column.
+ * `typeNamedColumn`, where present (always `"prose"` for nodes, absent for
+ * policies), doubles as the node-vs-policy discriminator some readers branch on.
  */
-export const NODE_TABLES: Record<
-  string,
-  { table: string; body: boolean; typeNamedColumn?: string }
-> = Object.fromEntries(
-  NODE_TYPES.map((type) => {
-    const storage = NODE_CATALOG[type].storage;
-    return [
-      type,
-      {
-        table: storage.table,
-        body: storage.body,
-        typeNamedColumn: storage.typeNamedColumn,
-      },
-    ];
-  }),
-);
+export const NODE_TABLES: Record<string, { table: string; typeNamedColumn?: string }> =
+  Object.fromEntries(
+    NODE_TYPES.map((type) => {
+      const storage = NODE_CATALOG[type].storage;
+      return [type, { table: storage.table, typeNamedColumn: storage.typeNamedColumn }];
+    }),
+  );
 
 export interface EntityTableSpec {
   table: string;
   entityType: string;
-  body: boolean;
-  labelExpr?: string;
-  nameExpr?: string;
 }
 
 // All node types live in `nodes` (discriminated by entityType →
@@ -45,7 +30,6 @@ export interface EntityTableSpec {
 export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = NODE_TYPES.map((type) => ({
   table: NODE_CATALOG[type].storage.table,
   entityType: type,
-  body: NODE_CATALOG[type].storage.body,
 }));
 
 // Generic capture nodes only. Use this when a surface intentionally wants
@@ -54,7 +38,6 @@ export const DOCO_GENERIC_CAPTURE_NODE_TABLE_SPECS: readonly EntityTableSpec[] =
   GENERIC_CAPTURE_NODE_TYPES.map((type) => ({
     table: NODE_CATALOG[type].storage.table,
     entityType: type,
-    body: NODE_CATALOG[type].storage.body,
   }));
 
 export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
@@ -106,14 +89,14 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
 };
 
 /** The user category — human OAuth identity layer. */
-export const USER_TABLES: Record<string, { table: string; body: boolean }> = {
-  user: { table: "users", body: false },
+export const USER_TABLES: Record<string, { table: string }> = {
+  user: { table: "users" },
 };
 
 /** Containers — docos and workspaces are their own top-level categories. */
-export const CONTAINER_TABLES: Record<string, { table: string; body: boolean }> = {
-  doco: { table: "docos", body: false },
-  workspace: { table: "workspaces", body: false },
+export const CONTAINER_TABLES: Record<string, { table: string }> = {
+  doco: { table: "docos" },
+  workspace: { table: "workspaces" },
 };
 
 /**
@@ -121,15 +104,12 @@ export const CONTAINER_TABLES: Record<string, { table: string; body: boolean }> 
  * Used when callers don't need to distinguish the category (audit log,
  * generic ID parser, etc.).
  */
-export const ALL_ENTITY_TABLES: Record<
-  string,
-  { table: string; body: boolean; typeNamedColumn?: string }
-> = {
+export const ALL_ENTITY_TABLES: Record<string, { table: string; typeNamedColumn?: string }> = {
   ...NODE_TABLES,
   ...USER_TABLES,
   ...CONTAINER_TABLES,
   // Policies all live in the single per-Doco `policies` table.
-  policy: { table: "policies", body: false },
+  policy: { table: "policies" },
 };
 
 /**

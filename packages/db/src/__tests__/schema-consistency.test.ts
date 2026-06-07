@@ -46,16 +46,21 @@ describe("ALL_ENTITY_TABLES ↔ schema.sql consistency", () => {
       expect(hasCreateTable(spec.table)).toBe(true);
     });
 
-    it(`schema.sql ${spec.table}.body_md presence matches body=${spec.body}`, () => {
-      expect(hasBodyMdColumn(spec.table)).toBe(spec.body);
-    });
-
     if (spec.typeNamedColumn) {
       it(`schema.sql ${spec.table} declares type-named column "${spec.typeNamedColumn}"`, () => {
         expect(hasTypeNamedColumn(spec.table, spec.typeNamedColumn as string)).toBe(true);
       });
     }
   }
+
+  // A node's only text is its single `prose` column — no entity table carries a
+  // separate `body_md`. (The `body` flag that used to encode this per-table is
+  // gone; the invariant is now asserted directly.)
+  it("no entity table declares a body_md column", () => {
+    for (const [, spec] of Object.entries(ALL_ENTITY_TABLES)) {
+      expect(hasBodyMdColumn(spec.table), `table ${spec.table} still declares body_md`).toBe(false);
+    }
+  });
 
   it("revision column has been removed from every entity table (decision_01KRHBZMD0V35NAX94Y7N2MXVA)", () => {
     for (const [, spec] of Object.entries(ALL_ENTITY_TABLES)) {

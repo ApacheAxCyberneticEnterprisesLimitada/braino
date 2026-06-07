@@ -8,14 +8,15 @@
  *     decision, action, log, eval, reference, state, principal)
  *   - Policies (1): Doco-level authoring metadata — one `policies` table,
  *     classified by `kind: "suggestion" | "deterministic" | "probabilistic"`
- *   - User (1): OAuth identity layer (separate from principal)
- *   - Doco, Workspace: workspace + workspace containers
+ *   - Doco: the root container
  *
- * Per-category discriminator fields (matches stored data jsonb):
- *   - Nodes   → `node_type: NodeType`
+ * The OAuth identity layer and the workspace container have no entity shape
+ * here; their honest types are `UserRow` / `WorkspaceRow` in `@doco/db`.
+ *
+ * Per-category discriminator fields:
+ *   - Nodes    → `node_type: NodeType`
  *   - Policies → `kind: "suggestion" | "deterministic" | "probabilistic"`
- *   - User → human OAuth identity
- *   - Doco, Workspace → no per-row discriminator
+ *   - Doco     → no per-row discriminator
  *
  * `created_by` / `updated_by` reference users (the OAuth identity).
  * Graph relationships live in first-class edge rows.
@@ -59,48 +60,27 @@ export interface CommonFields {
   outcome?: Outcome;
 }
 
-/** Common fields for readable claim entities that carry a one-line summary. */
-export interface SummarizedFields extends CommonFields {
-  summary: string;
-}
-
 /**
  * Every node carries its text in the one canonical `prose` column. The
  * historical parallel carriers (`summary` / `body_md` / `title` / `name` /
  * `description`) are gone — a node has exactly one text home, no second body.
- */
-
-// ─── User (OAuth identity — new category) ─────────────────────────
-
-/**
- * User — host-scoped human OAuth identity.
- * Authored nodes via `created_by` / `updated_by`. Member of workspaces/docos
- * via `member_of` edges.
  *
- * NOT on the graph as a node — users are an identity layer.
- * Use `Principal` (the node) when documenting a role/persona that
- * participates in a flow.
+ * The OAuth identity layer (`User`) and the workspace container are NOT entity
+ * shapes here — their honest in-memory types are `UserRow` / `WorkspaceRow` in
+ * `@doco/db`, which mirror their tables 1:1. There is no parallel `User` /
+ * `Workspace` interface to drift from those rows.
  */
-export interface User {
-  id: EntityId<"user">;
-  github_id?: string;
-  github_login: string;
-  email?: string;
-  avatar_url?: string;
-  created_at: string;
-  deactivated_at?: string;
-}
 
 // ─── Principal (role-persona — node type) ───────────────────────────────
 
 /**
  * Principal — documented role/persona that participates in flows.
  * Related to work through edge rows. Slimmed from the pre-rename Principal
- * which also held OAuth identity; that concern is now `User`.
+ * which also held OAuth identity; that concern is now the `UserRow` in @doco/db.
  */
 // Principal carries a display label (`name`) and an optional seat `kind`; like
 // every node its text lives in the one canonical `prose` column — there is no
-// second `body_md` field. Extends CommonFields rather than SummarizedFields.
+// second `body_md` field.
 export interface Principal extends CommonFields {
   node_type: "principal";
   /** Display label for the Principal — stored as its `prose` text. Other nodes
@@ -109,8 +89,6 @@ export interface Principal extends CommonFields {
   /** Seat occupant kind — "human" or "agent". Optional; a vacant seat
    *  declares no kind. Drives the org-tree seat icon. */
   kind?: "human" | "agent";
-  /** Principal role marker used by system-authored templates. */
-  role_principal?: boolean;
 }
 
 // ─── Doco (root entity) ───────────────────────────────────────────────────
@@ -154,143 +132,152 @@ export interface Idea extends CommonFields {
 // ─── Rule ─────────────────────────────────────────────────────────────────
 
 /**
- * Authoring predicate — the structured shape templates use to author
- * policies, converted to a runtime `Policy` (`PolicyKind` + `PolicyPredicate`)
- * at seed time. (`Rule` *nodes* carry a prose `predicate` string, not this.)
+ * The structured deterministic checks, defined ONCE as a payload-per-check map.
+ * Both predicate unions derive from this, differing only in the name of the
+ * discriminator field: the template-authoring form keys each check by `kind`
+ * (`AuthoringPredicate`); the seeded runtime form keys it by `sub_kind`
+ * (`DeterministicPredicate`) so the policy's own `kind` classifier can stand
+ * alone. One shape per check — edit a check's fields in exactly one place.
  *
- * `when_node_type` filters a predicate to candidates of specific node
- * types. Membership gates (`requires_node_type` / `requires_entity_type`)
- * carry no `when_node_type`, so they fire against every node candidate.
- * Policy records are Doco-scoped metadata; the evaluator lets them pass
- * membership gates without forcing each template to list policy entity
- * types as domain content.
+ * `when_node_type` filters a check to candidates of specific node types.
+ * Membership gates (`requires_node_type` / `requires_edge_type` /
+ * `requires_entity_type`) carry none, so they fire against every candidate; the
+ * evaluator lets policy records pass them without each template listing policy
+ * entity types as domain content.
+ */
+export interface DeterministicChecks {
+  requires_edge: {
+    edge_type: string;
+    /**
+     * Constrain the node at the OTHER end of the edge (the `to` side for an
+     * outgoing edge, the `from` side for an incoming one). With `role` gone,
+     * this endpoint-type filter is how a policy distinguishes, say, an Action's
+     * actor edge (`attributed_to` from an Action) from an Intent's owner edge of
+     * the same `attributed_to` type.
+     */
+    target_node_type?: string;
+    /** Minimum number of matching edges (default 1). A gateway, say, needs ≥2. */
+    min_count?: number;
+    /**
+     * Which side of the candidate the edge must sit on. "outgoing" (default)
+     * checks edges the candidate owns; "incoming" checks edges that point AT the
+     * candidate (e.g. a Principal must be the target of an Action's
+     * `attributed_to`).
+     */
+    direction?: "incoming" | "outgoing";
+    /**
+     * Skip the check when the candidate already participates in an edge of
+     * `edge_type` whose OTHER endpoint is this node type — the structural
+     * exemption that keeps a rule from false-positiving on a legitimate special
+     * case (e.g. the accountable process owner, `attributed_to` from an Intent,
+     * is exempt from the per-step actor-coverage gate).
+     */
+    exempt_when_other_node_type?: string;
+    when_node_type?: NodeType[];
+  };
+  /**
+   * Ceiling counterpart to `requires_edge`. Where that is the FLOOR ("≥1 edge of
+   * this type"), this is the CAP: the candidate may carry AT MOST `max_count`
+   * (default 1) edges of `edge_type`, optionally to a `target_node_type`. Pair
+   * the two on the same edge to pin a node to EXACTLY one neighbour — e.g. a
+   * business-process flow node that must `support` one Intent and no more, so it
+   * lives in a single BPMN pool.
+   */
+  limits_edge: {
+    edge_type: string;
+    target_node_type?: string;
+    /** Which side of the candidate to count. "outgoing" (default) or "incoming". */
+    direction?: "incoming" | "outgoing";
+    /** The maximum number of matching edges allowed (default 1). */
+    max_count?: number;
+    when_node_type?: NodeType[];
+  };
+  forbids_edge: {
+    edge_type: string;
+    target_node_type?: string;
+    when_node_type?: NodeType[];
+  };
+  requires_field: { fields: string[]; when_node_type?: NodeType[] };
+  forbids_field: { fields: string[]; when_node_type?: NodeType[] };
+  /** Violation when any listed field's text matches a forbidden regex. */
+  forbids_field_pattern: {
+    fields: string[];
+    pattern: string;
+    flags?: string;
+    when_node_type?: NodeType[];
+  };
+  /**
+   * Sequence-flow completeness for a directed process graph. A flow node must be
+   * wired in: reachable (≥1 incoming `edge_type`) unless it is an initial node,
+   * and leading somewhere (≥1 outgoing) unless it is a terminal node — which
+   * conversely must have NO outgoing edge. "Initial"/"terminal" are detected
+   * structurally via a field match so the engine can branch without reading prose.
+   */
+  "flow-wiring": {
+    edge_type: string;
+    initial_when?: { field: string; equals: string };
+    terminal_when?: { field: string; equals: string };
+    when_node_type?: NodeType[];
+  };
+  unique_field: { field: string; case_fold?: boolean; when_node_type?: NodeType[] };
+  requires_node_type: { node_types: NodeType[] };
+  /**
+   * Edge-type allowlist — the edge analogue of `requires_node_type`. A Doco-wide
+   * membership gate evaluated when an edge is CREATED: an edge whose `edge_type`
+   * is not in `edge_types` is rejected. Like the node-type allowlist it carries
+   * no `when_node_type` and is not lifecycle-scoped (a disallowed edge type is
+   * barred even in a `drafting` sketch).
+   */
+  requires_edge_type: { edge_types: string[] };
+  /**
+   * Like `requires_node_type` but matches on the candidate's id prefix, for
+   * callers that intentionally allow broader entity categories than graph nodes.
+   */
+  requires_entity_type: { entity_types: EntityType[] };
+  "graph-completeness": {
+    list_field: string;
+    edge_type: string;
+    incoming_node_type: NodeType;
+    incoming_field_must_match: string;
+    when_node_type?: NodeType[];
+  };
+  /** Field-resolution check: `entity[field]` must be the id of an existing Principal. */
+  requires_field_resolves_to_principal: { field: string; when_node_type?: NodeType[] };
+}
+
+/**
+ * Build a discriminated union over `DeterministicChecks`, tagging each check's
+ * payload with the discriminator field named `K` (`"kind"` or `"sub_kind"`).
+ */
+type CheckUnion<K extends string> = {
+  [V in keyof DeterministicChecks]: { [P in K]: V } & DeterministicChecks[V];
+}[keyof DeterministicChecks];
+
+/**
+ * Authoring predicate — the structured shape templates use to author policies,
+ * converted to a runtime `Policy` (`PolicyKind` + `PolicyPredicate`) at seed
+ * time. (`Rule` *nodes* carry a prose `predicate` string, not this.) The
+ * deterministic checks are keyed by `kind`; three judge-/record-only forms
+ * (`probabilistic` / `edge-probabilistic` / `descriptive`) round it out.
  */
 export type AuthoringPredicate =
-  | {
-      kind: "requires_edge";
-      edge_type: string;
-      /**
-       * Constrain the node at the OTHER end of the edge (the `to` side for an
-       * outgoing edge, the `from` side for an incoming one). With `role` gone,
-       * this endpoint-type filter is how a policy distinguishes, say, an
-       * Action's actor edge (`attributed_to` from an Action) from an Intent's
-       * owner edge of the same `attributed_to` type.
-       */
-      target_node_type?: string;
-      /** Minimum number of matching edges (default 1). A gateway, say, needs ≥2. */
-      min_count?: number;
-      /**
-       * Which side of the candidate the edge must sit on. "outgoing" (default)
-       * checks edges the candidate owns; "incoming" checks edges that point AT
-       * the candidate (e.g. a Principal must be the target of an Action's
-       * `attributed_to`).
-       */
-      direction?: "incoming" | "outgoing";
-      /**
-       * Skip the check when the candidate already participates in an edge of
-       * `edge_type` whose OTHER endpoint is this node type — the structural
-       * exemption that keeps a rule from false-positiving on a legitimate
-       * special case (e.g. the accountable process owner, `attributed_to` from
-       * an Intent, is exempt from the per-step actor-coverage gate).
-       */
-      exempt_when_other_node_type?: string;
-      when_node_type?: NodeType[];
-    }
-  | {
-      /**
-       * Ceiling counterpart to `requires_edge`. Where that predicate is the
-       * FLOOR ("≥1 edge of this type"), this is the CAP: the candidate may carry
-       * AT MOST `max_count` (default 1) edges of `edge_type`, optionally to a
-       * `target_node_type`. Pair the two on the same edge to pin a node to
-       * EXACTLY one neighbour — e.g. a business-process flow node that must
-       * `support` one Intent and no more, so it lives in a single BPMN pool.
-       */
-      kind: "limits_edge";
-      edge_type: string;
-      target_node_type?: string;
-      /** Which side of the candidate to count. "outgoing" (default) or "incoming". */
-      direction?: "incoming" | "outgoing";
-      /** The maximum number of matching edges allowed (default 1). */
-      max_count?: number;
-      when_node_type?: NodeType[];
-    }
-  | {
-      kind: "forbids_edge";
-      edge_type: string;
-      target_node_type?: string;
-      when_node_type?: NodeType[];
-    }
-  | { kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
-  | { kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
-  | {
-      /** Violation when any listed field's text matches a forbidden regex. */
-      kind: "forbids_field_pattern";
-      fields: string[];
-      pattern: string;
-      flags?: string;
-      when_node_type?: NodeType[];
-    }
-  | {
-      /**
-       * Sequence-flow completeness for a directed process graph. A flow node
-       * must be wired in: reachable (≥1 incoming `edge_type`) unless it is an
-       * initial node, and leading somewhere (≥1 outgoing) unless it is a
-       * terminal node — which conversely must have NO outgoing edge.
-       * "Initial"/"terminal" are detected structurally via a field match so
-       * the engine can branch without reading prose.
-       */
-      kind: "flow-wiring";
-      edge_type: string;
-      initial_when?: { field: string; equals: string };
-      terminal_when?: { field: string; equals: string };
-      when_node_type?: NodeType[];
-    }
-  | { kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
-  | { kind: "requires_node_type"; node_types: NodeType[] }
-  /**
-   * Edge-type allowlist — the edge analogue of `requires_node_type`. A
-   * Doco-wide membership gate evaluated when an edge is CREATED: an edge whose
-   * `edge_type` is not in `edge_types` is rejected. Like the node-type allowlist
-   * it carries no `when_node_type` and is not lifecycle-scoped (a disallowed
-   * edge type is barred even in a `drafting` sketch).
-   */
-  | { kind: "requires_edge_type"; edge_types: string[] }
-  /**
-   * Like `requires_node_type` but matches on the candidate's id prefix,
-   * for callers that intentionally allow broader entity categories than
-   * graph nodes.
-   */
-  | { kind: "requires_entity_type"; entity_types: EntityType[] }
+  | CheckUnion<"kind">
   | { kind: "probabilistic"; spec: string; when_node_type?: NodeType[] }
   | {
       /**
-       * Edge-scoped probabilistic check. Unlike `probabilistic` (which the
-       * judge runs against a single candidate node), this fires when an edge
-       * of `edge_type` (optionally between the given endpoint node types) is
-       * created, and the judge sees BOTH endpoint nodes. It is the only
-       * predicate that can compare two nodes against each other — e.g. that a
-       * sub-process child Intent's name is the base form of the calling Action
-       * that `supports` it.
+       * Edge-scoped probabilistic check. Unlike `probabilistic` (which the judge
+       * runs against a single candidate node), this fires when an edge of
+       * `edge_type` (optionally between the given endpoint node types) is
+       * created, and the judge sees BOTH endpoint nodes. It is the only predicate
+       * that can compare two nodes against each other — e.g. that a sub-process
+       * child Intent's name is the base form of the calling Action that
+       * `supports` it.
        */
       kind: "edge-probabilistic";
       spec: string;
       edge_type: string;
       from_node_type?: NodeType;
       to_node_type?: NodeType;
-    }
-  | {
-      kind: "graph-completeness";
-      list_field: string;
-      edge_type: string;
-      incoming_node_type: NodeType;
-      incoming_field_must_match: string;
-      when_node_type?: NodeType[];
-    }
-  /** Field-resolution check: `entity[field]` must be the id of an existing Principal. */
-  | {
-      kind: "requires_field_resolves_to_principal";
-      field: string;
-      when_node_type?: NodeType[];
     }
   | { kind: "descriptive"; spec: string; when_node_type?: NodeType[] };
 
@@ -322,68 +309,12 @@ export interface Rule extends CommonFields {
 export type PolicyKind = "suggestion" | "deterministic" | "probabilistic";
 
 /**
- * Deterministic predicate — the structured, engine-checkable shape evaluated
- * at write time. `sub_kind` selects the check; the remaining fields are its
- * parameters. (This is `AuthoringPredicate` with `kind` lifted out to
- * `sub_kind`, so the policy's own `kind` can stand alone.)
+ * Deterministic predicate — the structured, engine-checkable shape evaluated at
+ * write time. The same `DeterministicChecks` as `AuthoringPredicate`, keyed by
+ * `sub_kind` instead of `kind` so the policy's own `kind` classifier can stand
+ * alone. `sub_kind` selects the check; the remaining fields are its parameters.
  */
-export type DeterministicPredicate =
-  | {
-      sub_kind: "requires_edge";
-      edge_type: string;
-      target_node_type?: string;
-      min_count?: number;
-      direction?: "incoming" | "outgoing";
-      exempt_when_other_node_type?: string;
-      when_node_type?: NodeType[];
-    }
-  | {
-      sub_kind: "limits_edge";
-      edge_type: string;
-      target_node_type?: string;
-      direction?: "incoming" | "outgoing";
-      max_count?: number;
-      when_node_type?: NodeType[];
-    }
-  | {
-      sub_kind: "forbids_edge";
-      edge_type: string;
-      target_node_type?: string;
-      when_node_type?: NodeType[];
-    }
-  | { sub_kind: "requires_field"; fields: string[]; when_node_type?: NodeType[] }
-  | { sub_kind: "forbids_field"; fields: string[]; when_node_type?: NodeType[] }
-  | {
-      sub_kind: "forbids_field_pattern";
-      fields: string[];
-      pattern: string;
-      flags?: string;
-      when_node_type?: NodeType[];
-    }
-  | {
-      sub_kind: "flow-wiring";
-      edge_type: string;
-      initial_when?: { field: string; equals: string };
-      terminal_when?: { field: string; equals: string };
-      when_node_type?: NodeType[];
-    }
-  | { sub_kind: "unique_field"; field: string; case_fold?: boolean; when_node_type?: NodeType[] }
-  | { sub_kind: "requires_node_type"; node_types: NodeType[] }
-  | { sub_kind: "requires_edge_type"; edge_types: string[] }
-  | { sub_kind: "requires_entity_type"; entity_types: EntityType[] }
-  | {
-      sub_kind: "graph-completeness";
-      list_field: string;
-      edge_type: string;
-      incoming_node_type: NodeType;
-      incoming_field_must_match: string;
-      when_node_type?: NodeType[];
-    }
-  | {
-      sub_kind: "requires_field_resolves_to_principal";
-      field: string;
-      when_node_type?: NodeType[];
-    };
+export type DeterministicPredicate = CheckUnion<"sub_kind">;
 
 /** The deterministic check selectors — the options a deterministic policy picks from. */
 export type DeterministicSubKind = DeterministicPredicate["sub_kind"];
@@ -531,22 +462,6 @@ export interface State extends CommonFields {
   invariants?: string[];
 }
 
-// ─── Workspace ─────────────────────────────────────────────────────────
-
-export interface WorkspaceMember {
-  user_id: EntityId<"user">;
-  role: "owner" | "admin" | "member" | "viewer";
-  permissions?: ("read" | "write" | "execute" | "admin")[];
-}
-
-export interface Workspace extends SummarizedFields {
-  handle: string;
-  display_name: string;
-  description?: string;
-  visibility?: "private" | "public";
-  members?: WorkspaceMember[];
-}
-
 // ─── Discriminated unions ─────────────────────────────────────────────────
 
 /** The 10 node types. */
@@ -562,5 +477,9 @@ export type Node =
   | Reference
   | State;
 
-/** Every entity across all categories. (`Policy` is a single interface now.) */
-export type Entity = Node | Policy | User | Doco | Workspace;
+/**
+ * A graph-knowledge entity the index loader hydrates. Containers (`Doco`) and
+ * the OAuth identity / workspace rows are read through their own `@doco/db`
+ * row types, not this union.
+ */
+export type Entity = Node | Policy | Doco;
