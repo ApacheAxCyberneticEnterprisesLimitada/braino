@@ -110,10 +110,15 @@ function decisionRecordCore(): TemplatePolicy[] {
       fires_when_node_lifecycle: DECISION_COMMITTED_LIFECYCLES,
     },
 
-    // ── Record quality (probabilistic, LLM-judged, warn) ────────────────────
+    // ── Record quality (probabilistic, LLM-judged, warn, committed only) ────
     // Warnings, not blocks: an LLM verdict is non-deterministic, so a block both
     // traps legitimate records and can flip on retry. These surface the gaps that
     // make a record useless later without standing between the author and a save.
+    // They fire only on the committed stages (queued/active), like the
+    // deterministic completeness gates: a `drafting` sketch is a work in progress
+    // and shouldn't be nagged about incomplete rationale or unlisted options. (The
+    // domain-fit nudge below is the exception — it fires on every stage so an
+    // author is steered to the right decision log early.)
     {
       on_violation: "warn",
       predicate: {
@@ -121,6 +126,7 @@ function decisionRecordCore(): TemplatePolicy[] {
         spec: "Check the Decision's `question`. PASS when it poses a genuine decision — a choice to be made, with real alternatives and consequences (e.g. `Which datastore backs the event log?`, `Do we gate signups behind an invite?`). FAIL when it is a vague topic with no choice in it (`Database stuff`), merely restates the chosen answer, or describes a task to perform rather than a decision to make.",
         when_node_type: ["decision"],
       },
+      fires_when_node_lifecycle: DECISION_COMMITTED_LIFECYCLES,
     },
     {
       on_violation: "warn",
@@ -129,6 +135,7 @@ function decisionRecordCore(): TemplatePolicy[] {
         spec: "Check the Decision's `decision` prose together with `chosen`. PASS when it states BOTH the context that made the decision necessary AND the rationale for the chosen option — why this option over the alternatives. FAIL when it records what was chosen with no reasoning, or describes context with no decision. A record without its justification can't be re-evaluated when the circumstances that drove it change.",
         when_node_type: ["decision"],
       },
+      fires_when_node_lifecycle: DECISION_COMMITTED_LIFECYCLES,
     },
     {
       on_violation: "warn",
@@ -137,6 +144,7 @@ function decisionRecordCore(): TemplatePolicy[] {
         spec: "Check the Decision's `alternatives`. PASS when the real options that were weighed are listed, each with why it lost (`rejected_because`), OR when the decision genuinely had a single viable path and the prose says so. FAIL when alternatives are omitted on a decision that plainly had them, so a reader can't tell what trade-off was made.",
         when_node_type: ["decision"],
       },
+      fires_when_node_lifecycle: DECISION_COMMITTED_LIFECYCLES,
     },
 
     // ── Status, supersession, drivers, evidence (prose guidance) ────────────
@@ -191,7 +199,7 @@ const FLAVORS: DecisionFlavor[] = [
     description:
       "Record architecturally significant decisions (ADRs) — the context, the options weighed, the choice, and its consequences — as an append-only log.",
     fitSpec:
-      "Check the Decision. PASS when it records an architecturally significant choice — one that shapes system structure, affects a quality attribute (scalability, performance, security, reliability, maintainability), spans components, or is costly to reverse. FAIL when it is a routine, local coding choice with no structural or cross-cutting impact, or a non-technical product, design, or data decision better kept in its own log.",
+      "Check the Decision. PASS when it records an architecturally significant choice — one that shapes system structure or runtime topology, selects a core technology or the datastore an application runs on, affects a quality attribute (scalability, performance, security, reliability, maintainability), spans components, or is costly to reverse. FAIL when it is a routine, local coding choice with no structural or cross-cutting impact, a non-technical product or design decision, or a data-modeling, schema, grain, partitioning, lineage, retention, or governance decision — which belongs in a data decision log even when it concerns the same database.",
     guidance: [
       "An ADR's decision drivers are its architecturally significant requirements — the quality attributes and constraints it must satisfy (a latency budget, a compliance rule, team skills, cost). Capture each as a Rule linked by `constrained_by`.",
       "Spell out the technical consequences in the `decision` prose, including what becomes harder: the new constraints, the operational burden, and the technical debt the choice deliberately takes on.",
@@ -232,7 +240,7 @@ const FLAVORS: DecisionFlavor[] = [
     description:
       "Record data decisions — data models, schema, storage, pipelines, governance, and retention — with their lineage and compliance impact.",
     fitSpec:
-      "Check the Decision. PASS when it records a data choice — a data model or schema, a storage engine, a pipeline or transformation, a source of truth, retention, or a governance/compliance rule. FAIL when it has no data dimension and is really an architectural, product, or design decision.",
+      "Check the Decision. PASS when it records a data choice — a data model, schema, or grain; the storage format, partitioning, or layout of a dataset; a pipeline or transformation; a source of truth; retention; lineage; or a governance/compliance rule. FAIL when it has no data dimension and is really a product, design, or general architectural decision. Choosing the application's datastore or runtime technology is an architectural decision, but how data is modeled, partitioned, governed, and retained within it is a data decision.",
     guidance: [
       "State the grain and source of truth the decision establishes — what one row or record represents, and which system owns it — and note the data lineage the choice affects.",
       "Record the governance and compliance impact: privacy classification, retention, and access. Capture data contracts, SLAs, and quality thresholds as Rules via `constrained_by`, and the data-quality checks that enforce them as Evals via `supports`.",
