@@ -730,6 +730,149 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // builtin row isn't present.
     perspectives: [{ slug: "pull-requests", isDefault: true }],
   },
+  {
+    // Org chart — document an organization's STRUCTURE: who holds which
+    // seat, who reports to whom, how seats group into teams, and where
+    // decision authority sits. It renders on the org-tree perspective, which
+    // draws each Principal as a seat and each `has_parent` edge between two
+    // seats as a solid reporting line, with person / AI agent / vacant shown
+    // by icon.
+    //
+    // The shape distills the durable best practices for documenting org
+    // charts onto Doco's primitives:
+    //   - A box is a SEAT (a role), not a person. Name the Principal by its
+    //     role and record the occupant (human / AI agent / vacant) separately,
+    //     so a hire or departure updates one seat instead of redrawing the
+    //     chart.
+    //   - UNITY OF COMMAND: one solid reporting line per seat — a single
+    //     `has_parent` edge to its manager — so the primary hierarchy stays a
+    //     clean tree (enforced by a `limits_edge` cap).
+    //   - DOTTED-LINE / MATRIX coordination is influence without authority: a
+    //     `relates_to` edge from a seat to its secondary manager, which the
+    //     org-tree perspective layers over the solid tree as a dashed line.
+    //   - SINGLE POINT OF ACCOUNTABILITY: a decision right is a Decision with
+    //     exactly one accountable seat (`attributed_to` → Principal).
+    //   - TEAMS / DEPARTMENTS are Intents the seats belong to (`attributed_to`),
+    //     which is how a functional, divisional, or matrixed structure reads.
+    //
+    // Lifecycle: nodes default to `active` (there is no draft → queue → activate
+    // workflow). An org chart documents a structure that already exists, so a
+    // seat and its lines are held to the template's shape as soon as they are
+    // captured — hence the structural gates carry no lifecycle filter.
+    name: "org-chart",
+    label: "Org chart",
+    icon: "🏢",
+    description:
+      "Document who reports to whom — seats as roles, a single solid reporting line per seat, teams, dotted-line coordination, and decision authority. Renders as an org tree.",
+    // Open a freshly-created org-chart Doco directly on the org-tree view,
+    // where the reporting hierarchy this template authors is most legible.
+    // Graph + list defaults stay attached behind it.
+    perspectives: [{ slug: "org-tree", isDefault: true }],
+    policies: [
+      // ── Membership (soft semantic gate) ──────────────────────────────
+      {
+        // Warn, not block: the author opted into the org-chart template, so
+        // this only surfaces "this looks like work/process content, not org
+        // structure" for reconsideration. Rules govern the chart rather than
+        // being chart content, so they are exempt (omitted from
+        // `when_node_type`).
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in an org chart when it documents organizational STRUCTURE: a seat / role (Principal), a team or department (Intent), a decision right or accountability (Decision), or a supporting role charter / job description (Reference). Pass when the candidate is one of these. Fail when it instead describes how WORK flows — a process step, a task, a product feature, an event, or a one-off incident — which belongs in a process Doco, not here.",
+          when_node_type: ["principal", "intent", "decision", "reference"],
+        },
+      },
+
+      // ── Seat occupant declaration (soft) ─────────────────────────────
+      {
+        // Warn: the org-tree perspective needs to know whether a seat is held
+        // by a person, an AI agent, or is vacant, to draw the right marker
+        // (👤 / 🤖 / 🪑). Surfaced, not enforced, so a seat can be captured
+        // before its occupant is settled.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: 'Every seat (Principal) declares who fills it so the chart can draw the right marker. Set the seat\'s `kind` to `human` for a person or `agent` for an AI agent; or, if the seat is budgeted but unfilled, say so in its `prose` (e.g. "Vacant — open req for a Staff Engineer"). Pass when the occupant kind — person, AI agent, or vacant — is unambiguous; fail when a seat leaves it unstated.',
+          when_node_type: ["principal"],
+        },
+      },
+
+      // ── Node-type allowlist (hard block) ─────────────────────────────
+      {
+        policy:
+          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. A Principal is a seat (a role); an Intent is a team or department that seats belong to; a Decision records a decision right and its accountable seat; a Reference attaches a role charter or job description; a Rule states a governance constraint. Process steps (Action), milestones (State), and tests (Eval) describe how work flows — they belong in a process Doco, not an org chart.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["principal", "intent", "decision", "reference", "rule"],
+        },
+      },
+
+      // ── Edge-type allowlist (hard block) ─────────────────────────────
+      {
+        policy:
+          "Only these relationship edge types belong in an org chart: `has_parent` (the solid reporting line, and a seat's membership in a team), `attributed_to` (a seat's team, or a Decision's single accountable seat), `relates_to` (dotted-line / matrix coordination — influence without authority), `supports`, `replaces`, and `derived_from`. Process-flow edges (`flows_to`) and guard edges (`constrained_by`) model how work runs and don't belong here.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "has_parent",
+            "attributed_to",
+            "relates_to",
+            "supports",
+            "replaces",
+            "derived_from",
+          ],
+        },
+      },
+
+      // ── Unity of command (hard block) ────────────────────────────────
+      {
+        policy:
+          "Unity of command: each seat reports to at most one manager — a single `has_parent` edge (its solid line). A seat with two `has_parent` parents is no longer a tree; model the secondary relationship as a dotted line (`relates_to`) instead, so accountability stays unambiguous.",
+        predicate: {
+          kind: "limits_edge",
+          edge_type: "has_parent",
+          target_node_type: "principal",
+          max_count: 1,
+          when_node_type: ["principal"],
+        },
+      },
+
+      // ── Guidance (prose-only suggestions) ────────────────────────────
+      {
+        policy:
+          'Positions define the structure, not the people who fill them. Name each seat (Principal) by its role or title — "Head of Engineering", not "Dana Lee" — and record the current occupant in its `prose`. That way a hire, departure, or transfer updates one seat instead of forcing the chart to be redrawn.',
+      },
+      {
+        policy:
+          'Give every seat exactly one solid reporting line: a `has_parent` edge from the report to its manager, which the org-tree perspective draws as the solid hierarchy. A seat with no manager is top-of-chain — say so in its `prose` (e.g. "Top of chain — reports to the board") so its rootedness reads as deliberate, not missing.',
+      },
+      {
+        policy:
+          "Group seats into teams or departments: model each team as an Intent and link its members with `attributed_to` edges from the seat to the team. This is how a functional, divisional, or matrixed structure shows up without overloading the single reporting line each seat already has.",
+      },
+      {
+        policy:
+          "Record decision rights as Decision nodes with a single accountable seat — one `attributed_to` edge to the Principal who is Accountable (RACI's single point of accountability). Name the escalation path in the Decision's `prose` when the call can be escalated above that seat.",
+      },
+      {
+        policy:
+          "Model dotted-line / matrix relationships with `relates_to`, drawn from the seat to its secondary manager: influence and coordination without formal authority (e.g. a regional lead who coordinates with a global function). The org-tree perspective renders these dashed, layered over the solid tree — keep the solid `has_parent` line for the one primary manager.",
+      },
+      {
+        policy:
+          'Mark unfilled seats vacant rather than deleting them. A budgeted-but-open role is part of the structure and matters for headcount and succession planning; say "Vacant" (and what you are hiring for) in the seat\'s `prose`. The org-tree perspective draws a vacant seat with its own marker (🪑).',
+      },
+      {
+        policy:
+          "The chart shows the shape; written role scope carries the detail. Attach a Reference (job description or team charter) describing a seat's responsibilities and decision authority, linked with `supports`, rather than packing all of it into the seat's `prose`.",
+      },
+      {
+        policy:
+          "Keep the chart current: update it after every reorganization, hire, departure, and role change. When a seat's occupant changes, update its `prose`; when reporting lines move, retire the old `has_parent` edge and add the new one. An org chart is only useful while it is accurate.",
+      },
+    ],
+  },
   // The four decision-record templates (ADR, product, design, data) share one
   // core and live in their own module; see `decision-record-templates.ts`.
   ...DECISION_RECORD_TEMPLATES,
