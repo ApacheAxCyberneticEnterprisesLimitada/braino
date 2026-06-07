@@ -470,10 +470,6 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   consumed_at           timestamptz,
   created_at            timestamptz NOT NULL DEFAULT now()
 );
--- Migrate existing deployments (CREATE TABLE IF NOT EXISTS skips the column on
--- an already-present table). Idempotent.
-ALTER TABLE oauth_authorization_codes
-  ADD COLUMN IF NOT EXISTS grant_type text NOT NULL DEFAULT 'regular';
 CREATE INDEX IF NOT EXISTS oauth_authorization_codes_expires_idx
   ON oauth_authorization_codes (expires_at);
 
@@ -573,9 +569,6 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   last_polled_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
--- Migrate existing deployments. Idempotent.
-ALTER TABLE oauth_device_authorizations
-  ADD COLUMN IF NOT EXISTS grant_type text NOT NULL DEFAULT 'regular';
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
   ON oauth_device_authorizations (user_code);
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
