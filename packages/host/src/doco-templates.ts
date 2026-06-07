@@ -112,10 +112,10 @@ export interface DocoTemplate {
  * Rationale (the `queued` stage): the node lifecycle is now
  * `drafting → queued → active → retired`. A node an author has explicitly
  * `queue`d is asserting it is ready to go live, so it must already satisfy
- * the same actor attribution (an `attributed_to` edge to a Principal), the
- * process it belongs to (a `has_parent` edge to its process Action), and
- * forward `flows_to` wiring an `active` node does — otherwise "ready" is a lie
- * the BPMN renderer can't draw. Only a `drafting` sketch may be incomplete.
+ * the same actor attribution (an `attributed_to` edge to a Principal) and
+ * process membership (a `has_parent` edge to its process Action) an `active`
+ * node does — otherwise "ready" is a lie the BPMN renderer can't draw. Only a
+ * `drafting` sketch may be incomplete.
  *
  * This is scoped to process on purpose: it is the one template
  * that defaults new nodes to `drafting` and carries a real
@@ -123,13 +123,13 @@ export interface DocoTemplate {
  * nodes straight to `active` would rarely pass through `queued`, and would
  * fire its gates on `["active"]` instead.
  *
- * This covers BOTH the completeness/shape gates and the flow-node
- * Principal-attachment gates (an Action is `performed_by`, a gateway Decision
- * `decided_by` a Principal). All of them fire on the committed stages only, so
- * a `drafting` sketch may be both incomplete AND unowned while the author
- * iterates — and is held to the full bar once it is committed. (`retired` is
- * excluded too: a winding-down node isn't re-judged, and the runner's
- * terminal-skip drops these `requires_edge` checks anyway.)
+ * This covers BOTH the completeness/shape gates and the actor-attribution
+ * gate (a committed Action or gateway Decision is attributed to a Principal).
+ * All of them fire on the committed stages only, so a `drafting` sketch may be
+ * both incomplete AND unowned while the author iterates — and is held to the
+ * full bar once it is committed. (`retired` is excluded too: a winding-down
+ * node isn't re-judged, and the runner's terminal-skip drops these
+ * `requires_edge` checks anyway.)
  */
 const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
@@ -239,25 +239,6 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
       },
       {
-        // Deterministic floor under the LLM prose judge below: a handful of
-        // tokens are NEVER legitimate business prose — camelCase BPMN element
-        // types and generated `Gateway_…`/`Task_…`/`SequenceFlow_…` ids, plus
-        // the importer's "user asks:" scaffolding. Catch those cheaply and
-        // deterministically; the ambiguous "is 'source'/'implementation'
-        // business language?" calls stay with the judge.
-        policy:
-          "Process prose must not contain raw BPMN/import scaffolding tokens — camelCase BPMN element types or generated element ids leaked from an importer.",
-        predicate: {
-          kind: "forbids_field_pattern",
-          fields: ["action", "decision", "question", "chosen", "state", "rule", "eval", "name"],
-          pattern:
-            "(exclusiveGateway|parallelGateway|inclusiveGateway|eventBasedGateway|(?:Gateway|Task|UserTask|ServiceTask|SequenceFlow|StartEvent|EndEvent|BoundaryEvent|SubProcess|DataObject)_[A-Za-z0-9]+|user asks:)",
-          flags: "i",
-          when_node_type: ["action", "decision", "state", "eval", "rule", "principal"],
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-      {
         // Import provenance belongs in structured metadata, References,
         // or history, not in the labels/prose that BPMN readers scan.
         // This stays LLM-judged because terms like "source" and
@@ -300,20 +281,22 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 
       // ── Action shape ────────────────────────────────────────────
       {
-        // Completeness — fires on the committed stages only (see
-        // BUSINESS_PROCESS_COMMITTED_LIFECYCLES): a `drafting` Action may be
-        // sketched without an actor, but a committed step must be attributed to
-        // the Principal who performs it. With edge roles gone, an Action's
-        // `attributed_to` edge to a Principal IS the performer link — the source
-        // node type (action) carries that meaning. Authors create the Action and
-        // its `attributed_to` edge together in one changeset.
+        // Actor attribution — one gate covering BOTH Actions and gateway
+        // Decisions. Fires on the committed stages only (see
+        // BUSINESS_PROCESS_COMMITTED_LIFECYCLES): a `drafting` Action or gateway
+        // may be sketched without an actor, but a committed one names the
+        // Principal accountable for it. With edge roles gone, an `attributed_to`
+        // edge to a Principal IS that link — for an Action the performer, for a
+        // gateway Decision the decider — distinguished by the source node type.
+        // States are milestones and do not act, so they are excluded. Authors
+        // create the node and its `attributed_to` edge together in one changeset.
         policy:
-          "Every committed (`queued` or `active`) Action in process is attributed to the Principal who performs it — an `attributed_to` edge from the Action to that Principal. A `drafting` sketch may defer this — naming the actor is not required while drafting.",
+          "Every committed (`queued` or `active`) Action and gateway Decision in process is attributed to the Principal accountable for it — an `attributed_to` edge from the node to that Principal. For an Action that Principal performs the step; for a gateway Decision that Principal is the decider answerable for the call. A `drafting` sketch may defer this; a committed Action or gateway with no attributed Principal floats into the BPMN Unassigned lane.",
         predicate: {
           kind: "requires_edge",
           edge_type: "attributed_to",
           target_node_type: "principal",
-          when_node_type: ["action"],
+          when_node_type: ["action", "decision"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
@@ -321,12 +304,15 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Process membership — one rule for all three flow-node types. A flow
         // node belongs to a process through a `has_parent` edge to the process
         // Action; that edge IS its BPMN pool membership. A hard block once
-        // committed: an unattached step has no pool. The one structural
-        // exemption (`exempt_when_incoming_edge_type: has_parent`) excuses a
-        // top-level process Action — the root, which is the TARGET of its
-        // children's `has_parent` and so needs no parent of its own.
+        // committed: an unattached step has no pool. Two structural exemptions
+        // excuse a node that legitimately has no parent: a top-level process
+        // Action (`exempt_when_incoming_edge_type: has_parent` — the root, the
+        // TARGET of its children's `has_parent`), and an Action explicitly
+        // catalogued as an entry point (`exempt_when_field_truthy: entry_point`,
+        // a flag in the node's `extra`), which stands on its own as a way into
+        // the work and so needs no parent process.
         policy:
-          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. A top-level process Action (the target of its members' `has_parent`) is the root and is exempt; a `drafting` sketch may defer the link.",
+          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. A top-level process Action (the target of its members' `has_parent`) is the root and is exempt, as is an Action explicitly catalogued as an entry point (an `entry_point` flag in its `extra`); a `drafting` sketch may defer the link.",
         predicate: {
           kind: "requires_edge",
           edge_type: "has_parent",
@@ -334,6 +320,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           // A process Action (the target of incoming `has_parent` children) is a
           // pool, not a member — it needs no parent of its own.
           exempt_when_incoming_edge_type: "has_parent",
+          // An Action explicitly catalogued as an entry point (an `entry_point`
+          // flag in its `extra`) stands on its own and needs no parent process.
+          exempt_when_field_truthy: "entry_point",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
@@ -401,36 +390,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
-      {
-        // A gateway routes the flow; strict BPMN leaves the diamond itself
-        // unowned and lets the surrounding activities carry accountability.
-        // We make that accountability explicit instead: every gateway is
-        // attributed to the Principal answerable for the call, via an
-        // `attributed_to` edge. With roles gone, a Decision's `attributed_to`
-        // edge to a Principal IS its decider (source node type = decision).
-        // Mirrors the Action gate, and like it fires on the committed stages only
-        // (see BUSINESS_PROCESS_COMMITTED_LIFECYCLES): a `drafting` gateway may be
-        // sketched without a decider, but a committed one must name it or it
-        // floats into the BPMN "Unassigned" lane.
-        policy:
-          "Every committed (`queued` or `active`) gateway Decision in process is attributed to the Principal answerable for the call — an `attributed_to` edge from the Decision to that Principal. A `drafting` sketch may defer this. A gateway with no such Principal floats into the Unassigned lane.",
-        predicate: {
-          kind: "requires_edge",
-          edge_type: "attributed_to",
-          target_node_type: "principal",
-          when_node_type: ["decision"],
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-
       // ── State shape & sequence wiring ───────────────────────────
-      {
-        // Doco-level existence ("≥1 initial, ≥1 terminal") stays prose: the
-        // per-candidate evaluator can't assert "the graph contains a terminal
-        // State". The per-node shape rules below ARE engine-checked.
-        policy:
-          "A business process has ≥1 committed (`queued` or `active`) initial State and ≥1 committed terminal State. Every process starts somewhere and ends at a business outcome (or an explicitly cancelled outcome).",
-      },
       {
         // Milestone names must be unambiguous within the Doco. Deterministic:
         // `unique_field` compares the candidate's `state` against other active
@@ -446,53 +406,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
-        // The sequence-flow completeness invariant — formerly prose-only, now
-        // engine-checked. A committed flow node must be wired into the process:
-        // reachable (≥1 incoming `flows_to`) unless it is an initial State, and
-        // leading somewhere (≥1 outgoing `flows_to`) unless it is a terminal
-        // State — which conversely must carry NO outgoing `flows_to`. This is
-        // what stops an agent from queuing/activating a dangling mid-flow node.
-        policy:
-          "Flow runs forward from the initial State: each committed (`queued` or `active`) initial State has ≥1 outgoing `flows_to` edge, every non-initial flow node is reachable through an incoming `flows_to`, and every non-terminal flow node has ≥1 outgoing `flows_to`. Terminal States have no outgoing `flows_to` — they end the process path.",
-        predicate: {
-          kind: "flow-wiring",
-          edge_type: "flows_to",
-          initial_when: { field: "kind", equals: "initial" },
-          terminal_when: { field: "kind", equals: "terminal" },
-          // A process container Action (with `has_parent` children) is a pool,
-          // not a sequenced step — it carries no `flows_to` and is exempt.
-          exempt_when_incoming_edge_type: "has_parent",
-          when_node_type: ["action", "decision", "state"],
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-      {
         // State summary as milestone/condition — noun or past-participle
         // naming the milestone.
         predicate: {
           kind: "probabilistic",
           when_node_type: ["state"],
           spec: "Check ONLY the State's `state`. PASS when the text reads as a milestone or entry/exit condition — a noun or past-participle (`invoice approved`, `payment captured`, `cart`, `awaiting-review`). FAIL with reason if it reads as an imperative verb naming an Action (`Approve invoice`, `Process the order`).",
-        },
-        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
-      },
-
-      // ── Coverage ────────────────────────────────────────────────
-      {
-        // Every actor Principal earns its swim lane by being the target of ≥1
-        // Action's `attributed_to` edge (an incoming performer link). A `warn`.
-        // The process owner is covered too: a process is an Action, so the
-        // `attributed_to` edge naming its owner is itself "an Action's
-        // attributed_to edge" — no special exemption is needed anymore.
-        on_violation: "warn",
-        policy:
-          "Each actor Principal in the process is the target of at least one Action's `attributed_to` edge — either as a step's performer or as a process Action's accountable owner.",
-        predicate: {
-          kind: "requires_edge",
-          edge_type: "attributed_to",
-          direction: "incoming",
-          target_node_type: "action",
-          when_node_type: ["principal"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
@@ -512,35 +431,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance (prose-only) ───────────────────────────────────
       {
         policy:
-          "Model a repeatable business process that produces a business outcome — not a UI journey, a code path, an incident, or a pure state machine. UI journeys and pure state machines belong in their own Docos.",
-      },
-      {
-        policy:
-          "Split a large process into nested subprocesses on a durable ownership boundary, for reuse across multiple parents, or for pure readability. A subprocess is just a member Action that has its own `has_parent` children.",
-      },
-      {
-        policy:
-          "When a step is itself a whole subprocess, give that step Action its own member flow nodes via `has_parent` edges instead of inlining dozens of Actions in the parent. The BPMN view renders the step collapsed (with a 'View subprocess' affordance) in the parent's pool and expands it into its own pool on demand, keeping the parent process readable.",
-      },
-      {
-        policy:
-          "Name the accountable process owner by attributing the process Action to a Principal — an `attributed_to` edge from the process Action to the one answerable for the whole process's outcome (the RACI 'Accountable' party), distinct from the per-step 'Responsible' performers, each named by an `attributed_to` edge from their step Action.",
-      },
-      {
-        policy:
-          "Agents should read `GET /<handle>/api/authoring-contract.json` and write structured flows with `POST /<handle>/api/changesets.json`; create flow nodes and their relationship edges in the same changeset, using the contract's edge types instead of disconnected nodes or ad hoc relationship names.",
-      },
-      {
-        policy:
-          "Use `relate_many` for sibling edges that must be valid together, especially exhaustive gateway branches. Adding one branch at a time can create a temporarily invalid BPMN graph.",
-      },
-      {
-        policy:
           "BPMN vocabulary — an edge's meaning comes from its type plus the node types it connects, not from any role tag: `flows_to` is process order and renders source -> target with no reversal; a `has_parent` edge from a flow node to a process Action places it in that process's pool (and makes the parent Action a process, or a subprocess if it has a parent of its own); an `attributed_to` edge to a Principal drives actor lanes (from an Action), gateway deciders (from a Decision), and process ownership (from the process Action); a `constrained_by` edge to a Rule links a policy guard; a `supports` edge from an Eval tests the node it points at, and `supports` edges from other nodes carry rationale and evidence.",
-      },
-      {
-        policy:
-          "`flows_to` edges may carry props like `{ label, condition, kind }`. Put gateway branch labels and default/exception/timer metadata on the outgoing edge, not by reversing a relationship from the downstream Action back to the Decision.",
       },
       {
         policy:
@@ -560,19 +451,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Walk a process node through the four-stage lifecycle drafting → queued → active → retired. A `drafting` sketch may be incomplete — its `has_parent` process membership, naming the actor or decider Principal (an Action's or gateway Decision's `attributed_to` edge to a Principal), forward `flows_to` wiring, gateway exhaustiveness, milestone naming, and quality are all suspended, so a step can be drafted before its actor, decider, or parent process (and BPMN pool) is chosen. `queue` it (changeset op `queue`) once it has a parent process and its forward `flows_to` wiring is coherent and the design is ready; `activate` it (op `activate`) when it is the governing, in-force process. Both committed stages — `queued` and `active` — are held to the full shape rules. `retire` a node when it is withdrawn, or `supersede` it when a redesign replaces it (the op creates the replacement and links the two with a `replaces` edge).",
-      },
-      {
-        policy:
           "Use `queued` for a process — or a single step, gateway, or milestone — that is fully wired and ready but not yet in force: a redesign awaiting sign-off, a step pending a scheduled go-live, or an approved-but-not-yet-rolled-out change. A `queued` node asserts readiness, so it must already satisfy the same actor attribution, `has_parent` process membership, and forward-flow wiring an `active` node does. If it is still being sketched and that wiring is incomplete, leave it `drafting` instead of queuing it.",
       },
       {
         policy:
           "Process *instances* (recorded runs) live in a separate Doco as Logs; surface them here only via References. This template describes the design of the process, not the history of its executions.",
-      },
-      {
-        policy:
-          "Rules in a process Doco are process policies and guards (`refunds above $5k require manager approval`). Template-authoring rules — meta-rules about how to write process Docos — belong in the template or in `global`, not in any process using it.",
       },
       {
         policy:

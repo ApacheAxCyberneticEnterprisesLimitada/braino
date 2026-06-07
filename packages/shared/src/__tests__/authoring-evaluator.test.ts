@@ -843,6 +843,43 @@ describe("authoring evaluator — requires_edge direction + exemption", () => {
   });
 });
 
+describe("authoring evaluator — requires_edge exempt_when_field_truthy", () => {
+  // A field-based escape hatch (distinct from the structural edge exemptions): a
+  // candidate carrying a truthy value at the named field is excused from the
+  // floor. The process-membership floor uses it so an Action catalogued as an
+  // entry point (an `entry_point` flag in its `extra`, surfaced flat on the
+  // candidate) needs no `has_parent` parent process.
+  const membershipFloor = () =>
+    P({
+      sub_kind: "requires_edge",
+      edge_type: "has_parent",
+      target_node_type: "action",
+      exempt_when_field_truthy: "entry_point",
+      when_node_type: ["action", "decision", "state"],
+    });
+
+  it("fails an Action with no parent and no entry_point flag", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [membershipFloor()]);
+    expect(v).toHaveLength(1);
+    expect(v[0]?.sub_kind).toBe("requires_edge");
+    expect(v[0]?.reason).toMatch(/has_parent/);
+  });
+
+  it("exempts an Action explicitly catalogued as an entry point", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", entry_point: true }, [
+      membershipFloor(),
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  it("does not exempt when the flag is falsy", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", entry_point: false }, [
+      membershipFloor(),
+    ]);
+    expect(v).toHaveLength(1);
+  });
+});
+
 describe("authoring evaluator — forbids_field_pattern", () => {
   const scaffolding = () =>
     P({

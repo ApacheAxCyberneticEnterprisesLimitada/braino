@@ -180,6 +180,14 @@ export interface DeterministicChecks {
      * per-step membership floor.
      */
     exempt_when_incoming_edge_type?: string;
+    /**
+     * Skip the check when the candidate carries a truthy value at this field —
+     * an explicit, author-set opt-out. A field-based escape hatch (vs. the
+     * structural `exempt_when_*` edge exemptions above): e.g. an Action
+     * catalogued as an entry point (`entry_point` flag in its `extra`) stands on
+     * its own as a way into the work, so the process-membership floor excuses it.
+     */
+    exempt_when_field_truthy?: string;
     when_node_type?: NodeType[];
   };
   /**

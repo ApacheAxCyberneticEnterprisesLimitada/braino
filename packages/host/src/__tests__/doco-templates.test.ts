@@ -431,25 +431,7 @@ describe("process template", () => {
     });
   });
 
-  describe("State wiring", () => {
-    // The per-node sequence-flow + uniqueness invariants are now ENGINE-checked
-    // (deterministic), not prose-only. Doco-level existence ("≥1 initial, ≥1
-    // terminal") can't be a per-candidate predicate, so it stays guidance.
-    const guidanceSummaries = template.policies
-      .filter((r) => !r.predicate)
-      .map((r) => r.policy ?? "");
-
-    it("≥1 active initial State is documented (doco-level, stays guidance)", () => {
-      expect(guidanceSummaries.some((s) => /\binitial\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
-        true,
-      );
-    });
-    it("≥1 active terminal State is documented (doco-level, stays guidance)", () => {
-      expect(guidanceSummaries.some((s) => /\bterminal\b/i.test(s) && /≥1|at least/i.test(s))).toBe(
-        true,
-      );
-    });
-
+  describe("State milestone uniqueness", () => {
     it("State milestone-name uniqueness is ENFORCED via unique_field", () => {
       const rule = template.policies.find(
         (r) =>
@@ -461,44 +443,67 @@ describe("process template", () => {
       expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("sequence-flow completeness is ENFORCED via flow-wiring (the dangling-node fix)", () => {
-      const rule = template.policies.find((r) => r.predicate?.kind === "flow-wiring");
-      expect(rule?.predicate?.kind).toBe("flow-wiring");
-      if (rule?.predicate?.kind !== "flow-wiring") return;
-      expect(rule.predicate.edge_type).toBe("flows_to");
-      expect(rule.predicate.when_node_type).toEqual(["action", "decision", "state"]);
-      expect(rule.predicate.initial_when).toEqual({ field: "kind", equals: "initial" });
-      expect(rule.predicate.terminal_when).toEqual({ field: "kind", equals: "terminal" });
-      // Committed-only: a drafting sketch may dangle.
-      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
-      // The summary still spells out the terminal + forward-flow shape for agents.
-      expect(rule.policy).toMatch(/terminal/i);
-      expect(rule.policy).toMatch(/no outgoing.*flows_to/i);
-      expect(rule.policy).toMatch(/forward/i);
+    it("no flow-wiring gate remains — the curated set drops sequence-flow completeness", () => {
+      expect(template.policies.find((r) => r.predicate?.kind === "flow-wiring")).toBeUndefined();
     });
   });
 
-  describe("actor coverage (enforced)", () => {
-    it("ENFORCES that each actor Principal is named by ≥1 Action's attributed_to", () => {
-      // The per-step coverage gate is an INCOMING `requires_edge`(attributed_to)
-      // on a Principal, constrained so the far (from) end is an Action. The
-      // process owner is covered too — a process is an Action, so the edge naming
-      // its owner is itself "an Action's attributed_to", needing no exemption.
+  describe("actor coverage is no longer enforced", () => {
+    it("seeds no incoming attributed_to coverage gate", () => {
+      // The curated set drops the per-step Principal-coverage warn; the only
+      // attributed_to gate left is the OUTGOING actor-attribution floor on
+      // Actions + gateway Decisions.
       const rule = template.policies.find(
         (r) =>
           r.predicate?.kind === "requires_edge" &&
           r.predicate.edge_type === "attributed_to" &&
           r.predicate.direction === "incoming",
       );
-      expect(rule?.predicate?.kind).toBe("requires_edge");
-      if (rule?.predicate?.kind !== "requires_edge") return;
-      expect(rule.predicate.edge_type).toBe("attributed_to");
-      expect(rule.predicate.target_node_type).toBe("action");
-      // No Intent exemption — the Intent node type is gone from the process model.
-      expect(rule.predicate.exempt_when_other_node_type).toBeUndefined();
-      expect(rule.predicate.when_node_type).toEqual(["principal"]);
-      expect(rule.on_violation).toBe("warn");
-      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+      expect(rule).toBeUndefined();
+    });
+  });
+
+  describe("actor attribution gate (merged Action + gateway Decision)", () => {
+    // The Action-performer and gateway-decider gates collapse into ONE
+    // outgoing `requires_edge`(attributed_to → principal) scoped to both
+    // node types: a committed Action or gateway Decision names its Principal.
+    const gate = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "attributed_to" &&
+        r.predicate.target_node_type === "principal" &&
+        r.predicate.direction !== "incoming",
+    );
+
+    it("is a single gate scoped to both action and decision", () => {
+      expect(gate?.predicate?.kind).toBe("requires_edge");
+      if (gate?.predicate?.kind !== "requires_edge") return;
+      expect([...(gate.predicate.when_node_type ?? [])].sort()).toEqual(["action", "decision"]);
+      expect(gate.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("entry-point exemption on the membership floor", () => {
+    // An Action explicitly catalogued as an entry point (an `entry_point` flag
+    // in its `extra`) is excused from the `has_parent` membership floor — it
+    // stands on its own as a way into the work and needs no parent process.
+    const floor = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "has_parent" &&
+        r.predicate.target_node_type === "action" &&
+        r.predicate.direction !== "incoming",
+    );
+
+    it("carries exempt_when_field_truthy: entry_point alongside the root exemption", () => {
+      expect(floor?.predicate?.kind).toBe("requires_edge");
+      if (floor?.predicate?.kind !== "requires_edge") return;
+      expect(floor.predicate.exempt_when_field_truthy).toBe("entry_point");
+      expect(floor.predicate.exempt_when_incoming_edge_type).toBe("has_parent");
+    });
+
+    it("documents the entry-point exemption in its prose", () => {
+      expect(floor?.policy ?? "").toMatch(/entry point/i);
     });
   });
 
@@ -516,17 +521,10 @@ describe("process template", () => {
       expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("a deterministic pattern floor blocks raw BPMN/import scaffolding tokens", () => {
-      const rule = template.policies.find((r) => r.predicate?.kind === "forbids_field_pattern");
-      expect(rule?.predicate?.kind).toBe("forbids_field_pattern");
-      if (rule?.predicate?.kind !== "forbids_field_pattern") return;
-      // Catches camelCase BPMN element types and generated ids.
-      expect("exclusiveGateway").toMatch(new RegExp(rule.predicate.pattern, rule.predicate.flags));
-      expect("Gateway_0x1f").toMatch(new RegExp(rule.predicate.pattern, rule.predicate.flags));
-      // Leaves ordinary business prose alone.
-      expect("approve the invoice").not.toMatch(
-        new RegExp(rule.predicate.pattern, rule.predicate.flags),
-      );
+    it("no deterministic scaffolding floor remains — import provenance is the probabilistic judge only", () => {
+      expect(
+        template.policies.find((r) => r.predicate?.kind === "forbids_field_pattern"),
+      ).toBeUndefined();
     });
   });
 
@@ -603,31 +601,6 @@ describe("process template", () => {
     const guidance = template.policies.filter((r) => !r.predicate);
     const summaries = guidance.map((r) => r.policy ?? "");
 
-    it("tells agents to use the authoring contract and changesets", () => {
-      expect(
-        summaries.some((s) => /authoring-contract\.json/i.test(s) && /changesets\.json/i.test(s)),
-      ).toBe(true);
-    });
-    it("tells agents to use relate_many for gateway siblings", () => {
-      expect(summaries.some((s) => /relate_many/i.test(s) && /gateway/i.test(s))).toBe(true);
-    });
-    it("tells agents a subprocess is a member Action with its own has_parent children", () => {
-      // A subprocess is no longer a calling-Action ↔ purpose-Intent pairing: it
-      // is simply a member Action that itself has `has_parent` children.
-      expect(summaries.some((s) => /sub-?process/i.test(s) && /has_parent/i.test(s))).toBe(true);
-    });
-    it("documents the four-stage lifecycle (drafting → queued → active → retired) and its changeset ops", () => {
-      expect(
-        summaries.some(
-          (s) =>
-            /drafting/i.test(s) &&
-            /queued/i.test(s) &&
-            /active/i.test(s) &&
-            /\bqueue\b/i.test(s) &&
-            /\bactivate\b/i.test(s),
-        ),
-      ).toBe(true);
-    });
     it("documents using `queued` for a ready-but-not-yet-in-force process", () => {
       expect(
         summaries.some(

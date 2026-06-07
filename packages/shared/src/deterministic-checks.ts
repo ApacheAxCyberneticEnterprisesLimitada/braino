@@ -190,9 +190,23 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Exempt when target of incoming edge type (optional)",
         partLabel: "exempt when incoming",
       },
+      {
+        name: "exempt_when_field_truthy",
+        control: "text",
+        formLabel: "Exempt when field is set (optional)",
+        partLabel: "exempt when field set",
+      },
       WHEN_NODE_TYPE_FIELD,
     ],
     evaluate: (pred, ctx) => {
+      // Field opt-out: a candidate carrying a truthy value at
+      // `exempt_when_field_truthy` is explicitly excused — e.g. an Action
+      // catalogued as an entry point (`entry_point` flag in its `extra`) needs
+      // no parent process. An author-set escape hatch, distinct from the
+      // structural edge exemptions below.
+      if (pred.exempt_when_field_truthy && ctx.candidate[pred.exempt_when_field_truthy]) {
+        return null;
+      }
       // Endpoint-type exemption: a candidate already participating in an
       // `edge_type` edge whose OTHER end is `exempt_when_other_node_type` is
       // excused — e.g. the accountable process owner (`attributed_to` from an
