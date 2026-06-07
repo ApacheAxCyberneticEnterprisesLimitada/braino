@@ -225,7 +225,7 @@ describe("decision-record templates", () => {
       );
       const spec = quality?.predicate?.kind === "probabilistic" ? quality.predicate.spec : "";
       expect(spec).toContain(
-        "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`.",
+        "Check the Decision's `prose`, `question`, `chosen`, and `alternatives`.",
       );
       expect(spec).toContain("PASS when the record includes:");
       expect(spec).toContain("FAIL with missing aspects when");

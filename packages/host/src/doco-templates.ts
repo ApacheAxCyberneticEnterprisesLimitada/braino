@@ -125,7 +125,7 @@ function decisionRecordQualitySpec(opts: {
 }): string {
   const checklist = opts.checklist.map((item, index) => `(${index + 1}) ${item}`).join(", ");
   return [
-    "Check the Decision's `decision`, `question`, `chosen`, and `alternatives`.",
+    "Check the Decision's `prose`, `question`, `chosen`, and `alternatives`.",
     `PASS when the record includes: ${checklist}.`,
     `FAIL with missing aspects when ${opts.failure}.`,
   ].join(" ");
@@ -476,7 +476,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         predicate: {
           kind: "probabilistic",
           when_node_type: ["reference"],
-          spec: "Judge a glossary term-entry Reference on four aspects; report each failing aspect with a reason, but treat them as warnings, not hard errors. First decide scope: if this Reference is purely a cited external source (it points at a doc/spec/URL the glossary borrows from, with no term to define), it is OUT OF SCOPE — PASS every aspect. Otherwise judge a term entry. (a) PROSE IS THE TERM: PASS when the prose (`reference`) is the bare word or phrase being defined — the headword — optionally with a disambiguating qualifier like `Order (commerce)`; FAIL when the prose is instead a definition sentence or paragraph. The definition belongs in the `definition` attribute, NOT in the prose, because the prose becomes the node's name and the dictionary headword. (b) DEFINITION IN ATTRIBUTES: PASS when the definition lives in the node's attributes — the `definition` field (or another attribute that carries the meaning) — and reads as a usable definition: a concise definition AND the product or domain scope where the term applies AND at least one concrete example OR non-example (EITHER an example or a non-example is sufficient, do not require both). FAIL when no attribute carries a usable definition, when the definition is crammed into the prose, or when it merely restates the headword instead of explaining it (a circular definition such as `a workspace is a workspace`). (c) ONE CONCEPT: PASS when the entry defines one concept or one canonical term; FAIL when it defines multiple independent terms, bundles a term with an unrelated policy, or is a catch-all for several concepts. (d) ACRONYMS AND ABBREVIATIONS: only inspect the headword in the prose. If the headword is itself an acronym or abbreviation, PASS when the `definition` expands it at least once and states whether the short form is acceptable in product/docs/UI copy; FAIL when it is left unexpanded. Incidental abbreviations that merely appear in the definition body (not the headword) are OUT OF SCOPE — ignore them. If the headword is not an acronym, this aspect PASSES.",
+          spec: "Judge a glossary term-entry Reference on four aspects; report each failing aspect with a reason, but treat them as warnings, not hard errors. First decide scope: if this Reference is purely a cited external source (it points at a doc/spec/URL the glossary borrows from, with no term to define), it is OUT OF SCOPE — PASS every aspect. Otherwise judge a term entry. (a) PROSE IS THE TERM: PASS when the prose is the bare word or phrase being defined — the headword — optionally with a disambiguating qualifier like `Order (commerce)`; FAIL when the prose is instead a definition sentence or paragraph. The definition belongs in the `definition` attribute, NOT in the prose, because the prose becomes the node's name and the dictionary headword. (b) DEFINITION IN ATTRIBUTES: PASS when the definition lives in the node's attributes — the `definition` field (or another attribute that carries the meaning) — and reads as a usable definition: a concise definition AND the product or domain scope where the term applies AND at least one concrete example OR non-example (EITHER an example or a non-example is sufficient, do not require both). FAIL when no attribute carries a usable definition, when the definition is crammed into the prose, or when it merely restates the headword instead of explaining it (a circular definition such as `a workspace is a workspace`). (c) ONE CONCEPT: PASS when the entry defines one concept or one canonical term; FAIL when it defines multiple independent terms, bundles a term with an unrelated policy, or is a catch-all for several concepts. (d) ACRONYMS AND ABBREVIATIONS: only inspect the headword in the prose. If the headword is itself an acronym or abbreviation, PASS when the `definition` expands it at least once and states whether the short form is acceptable in product/docs/UI copy; FAIL when it is left unexpanded. Incidental abbreviations that merely appear in the definition body (not the headword) are OUT OF SCOPE — ignore them. If the headword is not an acronym, this aspect PASSES.",
         },
         fires_when_node_lifecycle: ["active"],
       },
@@ -1315,9 +1315,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
 /**
  * Lookup a template by name. Returns undefined for unknown names.
  *
- * Templates are stored under plain handles (`global`, `important`,
- * `architectural-decisions`, `product-decisions`, `design-decisions`,
- * `data-decisions`, `glossaries`, `process`, `org-chart`).
+ * Templates are stored under plain handles (`architectural-decisions`,
+ * `product-decisions`, `design-decisions`, `data-decisions`, `glossaries`,
+ * `process`, `github-pull-requests`, `org-chart`).
  */
 export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
   return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);
