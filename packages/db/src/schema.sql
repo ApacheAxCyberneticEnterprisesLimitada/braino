@@ -465,6 +465,10 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- 'regular' (default) copies the granted_* sets above through verbatim.
   grant_type            text NOT NULL DEFAULT 'regular'
                         CHECK (grant_type IN ('regular', 'actor')),
+  -- For an actor token, the role CEILING applied to every workspace: at refresh
+  -- the access token gets min(your live role there, this). NULL = owner = your
+  -- full live role (the original actor behavior). Ignored for 'regular'.
+  actor_role            text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   scope                 text,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
@@ -524,6 +528,10 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   -- verbatim. An actor refresh carries NO explicit workspace/doco grants.
   grant_type        text NOT NULL DEFAULT 'regular'
                     CHECK (grant_type IN ('regular', 'actor')),
+  -- Role CEILING for an actor refresh, applied to every workspace: at refresh
+  -- the minted access token gets min(your live role there, this). NULL = owner
+  -- = your full live role (the original actor behavior). Ignored for 'regular'.
+  actor_role        text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   scope             text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
@@ -563,6 +571,9 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   -- the polling endpoint copies this onto the minted refresh token.
   grant_type       text NOT NULL DEFAULT 'regular'
                      CHECK (grant_type IN ('regular', 'actor')),
+  -- See oauth_authorization_codes.actor_role — the role ceiling carried onto the
+  -- minted refresh token. NULL = owner (full live role).
+  actor_role       text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   target_doco_handle text,
   requested_role text CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner')),
   expires_at       timestamptz NOT NULL,

@@ -69,4 +69,36 @@ describe("oauth grant_type column (regular | actor)", () => {
       ),
     ).rejects.toThrow();
   });
+
+  it("stores the actor_role ceiling (reader|writer|owner|null) on refresh tokens", async () => {
+    await db.query(
+      `INSERT INTO oauth_refresh_tokens
+         (token, client_id, user_id, granted_doco_ids, grant_type, actor_role, expires_at)
+       VALUES ('rt_cap', 'doco_client_x', 'user_alice', ARRAY[]::text[], 'actor', 'reader', now() + interval '60 days')`,
+    );
+    // Default is NULL (no ceiling = full live role).
+    await db.query(
+      `INSERT INTO oauth_refresh_tokens
+         (token, client_id, user_id, granted_doco_ids, grant_type, expires_at)
+       VALUES ('rt_full', 'doco_client_x', 'user_alice', ARRAY[]::text[], 'actor', now() + interval '60 days')`,
+    );
+
+    const rows = await db.query<{ token: string; actor_role: string | null }>(
+      "SELECT token, actor_role FROM oauth_refresh_tokens ORDER BY token",
+    );
+    expect(rows.rows).toEqual([
+      { token: "rt_cap", actor_role: "reader" },
+      { token: "rt_full", actor_role: null },
+    ]);
+  });
+
+  it("rejects an actor_role outside reader|writer|owner", async () => {
+    await expect(
+      db.query(
+        `INSERT INTO oauth_refresh_tokens
+           (token, client_id, user_id, granted_doco_ids, grant_type, actor_role, expires_at)
+         VALUES ('rt_bad', 'doco_client_x', 'user_alice', ARRAY[]::text[], 'actor', 'superuser', now() + interval '60 days')`,
+      ),
+    ).rejects.toThrow();
+  });
 });
