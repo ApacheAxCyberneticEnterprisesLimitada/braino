@@ -459,11 +459,21 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   granted_workspace_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- 'actor' = the human approved an "act as me" credential: the minted
+  -- refresh token carries NO explicit grants and resolves the user's LIVE
+  -- workspace membership (one workspace per access token) at refresh time.
+  -- 'regular' (default) copies the granted_* sets above through verbatim.
+  grant_type            text NOT NULL DEFAULT 'regular'
+                        CHECK (grant_type IN ('regular', 'actor')),
   scope                 text,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
   created_at            timestamptz NOT NULL DEFAULT now()
 );
+-- Migrate existing deployments (CREATE TABLE IF NOT EXISTS skips the column on
+-- an already-present table). Idempotent.
+ALTER TABLE oauth_authorization_codes
+  ADD COLUMN IF NOT EXISTS grant_type text NOT NULL DEFAULT 'regular';
 CREATE INDEX IF NOT EXISTS oauth_authorization_codes_expires_idx
   ON oauth_authorization_codes (expires_at);
 
@@ -553,12 +563,19 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   granted_workspace_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- See oauth_authorization_codes.grant_type — same 'regular'/'actor' meaning;
+  -- the polling endpoint copies this onto the minted refresh token.
+  grant_type       text NOT NULL DEFAULT 'regular'
+                     CHECK (grant_type IN ('regular', 'actor')),
   target_doco_handle text,
   requested_role text CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner')),
   expires_at       timestamptz NOT NULL,
   last_polled_at   timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
+-- Migrate existing deployments. Idempotent.
+ALTER TABLE oauth_device_authorizations
+  ADD COLUMN IF NOT EXISTS grant_type text NOT NULL DEFAULT 'regular';
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
   ON oauth_device_authorizations (user_code);
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
