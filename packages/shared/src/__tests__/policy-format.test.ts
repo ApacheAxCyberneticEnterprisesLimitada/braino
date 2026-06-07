@@ -60,6 +60,28 @@ describe("agentInstructionParts", () => {
   });
 });
 
+describe("deterministicParts labels the incoming-edge exemption clearly", () => {
+  // "exempt when incoming: has_parent" read as if the REQUIRED relationship were
+  // incoming. The exemption is the opposite of the requirement: the floor wants
+  // an OUTGOING edge, and a node is excused only when it is itself the TARGET of
+  // an incoming edge of this type (a parent/container). The label must say so.
+  it("renders exempt_when_incoming_edge_type as 'exempt when target of incoming'", () => {
+    const parts = deterministicParts({
+      sub_kind: "requires_edge",
+      edge_type: "has_parent",
+      target_node_type: "action",
+      direction: "outgoing",
+      exempt_when_incoming_edge_type: "has_parent",
+    } as DeterministicPredicate);
+    expect(parts).toContainEqual({ label: "edge type", value: "has_parent" });
+    expect(parts).toContainEqual({ label: "direction", value: "outgoing" });
+    expect(parts).toContainEqual({
+      label: "exempt when target of incoming",
+      value: "has_parent",
+    });
+  });
+});
+
 describe("deterministic rendering tolerates an unknown sub_kind", () => {
   // A stored policy whose `sub_kind` is no longer in the registry (legacy /
   // imported / hand-edited jsonb) must still render. Before, these helpers

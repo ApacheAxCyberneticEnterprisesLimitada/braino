@@ -502,6 +502,16 @@ describe("process template", () => {
       expect(floor.predicate.exempt_when_incoming_edge_type).toBe("has_parent");
     });
 
+    it("requires the flow node's OUTGOING has_parent (direction stated, not implied)", () => {
+      // The required relationship is the flow node → its parent process Action:
+      // an OUTGOING `has_parent`. Stating it explicitly keeps the rendered policy
+      // unambiguous next to its incoming-edge exemption (which fires the other
+      // way, for a node that is itself a parent).
+      expect(floor?.predicate?.kind).toBe("requires_edge");
+      if (floor?.predicate?.kind !== "requires_edge") return;
+      expect(floor.predicate.direction).toBe("outgoing");
+    });
+
     it("documents the entry-point exemption in its prose", () => {
       expect(floor?.policy ?? "").toMatch(/entry point/i);
     });

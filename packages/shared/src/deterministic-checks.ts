@@ -164,6 +164,19 @@ const WHEN_NODE_TYPE_FIELD: FieldSpec = {
   formLabel: "When node type (comma-separated, optional)",
   partLabel: "when node type",
 };
+// The structural "this node is a parent/container" exemption, shared by the
+// membership floor (`requires_edge`) and the sequence-flow check
+// (`flow-wiring`). The labels spell out the direction so it never reads as if
+// the REQUIRED edge were incoming: the check is excused only when the candidate
+// is the TARGET of an incoming edge of this type (so it is itself a parent —
+// e.g. a top-level process Action that its children point at with `has_parent`).
+const EXEMPT_WHEN_INCOMING_FIELD: FieldSpec = {
+  name: "exempt_when_incoming_edge_type",
+  control: "edge-type",
+  formLabel:
+    "Exempt when the node is the target of an incoming edge of this type — i.e. it is itself a parent/container (optional)",
+  partLabel: "exempt when target of incoming",
+};
 
 export const DETERMINISTIC_CHECKS: CheckRegistry = {
   requires_edge: {
@@ -184,12 +197,7 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Exempt when other endpoint is node type (optional)",
         partLabel: "exempt when other",
       },
-      {
-        name: "exempt_when_incoming_edge_type",
-        control: "edge-type",
-        formLabel: "Exempt when target of incoming edge type (optional)",
-        partLabel: "exempt when incoming",
-      },
+      EXEMPT_WHEN_INCOMING_FIELD,
       {
         name: "exempt_when_field_truthy",
         control: "text",
@@ -399,12 +407,7 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Terminal when",
         partLabel: "terminal when",
       },
-      {
-        name: "exempt_when_incoming_edge_type",
-        control: "edge-type",
-        formLabel: "Exempt when target of incoming edge type (optional)",
-        partLabel: "exempt when incoming",
-      },
+      EXEMPT_WHEN_INCOMING_FIELD,
       WHEN_NODE_TYPE_FIELD,
     ],
     evaluate: (pred, ctx) => {

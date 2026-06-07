@@ -317,6 +317,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           kind: "requires_edge",
           edge_type: "has_parent",
           target_node_type: "action",
+          // The required relationship is the flow node's OUTGOING `has_parent` to
+          // its parent process Action. Stated explicitly so the rendered policy
+          // is unambiguous next to the incoming-edge exemption just below, which
+          // fires the other way (for a node that is itself a parent).
+          direction: "outgoing",
           // A process Action (the target of incoming `has_parent` children) is a
           // pool, not a member — it needs no parent of its own.
           exempt_when_incoming_edge_type: "has_parent",
