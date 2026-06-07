@@ -167,6 +167,17 @@ const EVALS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
  */
 const ROADMAP_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
+/**
+ * Test scenarios, like process and glossary, default new scenarios to
+ * `drafting` so a test can be sketched before its steps and expected result are
+ * written, and fire their completeness + quality gates on the two committed
+ * stages — `queued` (ready to run or review) and `active` (approved, in the
+ * suite). A `drafting` sketch may be a bare idea with no steps yet; once a
+ * scenario is committed it must say how to run it and judge against one
+ * observable expected result. (Runs — Logs — are facts recorded as `active`.)
+ */
+const TEST_SCENARIO_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Repeatable business processes modeled on BPMN swimlanes and
@@ -1231,6 +1242,212 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json`. Create each roadmap item as an Intent with its `horizon`, its `attributed_to` owner, and (once it ships) its result Eval and the `supports` edge in the same changeset, rather than as disconnected nodes.",
+      },
+    ],
+  },
+  {
+    // Test scenarios for websites and apps — and the log of what happened
+    // every time they ran. The shape distills the durable test-documentation
+    // best practices (ISTQB / IEEE 829 test case + test log, BDD's
+    // Given/When/Then, and session-based exploratory testing) onto Doco's
+    // primitives, around one core split:
+    //
+    //   - A SCENARIO is an Eval — the durable spec: what behavior should hold,
+    //     the preconditions and steps to exercise it (`how_to_run`), and the
+    //     single observable expected result (`expected` / `expected_status`).
+    //     The Eval also caches the latest verdict (`last_status`, `last_run_at`,
+    //     `last_reason`) so the card answers "is it green right now?".
+    //   - A RUN is a Log — one execution at a point in time: the environment it
+    //     ran against (browser, OS, device, build, URL), the outcome
+    //     (`outcome` succeeded/failed, plus blocked/skipped in prose), and the
+    //     evidence. Runs are append-only, so the history of passes and failures
+    //     — and the environments they happened in — is never overwritten.
+    //
+    // Everything else hangs off that split: an Intent is the objective, charter,
+    // or suite a scenario covers; a Reference is a requirement, environment,
+    // evidence artifact (screenshot / recording / log), or a defect ticket; a
+    // Principal is the tester, CI pipeline, or agent that owns or runs a test.
+    // `supports` is the evidence/validation spine — an evidence Reference
+    // supports a Log, a Log supports the Eval it ran, and the Eval supports the
+    // objective or requirement it verifies — so traceability reads end to end.
+    //
+    // Lifecycle: scenarios default to `drafting` so a test can be sketched
+    // before its steps and expected result are written; the completeness and
+    // quality gates fire on the committed stages (`queued`, `active`) only
+    // (TEST_SCENARIO_COMMITTED_LIFECYCLES). A run is a fact that already
+    // happened, so it is recorded as `active`.
+    name: "test-scenarios",
+    label: "Test scenarios",
+    icon: "🧪",
+    description:
+      "Document test scenarios for websites and apps and log every run — each scenario captures preconditions, steps, and the expected result; each run records the environment, outcome, and evidence. Grounded in ISTQB / IEEE 829 test documentation and session-based exploratory testing.",
+    defaultNodeLifecycle: "drafting",
+    // Open a new test Doco on the list reading — a test Doco is naturally a
+    // list of scenarios and their runs. Graph + list defaults sit behind it.
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership (soft semantic gate) ──────────────────────────────
+      {
+        // Warn, not block: the author opted into the test template, so this only
+        // surfaces "this looks like it belongs in another Doco kind" for
+        // reconsideration. Principals (testers / systems) are exempt — they are
+        // actors, not test content — by omitting them from `when_node_type`.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in a test Doco when it documents what to verify or what happened when it was verified: a test scenario (Eval — preconditions, steps, and an expected result), a recorded run or result (Log — what happened in a given environment), the objective / charter / suite a scenario covers (Intent), or external context — a requirement, environment, evidence artifact, or defect (Reference). PASS when the candidate is one of these. FAIL when it instead belongs in another Doco kind — a business-process step, a glossary term, a generic decision record, or a free-form note that is not a test, a run, an objective, or a referenced artifact.",
+          when_node_type: ["eval", "log", "intent", "reference"],
+        },
+      },
+
+      // ── Node-type allowlist (hard block) ─────────────────────────────
+      {
+        policy:
+          "Only Eval (test scenarios), Log (recorded runs and their results), Intent (the objective, charter, or suite a scenario covers), Reference (a requirement, environment, evidence artifact, or defect), and Principal (the tester, automation system, or agent that owns or runs a test) belong in a test Doco. Process steps, glossary terms, and decision records live in their own Docos and are cited here via Reference.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["eval", "intent", "log", "principal", "reference"],
+        },
+      },
+
+      // ── Edge-type allowlist (hard block) ─────────────────────────────
+      {
+        // The edge analogue of the node-type allowlist. `supports` is the
+        // evidence/validation spine; process-flow (`flows_to`) and Rule-guard
+        // (`constrained_by`) edges describe how work runs and don't belong here.
+        policy:
+          "Only these relationship edge types belong in a test Doco: `supports` (the evidence/validation spine — an Eval supports the objective or requirement it verifies, a Log supports the Eval it ran, and an evidence Reference supports a Log), `attributed_to` (the Principal who owns a scenario or ran a test), `has_parent` (nest an objective or suite under a broader test plan), `relates_to` (a see-also between scenarios, or a link from a failing run or scenario to a defect), `replaces` (a new scenario supersedes a retired one), and `derived_from` (provenance — a scenario derived from an imported spec or forked from another). Process-flow (`flows_to`) and Rule-guard (`constrained_by`) edges do not belong here.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "supports",
+            "attributed_to",
+            "has_parent",
+            "relates_to",
+            "replaces",
+            "derived_from",
+          ],
+        },
+      },
+
+      // ── Scenario completeness floor (hard block, committed only) ──────
+      {
+        // A scenario you can't execute is an objective (an Intent), not a test.
+        // `how_to_run` carries the preconditions + ordered steps; it is the
+        // checkable floor that separates a runnable scenario from a wish. Fires
+        // on the committed stages only (TEST_SCENARIO_COMMITTED_LIFECYCLES) so a
+        // `drafting` sketch may capture the idea before the steps are written.
+        policy:
+          "Every committed (`queued` or `active`) test scenario says how to run it: its `how_to_run` carries the preconditions and the ordered steps a tester or agent follows. A scenario with no way to run it is an objective (an Intent), not a test. A `drafting` sketch may capture the idea before the steps are written.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["how_to_run"],
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: TEST_SCENARIO_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Traceability (warn, committed only) ──────────────────────────
+      {
+        // One gate covering both halves of the split: a committed scenario
+        // (Eval) `supports` the objective or requirement it verifies, and a
+        // committed run (Log) `supports` the scenario it executed. Warn, not
+        // block — an ad-hoc smoke check or a quick capture is allowed, but an
+        // orphan run (which scenario did it test?) or an untraced scenario
+        // (which requirement does it cover?) is surfaced for wiring up.
+        on_violation: "warn",
+        policy:
+          "Every committed scenario and run links to what it covers with a `supports` edge: a scenario `supports` the objective (Intent) or requirement (Reference) it verifies, and a run (Log) `supports` the scenario (Eval) it executed. A run with no scenario is an orphan result; a committed scenario with no objective or requirement is an untraced test.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "supports",
+          when_node_type: ["eval", "log"],
+        },
+        fires_when_node_lifecycle: TEST_SCENARIO_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Scenario quality (warn, committed only) ──────────────────────
+      {
+        // LLM-judged, so a warn (an identical retry could differ; a warn nudges
+        // without trapping the author). Encodes the test-case-quality rule:
+        // atomic, reproducible, and judged against one observable expected
+        // result so any runner reaches the same pass/fail verdict.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the scenario's prose, its `how_to_run` (preconditions + steps), and its expected result (`expected` / `expected_status`). PASS when it verifies ONE behavior or condition, states the preconditions and the steps to reproduce it, and names a single observable, checkable expected result — so any tester or agent who runs it reaches the same pass/fail verdict. FAIL with a reason when it is vague (e.g. `test login`), bundles several unrelated checks into one scenario, depends on hidden state a reader cannot set up, or has no observable expected outcome to judge against.",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: TEST_SCENARIO_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Result quality (warn, committed only) ────────────────────────
+      {
+        // A run is only useful if a reader can tell what ran where, how it
+        // turned out, and — on failure — what actually happened and where the
+        // evidence is. LLM-judged warn. The environment matters because the same
+        // scenario can pass in one browser/build and fail in another.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the run's prose and fields. PASS when it records the environment it ran against — for a website or app that means the browser and version, the operating system, the device or viewport, the build / release or commit, and the URL or environment (e.g. staging vs production) — names a clear outcome (passed, failed, blocked, or skipped), and, when it failed or was blocked, says what actually happened versus what was expected and links the evidence (screenshot, recording, console or network log) or the defect. FAIL with a reason when the outcome or the environment is missing, or a failure is recorded with no actual result and no evidence.",
+          when_node_type: ["log"],
+        },
+        fires_when_node_lifecycle: TEST_SCENARIO_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Guidance (prose-only suggestions) ────────────────────────────
+      {
+        policy:
+          "A test Doco has two halves. A scenario (an Eval) is the durable spec — what should be true and how to check it — and each run (a Log) is one execution of it. Don't overwrite a scenario with its latest result: record every run as a new Log so the history of passes, failures, and the environments they happened in is preserved.",
+      },
+      {
+        policy:
+          "Give each scenario a clear objective in its prose (the one behavior or condition under test), the preconditions and ordered steps in `how_to_run`, the test data it needs, and a single observable expected result in `expected` (with a coarse `expected_status` of pass or fail). Keep it atomic — one behavior per scenario — independent of other scenarios, and deterministic, so it passes or fails for exactly one reason.",
+      },
+      {
+        policy:
+          "Keep the scenario's at-a-glance verdict on the Eval itself — `last_status` (pass / fail / pending), `last_run_at`, and `last_reason` as a cache of the most recent run — and keep the full, append-only history as Log nodes. The Eval answers “is it green right now?”; the Logs answer “how has it behaved over time and across environments?”.",
+      },
+      {
+        policy:
+          "Trace every scenario to what it verifies: `supports` the objective (Intent) it serves or the requirement / acceptance criterion (Reference) it checks, and group related scenarios under an objective or suite, nesting suites with `has_parent`. Traceability is what lets you answer “which tests cover this requirement, and are they green?”.",
+      },
+      {
+        policy:
+          "For websites and apps the same scenario can pass in one environment and fail in another, so record the environment on every run, not on the scenario: the browser and version, the operating system, the device or viewport, the build / release or commit under test, and the URL or environment (local, staging, production). Drive your browser / device matrix from real user analytics — cover the combinations your users actually use first.",
+      },
+      {
+        policy:
+          "Record a clear outcome on every run: passed, failed, blocked, or skipped. Use the node's `outcome` (succeeded / failed) for the pass/fail axis and state blocked or skipped in the run's prose. Distinguish failed from blocked: failed means a step did not meet its expected result but execution could continue; blocked means an earlier failure or an environment problem stopped the run before the scenario could be judged at all.",
+      },
+      {
+        policy:
+          "On a failure, capture what actually happened and attach the evidence — screenshots, a screen recording, console and network logs, or a stack trace — as Reference nodes linked with `supports`, and link the defect you filed (a GitHub issue, a Jira ticket) as a Reference with `relates_to`. This Doco is the test record, not the bug tracker: reference the external defect rather than re-litigating it here. When triaging, separate severity (how bad the failure is) from priority (how urgently it must be fixed).",
+      },
+      {
+        policy:
+          "For behavior specs, write the scenario as Given / When / Then — the preconditions as Given, the action as When, the single observable expected result as Then — across the scenario's prose and `how_to_run`. Keep it focused: one user-observable behavior per scenario and a single-digit step count. Split a vague “works on mobile” into concrete per-device scenarios that each pass or fail on their own.",
+      },
+      {
+        policy:
+          "Exploratory testing fits the same shape. Model a charter as an Intent — “Explore [area] using [approach] to discover [risks]” — run each time-boxed session as a Log that records what you did, what you found, what got in the way, and what is left (the PROOF debrief: Past, Results, Obstacles, Outlook, Feelings), and capture each bug as a Reference. Promote a recurring or important finding into an explicit Eval so it becomes a repeatable scenario.",
+      },
+      {
+        policy:
+          "Say how a scenario is run in `how_to_run` — the manual steps, or the command / suite id / spec path for an automated test — and attribute it to the Principal who owns it. A run is attributed to whoever (or whatever) executed it: a person, a CI pipeline, or an agent. Agents running a suite record each result as a Log here, so automated and manual runs share one history.",
+      },
+      {
+        policy:
+          "Walk a scenario through the lifecycle as it matures: `drafting` while you are still writing it, `queued` once it is ready to run or review, `active` when it is approved and part of the suite, and `retired` when the behavior is gone or the scenario is superseded — link the replacement with `replaces`. Completeness and quality gates apply once a scenario is committed (`queued` or `active`); a `drafting` sketch is spared. A run is a fact that already happened — record it as `active`.",
+      },
+      {
+        policy:
+          "The same Eval-plus-Log shape stretches to specialized tests without new node types — choose the Eval's `criterion` (an exact match, a response / shape match, or an llm-judge for fuzzy output) and put the specifics in the expected result and `how_to_run`: a performance test states a latency or throughput threshold as the expected result and logs the measured number; an accessibility test names the WCAG criterion and attaches the audit (e.g. an axe report) as evidence; a security test references the advisory or CVE; an API or contract test pins the expected response shape; a visual-regression test attaches the baseline and the diff. Reach for a different Doco only when what you are documenting stops being “a scenario and its runs”.",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json` — create each scenario as an Eval with its `how_to_run`, `expected`, and `criterion`, wire its `supports` edge to the objective or requirement it covers, and record each run as a Log with the environment and outcome, its `supports` edge to the scenario, and any evidence References — all in one changeset, never as disconnected nodes.",
       },
     ],
   },

@@ -59,6 +59,7 @@ describe("removed templates are gone", () => {
       "process",
       "product-decisions",
       "product-roadmap",
+      "test-scenarios",
     ]);
   });
 });
@@ -1354,6 +1355,200 @@ describe("product-roadmap template", () => {
     it("tells agents to author via the contract + changesets", () => {
       expect(haystack).toMatch(/authoring-contract/);
       expect(haystack).toMatch(/changesets/);
+    });
+  });
+});
+
+describe("test-scenarios template", () => {
+  const template = findDocoTemplateByName("test-scenarios");
+  if (!template) throw new Error("test-scenarios template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "test-scenarios")).toBeDefined();
+    expect(findDocoTemplateByName("test-scenarios")?.name).toBe("test-scenarios");
+  });
+
+  it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
+    expect(template.icon).toBe("🧪");
+    expect(template.label).toBe("Test scenarios");
+    // A scenario is sketched before its steps and expected result are written,
+    // so new nodes start `drafting` and the completeness/quality gates spare a
+    // sketch; runs (Logs) are recorded directly as `active` facts.
+    expect(template.defaultNodeLifecycle).toBe("drafting");
+    expect(template.description).toMatch(/test scenario/i);
+    expect(template.description).toMatch(/run|environment|evidence/i);
+  });
+
+  it("opens on the list reading (a test Doco is a list of scenarios + runs)", () => {
+    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("admits only Eval, Intent, Log, Principal, Reference", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual([
+        "eval",
+        "intent",
+        "log",
+        "principal",
+        "reference",
+      ]);
+    });
+
+    it("excludes process/work and governance node types (Action, State, Decision, Rule, Idea)", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      for (const excluded of ["action", "state", "decision", "rule", "idea"]) {
+        expect(allowlist.node_types).not.toContain(excluded as never);
+      }
+    });
+  });
+
+  describe("edge-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge_type",
+    )?.predicate;
+
+    it("admits the evidence/validation + association edges, barring flow and guard edges", () => {
+      expect(allowlist?.kind).toBe("requires_edge_type");
+      if (allowlist?.kind !== "requires_edge_type") return;
+      expect(new Set(allowlist.edge_types)).toEqual(
+        new Set([
+          "supports",
+          "attributed_to",
+          "has_parent",
+          "relates_to",
+          "replaces",
+          "derived_from",
+        ]),
+      );
+      // `flows_to` is process sequence; `constrained_by` guards with a Rule —
+      // neither belongs in a test Doco.
+      expect(allowlist.edge_types).not.toContain("flows_to");
+      expect(allowlist.edge_types).not.toContain("constrained_by");
+    });
+  });
+
+  describe("scenario completeness floor (how_to_run)", () => {
+    const floor = template.policies.find(
+      (r) => r.predicate?.kind === "requires_field" && r.predicate.when_node_type?.includes("eval"),
+    );
+
+    it("requires `how_to_run` on every committed (queued/active) scenario, as a hard block", () => {
+      expect(floor?.predicate?.kind).toBe("requires_field");
+      if (floor?.predicate?.kind !== "requires_field") return;
+      expect(floor.predicate.fields).toEqual(["how_to_run"]);
+      // A drafting sketch may omit the steps; the floor fires once committed.
+      expect(floor.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+      expect(floor.on_violation ?? "block").toBe("block");
+    });
+
+    it("seeds as a deterministic block carrying the predicate verbatim", () => {
+      if (!floor) throw new Error("completeness floor missing");
+      const seeded = templatePolicyToPolicyRow(floor);
+      expect(seeded.kind).toBe("deterministic");
+      expect(seeded.on_violation).toBe("block");
+      expect(seeded.predicate.sub_kind).toBe("requires_field");
+      expect(seeded.predicate.fields).toEqual(["how_to_run"]);
+      expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("traceability gate (supports)", () => {
+    const gate = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge" && r.predicate.edge_type === "supports",
+    );
+
+    it("nudges every committed scenario AND run to link what it covers via `supports`, as a warn", () => {
+      expect(gate?.predicate?.kind).toBe("requires_edge");
+      if (gate?.predicate?.kind !== "requires_edge") return;
+      // One gate covering both halves: a scenario (Eval) supports its objective/
+      // requirement; a run (Log) supports the scenario it executed.
+      expect([...(gate.predicate.when_node_type ?? [])].sort()).toEqual(["eval", "log"]);
+      // Warn, not block: an ad-hoc smoke check or a quick capture is allowed.
+      expect(gate.on_violation).toBe("warn");
+      expect(gate.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("soft semantic gates (warnings, LLM-judged)", () => {
+    it("warns when a node does not read as test content (membership), exempting Principals", () => {
+      const gate = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" && /belongs in a test Doco/i.test(r.predicate.spec),
+      );
+      expect(gate?.on_violation).toBe("warn");
+      if (gate?.predicate?.kind !== "probabilistic") return;
+      const types = gate.predicate.when_node_type ?? [];
+      expect(types).toEqual(expect.arrayContaining(["eval", "log", "intent", "reference"]));
+      // Principals are actors (testers / systems), not test content.
+      expect(types).not.toContain("principal");
+      // A soft, all-stages gate — surfaced, never blocking.
+      expect(gate.fires_when_node_lifecycle).toBeUndefined();
+    });
+
+    it("judges scenario quality (one behavior, reproducible, one observable expected result)", () => {
+      const gate = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          r.predicate.when_node_type?.includes("eval") &&
+          /single observable, checkable expected result/i.test(r.predicate.spec),
+      );
+      expect(gate?.on_violation).toBe("warn");
+      expect(gate?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("judges result quality (environment, outcome, evidence on failure) on runs", () => {
+      const gate = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          r.predicate.when_node_type?.includes("log") &&
+          /browser and version/i.test(r.predicate.spec),
+      );
+      expect(gate?.on_violation).toBe("warn");
+      if (gate?.predicate?.kind !== "probabilistic") return;
+      expect(gate.predicate.spec).toMatch(/passed, failed, blocked, or skipped/i);
+      expect(gate.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("guidance encodes the test-documentation best practices", () => {
+    const haystack = template.policies
+      .filter((r) => !r.predicate)
+      .map((r) => r.policy ?? "")
+      .join("\n");
+
+    it("separates the durable scenario (Eval) from its append-only runs (Log)", () => {
+      expect(haystack).toMatch(/two halves/i);
+      expect(haystack).toMatch(/append-only/i);
+    });
+    it("records the environment on every run and sizes the matrix from real usage", () => {
+      expect(haystack).toMatch(/record the environment on every run/i);
+      expect(haystack).toMatch(/real user analytics/i);
+    });
+    it("distinguishes failed from blocked, and severity from priority", () => {
+      expect(haystack).toMatch(/failed from blocked/i);
+      expect(haystack).toMatch(/severity/i);
+      expect(haystack).toMatch(/priority/i);
+    });
+    it("attaches evidence and references the external defect", () => {
+      expect(haystack).toMatch(/evidence/i);
+      expect(haystack).toMatch(/defect/i);
+    });
+    it("covers BDD Given/When/Then and session-based exploratory testing (PROOF)", () => {
+      expect(haystack).toMatch(/Given \/ When \/ Then/);
+      expect(haystack).toMatch(/PROOF/);
+      expect(haystack).toMatch(/charter/i);
+    });
+    it("walks the scenario lifecycle and stays expandable to specialized tests", () => {
+      expect(haystack).toMatch(/drafting/i);
+      expect(haystack).toMatch(/retired/i);
+      expect(haystack).toMatch(/specialized tests/i);
+      expect(haystack).toMatch(/WCAG|performance|visual-regression/i);
     });
   });
 });
