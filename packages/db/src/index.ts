@@ -12,7 +12,9 @@ export {
 export type { PoolClient } from "pg";
 
 export {
-  upsertEntity,
+  upsertNode,
+  upsertPolicy,
+  nodeRowFromFields,
   getEntity,
   listEntitiesByDoco,
   listEntitiesByDocoAndIds,
@@ -88,8 +90,8 @@ export {
   NODE_TABLES,
   USER_TABLES,
   CONTAINER_TABLES,
-  type EntityRecord,
   type NodeRow,
+  type PolicyWrite,
   type EntityTableSpec,
 } from "./types.js";
 

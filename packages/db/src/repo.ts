@@ -10,25 +10,15 @@ import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, WRITE_ALL, normalizeWriteTypes } from
 import type pg from "pg";
 import { withClient } from "./client.js";
 import {
-  ALL_ENTITY_TABLES,
-  type EntityRecord,
   NODE_PROMOTED_COLUMNS,
   NODE_TABLES,
   type NodeRow,
+  type PolicyWrite,
   type PromotedColumnSpec,
 } from "./types.js";
 
 /** The 10 graph node types — all stored in the unified `nodes` table. */
 const NODE_TYPE_SET: ReadonlySet<string> = new Set(Object.keys(NODE_TABLES));
-
-function tableFor(entityType: string): {
-  table: string;
-  typeNamedColumn?: string;
-} {
-  const spec = ALL_ENTITY_TABLES[entityType];
-  if (!spec) throw new Error(`Unknown entity type for storage: ${entityType}`);
-  return spec;
-}
 
 /**
  * Drop prose aliases from a node's `data` jsonb before persisting. The merged
@@ -101,55 +91,6 @@ function buildExtra(data: Record<string, unknown>): Record<string, unknown> {
   return out;
 }
 
-/**
- * Derive the `lifecycle` column from `data.lifecycle` (the source of
- * truth). If the caller also supplied `rec.lifecycle` and it disagrees,
- * log a warning — the call site is fighting itself.
- *
- * Returning a value from `data` keeps the column and the jsonb perfectly
- * aligned; the runner's loaders filter on the column, so drift would
- * silently disable enforcement.
- */
-function deriveLifecycleColumn(rec: EntityRecord, data: Record<string, unknown>): string | null {
-  const dataLifecycle = typeof data.lifecycle === "string" ? data.lifecycle : null;
-  if (
-    typeof rec.lifecycle === "string" &&
-    dataLifecycle !== null &&
-    rec.lifecycle !== dataLifecycle
-  ) {
-    console.warn(
-      `[repo] lifecycle mismatch for ${rec.entity_type}/${rec.id}: rec.lifecycle=${rec.lifecycle} vs data.lifecycle=${dataLifecycle} — using data.lifecycle`,
-    );
-  }
-  return dataLifecycle;
-}
-
-/**
- * Upsert one entity, routing by category:
- *  - the 10 graph node types (incl. principal) → the unified `nodes` table
- *  - the policy type → the per-Doco `policies` table
- *  - identity (workspace / doco / user) → richer per-table writers
- */
-export async function upsertEntity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
-  const t = rec.entity_type;
-  if (t === "workspace" || t === "doco" || t === "user") return upsertIdentity(rec, client);
-  if (t === "policy") return upsertPolicy(rec, client);
-  if (NODE_TYPE_SET.has(t)) {
-    // Split the captured bag into the honest NodeRow at the boundary, then write
-    // it. The record's top-level lifecycle/audit win over any stale copy in the
-    // bag, matching the previous `deriveLifecycleColumn` / `rec.created_at ?? …`
-    // precedence.
-    const fields: Record<string, unknown> = { ...rec.data, id: rec.id, doco_id: rec.doco_id };
-    if (rec.lifecycle != null) fields.lifecycle = rec.lifecycle;
-    if (rec.created_at != null) fields.created_at = rec.created_at;
-    if (rec.created_by != null) fields.created_by = rec.created_by;
-    if (rec.updated_at != null) fields.updated_at = rec.updated_at;
-    if (rec.updated_by != null) fields.updated_by = rec.updated_by;
-    return upsertNode(nodeRowFromFields(t, fields), client);
-  }
-  throw new Error(`Unknown entity type for storage: ${t}`);
-}
-
 /** Resolve a promoted column's value from the entity's data bag. */
 function promotedValue(pc: PromotedColumnSpec, data: Record<string, unknown>): string | null {
   const raw = data[pc.field];
@@ -196,7 +137,7 @@ export function nodeRowFromFields(nodeType: string, fields: Record<string, unkno
  * jsonb. No bag-splitting here — that's `nodeRowFromFields`'s job at the write
  * boundary. Graph links live in `edges`. `node.lifecycle` drives the column.
  */
-async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise<void> {
+export async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise<void> {
   const t = node.node_type;
   const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "extra"];
   const vals: unknown[] = [
@@ -239,34 +180,33 @@ async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise<void> 
 
 /**
  * Upsert a policy into the per-Doco `policies` table. Policies are NOT folded
- * into `nodes` — they are governance config, not graph knowledge. The
- * standalone `kind` classifier is mirrored to a column for filtering; the rest
- * of the structured fields (predicate, on_violation, …) stay in `data`.
+ * into `nodes` — they are governance config, not graph knowledge. Unlike nodes,
+ * a policy keeps its real `policies.data` jsonb (the structured predicate /
+ * on_violation / fires_when fields); the standalone `kind` classifier is
+ * mirrored to its own column for filtering. `policy.lifecycle` drives the column.
  */
-async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
-  const spec = tableFor(rec.entity_type);
-  const lifecycleCol = deriveLifecycleColumn(rec, rec.data);
+export async function upsertPolicy(policy: PolicyWrite, client?: pg.PoolClient): Promise<void> {
   const cols = ["id", "doco_id", "lifecycle", "data", "kind"];
   const vals: unknown[] = [
-    rec.id,
-    rec.doco_id,
-    lifecycleCol,
-    JSON.stringify(rec.data),
-    typeof rec.data.kind === "string" ? rec.data.kind : "",
+    policy.id,
+    policy.doco_id,
+    policy.lifecycle,
+    JSON.stringify(policy.data),
+    typeof policy.data.kind === "string" ? policy.data.kind : "",
   ];
   cols.push("created_at", "created_by", "updated_at", "updated_by");
   vals.push(
-    rec.created_at ?? new Date().toISOString(),
-    rec.created_by ?? null,
-    rec.updated_at ?? new Date().toISOString(),
-    rec.updated_by ?? null,
+    policy.created_at ?? new Date().toISOString(),
+    policy.created_by ?? null,
+    policy.updated_at ?? new Date().toISOString(),
+    policy.updated_by ?? null,
   );
   const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
   const updates = cols
     .filter((c) => c !== "id" && c !== "created_at" && c !== "created_by")
     .map((c) => `${c} = EXCLUDED.${c}`)
     .join(", ");
-  const sql = `INSERT INTO ${spec.table} (${cols.join(",")}) VALUES (${placeholders})
+  const sql = `INSERT INTO policies (${cols.join(",")}) VALUES (${placeholders})
                ON CONFLICT (id) DO UPDATE SET ${updates}`;
   const run = (c: pg.PoolClient) => c.query(sql, vals);
   if (client) {
@@ -275,64 +215,6 @@ async function upsertPolicy(rec: EntityRecord, client?: pg.PoolClient): Promise<
     await withClient(async (c) => {
       await run(c);
     });
-  }
-}
-
-async function upsertIdentity(rec: EntityRecord, client?: pg.PoolClient): Promise<void> {
-  const fields = rec.data;
-  const run = async (c: pg.PoolClient) => {
-    if (rec.entity_type === "user") {
-      const dataJson = JSON.stringify(fields);
-      const github_id = (fields.github_id as string | null) ?? null;
-      const github_login = (fields.github_login as string | null) ?? null;
-      const email = (fields.email as string | null) ?? null;
-      const avatar_url = (fields.avatar_url as string | null) ?? null;
-      const deactivated_at = (fields.deactivated_at as string | null) ?? null;
-      await c.query(
-        `INSERT INTO users (id, github_id, github_login, email, avatar_url, data, deactivated_at)
-         VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7)
-         ON CONFLICT (id) DO UPDATE SET github_id=EXCLUDED.github_id, github_login=EXCLUDED.github_login,
-           email=EXCLUDED.email, avatar_url=EXCLUDED.avatar_url,
-           data=EXCLUDED.data, deactivated_at=EXCLUDED.deactivated_at, updated_at=now()`,
-        [rec.id, github_id, github_login, email, avatar_url, dataJson, deactivated_at],
-      );
-    } else if (rec.entity_type === "workspace") {
-      const handle = String(fields.handle ?? rec.id);
-      const name = String(fields.name ?? fields.display_name ?? handle);
-      await c.query(
-        `INSERT INTO workspaces (id, handle, name) VALUES ($1,$2,$3)
-         ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle, name=EXCLUDED.name,
-           updated_at=now()`,
-        [rec.id, handle, name],
-      );
-    } else if (rec.entity_type === "doco") {
-      const dataFields = Object.fromEntries(
-        Object.entries(fields).filter(([key]) => key !== "name" && key !== "display_name"),
-      );
-      const dataJson = JSON.stringify(dataFields);
-      const owner_id = String(fields.owner_id ?? "");
-      const workspace_id = String(fields.workspace_id ?? owner_id);
-      const handle = String(fields.handle ?? "");
-      if (!handle) {
-        throw new Error(
-          `Cannot upsert doco ${rec.id}: data is missing the required \`handle\` field.`,
-        );
-      }
-      const visibility = String(fields.visibility ?? "private");
-      await c.query(
-        `INSERT INTO docos (id, handle, owner_id, workspace_id, visibility, data)
-         VALUES ($1,$2,$3,$4,$5,$6::jsonb)
-         ON CONFLICT (id) DO UPDATE SET handle=EXCLUDED.handle,
-           owner_id=EXCLUDED.owner_id, workspace_id=EXCLUDED.workspace_id,
-           visibility=EXCLUDED.visibility, data=EXCLUDED.data, updated_at=now()`,
-        [rec.id, handle, owner_id, workspace_id, visibility, dataJson],
-      );
-    }
-  };
-  if (client) {
-    await run(client);
-  } else {
-    await withClient(run);
   }
 }
 

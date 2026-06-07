@@ -1,7 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { upsertEntity } from "../repo.js";
-import type { EntityRecord } from "../types.js";
+import { type NodeRow, nodeRowFromFields, upsertNode } from "../repo.js";
 import { freshDb } from "./fresh-db.js";
 
 const DOCO = "doco_test0000000000000000000000";
@@ -12,25 +11,19 @@ const ACTION = "action_test00000000000000000000";
 
 let db: PGlite;
 
-function decisionRecord(): EntityRecord {
-  return {
+function decisionRecord(): NodeRow {
+  return nodeRowFromFields("decision", {
     id: DECISION,
     doco_id: DOCO,
-    entity_type: "decision",
-    data: {
-      id: DECISION,
-      doco_id: DOCO,
-      node_type: "decision",
-      prose: "Pick the path",
-      question: "Which path?",
-      chosen: "Route to the action.",
-      decided_by: "principal_test000000000000000000",
-      intent_ids: [INTENT],
-      sequence_to: [{ target: ACTION, label: "next" }],
-      lifecycle: "active",
-    },
+    node_type: "decision",
+    prose: "Pick the path",
+    question: "Which path?",
+    chosen: "Route to the action.",
+    decided_by: "principal_test000000000000000000",
+    intent_ids: [INTENT],
+    sequence_to: [{ target: ACTION, label: "next" }],
     lifecycle: "active",
-  } as unknown as EntityRecord;
+  });
 }
 
 beforeAll(async () => {
@@ -48,7 +41,7 @@ beforeAll(async () => {
 
 describe("node edge JSON storage", () => {
   it("strips graph-link fields from the stored node extra bag", async () => {
-    await upsertEntity(decisionRecord(), db as never);
+    await upsertNode(decisionRecord(), db as never);
 
     // Slim-down: the catch-all `data` jsonb is gone; per-node fields persist in
     // `extra`. Graph-link fields belong in `edges`, so they must never

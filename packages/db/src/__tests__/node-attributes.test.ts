@@ -1,7 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { rowToNode, upsertEntity } from "../repo.js";
-import type { EntityRecord } from "../types.js";
+import { nodeRowFromFields, rowToNode, upsertNode } from "../repo.js";
 import { freshDb } from "./fresh-db.js";
 
 // Node-shape slim-down: a single `extra` jsonb that replaces the per-type
@@ -30,11 +29,8 @@ beforeAll(async () => {
 describe("node extra column (Stage 1 — expand)", () => {
   it("collapses a reference's per-type fields into extra on write", async () => {
     const id = "reference_attrs00000000000000000";
-    const rec = {
-      id,
-      doco_id: DOCO,
-      entity_type: "reference",
-      data: {
+    await upsertNode(
+      nodeRowFromFields("reference", {
         id,
         doco_id: DOCO,
         node_type: "reference",
@@ -46,11 +42,9 @@ describe("node extra column (Stage 1 — expand)", () => {
         content_hash: "abc123",
         pr_body: "The full body of the pull request goes here.",
         lifecycle: "active",
-      },
-      type_named_value: "ACME PR #1",
-      lifecycle: "active",
-    } as unknown as EntityRecord;
-    await upsertEntity(rec, db as never);
+      }),
+      db as never,
+    );
 
     const { rows } = await db.query<{
       locator: string | null;
@@ -79,11 +73,8 @@ describe("node extra column (Stage 1 — expand)", () => {
 
   it("keeps a per-type scalar (action.verb) in extra, not as a leaked key", async () => {
     const id = "action_attrs00000000000000000000";
-    const rec = {
-      id,
-      doco_id: DOCO,
-      entity_type: "action",
-      data: {
+    await upsertNode(
+      nodeRowFromFields("action", {
         id,
         doco_id: DOCO,
         node_type: "action",
@@ -91,11 +82,9 @@ describe("node extra column (Stage 1 — expand)", () => {
         verb: "deploy",
         outputs: { url: "https://x" },
         lifecycle: "active",
-      },
-      type_named_value: "Deployed the build",
-      lifecycle: "active",
-    } as unknown as EntityRecord;
-    await upsertEntity(rec, db as never);
+      }),
+      db as never,
+    );
 
     const { rows } = await db.query<{ extra: Record<string, unknown> }>(
       "SELECT extra FROM nodes WHERE id = $1",
@@ -135,22 +124,15 @@ describe("node extra column (Stage 1 — expand)", () => {
     expect(names).toContain("locator");
 
     const id = "action_contract00000000000000000";
-    await upsertEntity(
-      {
+    await upsertNode(
+      nodeRowFromFields("action", {
         id,
         doco_id: DOCO,
-        entity_type: "action",
-        data: {
-          id,
-          doco_id: DOCO,
-          node_type: "action",
-          action: "Deployed the build",
-          verb: "deploy",
-          lifecycle: "active",
-        },
-        type_named_value: "Deployed the build",
+        node_type: "action",
+        action: "Deployed the build",
+        verb: "deploy",
         lifecycle: "active",
-      } as unknown as EntityRecord,
+      }),
       db as never,
     );
     const { rows } = await db.query<Record<string, unknown>>("SELECT * FROM nodes WHERE id = $1", [
@@ -181,22 +163,15 @@ describe("node extra column (Stage 1 — expand)", () => {
 
     // upsertNode must not reference the gone `data` column.
     const id = "decision_drop00000000000000000000";
-    await upsertEntity(
-      {
+    await upsertNode(
+      nodeRowFromFields("decision", {
         id,
         doco_id: DOCO,
-        entity_type: "decision",
-        data: {
-          id,
-          doco_id: DOCO,
-          node_type: "decision",
-          decision: "Adopt the plan",
-          chosen: "Route A",
-          lifecycle: "active",
-        },
-        type_named_value: "Adopt the plan",
+        node_type: "decision",
+        decision: "Adopt the plan",
+        chosen: "Route A",
         lifecycle: "active",
-      } as unknown as EntityRecord,
+      }),
       db as never,
     );
     const { rows } = await db.query<{ extra: Record<string, unknown> }>(
@@ -212,24 +187,17 @@ describe("node extra column (Stage 1 — expand)", () => {
     const proposer = "user_proposer00000000000000000000";
     // proposer_id FKs to users(id); seed the OAuth identity first.
     await db.query("INSERT INTO users (id, data) VALUES ($1, '{}'::jsonb)", [proposer]);
-    await upsertEntity(
-      {
+    await upsertNode(
+      nodeRowFromFields("idea", {
         id,
         doco_id: DOCO,
-        entity_type: "idea",
-        data: {
-          id,
-          doco_id: DOCO,
-          node_type: "idea",
-          idea: "Try the widget",
-          proposer_id: proposer,
-          tradeoffs: "cheap but slow",
-          lifecycle: "active",
-        },
-        type_named_value: "Try the widget",
+        node_type: "idea",
+        idea: "Try the widget",
+        proposer_id: proposer,
+        tradeoffs: "cheap but slow",
         lifecycle: "active",
         created_by: proposer,
-      } as unknown as EntityRecord,
+      }),
       db as never,
     );
     // `proposer_id` lives ONLY in its real column — excluded from extra,

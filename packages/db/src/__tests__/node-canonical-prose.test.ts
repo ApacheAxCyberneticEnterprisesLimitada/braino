@@ -16,8 +16,7 @@ vi.mock("../client.js", () => ({
   withClient: (fn: (c: unknown) => unknown) => fn(mocks.db),
 }));
 
-import { getEntity, upsertEntity } from "../repo.js";
-import type { EntityRecord } from "../types.js";
+import { getEntity, nodeRowFromFields, upsertNode } from "../repo.js";
 
 const ORG = "workspace_prose000000000000000";
 const DOCO = "doco_prose0000000000000000000000";
@@ -38,20 +37,16 @@ beforeAll(async () => {
 describe("canonical node prose (slice 1)", () => {
   it("surfaces a stored node's text as data.prose on read — never a type-named key", async () => {
     const id = "intent_prose00000000000000000000";
-    const rec = {
-      id,
-      doco_id: DOCO,
-      entity_type: "intent",
-      data: {
+    await upsertNode(
+      nodeRowFromFields("intent", {
         id,
         doco_id: DOCO,
         node_type: "intent",
         prose: "Find candidates",
         lifecycle: "drafting",
-      },
-      lifecycle: "drafting",
-    } as unknown as EntityRecord;
-    await upsertEntity(rec, mocks.db as never);
+      }),
+      mocks.db as never,
+    );
 
     const loaded = await getEntity("intent", id);
     expect(loaded).not.toBeNull();
@@ -63,20 +58,16 @@ describe("canonical node prose (slice 1)", () => {
 
   it("the read-path field bag is a complete judge candidate — it carries the prose", async () => {
     const id = "intent_prose20000000000000000000";
-    const rec = {
-      id,
-      doco_id: DOCO,
-      entity_type: "intent",
-      data: {
+    await upsertNode(
+      nodeRowFromFields("intent", {
         id,
         doco_id: DOCO,
         node_type: "intent",
         prose: "Approve a loan",
         lifecycle: "active",
-      },
-      lifecycle: "active",
-    } as unknown as EntityRecord;
-    await upsertEntity(rec, mocks.db as never);
+      }),
+      mocks.db as never,
+    );
 
     // The honest read row carries the text on read — the data a re-evaluation
     // flattens into the judge candidate.

@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type NodeRow, rowToNode, upsertEntity } from "../repo.js";
+import { type NodeRow, nodeRowFromFields, rowToNode, upsertNode } from "../repo.js";
 import { freshDb } from "./fresh-db.js";
 
 // `NODE_PROMOTED_COLUMNS` is the one source of truth for which scalars get their
@@ -71,14 +71,14 @@ describe("promoted columns — single source of truth round-trips", () => {
     ];
 
     for (const c of cases) {
-      await upsertEntity(
-        {
+      await upsertNode(
+        nodeRowFromFields(c.type, {
           id: c.id,
           doco_id: DOCO,
-          entity_type: c.type,
-          data: { id: c.id, doco_id: DOCO, node_type: c.type, lifecycle: "active", ...c.data },
+          node_type: c.type,
           lifecycle: "active",
-        } as unknown as EntityRecord,
+          ...c.data,
+        }),
         db as never,
       );
       const rec = await readBack(c.id);
@@ -89,24 +89,18 @@ describe("promoted columns — single source of truth round-trips", () => {
 
   it("never re-surfaces the dead role_principal (no column, scrubbed on write)", async () => {
     const id = "principal_promoted000000000000000";
-    await upsertEntity(
-      {
+    // A client may still send the legacy `role_principal`; it must persist
+    // nowhere (no column, excluded from `extra`) and never read back.
+    await upsertNode(
+      nodeRowFromFields("principal", {
         id,
         doco_id: DOCO,
-        entity_type: "principal",
-        // A client may still send the legacy `role_principal`; it must persist
-        // nowhere (no column, excluded from `extra`) and never read back.
-        data: {
-          id,
-          doco_id: DOCO,
-          node_type: "principal",
-          prose: "Reviewer",
-          kind: "agent",
-          role_principal: true,
-          lifecycle: "active",
-        },
+        node_type: "principal",
+        prose: "Reviewer",
+        kind: "agent",
+        role_principal: true,
         lifecycle: "active",
-      } as unknown as EntityRecord,
+      }),
       db as never,
     );
     const rec = await readBack(id);

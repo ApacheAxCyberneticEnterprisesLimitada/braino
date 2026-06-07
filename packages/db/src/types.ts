@@ -45,7 +45,7 @@ export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> 
 
 /**
  * Promoted columns on the unified `nodes` table, per node type. Single source
- * of truth for the storage writer (`upsertEntity` → `nodes`).
+ * of truth for the node writer (`nodeRowFromFields` → `upsertNode` → `nodes`).
  *
  * These are the per-type graph columns promoted out of the `data` jsonb:
  * `proposer_id` and filterable scalars. A principal's name lands in the
@@ -113,23 +113,19 @@ export const ALL_ENTITY_TABLES: Record<string, { table: string; typeNamedColumn?
 };
 
 /**
- * The shape we round-trip between filesystem (YAML+MD) and Postgres
- * rows. Importers and exporters speak this shape; storage adapters
- * speak this shape; the read path rebuilds LoadedDoco
- * from this shape.
- *
- * `entity_type` carries the discriminator string across all categories:
- * 10 node types + policy + user + doco + workspace.
+ * The honest WRITE shape of a policy — the one category that keeps a `data`
+ * jsonb (the kept `policies.data` column holding the structured predicate /
+ * on_violation / fires_when fields). `upsertPolicy` mirrors `data.kind` to the
+ * `kind` column and `lifecycle` to its column. Nodes have no such bag: they
+ * write a `NodeRow`; identity rows (user/doco/workspace) have their own typed
+ * writers. There is no generic cross-category `EntityRecord` envelope.
  */
-export interface EntityRecord {
+export interface PolicyWrite {
   id: string;
   doco_id: string;
-  entity_type: string;
-  /** Bag of structured fields. Split on write into columns + the `extra` jsonb. */
+  lifecycle: string | null;
+  /** Structured policy fields, stored verbatim in the `policies.data` jsonb. */
   data: Record<string, unknown>;
-  /** Mirrored from the `lifecycle` column; the write path's source of truth
-   *  for the column (see `deriveLifecycleColumn`). */
-  lifecycle?: string | null;
   created_at?: string | null;
   created_by?: string | null;
   updated_at?: string | null;
