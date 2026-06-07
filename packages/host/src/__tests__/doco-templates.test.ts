@@ -181,7 +181,7 @@ describe("process template", () => {
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle)", () => {
     expect(template.icon).toBe("🔁");
-    expect(template.label).toBe("process");
+    expect(template.label).toBe("Processes");
     expect(template.defaultNodeLifecycle).toBe("drafting");
     expect(template.description).toMatch(/repeatable business processes/i);
     expect(template.description).toMatch(/BPMN/);

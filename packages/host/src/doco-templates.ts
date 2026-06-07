@@ -161,7 +161,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // its actor, decider, or parent process/pool is chosen, and is held to the
     // full bar only once it is committed.
     name: "process",
-    label: "process",
+    label: "Processes",
     icon: "🔁",
     description:
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
