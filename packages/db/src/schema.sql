@@ -2239,6 +2239,15 @@ DECLARE rec record;
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM schema_oneshots WHERE name = 'process_intent_to_action') THEN
     IF to_regclass('public.nodes') IS NOT NULL AND to_regclass('public.edges') IS NOT NULL THEN
+      -- The repoint below UPDATEs node_versions so a renamed node carries its
+      -- history forward. node_versions is APPEND-ONLY — a BEFORE UPDATE/DELETE
+      -- trigger raises `history append-only: UPDATE on node_versions is not
+      -- allowed`, which aborts the WHOLE schema apply (and thus every DB op,
+      -- because ensureSchema runs schema.sql on cold start) the moment a process
+      -- Intent has any version history. Suspend that guard for this controlled
+      -- one-shot id-rename, then restore it. The whole apply is one transaction,
+      -- so a failure rolls the trigger state back to enabled too.
+      ALTER TABLE node_versions DISABLE TRIGGER USER;
       FOR rec IN
         SELECT n.id AS old_id, ('action_' || substr(n.id, 8)) AS new_id
           FROM nodes n
@@ -2275,6 +2284,8 @@ BEGIN
         UPDATE edges SET to_node_type   = 'action' WHERE to_id   = rec.new_id AND to_node_type   = 'intent';
         UPDATE edges SET from_node_type = 'action' WHERE from_id = rec.new_id AND from_node_type = 'intent';
       END LOOP;
+      -- Restore the append-only guard now the one-shot repoint is done.
+      ALTER TABLE node_versions ENABLE TRIGGER USER;
     END IF;
     INSERT INTO schema_oneshots (name) VALUES ('process_intent_to_action');
   END IF;

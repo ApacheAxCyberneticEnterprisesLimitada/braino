@@ -125,6 +125,19 @@ describe("process_intent_to_action migration", () => {
     await db.query(
       "INSERT INTO audit_events (event_id, at, entity_type, entity_id, op) VALUES ('ae_1', now(), 'intent', 'intent_01POOL', 'entity.create')",
     );
+    // node_versions history for the pool Intent — the APPEND-ONLY table. Its
+    // BEFORE UPDATE/DELETE trigger blocks the migration's id-repoint unless the
+    // migration suspends it. A process Doco in production always has this
+    // history, so WITHOUT it this test passed while production's cold-start
+    // schema apply aborted (`history append-only: UPDATE on node_versions is
+    // not allowed`), 500-ing every DB request.
+    const cs = await db.query<{ tx_id: number }>(
+      "INSERT INTO changesets (doco_id) VALUES ('doco_proc') RETURNING tx_id",
+    );
+    await db.query(
+      "INSERT INTO node_versions (entity_id, entity_type, version, op, payload, tx_id) VALUES ('intent_01POOL','intent',1,'create','{}'::jsonb,$1)",
+      [cs.rows[0].tx_id],
+    );
 
     await clearMarkerAndReapply();
 
@@ -183,6 +196,14 @@ describe("process_intent_to_action migration", () => {
       "SELECT entity_id FROM audit_events WHERE event_id = 'ae_1'",
     );
     expect(ae.rows[0]?.entity_id).toBe("action_01POOL");
+
+    // The append-only history row cascaded with the rename…
+    const nv = await db.query<{ entity_id: string }>("SELECT entity_id FROM node_versions");
+    expect(nv.rows[0]?.entity_id).toBe("action_01POOL");
+    // …and the append-only guard is restored once the one-shot migration is done.
+    await expect(
+      db.query("UPDATE node_versions SET entity_type = 'x' WHERE entity_id = 'action_01POOL'"),
+    ).rejects.toThrow(/append-only/);
   });
 
   it("leaves Intents in a non-process Doco untouched", async () => {
