@@ -119,6 +119,8 @@ export {
   createEdge,
   updateEdge,
   retireEdge,
+  retireActiveEdgesForNode,
+  EDGE_ENDPOINTS_NOT_ACTIVE,
   getVersions,
   verifyHistory,
   entityAsOf,

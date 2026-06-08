@@ -250,6 +250,41 @@ export interface EdgeRow {
   retired_at: string | null;
 }
 
+/**
+ * Sentinel prefix for the "active edge needs active endpoints" violation, so
+ * the web layer can recognize the thrown Error and map it to a friendly 422
+ * (mirrors how `edges_live_uniq` → 409 is recognized). The global rule:
+ * an `active` edge can only belong to `active` nodes — a node that is not
+ * active cannot carry an active edge.
+ */
+export const EDGE_ENDPOINTS_NOT_ACTIVE = "edge_endpoints_not_active";
+
+/**
+ * Enforce the global lifecycle invariant at the single edge-write boundary:
+ * an edge may be `active` only when BOTH endpoint nodes are `active`. Queried
+ * in the SAME transaction as the write so it sees the committed-so-far graph
+ * (endpoint nodes are always created before their edges). Throws a sentinel
+ * Error otherwise; non-active edges skip the check entirely.
+ */
+async function assertEndpointsActiveForActiveEdge(
+  c: pg.PoolClient,
+  fromId: string,
+  toId: string,
+): Promise<void> {
+  const { rows } = await c.query<{ id: string; lifecycle: string }>(
+    "SELECT id, lifecycle FROM nodes WHERE id IN ($1, $2)",
+    [fromId, toId],
+  );
+  const byId = new Map(rows.map((r) => [r.id, r.lifecycle]));
+  const offenders = [fromId, toId].filter((id) => (byId.get(id) ?? "missing") !== "active");
+  if (offenders.length > 0) {
+    const detail = offenders.map((id) => `${id} is ${byId.get(id) ?? "missing"}`).join(", ");
+    throw new Error(
+      `${EDGE_ENDPOINTS_NOT_ACTIVE}: an active edge requires both endpoints to be active (${detail})`,
+    );
+  }
+}
+
 // NOTE: tsconfig sets exactOptionalPropertyTypes, so every `actor:` passed to
 // appendEdgeVersion/appendNodeVersion MUST be `input.actor ?? null` — a bare
 // `string | null | undefined` fails TS2375. Keep the `?? null` on each call.
@@ -260,6 +295,10 @@ export async function createEdge(
   input: CreateEdgeInput,
 ): Promise<EdgeRow> {
   const id = makeEntityId("edge", generateUlid());
+  const lifecycle = input.lifecycle ?? "active";
+  if (lifecycle === "active") {
+    await assertEndpointsActiveForActiveEdge(c, input.fromId, input.toId);
+  }
   const { rows } = await c.query<EdgeRow>(
     `INSERT INTO edges
        (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type,
@@ -277,7 +316,7 @@ export async function createEdge(
       input.label ?? null,
       input.condition ?? null,
       input.kind ?? null,
-      input.lifecycle ?? "active",
+      lifecycle,
       "authored",
       input.actor ?? null,
     ],
@@ -306,6 +345,17 @@ export async function updateEdge(
     actor?: string | null;
   },
 ): Promise<EdgeRow> {
+  // Transitioning an edge TO `active` re-checks the endpoint invariant (a node
+  // may have been demoted since the edge was created). Endpoints are immutable,
+  // so read them off the edge row. Metadata-only edits skip the check.
+  if (input.lifecycle === "active") {
+    const { rows: endpoints } = await c.query<{ from_id: string; to_id: string }>(
+      "SELECT from_id, to_id FROM edges WHERE id = $1",
+      [input.id],
+    );
+    if (endpoints.length === 0) throw new Error(`edge not found: ${input.id}`);
+    await assertEndpointsActiveForActiveEdge(c, endpoints[0].from_id, endpoints[0].to_id);
+  }
   const { rows } = await c.query<EdgeRow>(
     `UPDATE edges
         SET label      = COALESCE($2, label),
@@ -364,6 +414,29 @@ export async function retireEdge(
     actor: input.actor ?? null,
   });
   return row;
+}
+
+/**
+ * Retire every live `active` edge touching a node (in either direction), within
+ * one open commit. This is the cascade behind the opt-in `retire_active_edges`
+ * flag when a node is demoted out of `active`: it restores the global invariant
+ * (a non-active node carries no active edges). Returns the retired edge rows.
+ */
+export async function retireActiveEdgesForNode(
+  c: pg.PoolClient,
+  txId: number,
+  input: { docoId: string; nodeId: string; actor?: string | null },
+): Promise<EdgeRow[]> {
+  const { rows } = await c.query<{ id: string }>(
+    `SELECT id FROM edges
+      WHERE doco_id = $1 AND lifecycle = 'active' AND (from_id = $2 OR to_id = $2)`,
+    [input.docoId, input.nodeId],
+  );
+  const retired: EdgeRow[] = [];
+  for (const { id } of rows) {
+    retired.push(await retireEdge(c, txId, { id, actor: input.actor ?? null }));
+  }
+  return retired;
 }
 
 export interface VersionEntry {
