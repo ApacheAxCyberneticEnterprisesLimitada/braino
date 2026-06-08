@@ -880,43 +880,45 @@ describe("authoring evaluator — requires_edge exempt_when_field_truthy", () =>
   });
 });
 
-describe("authoring evaluator — requires_edge require_when_field_truthy", () => {
-  // The mirror of exempt_when_field_truthy: an INCLUSION gate. The check applies
-  // ONLY when the candidate carries a truthy value at the named field; otherwise
-  // it is skipped entirely. The process "an entry point leads somewhere" rule
-  // uses it so the ≥1 OUTGOING `flows_to` floor fires only for nodes the author
-  // has flagged `entry_point`.
-  const entryLeadsSomewhere = () =>
+describe("authoring evaluator — requires_edge exempt_when_field_truthy (multi-field)", () => {
+  // The opt-out accepts a comma-separated list: a candidate carrying a truthy
+  // value at ANY of the named fields is excused. The process "leads somewhere"
+  // floor uses this so a node is excused from the ≥1 OUTGOING `flows_to` rule if
+  // it is an `exit_point` (an end) OR a `top_level_process` (the pool container).
+  const leadsSomewhere = () =>
     P({
       sub_kind: "requires_edge",
       edge_type: "flows_to",
       direction: "outgoing",
-      require_when_field_truthy: "entry_point",
+      exempt_when_field_truthy: "exit_point, top_level_process",
       when_node_type: ["action", "decision", "state"],
     });
 
-  it("skips a node that does not carry the flag (gate not met)", () => {
-    const v = evaluate({ id: "action_01", node_type: "action" }, [entryLeadsSomewhere()]);
-    expect(v).toEqual([]);
-  });
-
-  it("fails a flagged node with no outgoing flows_to", () => {
-    const v = evaluate({ id: "action_01", node_type: "action", entry_point: true }, [
-      entryLeadsSomewhere(),
-    ]);
+  it("fails a plain node with no outgoing flows_to (not exempt by any field)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [leadsSomewhere()]);
     expect(v).toHaveLength(1);
     expect(v[0]?.sub_kind).toBe("requires_edge");
     expect(v[0]?.reason).toMatch(/flows_to/);
   });
 
-  it("passes a flagged node that has an outgoing flows_to", () => {
-    const v = evaluate(
-      { id: "action_01", node_type: "action", entry_point: true },
-      [entryLeadsSomewhere()],
-      {
-        candidateEdges: [{ from_id: "action_01", to_id: "action_02", edge_type: "flows_to" }],
-      },
-    );
+  it("exempts a node flagged with the FIRST listed field (exit_point)", () => {
+    const v = evaluate({ id: "state_01", node_type: "state", exit_point: true }, [
+      leadsSomewhere(),
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  it("exempts a node flagged with a LATER listed field (top_level_process)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", top_level_process: true }, [
+      leadsSomewhere(),
+    ]);
+    expect(v).toEqual([]);
+  });
+
+  it("a non-exempt node passes once it has the outgoing flows_to", () => {
+    const v = evaluate({ id: "action_01", node_type: "action" }, [leadsSomewhere()], {
+      candidateEdges: [{ from_id: "action_01", to_id: "action_02", edge_type: "flows_to" }],
+    });
     expect(v).toEqual([]);
   });
 });

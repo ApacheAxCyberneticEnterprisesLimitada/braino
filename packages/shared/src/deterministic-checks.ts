@@ -92,9 +92,8 @@ function isNonEmpty(value: unknown): boolean {
 
 /**
  * Whether the candidate carries a truthy value at ANY of the comma-separated
- * field names. Powers both `exempt_when_field_truthy` (skip the check) and
- * `require_when_field_truthy` (only run the check) — one node may be excused by
- * several flags at once (e.g. `entry_point` OR `top_level_process`).
+ * field names. Powers `exempt_when_field_truthy` (skip the check) — one node may
+ * be excused by several flags at once (e.g. `exit_point` OR `top_level_process`).
  */
 function anyFieldTruthy(candidate: CandidateFields, fieldList: string | undefined): boolean {
   if (!fieldList) return false;
@@ -218,25 +217,9 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
         formLabel: "Exempt when field is set (optional)",
         partLabel: "exempt when field set",
       },
-      {
-        name: "require_when_field_truthy",
-        control: "text",
-        formLabel: "Only apply when field is set (optional)",
-        partLabel: "only when field set",
-      },
       WHEN_NODE_TYPE_FIELD,
     ],
     evaluate: (pred, ctx) => {
-      // Inclusion gate: when set, the floor applies ONLY to candidates carrying a
-      // truthy value at the named field(s) — the mirror of the field opt-out
-      // below. (e.g. the "an entry point must lead somewhere" rule fires its
-      // outgoing `flows_to` requirement only for nodes flagged `entry_point`.)
-      if (
-        pred.require_when_field_truthy &&
-        !anyFieldTruthy(ctx.candidate, pred.require_when_field_truthy)
-      ) {
-        return null;
-      }
       // Field opt-out: a candidate carrying a truthy value at ANY of the named
       // fields (comma-separated) is explicitly excused — an author-set escape
       // hatch, distinct from the structural edge exemptions below. e.g. the

@@ -414,18 +414,20 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
-        // The dual, scoped to entry points only: an `entry_point` LEADS SOMEWHERE
-        // — it has ≥1 OUTGOING `flows_to`. The `require_when_field_truthy` gate
-        // fires this floor only for nodes flagged `entry_point`; an entry that
-        // goes nowhere is a dead start.
+        // Sequence-flow "leads somewhere" floor — the dual of reachability.
+        // Every committed flow node has ≥1 OUTGOING `flows_to` (it leads to a
+        // next step), UNLESS it is an `exit_point` (an end of the flow, by
+        // definition with no successor) or a `top_level_process` (the pool
+        // container, not a sequenced step). A `drafting` sketch may dangle.
         policy:
-          "A node marked as an entry point (an `entry_point` flag in its `extra`) must lead somewhere: once committed (`queued` or `active`) it has at least one outgoing `flows_to` edge to the first step of the process. A `drafting` sketch may be incomplete.",
+          "Every committed (`queued` or `active`) flow node in process leads somewhere: it has at least one outgoing `flows_to` edge to a next step — unless it is marked as an exit point (an `exit_point` flag in its `extra`), which is an end of the process and so needs no successor, or it is the top-level process container. A `drafting` sketch may be incomplete.",
         predicate: {
           kind: "requires_edge",
           edge_type: "flows_to",
           direction: "outgoing",
-          // Only flow nodes the author flagged `entry_point` are held to this.
-          require_when_field_truthy: "entry_point",
+          // An exit point is the end of the flow (no successor), and a top-level
+          // process is the pool container (not a sequenced step) — both excused.
+          exempt_when_field_truthy: "exit_point, top_level_process",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,

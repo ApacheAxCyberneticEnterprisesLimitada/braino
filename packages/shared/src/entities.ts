@@ -189,14 +189,6 @@ export interface DeterministicChecks {
      * container, which is not a sequenced step) — `"entry_point, top_level_process"`.
      */
     exempt_when_field_truthy?: string;
-    /**
-     * Inclusion gate — the mirror of `exempt_when_field_truthy`. When set, the
-     * check applies ONLY to candidates carrying a truthy value at this field, and
-     * is skipped for everyone else. Lets a floor target an author-flagged subset:
-     * e.g. "an `entry_point` must lead somewhere" fires the ≥1 outgoing
-     * `flows_to` requirement only for nodes flagged `entry_point`.
-     */
-    require_when_field_truthy?: string;
     when_node_type?: NodeType[];
   };
   /**

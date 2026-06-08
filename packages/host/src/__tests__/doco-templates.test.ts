@@ -855,11 +855,13 @@ describe("process template", () => {
     });
   });
 
-  describe("sequence-flow wiring rules (entry points)", () => {
-    // Two role-free `requires_edge` floors keep a committed process wired up:
-    //  - reach: every flow node is reached by the flow (≥1 INCOMING `flows_to`)
-    //    unless it is an `entry_point`;
-    //  - lead:  an `entry_point` leads somewhere (≥1 OUTGOING `flows_to`).
+  describe("sequence-flow wiring rules (entry/exit points)", () => {
+    // Two symmetric, role-free `requires_edge` floors keep a committed process
+    // wired up:
+    //  - reach: every flow node is REACHED by the flow (≥1 INCOMING `flows_to`)
+    //    unless it is an `entry_point` (the start) or `top_level_process`;
+    //  - lead:  every flow node LEADS SOMEWHERE (≥1 OUTGOING `flows_to`) unless
+    //    it is an `exit_point` (the end) or `top_level_process`.
     // Both fire on the committed stages only — a `drafting` sketch may dangle.
     const reach = template.policies.find(
       (r) =>
@@ -871,7 +873,8 @@ describe("process template", () => {
       (r) =>
         r.predicate?.kind === "requires_edge" &&
         r.predicate.edge_type === "flows_to" &&
-        r.predicate.require_when_field_truthy === "entry_point",
+        r.predicate.direction === "outgoing" &&
+        (r.predicate.exempt_when_field_truthy?.includes("exit_point") ?? false),
     );
 
     it("a flow node must be reached (≥1 incoming flows_to) unless entry point or top-level process", () => {
@@ -888,11 +891,18 @@ describe("process template", () => {
       expect(reach.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
 
-    it("an entry point must lead somewhere (≥1 outgoing flows_to)", () => {
+    it("a flow node must lead somewhere (≥1 outgoing flows_to) unless exit point or top-level process", () => {
       expect(lead?.predicate?.kind).toBe("requires_edge");
       if (lead?.predicate?.kind !== "requires_edge") return;
       expect(lead.predicate.direction).toBe("outgoing");
-      expect(lead.predicate.require_when_field_truthy).toBe("entry_point");
+      // The ONLY nodes excused from leading somewhere are exit points (ends) and
+      // the pool container — not, as before, "only entry points are held to it".
+      expect(lead.predicate.exempt_when_field_truthy).toBe("exit_point, top_level_process");
+      expect([...(lead.predicate.when_node_type ?? [])].sort()).toEqual([
+        "action",
+        "decision",
+        "state",
+      ]);
       expect(lead.fires_when_node_lifecycle).toEqual(["queued", "active"]);
     });
   });
