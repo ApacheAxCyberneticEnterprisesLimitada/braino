@@ -50,6 +50,7 @@ describe("removed templates are gone", () => {
   it("ships exactly the surviving templates", () => {
     expect(DEFAULT_DOCO_TEMPLATES.map((t) => t.name).sort()).toEqual([
       "architectural-decisions",
+      "bugs",
       "data-decisions",
       "design-decisions",
       "evals",
@@ -495,6 +496,191 @@ describe("faq template", () => {
     expect(prose).toMatch(/steward|owner|last_reviewed|stale/i);
     // Lifecycle / KCS states.
     expect(prose).toMatch(/lifecycle|drafting|queued|active|retired/i);
+  });
+});
+
+describe("bug tracker template", () => {
+  const template = findDocoTemplateByName("bugs");
+  if (!template) throw new Error("bugs template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "bugs")).toBeDefined();
+  });
+
+  it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
+    expect(template.icon).toBe("🐛");
+    expect(template.label).toBe("Bug tracker");
+    // A bug is reported (a sketch) before it is triaged, so new nodes start as
+    // `drafting` and the completeness/quality gates spare a raw report.
+    expect(template.defaultNodeLifecycle).toBe("drafting");
+    expect(template.description).toMatch(/bug|defect|expected vs actual/i);
+  });
+
+  it("opens on the built-in List perspective (a bug tracker is a filterable list)", () => {
+    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("admits the bug (Eval), owner (Principal), evidence/fix (Reference), occurrences (Log), and violated contracts (Rule)", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["eval", "log", "principal", "reference", "rule"].sort(),
+      );
+    });
+
+    it("excludes flow/decision/idea node types (those live in their own Docos)", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      for (const barred of ["action", "state", "decision", "intent", "idea"]) {
+        expect(allowlist.node_types).not.toContain(barred as never);
+      }
+    });
+  });
+
+  describe("edge-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge_type",
+    )?.predicate;
+
+    it("admits the tracking edges and bars process-flow / pool-membership edges", () => {
+      expect(allowlist?.kind).toBe("requires_edge_type");
+      if (allowlist?.kind !== "requires_edge_type") return;
+      expect(new Set(allowlist.edge_types)).toEqual(
+        new Set([
+          "attributed_to",
+          "supports",
+          "constrained_by",
+          "replaces",
+          "derived_from",
+          "relates_to",
+        ]),
+      );
+      expect(allowlist.edge_types).not.toContain("flows_to");
+      expect(allowlist.edge_types).not.toContain("has_parent");
+    });
+  });
+
+  describe("the irreducible core is required on a committed bug (block)", () => {
+    // Spolsky's "exactly three things": expected, actual, steps to reproduce.
+    const core = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_field" &&
+        r.predicate.fields.includes("expected") &&
+        r.predicate.when_node_type?.includes("eval"),
+    );
+
+    it("requires `expected`, `actual`, and `how_to_run` on the Eval, committed-only, as a hard block", () => {
+      expect(core?.predicate?.kind).toBe("requires_field");
+      if (core?.predicate?.kind !== "requires_field") return;
+      expect([...core.predicate.fields].sort()).toEqual(["actual", "expected", "how_to_run"]);
+      expect(core.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+      expect(core.on_violation ?? "block").toBe("block");
+    });
+
+    it("seeds as a blocking deterministic policy carrying the field list verbatim", () => {
+      if (!core) throw new Error("core completeness gate missing");
+      const seeded = templatePolicyToPolicyRow(core);
+      expect(seeded.kind).toBe("deterministic");
+      expect(seeded.on_violation).toBe("block");
+      expect(seeded.predicate.sub_kind).toBe("requires_field");
+      expect(seeded.predicate.fields).toEqual(["expected", "actual", "how_to_run"]);
+      expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  it("rates severity + priority as a committed WARN (strongly recommended, not enforced)", () => {
+    const rating = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_field" &&
+        r.predicate.fields.includes("severity") &&
+        r.predicate.when_node_type?.includes("eval"),
+    );
+    expect(rating?.predicate?.kind).toBe("requires_field");
+    if (rating?.predicate?.kind !== "requires_field") return;
+    expect([...rating.predicate.fields].sort()).toEqual(["priority", "severity"]);
+    expect(rating.on_violation).toBe("warn");
+    expect(rating.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("requires exactly one accountable owner on a committed bug (attributed_to → principal, block)", () => {
+    const owner = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "attributed_to" &&
+        r.predicate.target_node_type === "principal" &&
+        r.predicate.when_node_type?.includes("eval"),
+    );
+    expect(owner?.predicate?.kind).toBe("requires_edge");
+    expect(owner?.on_violation ?? "block").toBe("block");
+    expect(owner?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("gates membership softly (warn, all stages) so a feature request is surfaced, not blocked", () => {
+    const membership = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("eval") &&
+        /belongs in a bug tracker/i.test(r.predicate.spec) &&
+        r.on_violation === "warn" &&
+        r.fires_when_node_lifecycle === undefined,
+    );
+    expect(membership).toBeDefined();
+  });
+
+  it("judges report quality probabilistically as a warn on committed bugs", () => {
+    const quality = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("eval") &&
+        /reproduce the defect|show, don't tell|verbatim|`actual`/i.test(r.predicate.spec) &&
+        Array.isArray(r.fires_when_node_lifecycle),
+    );
+    expect(quality?.on_violation).toBe("warn");
+    expect(quality?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("queued and active are held to identical rules (no committed stage gated without the other)", () => {
+    for (const p of template.policies) {
+      const lifecycles = p.fires_when_node_lifecycle;
+      if (!lifecycles) continue;
+      expect(lifecycles.includes("queued")).toBe(lifecycles.includes("active"));
+    }
+  });
+
+  describe("guidance encodes the defect-management best practices", () => {
+    const prose = template.policies
+      .filter((p) => !p.predicate)
+      .map((p) => p.policy ?? "")
+      .join("\n");
+
+    it("frames the bug as a failing Eval and its regression test (red → green)", () => {
+      expect(prose).toMatch(/last_status/);
+      expect(prose).toMatch(/regression test/i);
+      expect(prose).toMatch(/red.*green|green.*after/i);
+    });
+    it("distinguishes severity (impact) from priority (urgency)", () => {
+      expect(prose).toMatch(/severity/i);
+      expect(prose).toMatch(/priority/i);
+      expect(prose).toMatch(/orthogonal|different/i);
+    });
+    it("maps status onto the lifecycle and disposition onto a `resolution`", () => {
+      expect(prose).toMatch(/resolution/i);
+      expect(prose).toMatch(/duplicate/i);
+      expect(prose).toMatch(/cannot_reproduce/i);
+      expect(prose).toMatch(/by_design/i);
+      expect(prose).toMatch(/wont_fix/i);
+    });
+    it("covers root-cause analysis, one-bug-per-record, occurrences, postmortems, and the universal core", () => {
+      expect(prose).toMatch(/root cause/i);
+      expect(prose).toMatch(/one defect per bug|one bug/i);
+      expect(prose).toMatch(/occurrence/i);
+      expect(prose).toMatch(/postmortem/i);
+      expect(prose).toMatch(/cve|cvss|cwe/i);
+    });
   });
 });
 

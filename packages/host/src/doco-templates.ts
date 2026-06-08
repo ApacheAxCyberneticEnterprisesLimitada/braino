@@ -144,6 +144,21 @@ const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 const GLOSSARY_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
 /**
+ * The bug tracker fires its completeness + quality gates on the two committed
+ * stages — `queued` (triaged and accepted into the queue to fix) and `active`
+ * (confirmed and being worked) — and exempts `drafting`. The node lifecycle IS
+ * the bug's status axis: `drafting` = reported/unconfirmed (triage pending, a
+ * quick report may be incomplete) → `queued` = triaged & accepted (reproduced,
+ * rated, owned) → `active` = confirmed and in force → `retired` = closed. So a
+ * raw report can be filed as a bare description without tripping the gates, and
+ * is held to the full bar only once it is committed — the same committed-stage
+ * gating the process and decision-record templates use. (How a bug *closed* —
+ * fixed / duplicate / cannot-reproduce / by-design / won't-fix — is the second,
+ * orthogonal disposition axis, carried in a `resolution` field, not lifecycle.)
+ */
+const BUG_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
+/**
  * The FAQ template, like glossary, defaults new entries to `drafting` so a
  * question can be captured the moment it is asked, and fires its completeness +
  * quality gates on the two committed stages — `queued` (in review) and `active`
@@ -1238,6 +1253,242 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json`. Create each run as a Log together with its `supports` edge to the Eval (and a `derived_from` edge to the system-under-test Reference) in the same changeset, recording the score, the verdict, and the pinned model / prompt / dataset versions — rather than leaving disconnected nodes.",
+      },
+    ],
+  },
+  {
+    // Bug tracker — document and track software defects from report to fix.
+    //
+    // The deep abstraction: a bug IS a failing Eval. Every bug, in every
+    // domain, reduces to the same irreducible core — a reproducible
+    // *discrepancy between expected and actual behavior*, driven to a
+    // resolution (the convergence of Spolsky's "exactly three things", Tatham's
+    // saw-vs-expected, IEEE 1044's defect/fault/failure model, and the Bugzilla
+    // status × resolution two-axis workflow). That core already IS the Eval
+    // node: `expected` (the correct behavior), `actual` (the observed wrong
+    // behavior), `how_to_run` (the steps to reproduce), `input` (the minimal
+    // reproducing input), `criterion` (how a fix is confirmed), and the
+    // `last_status` (`fail` while the bug reproduces, `pass` once a fix is
+    // verified). So the template needs NO new node type — it cultivates the
+    // existing Eval, exactly as the decision-record templates cultivate
+    // Decision and the glossary cultivates Reference.
+    //
+    // The payoff of that choice: a bug and its regression test become ONE node
+    // seen at two moments — red when reported, green when fixed. "A bug fix
+    // isn't done without a regression test that was red before and green after"
+    // (test-first / red-green-refactor) falls straight out of the model rather
+    // than being bolted on.
+    //
+    // Two orthogonal axes, mirroring every mature tracker:
+    //   - STATUS rides on the node lifecycle: `drafting` (reported / unconfirmed)
+    //     → `queued` (triaged & accepted) → `active` (confirmed, being worked)
+    //     → `retired` (closed). Completeness gates fire on the committed stages
+    //     only (BUG_COMMITTED_LIFECYCLES), so a raw report is never blocked.
+    //   - DISPOSITION — how a bug *ended* — rides in a `resolution` field
+    //     (`fixed` / `duplicate` / `cannot_reproduce` / `by_design` /
+    //     `wont_fix`), set when the bug is retired.
+    //
+    // The supporting cast (the node-type allowlist): the bug itself is an Eval;
+    // a Principal is the single accountable owner; References carry the
+    // evidence (stack traces, screenshots, logs) and the fix (the PR / commit);
+    // Logs are individual occurrences in the wild (crash reports, error-tracker
+    // events); Rules state the behavior contract / invariant the bug violates,
+    // which related defects can share.
+    //
+    // Expandable to specific scenarios without schema change: the universal
+    // core is mandatory; domain specifics ride in `extra` fields and linked
+    // Rules / References. A security vulnerability adds `cve`, `cvss`, `cwe`,
+    // and affected versions and `constrained_by` the weakness/policy it
+    // violates; a performance regression adds a metric and its baseline; a
+    // data-pipeline bug links the dataset and names expected vs actual counts.
+    // Because the membership / quality gates are probabilistic (not rigid
+    // schemas), a team can add domain fields without fighting the template —
+    // the small invariant spine with snap-on extensions Spolsky argues for
+    // ("avoid the temptation to add new fields").
+    name: "bugs",
+    label: "Bug tracker",
+    icon: "🐛",
+    description:
+      "Track software bugs as failing checks — the expected vs actual behavior, steps to reproduce, severity and priority, root cause, the fix, and a regression test that turns from red to green. Grounded in defect-management practice (IEEE 1044, ODC, ISTQB) and blameless-postmortem culture.",
+    // A bug is reported (a sketch) before it is triaged, so new nodes default to
+    // `drafting` and the completeness/quality gates spare a raw report.
+    defaultNodeLifecycle: "drafting",
+    // A bug tracker is fundamentally a filterable list of records, so open the
+    // overview on the built-in List perspective. (Graph stays attached behind
+    // it.) No bespoke perspective — the decision-record templates do the same.
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership (soft semantic gate) ──────────────────────────────
+      {
+        // Warn, not block: the author opted into the bug tracker, so this only
+        // surfaces "this isn't really a defect" for reconsideration. It steers
+        // feature requests and how-to questions toward a product-decisions or
+        // process Doco. Scoped to the Eval (the bug record); the supporting
+        // cast — Principals (owners), References (evidence / fix), Logs
+        // (occurrences), Rules (violated contracts) — is exempt by omission.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in a bug tracker when it documents a real software defect — a discrepancy between how the system is expected to behave and how it actually behaves. PASS when the candidate describes something the system does wrong (a crash, a wrong result, a broken interaction, a violated guarantee) against a clear expectation. FAIL when it is a feature request or enhancement (desired NEW behavior, not a malfunction), a how-to question, a support request, or a task with no expected-vs-actual discrepancy — those belong in a product, process, or decision Doco.",
+          when_node_type: ["eval"],
+        },
+      },
+      {
+        // Deterministic node-type allowlist. A bug tracker is the defects
+        // themselves plus the cast that gives each one meaning: the Eval is the
+        // bug (and its regression test); a Principal is the accountable owner;
+        // References carry evidence and the fix; Logs are occurrences in the
+        // wild; Rules are the behavior contracts a bug violates. Flow nodes
+        // (Action / State), free-form Ideas, and Decisions belong in their own
+        // Docos and are linked, not duplicated, here.
+        policy:
+          "Only Eval, Principal, Reference, Log, and Rule belong in a bug tracker. Each bug is an Eval — its `expected` and `actual` are the discrepancy, its `how_to_run` the steps to reproduce, and its `last_status` flips from `fail` to `pass` when a fix is verified. Principals are the accountable owners; References carry evidence (stack traces, screenshots, logs) and the fix (the PR or commit); Logs record individual occurrences in the wild; Rules state the behavior contract a bug violates. Process steps, decisions, and free-form notes belong in their own Docos.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["eval", "principal", "reference", "log", "rule"],
+        },
+      },
+      {
+        // Edge-type allowlist (the edge analogue of the node-type allowlist). A
+        // bug tracker wires owners, evidence, violated contracts, supersession,
+        // provenance, and see-also links — never process sequence flow or pool
+        // membership.
+        policy:
+          "Only these relationship edge types may be used in a bug tracker: `attributed_to` (a bug → its accountable owner Principal), `supports` (evidence, occurrences, and the fix → the bug they inform or resolve), `constrained_by` (a bug → the Rule / spec / invariant it violates), `replaces` (a canonical bug supersedes a duplicate, or a regression supersedes a prior fixed bug), `derived_from` (provenance — the change or commit that introduced the bug), and `relates_to` (a see-also link between related bugs). Process flow (`flows_to`) and pool membership (`has_parent`) belong in a process Doco.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "attributed_to",
+            "supports",
+            "constrained_by",
+            "replaces",
+            "derived_from",
+            "relates_to",
+          ],
+        },
+      },
+
+      // ── Completeness: the discrepancy + reproduction (block, committed) ──
+      {
+        // The irreducible core — Spolsky's "exactly three things" (expected,
+        // actual, steps to reproduce) and the deepest common denominator across
+        // the whole literature. A committed (triaged) bug must carry all three;
+        // remove any one and the report is not actionable. A `drafting` report
+        // may be a bare description while the reporter is still capturing it.
+        // (`how_to_run` is the native Eval field that holds the reproduction
+        // steps; `expected` / `actual` are the native Eval fields.)
+        policy:
+          "Every committed (`queued` or `active`) bug documents the discrepancy and how to see it: `expected` (the correct behavior), `actual` (the observed wrong behavior), and `how_to_run` (the steps to reproduce). These three are the irreducible core of a bug — a `drafting` report may capture just a description and fill them in during triage.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["expected", "actual", "how_to_run"],
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: BUG_COMMITTED_LIFECYCLES,
+      },
+      {
+        // Triage rating — surfaced as a WARN, not a block. Severity and priority
+        // are near-universal but, per the literature, a notch below the core
+        // discrepancy: strongly recommended, occasionally optional (Spolsky's
+        // warning against over-fielding made into enforcement level). A
+        // deterministic warn nudges the triager to rate the bug without
+        // trapping the write.
+        on_violation: "warn",
+        policy:
+          "A triaged bug is rated on two orthogonal axes: `severity` (impact if it happens) and `priority` (urgency to fix). Recording both is strongly recommended on a committed bug — surfaced as a warning, not enforced, so a bug can move while its rating is still being settled.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["severity", "priority"],
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: BUG_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Accountability: one owner (block, committed) ─────────────────
+      {
+        // A bug is a "hot potato" — always assigned to exactly one person, who
+        // either resolves it or hands it on (Spolsky). A committed bug names
+        // that owner via an `attributed_to` edge to a Principal, mirroring the
+        // decision-record and process attribution gates. A `drafting` report
+        // may defer naming the owner until triage.
+        policy:
+          "Every committed (`queued` or `active`) bug is attributed to exactly one accountable owner — an `attributed_to` edge from the bug to that Principal. A bug is a hot potato: it is always owned by one person who drives it to resolution or explicitly hands it on. A `drafting` report may defer naming the owner until triage.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: BUG_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Report quality (probabilistic, warn, committed) ──────────────
+      {
+        // LLM-judged, so a warn (an identical retry could differ). Encodes
+        // Tatham's "show, don't tell" and the minimal-reproducible-example
+        // discipline: a committed bug should be concrete enough that another
+        // engineer can see the program failing in front of them.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the bug's `expected`, `actual`, and `how_to_run`. PASS when they are concrete and specific enough that another engineer could reproduce the defect and recognize the wrong behavior — exact observations (the verbatim message, the actual number, the precise wrong output), not vague claims like `it doesn't work` or `the page is broken`. The steps should be a minimal, deterministic path to the failure; if it only reproduces intermittently, the report should say so. FAIL with a reason when expected or actual is vague or generic, when the steps are too thin to follow, or when the report substitutes a guess at the cause for the observable symptoms.",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: BUG_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Guidance (prose-only suggestions) ────────────────────────────
+      {
+        policy:
+          "Model each bug as an Eval — a check that currently fails and ought to pass. Put the correct behavior in `expected`, the observed wrong behavior in `actual`, the numbered steps to reproduce in `how_to_run`, the smallest triggering input in `input`, and how a fix will be confirmed in `criterion`. While the bug is open its check fails (`last_status: fail`); a verified fix flips it to `pass` (`expected_status: pass`). The bug and its regression test are one node seen at two moments — red when reported, green when fixed.",
+      },
+      {
+        policy:
+          "The discrepancy IS the bug — show, don't tell. State `expected` and `actual` as concrete, verbatim observations (the exact error message, the number the computer reported, the precise wrong output), never `it doesn't work`. A good report lets a stranger see the program failing in front of them. Keep any guess at the cause separate from the observed facts — never substitute a diagnosis for the symptoms.",
+      },
+      {
+        policy:
+          "Make it reproducible, and narrow it down. Put deterministic, numbered steps in `how_to_run` and reduce them to the smallest input that still triggers the defect (a minimal reproducible example, in `input`). If it only reproduces sometimes, say so and give the rate — an intermittent bug is investigated differently. Record the environment (build / version, OS, device) and attach stack traces, screenshots, and logs as References that `supports` the bug; keep the failing run's detail in `last_reason`.",
+      },
+      {
+        policy:
+          "Severity and priority are different, orthogonal axes — record both. Severity is the impact if it happens (data loss > crash > major > minor > cosmetic); priority is the urgency to fix (P0 now → P3 someday). They diverge: a typo on the landing page is low severity but high priority; a crash in a tool no one uses is high severity but low priority. Don't let one stand in for the other.",
+      },
+      {
+        policy:
+          "Track two axes, not one: the bug's STATUS on its lifecycle, and how it ENDED in a `resolution` field. Status: `drafting` = reported / unconfirmed (triage pending), `queued` = triaged & accepted (reproduced, rated, owned), `active` = confirmed and being worked, `retired` = closed. Resolution (set when retiring): `fixed` (verified — the regression check passes), `duplicate` (retire it; the canonical bug `replaces` it), `cannot_reproduce`, `by_design` (working as intended), or `wont_fix` (acknowledged, not worth fixing). Completeness rules apply once a bug is committed; a `drafting` report may be incomplete.",
+      },
+      {
+        policy:
+          "Triage before you commit a bug. Reproduce it, confirm it is a real defect (not a feature request, not by-design), set `severity` and `priority`, and give it exactly one accountable owner with an `attributed_to` edge. Deduplicate first: if the defect is already tracked, retire this record and point the canonical bug at it with a `replaces` edge, so discussion and the `me too` signal consolidate onto one bug.",
+      },
+      {
+        policy:
+          "Keep one defect per bug. Each Eval is exactly one bug, so it can be reproduced, fixed, verified, and closed on its own. Split a report that bundles several problems into separate bugs and connect them with `relates_to`.",
+      },
+      {
+        policy:
+          "Find the root cause; fix the cause, not the symptom. Investigate to the underlying defect (ask `why` down to the real cause, or spread the candidates across people / process / code / environment) and record it in the bug's prose — the symptom is where you start, not where you stop. When a specific change introduced a regression, link that commit or PR as a Reference with a `derived_from` edge. State the behavior contract the bug violates as a Rule and link it with `constrained_by`, so related defects can share one invariant.",
+      },
+      {
+        policy:
+          "Link the fix, then prove it with a regression test. Record the fix as a Reference (the PR, commit, or changeset) that `supports` the bug. A fix is not done until a test that was red before it is green after — and the bug Eval IS that test: set its `criterion` and flip `last_status` to `pass` once the corrected behavior holds. Close the loop the way you opened it — whoever reported the bug confirms the fix and retires it, not the person who wrote the fix.",
+      },
+      {
+        policy:
+          "Record recurring occurrences as Logs, not duplicate bugs. When the same defect is hit repeatedly in the wild (crash reports, error-tracker events), capture instances as Logs that `supports` the bug, so frequency and recency stay visible on one record. If a closed bug recurs, open a NEW bug and link the prior one with `replaces` — a regression is a new defect, and preserving its history is the point of the log.",
+      },
+      {
+        policy:
+          "Escalate a production-impacting bug to a blameless postmortem. For a defect that caused a user- or business-visible incident, write up the timeline, contributing factors, and action items without blame — fix the system, not the people — and link it, tracking each action item as its own bug. The incident (the impact event) and the bug (the defect behind it) are distinct: one incident can implicate several bugs.",
+      },
+      {
+        policy:
+          "The core is universal; your domain rides on top. Every bug captures the same spine — a reproducible discrepancy between `expected` and `actual`, rated by severity and priority, driven through triage → fix → verified-by-a-regression-check → closed. Domain specifics ride in extra fields and linked Rules / References without changing that spine: a security vulnerability adds `cve`, `cvss`, and `cwe` and affected versions, and links the weakness or security policy it violates as a Rule via `constrained_by`; a performance regression adds the metric and its baseline; a data-pipeline bug links the affected dataset and names expected vs actual record counts.",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write entries with `POST /<handle>/api/changesets.json` — create each bug as an Eval with its `expected`, `actual`, and `how_to_run` (and `severity` / `priority` once triaged), and add its `attributed_to` owner together with any `supports` / `constrained_by` edges in the same changeset rather than as disconnected nodes.",
       },
     ],
   },
