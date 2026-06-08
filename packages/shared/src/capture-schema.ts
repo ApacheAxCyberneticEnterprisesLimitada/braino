@@ -24,7 +24,7 @@ const COMMON_OPTIONAL_FIELDS: readonly CaptureFieldSpec[] = [
 // BPMN sequence-flow markings (see entities.ts `BpmnFlowPoint`) — author-set
 // booleans carried in `extra` that drive the process template's flow floors and
 // the BPMN renderer. `entry_point`/`exit_point` apply to every flow node;
-// `top_level_process` (the pool container) is action-only, added in its schema.
+// `top_level` (the root/pool container) is action-only, added in its schema.
 const BPMN_FLOW_POINT_FIELDS: readonly CaptureFieldSpec[] = [
   field(
     "entry_point",
@@ -57,9 +57,9 @@ export const CAPTURE_SCHEMAS = {
     field("inputs", "optional", "verb-specific inputs, any JSON shape"),
     field("outputs", "optional", "verb-specific outputs, any JSON shape"),
     field(
-      "top_level_process",
+      "top_level",
       "optional",
-      "true if this Action is a root process pool (the container): no parent process, not a sequenced step",
+      "true if this Action is a top-level (root) node: no parent process, not a sequenced step, heads the overview. Being top-level does not make it a process — that comes from having child actions",
     ),
     ...BPMN_FLOW_POINT_FIELDS,
     ...COMMON_OPTIONAL_FIELDS,

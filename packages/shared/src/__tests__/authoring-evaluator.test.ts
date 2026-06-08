@@ -884,13 +884,13 @@ describe("authoring evaluator — requires_edge exempt_when_field_truthy (multi-
   // The opt-out accepts a comma-separated list: a candidate carrying a truthy
   // value at ANY of the named fields is excused. The process "leads somewhere"
   // floor uses this so a node is excused from the ≥1 OUTGOING `flows_to` rule if
-  // it is an `exit_point` (an end) OR a `top_level_process` (the pool container).
+  // it is an `exit_point` (an end) OR a `top_level` (the pool container).
   const leadsSomewhere = () =>
     P({
       sub_kind: "requires_edge",
       edge_type: "flows_to",
       direction: "outgoing",
-      exempt_when_field_truthy: "exit_point, top_level_process",
+      exempt_when_field_truthy: "exit_point, top_level",
       when_node_type: ["action", "decision", "state"],
     });
 
@@ -908,8 +908,8 @@ describe("authoring evaluator — requires_edge exempt_when_field_truthy (multi-
     expect(v).toEqual([]);
   });
 
-  it("exempts a node flagged with a LATER listed field (top_level_process)", () => {
-    const v = evaluate({ id: "action_01", node_type: "action", top_level_process: true }, [
+  it("exempts a node flagged with a LATER listed field (top_level)", () => {
+    const v = evaluate({ id: "action_01", node_type: "action", top_level: true }, [
       leadsSomewhere(),
     ]);
     expect(v).toEqual([]);

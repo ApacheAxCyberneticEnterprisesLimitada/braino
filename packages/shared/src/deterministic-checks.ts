@@ -93,7 +93,7 @@ function isNonEmpty(value: unknown): boolean {
 /**
  * Whether the candidate carries a truthy value at ANY of the comma-separated
  * field names. Powers `exempt_when_field_truthy` (skip the check) — one node may
- * be excused by several flags at once (e.g. `exit_point` OR `top_level_process`).
+ * be excused by several flags at once (e.g. `exit_point` OR `top_level`).
  */
 function anyFieldTruthy(candidate: CandidateFields, fieldList: string | undefined): boolean {
   if (!fieldList) return false;
@@ -182,7 +182,7 @@ const WHEN_NODE_TYPE_FIELD: FieldSpec = {
 // (`flow-wiring`). The labels spell out the direction so it never reads as if
 // the REQUIRED edge were incoming: the check is excused only when the candidate
 // is the TARGET of an incoming edge of this type (so it is itself a parent —
-// e.g. a top-level process Action that its children point at with `has_parent`).
+// e.g. a top-level Action that its children point at with `has_parent`).
 const EXEMPT_WHEN_INCOMING_FIELD: FieldSpec = {
   name: "exempt_when_incoming_edge_type",
   control: "edge-type",
@@ -224,7 +224,7 @@ export const DETERMINISTIC_CHECKS: CheckRegistry = {
       // fields (comma-separated) is explicitly excused — an author-set escape
       // hatch, distinct from the structural edge exemptions below. e.g. the
       // sequence-flow reachability floor excuses both a flagged `entry_point`
-      // (the start of the flow) and a `top_level_process` (the pool container,
+      // (the start of the flow) and a `top_level` Action (the pool container,
       // not a sequenced step).
       if (anyFieldTruthy(ctx.candidate, pred.exempt_when_field_truthy)) {
         return null;

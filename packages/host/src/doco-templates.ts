@@ -368,13 +368,13 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // node belongs to a process through an OUTGOING `has_parent` edge to the
         // process Action; that edge IS its BPMN pool membership. A hard block
         // once committed: an unattached step has no pool. The ONLY exemption is
-        // an explicit `top_level_process` flag (a boolean in the node's `extra`):
-        // a top-level process Action is the root pool and has no parent of its
+        // an explicit `top_level` flag (a boolean in the node's `extra`):
+        // a top-level Action is the root pool and has no parent of its
         // own. (There is no structural incoming-edge exemption — being pointed at
         // by children does not, by itself, excuse a node from declaring its own
         // parent; the author marks the root explicitly instead.)
         policy:
-          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. The only exception is a top-level process Action, which the author marks with a `top_level_process` flag (a boolean in its `extra`); a `drafting` sketch may defer the link.",
+          "Every committed (`queued` or `active`) flow node in process — Action, gateway Decision, or milestone/event State — links to the process it belongs to with a `has_parent` edge to that process Action. Without it the BPMN renderer can't place the node in a pool. The only exception is a top-level Action, which the author marks with a `top_level` flag (a boolean in its `extra`); a `drafting` sketch may defer the link.",
         predicate: {
           kind: "requires_edge",
           edge_type: "has_parent",
@@ -383,9 +383,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           // its parent process Action. Stated explicitly so the rendered policy
           // is unambiguous.
           direction: "outgoing",
-          // A top-level process Action is the root pool and has no parent of its
+          // A top-level Action is the root pool and has no parent of its
           // own, so it is excused — but only when the author marks it explicitly.
-          exempt_when_field_truthy: "top_level_process",
+          exempt_when_field_truthy: "top_level",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
@@ -421,9 +421,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
           edge_type: "flows_to",
           direction: "incoming",
           // An entry point is the start of the flow (no predecessor), and a
-          // top-level process is the pool container (not a sequenced step) — both
+          // top-level Action is the pool container (not a sequenced step) — both
           // are excused from needing an incoming `flows_to`.
-          exempt_when_field_truthy: "entry_point, top_level_process",
+          exempt_when_field_truthy: "entry_point, top_level",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
@@ -432,17 +432,17 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Sequence-flow "leads somewhere" floor — the dual of reachability.
         // Every committed flow node has ≥1 OUTGOING `flows_to` (it leads to a
         // next step), UNLESS it is an `exit_point` (an end of the flow, by
-        // definition with no successor) or a `top_level_process` (the pool
+        // definition with no successor) or a `top_level` Action (the pool
         // container, not a sequenced step). A `drafting` sketch may dangle.
         policy:
-          "Every committed (`queued` or `active`) flow node in process leads somewhere: it has at least one outgoing `flows_to` edge to a next step — unless it is marked as an exit point (an `exit_point` flag in its `extra`), which is an end of the process and so needs no successor, or it is the top-level process container. A `drafting` sketch may be incomplete.",
+          "Every committed (`queued` or `active`) flow node in process leads somewhere: it has at least one outgoing `flows_to` edge to a next step — unless it is marked as an exit point (an `exit_point` flag in its `extra`), which is an end of the process and so needs no successor, or it is the top-level pool container. A `drafting` sketch may be incomplete.",
         predicate: {
           kind: "requires_edge",
           edge_type: "flows_to",
           direction: "outgoing",
           // An exit point is the end of the flow (no successor), and a top-level
-          // process is the pool container (not a sequenced step) — both excused.
-          exempt_when_field_truthy: "exit_point, top_level_process",
+          // Action is the pool container (not a sequenced step) — both excused.
+          exempt_when_field_truthy: "exit_point, top_level",
           when_node_type: ["action", "decision", "state"],
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,

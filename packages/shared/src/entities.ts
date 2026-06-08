@@ -185,8 +185,8 @@ export interface DeterministicChecks {
      * fields (comma-separated) — an explicit, author-set opt-out. A field-based
      * escape hatch (vs. the structural `exempt_when_*` edge exemptions above):
      * e.g. the sequence-flow reachability floor excuses both a flagged
-     * `entry_point` (the start of the flow) and a `top_level_process` (the pool
-     * container, which is not a sequenced step) — `"entry_point, top_level_process"`.
+     * `entry_point` (the start of the flow) and a `top_level` Action (the pool
+     * container, which is not a sequenced step) — `"entry_point, top_level"`.
      */
     exempt_when_field_truthy?: string;
     when_node_type?: NodeType[];
@@ -433,13 +433,16 @@ export interface Action extends CommonFields, BpmnFlowPoint {
   outputs?: Record<string, unknown>;
   triggered_by?: EntityId<"action">[];
   /**
-   * This Action is a root process pool (the container), not a sequenced step: it
-   * has no parent process and is not reached by the flow, so it is exempt from
-   * the `has_parent` membership floor and the reachability floor. The author
-   * marks it explicitly — being pointed at by children does not, by itself,
-   * excuse a node from declaring its own parent.
+   * This Action is a top-level (root) node in the process: it has no parent
+   * process and is not reached by the flow, so it heads the BPMN overview and is
+   * exempt from the `has_parent` membership floor and the sequence-flow floors
+   * (it is the pool container, not a sequenced step). The author marks it
+   * explicitly — being pointed at by children does not, by itself, excuse a node
+   * from declaring its own parent. Being top-level does NOT by itself make the
+   * Action a process: a process is an Action that has child actions (members via
+   * `has_parent`), computed from its children — never from this flag.
    */
-  top_level_process?: boolean;
+  top_level?: boolean;
 }
 
 // ─── Log (recorded happening) ─────────────────────────────────────────────
