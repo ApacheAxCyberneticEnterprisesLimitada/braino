@@ -10,7 +10,7 @@
 // provenance, and history, mutated ONLY here (never wiped by the indexer).
 
 import { createHash } from "node:crypto";
-import { type EntityId, generateUlid, makeEntityId } from "@doco/shared";
+import { type EntityId, type Lifecycle, generateUlid, makeEntityId } from "@doco/shared";
 import type pg from "pg";
 
 export type CommitSource = "api" | "mcp" | "ui" | "slack" | "import" | "reset" | "system";
@@ -225,7 +225,8 @@ export interface CreateEdgeInput {
   label?: string | null;
   condition?: string | null;
   kind?: string | null;
-  lifecycle?: "drafting" | "active";
+  /** Stage a new edge starts in. `retired` is reached via retireEdge. */
+  lifecycle?: Exclude<Lifecycle, "retired">;
   actor?: string | null;
 }
 
@@ -301,7 +302,7 @@ export async function updateEdge(
     label?: string | null;
     condition?: string | null;
     kind?: string | null;
-    lifecycle?: "drafting" | "active";
+    lifecycle?: Exclude<Lifecycle, "retired">;
     actor?: string | null;
   },
 ): Promise<EdgeRow> {
@@ -311,8 +312,8 @@ export async function updateEdge(
             condition  = COALESCE($3, condition),
             kind       = COALESCE($4, kind),
             lifecycle  = COALESCE($5, lifecycle),
-            -- Reviving a retired edge (lifecycle back to drafting/active) must
-            -- clear the retirement stamp so the row never carries a live
+            -- Reviving a retired edge (lifecycle back to drafting/queued/active)
+            -- must clear the retirement stamp so the row never carries a live
             -- lifecycle with a stale retired_at. Pure metadata edits leave it be.
             retired_at = CASE WHEN $5 IS NOT NULL THEN NULL ELSE retired_at END,
             updated_at = now(),
