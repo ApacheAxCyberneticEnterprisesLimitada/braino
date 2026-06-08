@@ -710,9 +710,12 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created
   ON chat_messages (conversation_id, created_at);
 
+-- An attachment belongs to the principal who uploaded it, not to a single
+-- thread: the composer uploads the bytes before the turn picks which
+-- conversation to run on (rolling vs. Doco-scoped), so any lookup must key on
+-- the owner. Reads filter by (id, user_id); the PK covers the id set.
 CREATE TABLE IF NOT EXISTS chat_attachments (
   id               text PRIMARY KEY,
-  conversation_id  text NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
   user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   filename         text NOT NULL,
   mime_type        text NOT NULL,
@@ -721,8 +724,7 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
   created_at       timestamptz NOT NULL DEFAULT now(),
   expires_at       timestamptz NOT NULL DEFAULT (now() + INTERVAL '30 days')
 );
-CREATE INDEX IF NOT EXISTS idx_chat_attachments_conversation ON chat_attachments (conversation_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_chat_attachments_expires      ON chat_attachments (expires_at);
+CREATE INDEX IF NOT EXISTS idx_chat_attachments_expires ON chat_attachments (expires_at);
 
 -- Telemetry. user_id / doco_id are plain text (no FK).
 CREATE TABLE IF NOT EXISTS agent_turn_metrics (
@@ -935,6 +937,15 @@ ALTER TABLE oauth_refresh_tokens
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS actor_role text
   CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
+
+-- Untie chat_attachments from a single conversation. The composer uploads
+-- bytes before the turn knows which thread it runs on, so keying the row to a
+-- conversation dropped the file whenever the upload thread and the message
+-- thread differed (a Doco page's first message). Attachments are owned by the
+-- principal now; reads filter on user_id. Drop the conversation index first
+-- (it depends on the column), then the column itself.
+DROP INDEX IF EXISTS idx_chat_attachments_conversation;
+ALTER TABLE chat_attachments DROP COLUMN IF EXISTS conversation_id;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- account_grants retirement. The live person-to-person "all my workspaces,
