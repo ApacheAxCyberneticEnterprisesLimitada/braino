@@ -109,9 +109,10 @@ CREATE TABLE IF NOT EXISTS docos (
   -- 30-day purge sweep (admin.purge-deleted-docos cron) that hard-deletes it
   -- via ON DELETE CASCADE. Every read path filters `deleted_at IS NULL`, so a
   -- tombstoned Doco is invisible everywhere — unreachable by URL, gone from
-  -- every listing — while its rows are retained for the grace window. The
-  -- handle stays reserved (UNIQUE above counts tombstoned rows) so a restore
-  -- never collides.
+  -- every listing — while its rows are retained for the grace window. On
+  -- delete the handle is rewritten to `<handle>-deleted-<epoch-millis>`, which
+  -- frees the original name for immediate reuse while keeping the tombstone's
+  -- own handle unique (UNIQUE above still spans tombstoned rows).
   deleted_at      timestamptz
 );
 

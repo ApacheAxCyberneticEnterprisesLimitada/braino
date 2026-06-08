@@ -900,8 +900,10 @@ const DOCO_SELECT = `
 // Tombstoned (soft-deleted) Docos are invisible to every resolution and
 // listing path — `getDocoByIdOrHandle` returning null is what makes a deleted
 // Doco 404 from every route. The only callers that see tombstoned rows are the
-// soft-delete write, the purge sweep, and host.ts's handle-availability checks
-// (which must keep the handle reserved). All read here filters `deleted_at`.
+// soft-delete write and the purge sweep. The soft-delete frees the original
+// handle (see `markDocoDeleted`), so handle-availability checks need no
+// deleted-row special-casing — the original name is simply free. All reads
+// here filter `deleted_at`.
 export async function listAllDocos(): Promise<DocoRow[]> {
   return withClient(async (c) => {
     const r = await c.query(`${DOCO_SELECT} WHERE d.deleted_at IS NULL ORDER BY d.handle`);
@@ -937,31 +939,30 @@ export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow |
  * Soft-delete a Doco: stamp `deleted_at` so it vanishes from every read path
  * while its rows are retained for the 30-day grace window. Resolves by id or
  * handle. Idempotent — a Doco that is already tombstoned (or absent) returns
- * null. The handle stays reserved (the UNIQUE constraint counts the tombstoned
- * row), so the slot can't be reused until the purge sweep frees it.
+ * null. The original handle is freed for immediate reuse: the tombstoned row's
+ * handle is rewritten to `<handle>-deleted-<deletion-epoch-millis>` in the same
+ * write, so a new Doco can claim the original name right away while the
+ * tombstone keeps a unique handle of its own. Returns the new (timestamped)
+ * handle.
  */
 export async function markDocoDeleted(opts: {
   docoId?: string;
   handle?: string;
 }): Promise<{ id: string; handle: string } | null> {
+  // Fixed allowlist — never user input — so it is safe to interpolate.
+  const column = opts.docoId ? "id" : opts.handle ? "handle" : null;
+  if (!column) throw new Error("Doco id or handle is required.");
+  const value = column === "id" ? opts.docoId : opts.handle;
   return withClient(async (c) => {
-    const r = opts.docoId
-      ? await c.query<{ id: string; handle: string }>(
-          `UPDATE docos SET deleted_at = now(), updated_at = now()
-            WHERE id = $1 AND deleted_at IS NULL
-            RETURNING id, handle`,
-          [opts.docoId],
-        )
-      : opts.handle
-        ? await c.query<{ id: string; handle: string }>(
-            `UPDATE docos SET deleted_at = now(), updated_at = now()
-              WHERE handle = $1 AND deleted_at IS NULL
-              RETURNING id, handle`,
-            [opts.handle],
-          )
-        : (() => {
-            throw new Error("Doco id or handle is required.");
-          })();
+    const r = await c.query<{ id: string; handle: string }>(
+      `UPDATE docos
+          SET deleted_at = now(),
+              updated_at = now(),
+              handle     = handle || '-deleted-' || (extract(epoch from now()) * 1000)::bigint::text
+        WHERE ${column} = $1 AND deleted_at IS NULL
+        RETURNING id, handle`,
+      [value],
+    );
     const row = r.rows[0];
     return row ? { id: String(row.id), handle: String(row.handle) } : null;
   });

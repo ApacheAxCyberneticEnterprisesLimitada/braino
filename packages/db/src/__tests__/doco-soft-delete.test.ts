@@ -76,7 +76,9 @@ describe("soft-deleting a doco", () => {
 
   it("hides the doco from resolution but retains the row and its history", async () => {
     const marked = await markDocoDeleted({ docoId: DOCO });
-    expect(marked?.handle).toBe("doco-test");
+    // The original name is freed on delete by stamping the deletion timestamp
+    // onto the tombstoned handle.
+    expect(marked?.handle).toMatch(/^doco-test-deleted-\d+$/);
 
     // Gone from every resolution path…
     expect(await getDocoByIdOrHandle(DOCO)).toBeNull();
@@ -86,12 +88,14 @@ describe("soft-deleting a doco", () => {
     // …and from the member's listing…
     expect(await listDocoIdsForUser(USER)).not.toContain(DOCO);
 
-    // …but the data is still there, just tombstoned, and the history is intact.
-    const raw = await db.query<{ deleted_at: string | null }>(
-      "SELECT deleted_at FROM docos WHERE id = $1",
+    // …but the data is still there, just tombstoned under its timestamped
+    // handle, and the history is intact.
+    const raw = await db.query<{ handle: string; deleted_at: string | null }>(
+      "SELECT handle, deleted_at FROM docos WHERE id = $1",
       [DOCO],
     );
     expect(raw.rows[0]?.deleted_at).not.toBeNull();
+    expect(raw.rows[0]?.handle).toMatch(/^doco-test-deleted-\d+$/);
     expect(await rowCount("node_versions")).toBe(1);
     expect(await rowCount("edge_versions")).toBe(1);
   });
@@ -101,14 +105,16 @@ describe("soft-deleting a doco", () => {
     expect(await markDocoDeleted({ docoId: DOCO })).toBeNull();
   });
 
-  it("keeps the handle reserved so it cannot be reused while tombstoned", async () => {
-    await markDocoDeleted({ docoId: DOCO });
-    await expect(
-      db.query(
-        "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}')",
-        ["doco_other00000000000000000000", "doco-test", ORG, ORG],
-      ),
-    ).rejects.toThrow();
+  it("frees the original handle immediately so a new doco can take it", async () => {
+    const marked = await markDocoDeleted({ docoId: DOCO });
+    // The tombstone carries a timestamped handle, not the original name…
+    expect(marked?.handle).toMatch(/^doco-test-deleted-\d+$/);
+    // …so the original name is available right away for a brand-new doco.
+    await db.query(
+      "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}')",
+      ["doco_other00000000000000000000", "doco-test", ORG, ORG],
+    );
+    expect(await getDocoByHandle("doco-test")).not.toBeNull();
   });
 });
 
@@ -138,7 +144,8 @@ describe("purging tombstoned docos after the grace period", () => {
 
     const purged = await purgeDocosDeletedBefore(new Date());
 
-    expect(purged.map((p) => p.handle)).toEqual(["doco-test"]);
+    // Keyed by id — the handle now carries the deletion timestamp.
+    expect(purged.map((p) => p.id)).toEqual([DOCO]);
     for (const table of ["docos", "changesets", "node_versions", "edge_versions"]) {
       expect(await rowCount(table), table).toBe(0);
     }
