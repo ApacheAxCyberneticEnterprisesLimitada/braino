@@ -485,6 +485,12 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   scope             text,
+  -- An 'actor' access token carries no stored grants: it acts as `user_id`,
+  -- capped at `actor_role` (null = owner = full live role), resolved live
+  -- against the user's current membership on every request.
+  grant_type        text NOT NULL DEFAULT 'regular'
+                    CHECK (grant_type IN ('regular', 'actor')),
+  actor_role        text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
@@ -946,6 +952,15 @@ ALTER TABLE oauth_device_authorizations
 -- (it depends on the column), then the column itself.
 DROP INDEX IF EXISTS idx_chat_attachments_conversation;
 ALTER TABLE chat_attachments DROP COLUMN IF EXISTS conversation_id;
+
+-- Actor access tokens act as their user, capped at actor_role, resolved live —
+-- so the access token (not just the refresh token) carries the actor marker.
+ALTER TABLE oauth_access_tokens
+  ADD COLUMN IF NOT EXISTS grant_type text NOT NULL DEFAULT 'regular'
+  CHECK (grant_type IN ('regular', 'actor'));
+ALTER TABLE oauth_access_tokens
+  ADD COLUMN IF NOT EXISTS actor_role text
+  CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- account_grants retirement. The live person-to-person "all my workspaces,
