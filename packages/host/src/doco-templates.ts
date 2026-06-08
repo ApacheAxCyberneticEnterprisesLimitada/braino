@@ -144,6 +144,19 @@ const BUSINESS_PROCESS_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 const GLOSSARY_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
 /**
+ * The FAQ template, like glossary, defaults new entries to `drafting` so a
+ * question can be captured the moment it is asked, and fires its completeness +
+ * quality gates on the two committed stages — `queued` (in review) and `active`
+ * (the validated, in-force answer). This maps the lifecycle onto the KCS
+ * (Knowledge-Centered Service) article state: a `drafting` stub is "work in
+ * progress" (the question captured, no validated answer yet), `queued` is in
+ * review, `active` is validated/published, and `retired` is archived/superseded.
+ * A `drafting` entry may be a bare question; once committed it must carry its
+ * answer and its stewarding owner.
+ */
+const FAQ_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
+/**
  * The AI-eval template, like process and glossary, defaults new nodes to
  * `drafting` so an eval can be sketched and a run captured before either is
  * finalized, and fires its completeness + quality gates on the two committed
@@ -667,6 +680,205 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Agents: read `GET /<handle>/api/authoring-contract.json` and write entries with `POST /<handle>/api/changesets.json` — create each term as a Reference with its `definition` (and any `alternatives`, plus a `locator` when citing a source), and add its `relates_to` / `has_parent` / `attributed_to` edges in the same changeset rather than as disconnected nodes.",
+      },
+    ],
+  },
+  {
+    // Frequently asked questions — a question-and-answer knowledge base whose
+    // entries are kept honest by USE. Grounded in Knowledge-Centered Service
+    // (KCS) and help-center practice, which converge on one insight: an FAQ is
+    // two linked objects, not one — an improvable Entry and an immutable stream
+    // of Usage events ("reuse is review"; usage is the validation signal). The
+    // Doco shape that carries this maps both onto existing primitives, so the
+    // template needs no new node type:
+    //
+    //   - Each FAQ entry is a Reference. Its `prose` is the canonical question
+    //     in the user's own words (the lookup key, exactly like a glossary
+    //     headword); its `answer` (an `extra` field, kept off the prose so the
+    //     entry's name stays the bare question) is a concise, answer-first
+    //     reply; its `locator` links the single source of truth the answer
+    //     digests (cite, don't duplicate — so the answer can't drift out of
+    //     sync); and its `alternatives` hold the paraphrases people actually
+    //     ask, so a reader — or an agent matching on wording — who phrases it
+    //     differently still lands on the one canonical entry. A Principal
+    //     stewards it via `attributed_to`.
+    //   - Each result is a Log. Its `prose` is the question as actually asked,
+    //     `happened_at` is when, and `outcome` records whether the FAQ resolved
+    //     it (`succeeded`) or not (`failed`). A resolved result links to the
+    //     entry that answered it with a `supports` edge — every use IS a review,
+    //     so the Logs that `supports` an entry are its reuse count and its
+    //     evidence of health. A result that found NO answer is a gap: an orphan
+    //     Log (no `supports` edge) whose raw question is the demand signal for
+    //     the next entry to write.
+    //
+    // Lifecycle: new entries default to `drafting` (FAQ_COMMITTED_LIFECYCLES),
+    // so a question can be captured the instant it is asked; the completeness
+    // (answer + steward) and quality (question + answer) gates fire only once
+    // the entry is committed (`queued`/`active`). A FAQ is fundamentally a
+    // filterable list of entries, so it opens on the built-in List perspective.
+    name: "faq",
+    label: "FAQ",
+    icon: "❓",
+    description:
+      "Document frequently asked questions — one canonical question per entry, a concise answer, the paraphrases people actually ask, a source of truth, and a stewarding owner — and log each result so reuse, gaps, and stale answers surface. Grounded in Knowledge-Centered Service (KCS).",
+    defaultNodeLifecycle: "drafting",
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership ──────────────────────────────────────────────
+      {
+        // Soft semantic gate — a `warn`, not a block. The author opted into the
+        // FAQ; this only surfaces "this isn't really a reusable Q&A" so they can
+        // reconsider. Scoped to Reference (the entries): a result Log is a raw
+        // recorded question whose text could read like anything, and a Principal
+        // is a steward — neither is a membership candidate, so both are omitted
+        // from `when_node_type`.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in an FAQ when it captures one recurring question and its reusable answer. Each Reference is one entry: its prose is the question and its `answer` is the reply. PASS when the candidate is a question people ask more than once with an answer worth reusing. FAIL only when it is a one-off note, a decision record, a process step, or a passing remark rather than a question with a reusable answer.",
+          when_node_type: ["reference"],
+        },
+      },
+      {
+        // Deterministic node-type allowlist. An FAQ is entries + their results +
+        // the people who steward them: Reference (the Q&A entries), Log (the
+        // recorded results of asking), and Principal (the stewards). Everything
+        // else — a process step, a decision record, a free-form idea — belongs
+        // in its own Doco.
+        policy:
+          "Only Reference, Log, and Principal belong in an FAQ. Each entry is a Reference — its prose is the question and its `answer` carries the reply; each result of asking is a Log (with an `outcome` of `succeeded` or `failed`); Principals are the stewards who own entries. A process step, decision record, or free-form note belongs in its own Doco.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["reference", "log", "principal"],
+        },
+      },
+      {
+        // Edge-type allowlist (the edge analogue of the node-type allowlist). An
+        // FAQ is a knowledge/association graph, not a process: it wires
+        // stewardship, usage evidence, cross-references, topic nesting,
+        // supersession, and provenance — never sequence flow (`flows_to`) or
+        // policy guards (`constrained_by`).
+        policy:
+          "Only these edge types may be used in an FAQ: `attributed_to` (an entry → the Principal who stewards it), `supports` (a result Log → the entry that resolved it — usage as evidence), `relates_to` (a see-also link between related questions), `has_parent` (place a narrower question under a broader topic question), `replaces` (a canonical entry supersedes a merged duplicate), and `derived_from` (an entry → the result Log(s) whose gap it was written to fill). An entry cites its source inline in its `locator`, not via an edge.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "attributed_to",
+            "supports",
+            "relates_to",
+            "has_parent",
+            "replaces",
+            "derived_from",
+          ],
+        },
+      },
+
+      // ── Entry completeness (deterministic, committed stages only, block) ──
+      {
+        // Completeness floor — fires on the committed stages only
+        // (FAQ_COMMITTED_LIFECYCLES): a `drafting` stub may be a bare question,
+        // but a committed entry must carry its reply in `answer`. A question
+        // with no answer is not yet an entry. (`answer` lives in the node's
+        // `extra` bag, which the evaluator reads as a field — mirrors the
+        // glossary `definition` gate.)
+        policy:
+          "Every committed (`queued` or `active`) FAQ entry carries an `answer` — a question with no reply is not yet an entry. A `drafting` stub may capture the question first and fill in the answer later.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["answer"],
+          when_node_type: ["reference"],
+        },
+        fires_when_node_lifecycle: FAQ_COMMITTED_LIFECYCLES,
+      },
+      {
+        // Ownership floor. A named owner is the single most effective defense
+        // against a stale FAQ, so — unlike the glossary, which leaves
+        // stewardship to guidance — the FAQ makes it a hard gate on committed
+        // entries: a published answer names the Principal accountable for
+        // keeping it current, via an `attributed_to` edge. A `drafting` sketch
+        // may defer naming the steward. (Mirrors the decision-record decider
+        // gate.)
+        policy:
+          "Every committed (`queued` or `active`) FAQ entry names the Principal who stewards it — an `attributed_to` edge from the entry to that Principal — so there is a clear owner accountable for keeping the answer fresh. A `drafting` entry may defer naming the steward.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
+          when_node_type: ["reference"],
+        },
+        fires_when_node_lifecycle: FAQ_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Entry quality (probabilistic, LLM-judged, warn, committed only) ──
+      // Warnings, not blocks: an LLM verdict is non-deterministic, so a block
+      // both traps legitimate entries and can flip on retry. These surface the
+      // gaps that make an FAQ useless without standing between the author and a
+      // save. They fire only on the committed stages, like the deterministic
+      // completeness gates — a `drafting` sketch is a work in progress and isn't
+      // nagged about question phrasing or answer shape.
+      {
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the FAQ entry's `prose` — the question. PASS when it poses ONE genuine question phrased the way a real user would ask it (e.g. `How do I reset my password?`, `Why was my card declined?`). FAIL when it bundles several questions into one entry, is phrased from the organization's point of view or in internal jargon rather than the user's words, or is a statement or topic label rather than a question.",
+          when_node_type: ["reference"],
+        },
+        fires_when_node_lifecycle: FAQ_COMMITTED_LIFECYCLES,
+      },
+      {
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the FAQ entry's `answer` together with its `prose` (the question). PASS when the answer leads with the direct response to the question and is concise and self-contained enough to resolve it on its own (a couple of sentences or a short list), leaving deeper or authoritative detail to the linked source. FAIL when the answer buries or never states the actual answer, is a wall of text, is marketing copy rather than a plain reply, or merely re-points to a source without answering.",
+          when_node_type: ["reference"],
+        },
+        fires_when_node_lifecycle: FAQ_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Guidance (prose-only) ───────────────────────────────────
+      {
+        policy:
+          "Capture one question per entry, phrased the way people actually ask it. Mine the real wording from support tickets, chats, and search queries rather than inventing an idealized question, and split a compound question into separate entries so each has one clear answer.",
+      },
+      {
+        policy:
+          "Lead with the answer and keep it concise and scannable — enough to resolve the question on its own. Keep the authoritative detail in ONE place: cite the source of truth in the entry's `locator` and digest it in the `answer`, rather than copying it, so the answer can't drift out of sync with the source it summarizes.",
+      },
+      {
+        policy:
+          "Record the paraphrases people use to ask the same question as `alternatives` on the canonical entry (each `{ name, note }`), so a reader — or an agent matching on wording — who asks it a different way still lands on the one real answer instead of spawning a near-duplicate.",
+      },
+      {
+        policy:
+          "Keep one canonical entry per question. When two entries answer the same question, merge them: keep the better one, fold the other's wording in as `alternatives`, retire the duplicate (lifecycle `retired`), and link the survivor to it with a `replaces` edge (the `supersede` changeset op creates both at once) so a reader who finds the old one is redirected to the current answer.",
+      },
+      {
+        policy:
+          "Name a steward for every entry with an `attributed_to` edge to a Principal — a named owner is what keeps an answer from going stale. Record when the answer was last reviewed (a `last_reviewed_at` on the entry) and re-review on a cadence; ship the FAQ update in the same change as the work that changes the answer. A stale answer is worse than none — it sends people, and agents, confidently wrong.",
+      },
+      {
+        policy:
+          "Walk an entry through the lifecycle as it matures, which IS the KCS article state: `drafting` while the question is captured but the answer is unwritten or unvalidated (work in progress), `queued` once it is ready for review, `active` when it is the validated, in-force answer, and `retired` when it is archived or superseded. Completeness and quality gates apply once an entry is committed (`queued`/`active`); a `drafting` stub may be a bare question.",
+      },
+      {
+        policy:
+          "Log each result as a Log node: the question as it was actually asked in its `prose`, when in `happened_at`, and whether the FAQ resolved it in `outcome` (`succeeded` or `failed`). Link a resolved result to the entry that answered it with a `supports` edge — every use is a review (KCS 'reuse is review'), so the Logs that `supports` an entry are its reuse count and its evidence of health.",
+      },
+      {
+        policy:
+          "When a question is asked and no entry answers it, log that miss as a Log with `outcome: failed` and no `supports` edge — that orphan, and its raw question, is the demand signal for the next entry to write. When you write the entry that fills the gap, link it `derived_from` the Log(s) that revealed it. Don't write entries 'just in case'; let real questions pull them into being.",
+      },
+      {
+        policy:
+          "Don't store view counts or helpfulness tallies on the entry. The Logs are the atomic record of every result, so reuse, helpfulness (the share of `succeeded` outcomes), hot questions, and gap rate are all read off the usage stream — keep the entry the single source of the answer.",
+      },
+      {
+        policy:
+          "Cross-link related questions with `relates_to`, and group a narrower question under a broader topic question with `has_parent`, so the FAQ reads as a connected map rather than a flat list and a reader who lands on one entry can find its neighbors.",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json`. Create each entry as a Reference with its `answer`, its question `alternatives`, a `locator` to the source of truth, and an `attributed_to` steward edge in one changeset; log each result as a Log with its `outcome` and, when an entry resolved it, a `supports` edge to that entry.",
       },
     ],
   },

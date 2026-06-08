@@ -53,6 +53,7 @@ describe("removed templates are gone", () => {
       "data-decisions",
       "design-decisions",
       "evals",
+      "faq",
       "github-pull-requests",
       "glossary",
       "org-chart",
@@ -345,6 +346,154 @@ describe("glossary template", () => {
     expect(prose).toMatch(/replaces|deprecat|supersede/i);
     expect(prose).toMatch(/derived_from|source|cite/i);
     expect(prose).toMatch(/attributed_to|steward|owner/i);
+    expect(prose).toMatch(/lifecycle|drafting|queued|active|retired/i);
+  });
+});
+
+describe("faq template", () => {
+  const template = findDocoTemplateByName("faq");
+  if (!template) throw new Error("faq template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "faq")).toBeDefined();
+  });
+
+  it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
+    expect(template.icon).toBe("❓");
+    expect(template.label).toBe("FAQ");
+    // A question is captured the moment it is asked, before its answer is
+    // written, so new nodes start as `drafting` and the completeness/quality
+    // gates spare a sketch.
+    expect(template.defaultNodeLifecycle).toBe("drafting");
+    expect(template.description).toMatch(/frequently asked questions/i);
+  });
+
+  it("opens on the built-in List perspective (a FAQ is a filterable list of entries)", () => {
+    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("admits only Reference (entries), Log (results), and Principal (stewards)", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(["log", "principal", "reference"]);
+    });
+
+    it("excludes process/decision node types (Action, Decision, State, Eval, Intent, Idea, Rule)", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      for (const t of ["action", "decision", "state", "eval", "intent", "idea", "rule"]) {
+        expect(allowlist.node_types).not.toContain(t as never);
+      }
+    });
+  });
+
+  describe("edge-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge_type",
+    )?.predicate;
+
+    it("admits the knowledge/association edges, barring process-flow and guard edges", () => {
+      expect(allowlist?.kind).toBe("requires_edge_type");
+      if (allowlist?.kind !== "requires_edge_type") return;
+      expect(new Set(allowlist.edge_types)).toEqual(
+        new Set([
+          "attributed_to",
+          "supports",
+          "relates_to",
+          "has_parent",
+          "replaces",
+          "derived_from",
+        ]),
+      );
+      // No sequence flow and no policy guards in a Q&A knowledge base.
+      expect(allowlist.edge_types).not.toContain("flows_to");
+      expect(allowlist.edge_types).not.toContain("constrained_by");
+    });
+  });
+
+  it("requires an `answer` on every committed entry (queued/active) via requires_field", () => {
+    const rule = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_field" && r.predicate.when_node_type?.includes("reference"),
+    );
+    expect(rule?.predicate?.kind).toBe("requires_field");
+    if (rule?.predicate?.kind !== "requires_field") return;
+    expect(rule.predicate.fields).toEqual(["answer"]);
+    // A `drafting` stub may capture the question first; the answer is required
+    // only once the entry is committed.
+    expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("requires a stewarding Principal on every committed entry (attributed_to → principal)", () => {
+    // Unlike the glossary (stewardship is guidance there), the FAQ hard-gates
+    // ownership on committed entries — a named owner is the defense against a
+    // stale answer.
+    const gate = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "requires_edge" &&
+        r.predicate.edge_type === "attributed_to" &&
+        r.predicate.target_node_type === "principal" &&
+        (r.predicate.when_node_type?.includes("reference") ?? false),
+    );
+    expect(gate?.predicate?.kind).toBe("requires_edge");
+    expect(gate?.on_violation ?? "block").toBe("block");
+    expect(gate?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+  });
+
+  it("gates membership softly (warn, all stages) so an off-topic node is surfaced, not blocked", () => {
+    const membership = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("reference") &&
+        /belongs in an FAQ/i.test(r.predicate.spec) &&
+        r.on_violation === "warn" &&
+        r.fires_when_node_lifecycle === undefined,
+    );
+    expect(membership).toBeDefined();
+  });
+
+  it("judges question and answer quality probabilistically as warns on committed entries", () => {
+    const quality = template.policies.filter(
+      (r) =>
+        r.predicate?.kind === "probabilistic" &&
+        r.predicate.when_node_type?.includes("reference") &&
+        Array.isArray(r.fires_when_node_lifecycle),
+    );
+    // Two committed-only quality judges: one over the question, one over the answer.
+    expect(quality).toHaveLength(2);
+    for (const q of quality) {
+      expect(q.on_violation).toBe("warn");
+      expect(q.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    }
+    const specs = quality.flatMap((q) =>
+      q.predicate?.kind === "probabilistic" ? [q.predicate.spec] : [],
+    );
+    expect(specs.some((s) => /the way a real user would ask/i.test(s))).toBe(true);
+    expect(specs.some((s) => /leads with the direct response/i.test(s))).toBe(true);
+  });
+
+  it("guides authoring, results-logging, gaps, dedup, freshness, and lifecycle in prose", () => {
+    const prose = template.policies
+      .filter((p) => !p.predicate)
+      .map((p) => p.policy ?? "")
+      .join("\n");
+    // Entry authoring: one question per entry, source of truth, paraphrases.
+    expect(prose).toMatch(/one question per entry/i);
+    expect(prose).toMatch(/source of truth|locator/i);
+    expect(prose).toMatch(/paraphrase|alternativ|synonym/i);
+    // Dedup + supersession.
+    expect(prose).toMatch(/replaces|duplicate|merge/i);
+    // The logging half: results, outcome, reuse-is-review, gaps.
+    expect(prose).toMatch(/`supports`|reuse is review/i);
+    expect(prose).toMatch(/outcome|succeeded|failed/i);
+    expect(prose).toMatch(/gap|derived_from/i);
+    // Stewardship + freshness.
+    expect(prose).toMatch(/steward|owner|last_reviewed|stale/i);
+    // Lifecycle / KCS states.
     expect(prose).toMatch(/lifecycle|drafting|queued|active|retired/i);
   });
 });
