@@ -465,6 +465,28 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         },
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
+      {
+        // Concise name — the process canvas renders a flow node's `prose` as
+        // its box label, so a run-on `prose` becomes a run-on name on the
+        // diagram. This afflicts ANY flow node (Action, gateway Decision, or
+        // milestone State), not just a (sub)process Action: a Decision or
+        // State reads just as badly when its label is a whole sentence. So it
+        // covers the entire flow-node triad — the same `["action", "decision",
+        // "state"]` set the membership/sequence floors use — and fires from
+        // the first draft (no `fires_when_node_lifecycle`: there is no
+        // lifecycle where a run-on label is wanted, and the nudge is most
+        // useful the instant the name is first typed). The non-flow types are
+        // deliberately out of scope: a Principal's `prose` carries lane
+        // responsibility (the principal-lane policy wants that, not a bare
+        // label) and a Rule/Reference `prose` is legitimately long-form.
+        // `warn`, not block — it's an LLM-judged style nudge.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the node's `prose` — the process canvas renders it as this flow node's box label. PASS when it reads as a concise label: a verb+object (`publish a job`), a noun phrase, or a milestone phrase (`invoice approved`). FAIL with reason when it is a run-on sentence that strings several steps or conditions together (e.g. `all steps from asking to post a job through to the published job post being confirmed`) or stuffs a paragraph of detail into the name; suggest leading with a short headline and moving the detail into a supporting field or Reference.",
+          when_node_type: ["action", "decision", "state"],
+        },
+      },
       // ── Decision shape ──────────────────────────────────────────
       {
         // Structural floor for a gateway: it branches, so it carries ≥2

@@ -1256,6 +1256,27 @@ describe("process template", () => {
       );
       expect(atomic?.on_violation).toBe("warn");
     });
+
+    it("nudges every flow node toward a concise name, from drafting onward", () => {
+      // The canvas renders a flow node's `prose` as its box label, so a run-on
+      // name can afflict any flow node, not just a (sub)process Action. The
+      // nudge therefore covers the whole flow-node triad (Action / Decision /
+      // State) and fires from the first draft (no `fires_when_node_lifecycle`
+      // — there is no lifecycle where a run-on name is wanted). It stays a
+      // warn.
+      const concise = template.policies.find(
+        (r) => r.predicate?.kind === "probabilistic" && /concise label/i.test(r.predicate.spec),
+      );
+      expect(concise, "concise-name policy is registered").toBeDefined();
+      expect(concise?.on_violation).toBe("warn");
+      // Fires on every flow node — and only those (Principal prose carries lane
+      // responsibility; Rule/Reference prose is legitimately long-form).
+      expect(
+        concise?.predicate?.kind === "probabilistic" ? concise.predicate.when_node_type : undefined,
+      ).toEqual(["action", "decision", "state"]);
+      // Fires from drafting onward — carries no lifecycle filter.
+      expect(concise?.fires_when_node_lifecycle).toBeUndefined();
+    });
   });
 
   describe("queued and active are held to identical rules", () => {
