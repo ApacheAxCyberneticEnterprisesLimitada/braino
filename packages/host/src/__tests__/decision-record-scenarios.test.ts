@@ -70,6 +70,7 @@ function runScenario(handle: string, s: Scenario) {
 
 // ── 10 realistic scenarios per template (all well-formed) ────────────────────
 const DECIDER = { to: "principal_01TEAM", type: "attributed_to" };
+const SECOND_DECIDER = { to: "principal_02OWNER", type: "attributed_to" };
 const DRIVER = { to: "rule_01DRV", type: "constrained_by" };
 const EVIDENCE = { to: "eval_01EV", type: "supports" };
 
@@ -174,6 +175,30 @@ describe("decision-record gates catch genuinely malformed records", () => {
       wellFormed: false,
     });
     expect(blockingOf(nodeViolations).some((v) => v.sub_kind === "requires_edge")).toBe(true);
+  });
+
+  it("active decision attributed to two principals is blocked (attribution ceiling)", () => {
+    // A decision record names ONE accountable Principal — the decider/owner. Two
+    // `attributed_to` edges is the ambiguous case the ceiling catches, mirroring
+    // the process template's gateway-decider cap.
+    const { nodeViolations } = runScenario(H, {
+      q: "Which queue?",
+      chosen: "RabbitMQ",
+      edges: [DECIDER, SECOND_DECIDER],
+      wellFormed: false,
+    });
+    expect(blockingOf(nodeViolations).some((v) => v.sub_kind === "limits_edge")).toBe(true);
+  });
+
+  it("a drafting decision may name two principals — the ceiling is committed-only", () => {
+    const { nodeViolations } = runScenario(H, {
+      q: "Which queue?",
+      chosen: null,
+      edges: [DECIDER, SECOND_DECIDER],
+      lifecycle: "drafting",
+      wellFormed: true,
+    });
+    expect(blockingOf(nodeViolations).some((v) => v.sub_kind === "limits_edge")).toBe(false);
   });
 
   it("a `flows_to` edge is barred by the edge allowlist", () => {

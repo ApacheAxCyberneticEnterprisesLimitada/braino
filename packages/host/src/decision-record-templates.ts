@@ -109,6 +109,24 @@ function decisionRecordCore(): TemplatePolicy[] {
       },
       fires_when_node_lifecycle: DECISION_COMMITTED_LIFECYCLES,
     },
+    {
+      // The CEILING that complements the accountability FLOOR above: a committed
+      // Decision is attributed to AT MOST one Principal — its single accountable
+      // owner (the decider who made it / who owns it). A record attributed to two
+      // Principals is ambiguous about who is answerable for the call. A `drafting`
+      // decision may defer or over-attach while it is still being shaped. (Mirrors
+      // the process template's gateway-decider attribution cap.)
+      policy:
+        "A committed (proposed or accepted) Decision is attributed to AT MOST one Principal — the single decider who made it or is accountable for it. It carries at most one `attributed_to` edge to a Principal; two named deciders leaves accountability ambiguous. A `drafting` decision may defer naming the decider.",
+      predicate: {
+        kind: "limits_edge",
+        edge_type: "attributed_to",
+        target_node_type: "principal",
+        max_count: 1,
+        when_node_type: ["decision"],
+      },
+      fires_when_node_lifecycle: DECISION_COMMITTED_LIFECYCLES,
+    },
 
     // ── Record quality (probabilistic, LLM-judged, warn, committed only) ────
     // Warnings, not blocks: an LLM verdict is non-deterministic, so a block both

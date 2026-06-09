@@ -920,6 +920,49 @@ describe("process template", () => {
     });
   });
 
+  describe("a node is attributed to exactly one principal (attribution ceiling)", () => {
+    // The actor-attribution FLOOR (requires_edge attributed_to → principal, ≥1)
+    // gets a matching CEILING: every committed Action or gateway Decision carries
+    // AT MOST one `attributed_to` edge to a Principal, so it has exactly one
+    // accountable owner — the step's performer or the gateway's decider. A node
+    // attributed to two Principals is ambiguous: the BPMN renderer reads only the
+    // first and silently drops the rest. Like the floor, the ceiling fires on the
+    // committed stages only (`queued`/`active`) — a `drafting` sketch is exempt.
+    const ceiling = template.policies.find(
+      (r) =>
+        r.predicate?.kind === "limits_edge" &&
+        r.predicate.edge_type === "attributed_to" &&
+        r.predicate.target_node_type === "principal",
+    );
+
+    it("seeds a limits_edge gate on the `attributed_to` edge to a Principal, capped at one", () => {
+      expect(ceiling?.predicate?.kind).toBe("limits_edge");
+      if (ceiling?.predicate?.kind !== "limits_edge") return;
+      expect(ceiling.predicate.target_node_type).toBe("principal");
+      expect(ceiling.predicate.max_count).toBe(1);
+      expect([...(ceiling.predicate.when_node_type ?? [])].sort()).toEqual(["action", "decision"]);
+    });
+
+    it("blocks (hard) and fires only on committed stages — NOT drafting", () => {
+      // A committed node never has two accountable owners; while drafting the
+      // ceiling is exempt, symmetric with the attribution floor it complements.
+      expect(ceiling?.on_violation ?? "block").toBe("block");
+      expect(ceiling?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("seeds as a deterministic policy carrying the predicate verbatim", () => {
+      if (!ceiling) throw new Error("attribution ceiling gate missing");
+      const seeded = templatePolicyToPolicyRow(ceiling);
+      expect(seeded.kind).toBe("deterministic");
+      expect(seeded.on_violation).toBe("block");
+      expect(seeded.predicate.sub_kind).toBe("limits_edge");
+      expect(seeded.predicate.edge_type).toBe("attributed_to");
+      expect(seeded.predicate.target_node_type).toBe("principal");
+      expect(seeded.predicate.max_count).toBe(1);
+      expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
   describe("no Intent / subprocess-naming policies remain", () => {
     it("seeds no edge-probabilistic subprocess-naming policy (a process is an Action now)", () => {
       expect(

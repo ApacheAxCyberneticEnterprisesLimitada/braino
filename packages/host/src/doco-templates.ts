@@ -364,6 +364,28 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
       },
       {
+        // The CEILING that complements the actor-attribution FLOOR above: a
+        // committed Action or gateway Decision is attributed to AT MOST one
+        // Principal, so it has exactly one accountable owner — the performer of
+        // the step or the decider answerable for the call. A node attributed to
+        // two Principals is ambiguous: the BPMN renderer places it in a single
+        // actor lane (it reads only the first `attributed_to` edge) and silently
+        // drops the rest, so the second owner vanishes from the swimlanes
+        // unnoticed. A `drafting` sketch is exempt. Re-point by retiring the old
+        // `attributed_to` edge before adding the new one; endpoints are immutable.
+        // (The mirror of the `has_parent` membership ceiling below.)
+        policy:
+          "Every committed (`queued` or `active`) Action and gateway Decision in process is attributed to AT MOST one Principal — its single accountable owner (the Action's performer or the gateway's decider). It carries at most one `attributed_to` edge to a Principal. A node attributed to two Principals is ambiguous: the BPMN renderer can place it in only one actor lane. A `drafting` sketch is exempt. Re-point by retiring the old `attributed_to` edge before adding the new one.",
+        predicate: {
+          kind: "limits_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
+          max_count: 1,
+          when_node_type: ["action", "decision"],
+        },
+        fires_when_node_lifecycle: BUSINESS_PROCESS_COMMITTED_LIFECYCLES,
+      },
+      {
         // Process membership — one rule for all three flow-node types. A flow
         // node belongs to a process through an OUTGOING `has_parent` edge to the
         // process Action; that edge IS its BPMN pool membership. A hard block
