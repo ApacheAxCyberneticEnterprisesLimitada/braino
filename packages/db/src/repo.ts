@@ -222,12 +222,9 @@ export async function upsertPolicy(policy: PolicyWrite, client?: pg.PoolClient):
 // identity rows (user/doco/workspace) through their own row readers. Every node
 // type lives in the `nodes` table; `node_type` is the discriminator.
 
-export async function getEntity(entityType: string, id: string): Promise<NodeRow | null> {
+export async function getEntity(nodeType: string, id: string): Promise<NodeRow | null> {
   return withClient(async (c) => {
-    const r = await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [
-      id,
-      entityType,
-    ]);
+    const r = await c.query("SELECT * FROM nodes WHERE id = $1 AND node_type = $2", [id, nodeType]);
     // Guard on the row itself, not `rowCount`: PGlite reports `rowCount` as
     // null (not 0) for a 0-row SELECT. `!r.rows[0]` is correct under pg and PGlite.
     if (!r.rows[0]) return null;

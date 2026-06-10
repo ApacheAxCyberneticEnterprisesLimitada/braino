@@ -750,12 +750,12 @@ describe("process template", () => {
   });
 
   describe("requires_field rules", () => {
-    function requiresField(field: string, entityType: string) {
+    function requiresField(field: string, nodeType: string) {
       return template.policies.find(
         (r) =>
           r.predicate?.kind === "requires_field" &&
           r.predicate.fields.includes(field) &&
-          r.predicate.when_node_type?.includes(entityType as never),
+          r.predicate.when_node_type?.includes(nodeType as never),
       );
     }
 

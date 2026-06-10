@@ -7,7 +7,7 @@ export interface CaptureFieldSpec {
 }
 
 export interface CaptureSchema {
-  entityType: string;
+  nodeType: string;
   label: string;
   collection: string;
   defaultLifecycle: "drafting" | "queued" | "active" | "retired";
@@ -207,14 +207,14 @@ export function renderCaptureCheatsheet(): string {
 }
 
 function schema(
-  entityType: string,
+  nodeType: string,
   label: string,
   collection: string,
   defaultLifecycle: CaptureSchema["defaultLifecycle"],
   fields: readonly CaptureFieldSpec[],
 ): CaptureSchema {
   return {
-    entityType,
+    nodeType,
     label,
     collection,
     defaultLifecycle,

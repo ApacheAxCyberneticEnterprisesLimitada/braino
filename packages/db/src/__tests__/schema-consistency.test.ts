@@ -41,8 +41,8 @@ function hasTypeNamedColumn(table: string, column: string): boolean {
 }
 
 describe("ALL_ENTITY_TABLES ↔ schema.sql consistency", () => {
-  for (const [entityType, spec] of Object.entries(ALL_ENTITY_TABLES)) {
-    it(`schema.sql declares table ${spec.table} for entity_type "${entityType}"`, () => {
+  for (const [nodeType, spec] of Object.entries(ALL_ENTITY_TABLES)) {
+    it(`schema.sql declares table ${spec.table} for node_type "${nodeType}"`, () => {
       expect(hasCreateTable(spec.table)).toBe(true);
     });
 

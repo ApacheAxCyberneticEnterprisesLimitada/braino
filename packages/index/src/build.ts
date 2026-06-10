@@ -130,7 +130,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
   if (!opts.skipStructural) {
     const pgFts: {
       entity_id: string;
-      entity_type: string;
+      node_type: string;
       summary: string | null;
       body: string;
     }[] = [];
@@ -138,12 +138,12 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Per-category interfaces carry `node_type`, `policy_kind`, or
       // `kind`; the id prefix is the shared discriminator for derived rows.
-      const entityType = entityTypeFromId(le.entity.id) || "unknown";
-      if (!entityType || entityType === "unknown") continue; // skip rows with no recoverable type
+      const nodeType = entityTypeFromId(le.entity.id) || "unknown";
+      if (!nodeType || nodeType === "unknown") continue; // skip rows with no recoverable type
       inserted++;
       // Node prose (every node, incl. principal) goes into FTS `body`; policy
       // labels use the A-weight `summary` column.
-      const typeNamedColumn = ALL_ENTITY_TABLES[entityType]?.typeNamedColumn;
+      const typeNamedColumn = ALL_ENTITY_TABLES[nodeType]?.typeNamedColumn;
       let summary: string | null;
       let body: string;
       if (typeNamedColumn) {
@@ -156,7 +156,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       }
       pgFts.push({
         entity_id: le.entity.id,
-        entity_type: entityType,
+        node_type: nodeType,
         summary,
         body,
       });
@@ -175,9 +175,9 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Nodes (including principals) embed their `prose` verbatim; policies
       // embed `policy`.
-      const entityType = entityTypeFromId(le.entity.id) || "unknown";
+      const nodeType = entityTypeFromId(le.entity.id) || "unknown";
       const typeNamedColumn =
-        entityType !== "unknown" ? ALL_ENTITY_TABLES[entityType]?.typeNamedColumn : undefined;
+        nodeType !== "unknown" ? ALL_ENTITY_TABLES[nodeType]?.typeNamedColumn : undefined;
       let summary: string;
       let body: string;
       let text: string;

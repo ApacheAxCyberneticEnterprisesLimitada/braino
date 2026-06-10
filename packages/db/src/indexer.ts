@@ -26,7 +26,7 @@ const NODE_TYPES = new Set([
 
 export interface FtsRowInput {
   entity_id: string;
-  entity_type: string;
+  node_type: string;
   /**
    * Headline text for the FTS A-weight column. Null when the full prose
    * should be indexed as body text.
@@ -58,7 +58,7 @@ export async function rebuildDocoDerivedData(
   const dedupedFts = dedupeFts(fts);
 
   // Only nodes are indexed for FTS.
-  const nodeFts = dedupedFts.filter((r) => NODE_TYPES.has(r.entity_type));
+  const nodeFts = dedupedFts.filter((r) => NODE_TYPES.has(r.node_type));
 
   return withTransaction(async (c) => {
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
@@ -85,7 +85,7 @@ export async function rebuildDocoDerivedData(
         [
           docoId,
           nodeFts.map((r) => r.entity_id),
-          nodeFts.map((r) => r.entity_type),
+          nodeFts.map((r) => r.node_type),
           nodeFts.map((r) => r.summary),
           nodeFts.map((r) => r.body),
         ],

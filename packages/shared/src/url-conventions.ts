@@ -59,7 +59,7 @@ export type { EntityType };
 export interface EntityUrlInput {
   docoHandle: string;
   /** Entity type discriminator string. */
-  entityType: string;
+  nodeType: string;
   /** Entity ULID id (`<type>_<ULID>`). */
   id: string;
 }
@@ -71,7 +71,7 @@ function docoPrefix(input: { docoHandle: string }): string {
 /** Canonical URL for an entity — short form, no `/e/`. */
 export function entityUrl(input: EntityUrlInput): string {
   const prefix = docoPrefix(input);
-  return `${prefix}/${input.entityType}/${input.id}`;
+  return `${prefix}/${input.nodeType}/${input.id}`;
 }
 
 export interface DocoUrlInput {

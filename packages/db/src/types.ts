@@ -22,14 +22,14 @@ export const NODE_TABLES: Record<string, { table: string; typeNamedColumn?: stri
 
 export interface EntityTableSpec {
   table: string;
-  entityType: string;
+  nodeType: string;
 }
 
-// All node types live in `nodes` (discriminated by entityType →
+// All node types live in `nodes` (discriminated by nodeType →
 // node_type). Principals are included because they are graph nodes.
 export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = NODE_TYPES.map((type) => ({
   table: NODE_CATALOG[type].storage.table,
-  entityType: type,
+  nodeType: type,
 }));
 
 // Generic capture nodes only. Use this when a surface intentionally wants
@@ -37,11 +37,11 @@ export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = NODE_TYPES.map(
 export const DOCO_GENERIC_CAPTURE_NODE_TABLE_SPECS: readonly EntityTableSpec[] =
   GENERIC_CAPTURE_NODE_TYPES.map((type) => ({
     table: NODE_CATALOG[type].storage.table,
-    entityType: type,
+    nodeType: type,
   }));
 
 export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
-  Object.fromEntries(DOCO_NODE_TABLE_SPECS.map((spec) => [spec.entityType, spec]));
+  Object.fromEntries(DOCO_NODE_TABLE_SPECS.map((spec) => [spec.nodeType, spec]));
 
 /**
  * Promoted columns on the unified `nodes` table, per node type. Single source
