@@ -136,7 +136,7 @@ export interface PolicyWrite {
  * The honest READ shape of a graph node — one field per real column of the
  * `nodes` table, plus the author-owned `extra` bag. There is no synthetic
  * `data` bag: `rowToNode` maps a row to this 1:1, and `getEntity` /
- * `listEntitiesByDoco` return it for every node type.
+ * `listNodesByDoco` return it for every node type.
  */
 export interface NodeRow {
   id: string;

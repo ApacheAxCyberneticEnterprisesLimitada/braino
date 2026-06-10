@@ -9,7 +9,7 @@
 //     incremental reindex path only consumes the entities whose ids it passed
 //     in; loading the rest was pure waste.
 
-import { type NodeRow, listEntitiesByDoco, listEntitiesByDocoAndIds, withClient } from "@doco/db";
+import { type NodeRow, listNodesByDoco, listNodesByDocoAndIds, withClient } from "@doco/db";
 import type {
   Doco,
   Entity,
@@ -88,15 +88,15 @@ export async function loadDocoFromPostgres(
       if (scoped) {
         const ids = idsByType.get(t);
         if (!ids || ids.length === 0) continue;
-        rows = await listEntitiesByDocoAndIds(t, docoId, ids);
+        rows = await listNodesByDocoAndIds(t, docoId, ids);
       } else {
-        rows = await listEntitiesByDoco(t, docoId);
+        rows = await listNodesByDoco(t, docoId);
       }
     } catch (err) {
       // Table may not exist yet; skip with a failure note rather than crashing.
       failures.push({
         filePath: `<postgres>:${t}`,
-        reason: `listEntitiesByDoco(${t}) failed: ${(err as Error).message}`,
+        reason: `listNodesByDoco(${t}) failed: ${(err as Error).message}`,
       });
       continue;
     }

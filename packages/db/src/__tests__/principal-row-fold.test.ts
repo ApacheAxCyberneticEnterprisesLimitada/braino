@@ -4,7 +4,7 @@ import { freshDb } from "./fresh-db.js";
 
 // A Principal is an ordinary node
 // (`node_type = 'principal'`), so `getPrincipalById` / `listPrincipals` read it
-// through the ONE canonical node path (getEntity / listEntitiesByDoco →
+// through the ONE canonical node path (getEntity / listNodesByDoco →
 // rowToEntity) — no bespoke `prose AS name` SQL + `mapPrincipalRow`. This pins
 // the legacy `PrincipalRow` shape those readers depend on: name (from prose),
 // `data.owner_id` (from extra), `data.created_by` (from the column).

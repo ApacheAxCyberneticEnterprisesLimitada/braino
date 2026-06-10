@@ -235,23 +235,23 @@ export async function getEntity(entityType: string, id: string): Promise<NodeRow
   });
 }
 
-export async function listEntitiesByDoco(entityType: string, docoId: string): Promise<NodeRow[]> {
+export async function listNodesByDoco(nodeType: string, docoId: string): Promise<NodeRow[]> {
   return withClient(async (c) => {
     const r = await c.query("SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2", [
       docoId,
-      entityType,
+      nodeType,
     ]);
     return r.rows.map(rowToNode);
   });
 }
 
 /**
- * Like `listEntitiesByDoco`, but restricted to the given ids. Used by the
- * incremental reindex path so a one-entity capture doesn't drag every
+ * Like `listNodesByDoco`, but restricted to the given ids. Used by the
+ * incremental reindex path so a one-node capture doesn't drag every
  * row in the Doco off disk just to throw them away.
  */
-export async function listEntitiesByDocoAndIds(
-  entityType: string,
+export async function listNodesByDocoAndIds(
+  nodeType: string,
   docoId: string,
   ids: string[],
 ): Promise<NodeRow[]> {
@@ -259,7 +259,7 @@ export async function listEntitiesByDocoAndIds(
   return withClient(async (c) => {
     const r = await c.query(
       "SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2 AND id = ANY($3::text[])",
-      [docoId, entityType, ids],
+      [docoId, nodeType, ids],
     );
     return r.rows.map(rowToNode);
   });
@@ -412,7 +412,7 @@ export async function getPrincipalById(id: string): Promise<NodeRow | null> {
  * creation, so `find`-by-name lookups in callers are deterministic.
  */
 export async function listPrincipals(docoId: string): Promise<NodeRow[]> {
-  const recs = await listEntitiesByDoco("principal", docoId);
+  const recs = await listNodesByDoco("principal", docoId);
   return recs.sort((a, b) => {
     const byName = a.prose.localeCompare(b.prose);
     if (byName !== 0) return byName;
