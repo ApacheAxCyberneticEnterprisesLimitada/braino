@@ -249,7 +249,7 @@ CREATE INDEX IF NOT EXISTS node_versions_asof_idx ON node_versions (entity_id, t
 
 CREATE TABLE IF NOT EXISTS edge_versions (
   entity_id    text NOT NULL,                 -- edge_<ulid>
-  entity_type  text NOT NULL DEFAULT 'edge',
+  entity_type  text NOT NULL,                 -- the edge's specific type (flows_to, supports, …), like node_versions
   version      int  NOT NULL,
   op           text NOT NULL CHECK (op IN ('create','update','retire')),
   payload      jsonb NOT NULL,

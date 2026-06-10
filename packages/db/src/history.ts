@@ -99,10 +99,11 @@ async function priorVersion(
 }
 
 // Shared body for appendNodeVersion / appendEdgeVersion. The two paths differ
-// only by target table (node_versions vs edge_versions) and the entity_type
-// column value ('node' vs 'edge'). entity_type is deliberately NOT a chainHash
-// input — the hash inputs (entityId, version, op, payload, txId, actor) must
-// stay byte-identical so every previously recorded chain hash remains valid.
+// only by target table (node_versions vs edge_versions); both stamp the
+// entity's specific type (`decision`, `flows_to`) — neither side is flattened
+// to a generic placeholder. entity_type is deliberately NOT a chainHash input —
+// the hash inputs (entityId, version, op, payload, txId, actor) must stay
+// byte-identical so every previously recorded chain hash remains valid.
 async function appendVersion(
   c: pg.PoolClient,
   table: "node_versions" | "edge_versions",
@@ -162,13 +163,14 @@ export async function appendEdgeVersion(
   c: pg.PoolClient,
   v: {
     entityId: string;
+    entityType: string;
     op: Op;
     payload: Record<string, unknown>;
     txId: number;
     actor?: string | null;
   },
 ): Promise<number> {
-  return appendVersion(c, "edge_versions", { ...v, entityType: "edge" });
+  return appendVersion(c, "edge_versions", v);
 }
 
 /**
@@ -324,6 +326,7 @@ export async function createEdge(
   const row = rows[0];
   await appendEdgeVersion(c, {
     entityId: id,
+    entityType: row.edge_type,
     op: "create",
     payload: row as unknown as Record<string, unknown>,
     txId,
@@ -383,6 +386,7 @@ export async function updateEdge(
   const row = rows[0];
   await appendEdgeVersion(c, {
     entityId: input.id,
+    entityType: row.edge_type,
     op: "update",
     payload: row as unknown as Record<string, unknown>,
     txId,
@@ -408,6 +412,7 @@ export async function retireEdge(
   const row = rows[0];
   await appendEdgeVersion(c, {
     entityId: input.id,
+    entityType: row.edge_type,
     op: "retire",
     payload: row as unknown as Record<string, unknown>,
     txId,
