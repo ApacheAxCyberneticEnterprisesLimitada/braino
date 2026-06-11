@@ -57,6 +57,7 @@ describe("removed templates are gone", () => {
       "faq",
       "github-pull-requests",
       "glossary",
+      "ideas",
       "org-chart",
       "process",
       "product-decisions",
@@ -1958,6 +1959,260 @@ describe("test-scenarios template", () => {
       expect(haystack).toMatch(/retired/i);
       expect(haystack).toMatch(/specialized tests/i);
       expect(haystack).toMatch(/WCAG|performance|visual-regression/i);
+    });
+  });
+});
+
+describe("ideas template", () => {
+  const template = findDocoTemplateByName("ideas");
+  if (!template) throw new Error("ideas template not registered");
+
+  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "ideas")).toBeDefined();
+  });
+
+  it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
+    expect(template.icon).toBe("💡");
+    expect(template.label).toBe("Ideas");
+    // An idea is captured the instant it occurs — a raw jot, never blocked —
+    // so new nodes start `drafting` and the completeness/quality gates spare
+    // the inbox.
+    expect(template.defaultNodeLifecycle).toBe("drafting");
+    expect(template.description).toMatch(/idea/i);
+  });
+
+  it("opens on the built-in List perspective (an idea tracker is a filterable funnel)", () => {
+    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  });
+
+  describe("node-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_node_type",
+    )?.predicate;
+
+    it("admits the idea, its opportunity (Intent), demand (Log), evidence (Reference), assessment (Eval), criteria (Rule), and owners (Principal)", () => {
+      expect(allowlist?.kind).toBe("requires_node_type");
+      if (allowlist?.kind !== "requires_node_type") return;
+      expect([...allowlist.node_types].sort()).toEqual(
+        ["eval", "idea", "intent", "log", "principal", "reference", "rule"].sort(),
+      );
+    });
+
+    it("excludes delivery/process/decision node types (action, state, decision)", () => {
+      if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
+      for (const barred of ["action", "state", "decision"]) {
+        expect(allowlist.node_types).not.toContain(barred as never);
+      }
+    });
+  });
+
+  describe("edge-type allowlist", () => {
+    const allowlist = template.policies.find(
+      (r) => r.predicate?.kind === "requires_edge_type",
+    )?.predicate;
+
+    it("admits the idea-funnel relationship edges and bars sequence flow", () => {
+      expect(allowlist?.kind).toBe("requires_edge_type");
+      if (allowlist?.kind !== "requires_edge_type") return;
+      expect(new Set(allowlist.edge_types)).toEqual(
+        new Set([
+          "has_parent",
+          "supports",
+          "attributed_to",
+          "constrained_by",
+          "relates_to",
+          "replaces",
+          "derived_from",
+        ]),
+      );
+      expect(allowlist.edge_types).not.toContain("flows_to");
+    });
+  });
+
+  describe("completeness gates (committed only)", () => {
+    it("requires the `problem` on every committed idea via requires_field (block)", () => {
+      // The separate-problem-from-solution discipline made structural: the
+      // prose is the proposal, the `problem` field is the need behind it. A
+      // `drafting` inbox jot may be a bare one-liner.
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_field" && r.predicate.when_node_type?.includes("idea"),
+      );
+      expect(rule?.predicate?.kind).toBe("requires_field");
+      if (rule?.predicate?.kind !== "requires_field") return;
+      expect(rule.predicate.fields).toEqual(["problem"]);
+      expect(rule.on_violation ?? "block").toBe("block");
+      expect(rule.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("requires a shepherding owner on every committed idea (attributed_to → principal, block)", () => {
+      const owner = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "attributed_to" &&
+          r.predicate.target_node_type === "principal" &&
+          (r.predicate.when_node_type?.includes("idea") ?? false),
+      );
+      expect(owner?.predicate?.kind).toBe("requires_edge");
+      expect(owner?.on_violation ?? "block").toBe("block");
+      expect(owner?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("recommends (warn) the opportunity link on a committed idea (has_parent → intent)", () => {
+      const floor = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "has_parent" &&
+          r.predicate.target_node_type === "intent" &&
+          (r.predicate.when_node_type?.includes("idea") ?? false),
+      );
+      expect(floor?.predicate?.kind).toBe("requires_edge");
+      expect(floor?.on_violation).toBe("warn");
+      expect(floor?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("caps a committed idea at ONE target opportunity (limits_edge has_parent → intent, block)", () => {
+      const ceiling = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "limits_edge" &&
+          r.predicate.edge_type === "has_parent" &&
+          r.predicate.target_node_type === "intent",
+      );
+      expect(ceiling?.predicate?.kind).toBe("limits_edge");
+      if (ceiling?.predicate?.kind !== "limits_edge") return;
+      expect(ceiling.predicate.max_count).toBe(1);
+      expect(ceiling.predicate.when_node_type).toEqual(["idea"]);
+      expect(ceiling.on_violation ?? "block").toBe("block");
+      expect(ceiling.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("requires a committed assessment to link the idea it assesses (supports, block)", () => {
+      const spine = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_edge" &&
+          r.predicate.edge_type === "supports" &&
+          (r.predicate.when_node_type?.includes("eval") ?? false),
+      );
+      expect(spine?.predicate?.kind).toBe("requires_edge");
+      expect(spine?.on_violation ?? "block").toBe("block");
+      expect(spine?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+
+    it("seeds the problem gate as a blocking deterministic policy carrying the field verbatim", () => {
+      const rule = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "requires_field" && r.predicate.when_node_type?.includes("idea"),
+      );
+      if (!rule) throw new Error("problem completeness gate missing");
+      const seeded = templatePolicyToPolicyRow(rule);
+      expect(seeded.kind).toBe("deterministic");
+      expect(seeded.on_violation).toBe("block");
+      expect(seeded.predicate.sub_kind).toBe("requires_field");
+      expect(seeded.predicate.fields).toEqual(["problem"]);
+      expect(seeded.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("soft semantic gates (warnings, LLM-judged)", () => {
+    it("gates membership softly (warn, all stages) on ideas and opportunities only", () => {
+      const membership = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          r.on_violation === "warn" &&
+          r.fires_when_node_lifecycle === undefined &&
+          /belongs in an idea tracker/i.test(r.predicate.spec),
+      );
+      expect(membership?.predicate?.kind).toBe("probabilistic");
+      if (membership?.predicate?.kind !== "probabilistic") return;
+      expect([...(membership.predicate.when_node_type ?? [])].sort()).toEqual(["idea", "intent"]);
+      // Evidence (Reference/Log), assessments (Eval), criteria (Rule), and
+      // owners (Principal) are supporting cast, not membership candidates.
+      for (const exempt of ["reference", "log", "eval", "rule", "principal"]) {
+        expect(membership.predicate.when_node_type).not.toContain(exempt as never);
+      }
+    });
+
+    it("judges idea quality (one proposal, real problem) as a warn on committed ideas", () => {
+      const quality = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          r.predicate.when_node_type?.includes("idea") &&
+          Array.isArray(r.fires_when_node_lifecycle),
+      );
+      expect(quality?.on_violation).toBe("warn");
+      expect(quality?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+      if (quality?.predicate?.kind !== "probabilistic") return;
+      // The classic antipattern is explicit: a "problem" that merely restates
+      // the solution as a lack ("we don't have feature X").
+      expect(quality.predicate.spec).toMatch(/restat|lack|absence/i);
+    });
+
+    it("judges assessment quality (method + verdict, auditable) as a warn on committed assessments", () => {
+      const quality = template.policies.find(
+        (r) =>
+          r.predicate?.kind === "probabilistic" &&
+          r.predicate.when_node_type?.includes("eval") &&
+          Array.isArray(r.fires_when_node_lifecycle),
+      );
+      expect(quality?.on_violation).toBe("warn");
+      expect(quality?.fires_when_node_lifecycle).toEqual(["queued", "active"]);
+    });
+  });
+
+  describe("queued and active are held to identical rules", () => {
+    it("no committed stage is gated without the other", () => {
+      for (const p of template.policies) {
+        const lifecycles = p.fires_when_node_lifecycle;
+        if (!lifecycles) continue;
+        expect(lifecycles.includes("queued")).toBe(lifecycles.includes("active"));
+      }
+    });
+  });
+
+  describe("guidance encodes the idea-management best practices", () => {
+    const prose = template.policies
+      .filter((p) => !p.predicate)
+      .map((p) => p.policy ?? "")
+      .join("\n");
+
+    it("frictionless capture, one idea per record, credited proposer", () => {
+      expect(prose).toMatch(/one idea per record/i);
+      expect(prose).toMatch(/proposer/i);
+      expect(prose).toMatch(/proposer_id/);
+    });
+    it("separates the problem from the solution", () => {
+      expect(prose).toMatch(/`problem`/);
+      expect(prose).toMatch(/solution/i);
+    });
+    it("dedupes to a canonical idea and accumulates demand as Logs", () => {
+      expect(prose).toMatch(/duplicate|canonical/i);
+      expect(prose).toMatch(/replaces/);
+      expect(prose).toMatch(/demand/i);
+      expect(prose).toMatch(/derived_from/);
+    });
+    it("grounds ideas in evidence and clusters them under opportunities", () => {
+      expect(prose).toMatch(/evidence/i);
+      expect(prose).toMatch(/opportunit/i);
+      expect(prose).toMatch(/has_parent/);
+    });
+    it("evaluates against explicit criteria captured as Rules", () => {
+      expect(prose).toMatch(/ICE|RICE/);
+      expect(prose).toMatch(/constrained_by/);
+    });
+    it("maps the funnel onto the lifecycle and ends every idea with an honest disposition", () => {
+      expect(prose).toMatch(/drafting/);
+      expect(prose).toMatch(/queued/);
+      expect(prose).toMatch(/retired/);
+      expect(prose).toMatch(/promoted_to/);
+      expect(prose).toMatch(/rejection_reason/);
+    });
+    it("closes the loop with the proposer and prunes rather than hoards", () => {
+      expect(prose).toMatch(/close the loop|tell the proposer/i);
+      expect(prose).toMatch(/prune|come back|hoard/i);
+    });
+    it("tells agents to write through the changesets API", () => {
+      expect(prose).toMatch(/authoring-contract\.json/);
+      expect(prose).toMatch(/changesets\.json/);
     });
   });
 });

@@ -206,6 +206,18 @@ const ROADMAP_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
  */
 const TEST_SCENARIO_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
+/**
+ * The ideas template, like bugs and FAQ, defaults new nodes to `drafting` so an
+ * idea can be jotted the instant it occurs — the inbox is sacred and a capture
+ * is never blocked — and fires its completeness + quality gates on the two
+ * committed stages: `queued` (triaged — deduped, its problem framed, a shepherd
+ * named) and `active` (in evaluation — being scored, validated, championed). A
+ * `drafting` jot may be a bare one-liner; once a team commits attention to an
+ * idea it must say what problem it solves and who is moving it. (`retired` is
+ * the closed stage — promoted or rejected — and is not re-judged.)
+ */
+const IDEA_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
+
 export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // Repeatable business processes modeled on BPMN swimlanes and
@@ -1957,6 +1969,306 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         policy:
           "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json` — create each scenario as an Eval with its `how_to_run`, `expected`, and `criterion`, wire its `supports` edge to the objective or requirement it covers, and record each run as a Log with the environment and outcome, its `supports` edge to the scenario, and any evidence References — all in one changeset, never as disconnected nodes.",
+      },
+    ],
+  },
+  {
+    // Idea tracker — capture and track product ideas from raw jot to honest
+    // verdict. The shape distills the durable consensus of idea-management
+    // practice (Aha! / ProdPad / Ideawake-style funnels, Teresa Torres'
+    // opportunity solution trees, Intercom's RICE and Sean Ellis' ICE scoring,
+    // close-the-loop feedback practice, and Basecamp's Shape Up counterweight)
+    // onto Doco's primitives, around one deep abstraction:
+    //
+    //   AN IDEA IS A CANDIDATE SOLUTION AWAITING AN HONEST VERDICT.
+    //
+    // That is already the `idea` node — `prose` is the proposal, `proposer_id`
+    // credits who raised it, and the two native disposition fields
+    // (`promoted_to` / `rejection_reason`) carry how it ended — so the template
+    // needs NO new node type: it cultivates the existing Idea exactly as bugs
+    // cultivates Eval and the glossary cultivates Reference. Every other
+    // template's allowlist excludes Idea ("Ideas live in their own home until
+    // promoted"); this template IS that home.
+    //
+    // The funnel rides on the lifecycle:
+    //   - `drafting` = the INBOX and the PARKING LOT. Capture is frictionless
+    //     and never blocked: a raw one-liner in the proposer's own words is a
+    //     valid jot. A consciously parked idea also lives here, carrying a
+    //     dated `rejection_reason` note saying what would revive it.
+    //   - `queued`   = TRIAGED. Reviewed on a cadence, deduplicated, its
+    //     problem framed, a shepherd named. Worth evaluating.
+    //   - `active`   = IN EVALUATION. The few ideas the team is actually
+    //     spending attention on: scoring, discovery, validation experiments.
+    //   - `retired`  = CLOSED, with the disposition on the node: promoted
+    //     (`promoted_to` points at what it became — a roadmap bet, a decision,
+    //     a delivery) or rejected (`rejection_reason` says why, durably).
+    //
+    // Three disciplines the gates encode, each traceable to the literature:
+    //   - SEPARATE THE PROBLEM FROM THE SOLUTION (made structural). The prose
+    //     is the proposal; a committed idea must also carry the `problem` — the
+    //     user/business need behind it, ideally in the proposer's words. Ideas
+    //     are candidate solutions; the problem is the durable part, and a
+    //     "problem" that merely restates the solution as a lack ("we don't
+    //     have feature X") is the classic antipattern the quality judge names.
+    //   - ONE CANONICAL RECORD PER IDEA, demand accumulated on it. Duplicates
+    //     are retired with a `replaces` edge from the canonical idea; every
+    //     repeated request is a Log in the demand stream (`supports`), so
+    //     frequency and recency are read off the stream instead of a vote
+    //     tally fragmenting across near-duplicates.
+    //   - IDEAS CLUSTER UNDER OPPORTUNITIES (the opportunity-solution-tree
+    //     move). An Intent is an opportunity — a problem, need, or outcome
+    //     worth solving — and an idea `has_parent`-links to the ONE target
+    //     opportunity it serves; competing ideas under one opportunity is
+    //     healthy and explicit. The link is a warn (recommended), the
+    //     single-target cap a block.
+    //
+    // The supporting cast: a Principal is the shepherd accountable for moving
+    // a committed idea (a person or an agent); References carry the evidence
+    // (feedback quotes, research, analytics, competitor moves); Logs are the
+    // demand stream; an Eval is an assessment — a scoring pass or a validation
+    // experiment — that `supports` the idea it tests; a Rule captures the
+    // team's evaluation criteria (ICE, RICE, effort/impact — the framework is
+    // the team's choice, not the template's) linked via `constrained_by`.
+    //
+    // Out of scope, kept in sibling Docos: the roadmap bet an idea becomes
+    // (product-roadmap), the decision record behind a big call
+    // (product-decisions), and delivery work (process). `promoted_to` is a
+    // soft cross-Doco pointer, so promotion links the sibling without
+    // absorbing it.
+    name: "ideas",
+    label: "Ideas",
+    icon: "💡",
+    description:
+      "Capture and track product ideas — each separates the problem from the proposed solution, accumulates demand and evidence on one canonical record, is evaluated against explicit criteria, and ends with an honest disposition: promoted, parked, or rejected with the reason. Grounded in idea-management practice (opportunity solution trees, ICE/RICE scoring, close-the-loop feedback).",
+    // An idea is jotted before it is triaged, so new nodes default to
+    // `drafting` and the completeness/quality gates spare the inbox.
+    defaultNodeLifecycle: "drafting",
+    // An idea tracker is fundamentally a filterable funnel of records, so open
+    // the overview on the built-in List perspective. (Graph stays behind it.)
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      // ── Membership (soft semantic gate) ──────────────────────────────
+      {
+        // Warn, not block: the author opted into the idea tracker, so this only
+        // surfaces "this isn't really an idea / an opportunity" for
+        // reconsideration. It steers defects to the bug tracker, scheduled work
+        // to the backlog or a process Doco, and raw complaints into the
+        // evidence stream (a Reference or Log) rather than the idea list. The
+        // supporting cast — owners (Principal), criteria (Rule), evidence
+        // (Reference), demand (Log), assessments (Eval) — is exempt by
+        // omission from `when_node_type`.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A node belongs in an idea tracker when it is an Idea — a candidate solution someone proposes (a feature, an improvement, an experiment, a new offering: something a team could choose to pursue) — or an Intent naming the opportunity ideas serve: a problem, unmet need, or desired outcome worth solving. PASS when the candidate is one of these. FAIL when it is instead a defect report (expected-vs-actual broken behavior — that belongs in a bug tracker), a committed task or scheduled work item (that is a backlog or process Doco), a raw complaint or feedback quote with no proposal in it (record it as evidence supporting an idea, not as the idea), or — for an Intent — a feature dressed up as an opportunity: an opportunity names a problem or outcome, never a solution.",
+          when_node_type: ["idea", "intent"],
+        },
+      },
+      {
+        // Deterministic node-type allowlist. An idea tracker is the ideas
+        // themselves plus the cast that gives each one meaning. Delivery steps
+        // (Action), milestones (State), and decision records (Decision) belong
+        // in their own Docos — an idea that graduates into any of them is
+        // promoted there and linked via `promoted_to`, not modeled here.
+        policy:
+          "Only Idea, Intent, Eval, Log, Reference, Rule, and Principal belong in an idea tracker. An Idea is a candidate solution awaiting a verdict — its prose is the proposal, its `problem` the need behind it, and `promoted_to` / `rejection_reason` how it ended. An Intent is an opportunity (a problem, need, or outcome worth solving) that ideas cluster under; an Eval is an assessment — a scoring pass or validation experiment; a Log is one demand event (someone asked for this again); a Reference carries evidence (feedback, research, data, competitor moves); a Rule states the evaluation criteria; a Principal is the shepherd accountable for moving an idea. Delivery steps, milestones, and decision records belong in their own Docos — promote an idea there instead.",
+        predicate: {
+          kind: "requires_node_type",
+          node_types: ["idea", "intent", "eval", "log", "reference", "rule", "principal"],
+        },
+      },
+      {
+        // Edge-type allowlist (the edge analogue of the node-type allowlist).
+        // An idea tracker wires evidence, demand, ownership, opportunity
+        // grouping, criteria, dedup, provenance, and see-also links — never
+        // process sequence flow.
+        policy:
+          "Only these relationship edge types may be used in an idea tracker: `has_parent` (an idea → the ONE opportunity Intent it serves; a narrower opportunity → its broader opportunity or outcome), `supports` (evidence References, demand Logs, and assessment Evals → the idea they back, request, or test), `attributed_to` (an idea or opportunity → the Principal who shepherds it), `constrained_by` (an idea or opportunity → a Rule stating the evaluation criteria or a strategic guardrail), `relates_to` (a see-also or dependency between related or competing ideas), `replaces` (the canonical idea supersedes a duplicate), and `derived_from` (an idea → the demand Log, feedback Reference, or prior idea that sparked it). Process sequence flow (`flows_to`) describes delivery, not ideation, and has no place here.",
+        predicate: {
+          kind: "requires_edge_type",
+          edge_types: [
+            "has_parent",
+            "supports",
+            "attributed_to",
+            "constrained_by",
+            "relates_to",
+            "replaces",
+            "derived_from",
+          ],
+        },
+      },
+
+      // ── Completeness: the problem behind the proposal (block, committed) ──
+      {
+        // The separate-problem-from-solution discipline made structural — the
+        // exact move the glossary makes with `definition` and the FAQ with
+        // `answer`. A `drafting` inbox jot may be a bare one-liner; an idea a
+        // team has committed attention to states the need it serves, so a
+        // reviewer can judge the problem even when the proposed solution is
+        // weak. (`problem` lives in the node's `extra` bag, which the
+        // evaluator reads as a field.)
+        policy:
+          "Every committed (`queued` or `active`) idea carries a `problem` — the user or business need behind the proposal, ideally in the proposer's own words. The prose is the candidate solution; the `problem` is the durable part a reviewer evaluates. A `drafting` inbox jot may capture the proposal first and frame the problem at triage.",
+        predicate: {
+          kind: "requires_field",
+          fields: ["problem"],
+          when_node_type: ["idea"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Accountability: a shepherd (block, committed) ─────────────────
+      {
+        // An idea under consideration without an owner rots in the funnel. A
+        // committed idea names the Principal — a person or an agent —
+        // accountable for moving it to a verdict, mirroring the bug-owner and
+        // FAQ-steward gates. A `drafting` jot may arrive ownerless.
+        policy:
+          "Every committed (`queued` or `active`) idea is attributed to the Principal who shepherds it — an `attributed_to` edge from the idea to that Principal — accountable for moving it to an honest verdict: promoted, parked, or rejected. An idea in evaluation with no shepherd rots in the funnel. A `drafting` inbox jot may arrive ownerless.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "attributed_to",
+          target_node_type: "principal",
+          when_node_type: ["idea"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Opportunity placement: floor (warn) + ceiling (block) ─────────
+      {
+        // The opportunity-solution-tree floor, surfaced as a WARN, not a
+        // block: linking each committed idea to the opportunity it serves is
+        // strongly recommended (ideas divorced from problems are noise), but
+        // teams triage real ideas before their opportunity map exists, so the
+        // nudge must not trap the write. (Mirrors the bug template's
+        // severity/priority deterministic warn.)
+        on_violation: "warn",
+        policy:
+          "A committed (`queued` or `active`) idea names the opportunity it serves — a `has_parent` edge to the Intent for that problem, need, or outcome — so competing ideas for one opportunity sit side by side and can be compared. Strongly recommended and surfaced as a warning, not enforced: an idea may be triaged before the opportunity map exists.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "has_parent",
+          target_node_type: "intent",
+          direction: "outgoing",
+          when_node_type: ["idea"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+      {
+        // The CEILING that complements the floor above: a committed idea
+        // serves AT MOST one target opportunity. An idea pinned to two
+        // opportunities is unevaluatable — its impact and its competitors are
+        // ambiguous; split it, or pick the primary opportunity. A `drafting`
+        // sketch is exempt. Re-point by retiring the old `has_parent` edge
+        // before adding the new one; endpoints are immutable.
+        policy:
+          "Every committed (`queued` or `active`) idea serves AT MOST one target opportunity: it carries at most one `has_parent` edge to an Intent. An idea pinned to two opportunities can't be evaluated — its impact and its competitors are ambiguous. Split it into one idea per opportunity, or pick the primary one. A `drafting` sketch is exempt.",
+        predicate: {
+          kind: "limits_edge",
+          edge_type: "has_parent",
+          target_node_type: "intent",
+          max_count: 1,
+          when_node_type: ["idea"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+
+      // ── The assessment spine (block, committed) ───────────────────────
+      {
+        // An assessment must assess something: a committed Eval links the idea
+        // it scores or tests with a `supports` edge — the same dangling-result
+        // gate the roadmap and evals templates carry. Without it the verdict
+        // is an orphaned number.
+        policy:
+          "Every committed (`queued` or `active`) assessment links to the idea it assesses — a `supports` edge from the Eval to that idea. An assessment that assesses nothing is an orphaned verdict; the edge is what lets the tracker show how an idea earned its evaluation. A `drafting` assessment may defer the link.",
+        predicate: {
+          kind: "requires_edge",
+          edge_type: "supports",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Idea quality (probabilistic, warn, committed) ─────────────────
+      {
+        // LLM-judged, so a warn (an identical retry could differ; a warn
+        // nudges without trapping the author). Encodes one-idea-per-record and
+        // the real-problem discipline, naming the classic antipattern: a
+        // "problem" that merely restates the proposal as a lack.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the idea's prose (the proposal) and its `problem`. PASS when the prose pitches ONE concrete, actionable proposal and the `problem` states a real user or business need — who has it, what the pain is, and why it matters — that would still be worth solving if this particular proposal died. FAIL with a reason when the record bundles several distinct proposals (split them and link with `relates_to`), when the proposal is too vague to evaluate (`make the product better`), or when the `problem` merely restates the proposal as a lack or absence (`we don't have feature X`, `users can't do X yet`) instead of naming the need behind it.",
+          when_node_type: ["idea"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Assessment quality (probabilistic, warn, committed) ───────────
+      {
+        // The evaluate-with-evidence discipline: a verdict is auditable only
+        // when its method and inputs are visible. LLM-judged warn.
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "Check the assessment's prose and fields. PASS when the assessment shows its work: it names the method (a scoring pass against stated criteria such as ICE/RICE with the per-factor inputs, or a validation experiment such as a prototype test, painted-door, or interview round with what was run and observed) AND a verdict or recommendation a reader could challenge — validated / invalidated / score with what follows from it. FAIL with a reason when it is a bare gut call (`feels high-impact`), a score with no inputs to audit, or an experiment with no observed result.",
+          when_node_type: ["eval"],
+        },
+        fires_when_node_lifecycle: IDEA_COMMITTED_LIFECYCLES,
+      },
+
+      // ── Guidance (prose-only suggestions) ─────────────────────────────
+      {
+        policy:
+          "Keep capture frictionless — the inbox is sacred. Anyone (or any agent) jots an idea the moment it occurs, as a `drafting` node in the proposer's own words, without a perfect pitch: a bare one-liner is a valid jot. Credit the proposer — set `proposer_id` to their real user id when they are an in-product user (it references the users table; an invented id fails the write), or name an outside source (a customer, a sales call) in the prose or `problem`. Ideas die in unsent drafts, not in triage.",
+      },
+      {
+        policy:
+          "Keep one idea per record. Each Idea is exactly one proposal, so it can be evaluated, promoted, or rejected on its own; split a record that bundles several proposals and connect the parts with `relates_to`. Variants of one proposal stay on the canonical record (note them in the prose) rather than spawning siblings.",
+      },
+      {
+        policy:
+          "Separate the problem from the solution. The prose is the candidate solution; the `problem` field is the user or business need behind it — who has it, what the pain is, why it matters, ideally in the proposer's own words. The problem is the durable part: solutions are cheap and interchangeable, and a strong problem with a weak proposal is a better record than the reverse. Never write the problem as the solution restated as a lack (`we don't have X`).",
+      },
+      {
+        policy:
+          "Dedupe to one canonical idea. Search before filing; when a duplicate arrives anyway, fold its wording and evidence into the canonical record, retire the duplicate, and link the canonical idea to it with a `replaces` edge (the `supersede` changeset op does both at once) — so demand consolidates onto one record instead of fragmenting across near-duplicates.",
+      },
+      {
+        policy:
+          "Record demand as a stream, not a tally. Every time someone asks for an idea again — a support ticket, a sales call, a forum thread — capture it as a Log (who asked, when, in what context, how acute) with a `supports` edge to the idea. A demand event is a fact that already happened, so record it as `active` (the Doco-wide `drafting` default is for ideas, not facts); the same goes for evidence References. Frequency, recency, and who's asking are then read off the stream, which is the evidence a prioritization call needs; a vote count on the node tells you none of that. When a request arrives that no tracked idea covers, the orphan Log is the signal to write one — link the new idea `derived_from` the Log that sparked it.",
+      },
+      {
+        policy:
+          "Ground ideas in evidence. Link the feedback quotes, research, analytics, and competitor moves behind an idea as References with `supports` edges, and mark provenance with `derived_from` when the idea grew directly out of a finding. An idea backed by evidence can be evaluated; an opinion can only be argued with.",
+      },
+      {
+        policy:
+          "Cluster ideas under opportunities — the opportunity-solution-tree shape. Model each problem, unmet need, or desired outcome as an Intent, nest narrower opportunities under broader ones with `has_parent`, and link each idea to the ONE target opportunity it serves. Several competing ideas under one opportunity is healthy: it makes 'compare and combine before you commit' the default reading, and it keeps solutions tied to the problems that justify them.",
+      },
+      {
+        policy:
+          "Triage on a cadence — weekly or biweekly — rather than on arrival or never. Triage is where a jot earns commitment: dedupe it, frame its `problem`, name its shepherd (`attributed_to` a Principal — a person or an agent), link its opportunity, and move it to `queued` — or park or reject it honestly. An inbox that only ever grows is where ideas go to die.",
+      },
+      {
+        policy:
+          "Evaluate against explicit criteria, and show your work. Capture the team's rubric — ICE, RICE, value-vs-effort, strategic fit, whatever your team trusts — as a Rule linked with `constrained_by`, and record each scoring pass or validation experiment (a prototype test, a painted-door, an interview round) as an Eval that `supports` the idea, carrying its inputs and verdict so the ranking stays auditable. Test before you invest: a cheap experiment beats a confident opinion, and an invalidating result is a success — it killed a bad bet for the price of a test.",
+      },
+      {
+        policy:
+          "Walk an idea through the funnel on its lifecycle: `drafting` is the inbox and the parking lot (a jot may be a bare one-liner), `queued` is triaged (deduped, problem framed, shepherd named), `active` is in evaluation (the few ideas actually being scored and validated — keep this set small), and `retired` is closed. Completeness and quality gates apply once an idea is committed (`queued`/`active`); the inbox is spared.",
+      },
+      {
+        policy:
+          "Close every idea with an honest disposition, and close the loop with the proposer. Promote: record what the idea became in `promoted_to` — the roadmap bet (Intent), decision record, or delivery work it turned into, usually in a sibling Doco — then retire it. Reject: retire with a written `rejection_reason` that is kind, specific, and durable (future proposers of the same idea will find it; offer the alternative when one exists). Park: keep it `drafting` with a dated `rejection_reason` note saying what would revive it (a demand threshold, a dependency landing). In every case, tell the proposer what happened and why — an idea that dies of silence costs you every idea that person never files again.",
+      },
+      {
+        policy:
+          "Prune rather than hoard — the pipeline is not a commitment. An idea nobody has touched in months gets retired with an honest reason, not kept 'just in case': a backlog of a thousand stale ideas is worse than none, because nobody trusts or reads it. Trust resurrection over hoarding — a good idea will come back with fresh demand (and its retired record, found by the next proposer, carries the context forward).",
+      },
+      {
+        policy:
+          "Agents: read `GET /<handle>/api/authoring-contract.json` and write with `POST /<handle>/api/changesets.json`. Capture a jot as a bare `drafting` Idea; at triage, set its `problem`, and add its `attributed_to` shepherd and `has_parent` opportunity edges in the same changeset. Log each repeated request as an `active` Log with a `supports` edge to the canonical idea (use `supersede` to fold duplicates), record each assessment as an Eval together with its `supports` edge to the idea it assesses in one changeset, and close by patching `promoted_to` or `rejection_reason` and retiring — never by deleting.",
       },
     ],
   },
