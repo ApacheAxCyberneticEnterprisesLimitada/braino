@@ -18,7 +18,6 @@ const FLAVOR_HANDLES = [
   "architectural-decisions",
   "product-decisions",
   "design-decisions",
-  "data-decisions",
 ] as const;
 
 /** Seed a TemplatePolicy into the LoadedPolicy the real evaluator consumes. */
@@ -56,8 +55,8 @@ function runNode(
   });
 }
 
-describe("the four decision-record templates are registered", () => {
-  it("ships exactly the four flavors from the shared core", () => {
+describe("the three decision-record templates are registered", () => {
+  it("ships exactly the three flavors from the shared core", () => {
     expect(DECISION_RECORD_TEMPLATES.map((t) => t.name).sort()).toEqual([...FLAVOR_HANDLES].sort());
   });
 
@@ -200,10 +199,12 @@ describe("the domain-fit gates differ per flavor", () => {
     return fit.predicate.spec;
   }
 
-  it("ADR keys on architectural significance / quality attributes", () => {
-    expect(fitSpec("architectural-decisions")).toMatch(
-      /architecturally significant|quality attribute/i,
-    );
+  it("ADR keys on architectural significance and subsumes data-modeling/governance", () => {
+    const adr = fitSpec("architectural-decisions");
+    expect(adr).toMatch(/architecturally significant|quality attribute/i);
+    // The data flavor folded into the ADR log, so its fit gate now also admits
+    // data-modeling, storage, pipeline, and governance decisions.
+    expect(adr).toMatch(/schema|storage|pipeline|governance/i);
   });
   it("product keys on what-to-build for users / business goal", () => {
     expect(fitSpec("product-decisions")).toMatch(/what to build|user problem|business goal/i);
@@ -211,14 +212,11 @@ describe("the domain-fit gates differ per flavor", () => {
   it("design keys on UX / user needs / design principles", () => {
     expect(fitSpec("design-decisions")).toMatch(/UX|user needs|design principles/i);
   });
-  it("data keys on schema / storage / pipelines / governance", () => {
-    expect(fitSpec("data-decisions")).toMatch(/schema|storage|pipeline|governance/i);
-  });
 });
 
 // ── Behavioral: run the seeded gates through the REAL evaluator ──────────────
 describe("decision-record gates fire correctly through the real evaluator", () => {
-  // One flavor exercises the shared core; the core is identical across all four.
+  // One flavor exercises the shared core; the core is identical across all three.
   const t = findDocoTemplateByName("architectural-decisions");
   if (!t) throw new Error("architectural-decisions not registered");
 

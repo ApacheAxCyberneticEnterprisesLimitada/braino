@@ -68,7 +68,10 @@ function runScenario(handle: string, s: Scenario) {
   return { nodeViolations, edgeViolations };
 }
 
-// ── 10 realistic scenarios per template (all well-formed) ────────────────────
+// ── Realistic, well-formed scenarios per template ────────────────────────────
+// The architectural log now also carries the data-modeling, storage, and
+// governance decisions it subsumes (formerly the data template), so its list
+// runs longer than the others'.
 const DECIDER = { to: "principal_01TEAM", type: "attributed_to" };
 const SECOND_DECIDER = { to: "principal_02OWNER", type: "attributed_to" };
 const DRIVER = { to: "rule_01DRV", type: "constrained_by" };
@@ -86,7 +89,23 @@ const SCENARIOS: Record<string, Scenario[]> = {
     "API versioning strategy?",
     "Idempotency strategy for payment webhooks?",
     "Search backend: Postgres FTS or Elasticsearch?",
-  ].map((q) => ({ q, chosen: "the chosen option", edges: [DECIDER, DRIVER], wellFormed: true })),
+    // Data-modeling, storage, and governance decisions — now first-class ADRs.
+    "Partition the events table by month?",
+    "Source of truth for user identity across services?",
+    "PII retention: anonymize inactive accounts after 24 months?",
+    "Warehouse ingestion: batch ETL or CDC via Debezium?",
+    "Grain of the orders fact table?",
+    "Warehouse layering: raw / staging / marts?",
+    "Customer records: soft delete with a purge job?",
+    "Primary key strategy: UUIDv7 or bigint identity?",
+    "Events topic data contract: who owns the schema?",
+    "Money storage: integer minor units or decimal?",
+  ].map((q) => ({
+    q,
+    chosen: "the chosen option",
+    edges: [DECIDER, DRIVER, EVIDENCE],
+    wellFormed: true,
+  })),
 
   "product-decisions": [
     "Gate new signups behind invite codes during beta?",
@@ -113,24 +132,6 @@ const SCENARIOS: Record<string, Scenario[]> = {
     "Icon set: outline by default, filled for active?",
     "Onboarding voice: friendly and concise or formal?",
   ].map((q) => ({ q, chosen: "the chosen option", edges: [DECIDER, EVIDENCE], wellFormed: true })),
-
-  "data-decisions": [
-    "Partition the events table by month?",
-    "Source of truth for user identity across services?",
-    "PII retention: anonymize inactive accounts after 24 months?",
-    "Warehouse ingestion: batch ETL or CDC via Debezium?",
-    "Grain of the orders fact table?",
-    "Warehouse layering: raw / staging / marts?",
-    "Customer records: soft delete with a purge job?",
-    "Primary key strategy: UUIDv7 or bigint identity?",
-    "Events topic data contract: who owns the schema?",
-    "Money storage: integer minor units or decimal?",
-  ].map((q) => ({
-    q,
-    chosen: "the chosen option",
-    edges: [DECIDER, DRIVER, EVIDENCE],
-    wellFormed: true,
-  })),
 };
 
 describe("decision-record templates — 40 realistic scenarios produce no false blocks", () => {
@@ -240,7 +241,7 @@ describe("decision-record gates catch genuinely malformed records", () => {
 // process template's pattern. The domain-fit nudge, by contrast, fires on every
 // stage so an author is steered to the right log early.
 describe("probabilistic nudges fire at the right lifecycle stage", () => {
-  const H = "data-decisions";
+  const H = "architectural-decisions";
 
   function pendingSpecs(lifecycle: "drafting" | "queued" | "active"): string[] {
     const { nodeViolations } = runScenario(H, {

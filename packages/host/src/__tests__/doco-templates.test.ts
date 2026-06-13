@@ -37,10 +37,12 @@ describe("orphaned pre-unification templates are gone", () => {
 describe("removed templates are gone", () => {
   // Only the plural `glossaries` handle stays deleted. The glossary concept
   // returns as the singular `glossary` template (reshaped around References),
-  // the four decision-record templates return on a shared core
+  // the three decision-record templates return on a shared core
   // (`decision-record-templates.ts`), and `org-chart` returns as the
-  // abstraction for documenting org structure — all tested below.
-  for (const name of ["glossaries"]) {
+  // abstraction for documenting org structure — all tested below. The
+  // `data-decisions` flavor folded into `architectural-decisions`, which now
+  // subsumes data-modeling, storage, and governance decisions.
+  for (const name of ["glossaries", "data-decisions"]) {
     it(`does not register the removed \`${name}\` template`, () => {
       expect(findDocoTemplateByName(name)).toBeUndefined();
       expect(DEFAULT_DOCO_TEMPLATES.some((t) => t.name === name)).toBe(false);
@@ -51,7 +53,6 @@ describe("removed templates are gone", () => {
     expect(DEFAULT_DOCO_TEMPLATES.map((t) => t.name).sort()).toEqual([
       "architectural-decisions",
       "bugs",
-      "data-decisions",
       "design-decisions",
       "evals",
       "faq",

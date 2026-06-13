@@ -1,12 +1,12 @@
 /**
- * Decision-record templates — Architectural (ADR), Product, Design, and Data.
+ * Decision-record templates — Architectural (ADR), Product, and Design.
  *
- * All four document the SAME thing in four domains: a decision, its context and
- * rationale, the options weighed, who is accountable, and the forces that drove
- * it — kept as an append-only log so a future reader can tell *why* the call was
- * made and whether it still holds. Industry practice (Nygard ADRs, MADR, product
- * decision records, design decision records, data-contract decisions) converges
- * on one record shape:
+ * All three document the SAME thing in three domains: a decision, its context
+ * and rationale, the options weighed, who is accountable, and the forces that
+ * drove it — kept as an append-only log so a future reader can tell *why* the
+ * call was made and whether it still holds. Industry practice (Nygard ADRs,
+ * MADR, product decision records, design decision records) converges on one
+ * record shape:
  *
  *   question → considered options (+ why rejected) → chosen + rationale,
  *   with a status that moves Proposed → Accepted → Superseded, the people
@@ -15,19 +15,21 @@
  *
  * That shape already IS the `decision` node: `question`, `alternatives`
  * (`{name, rejected_because}`), `chosen` (null while drafting), `decision`
- * (the rationale prose), `decided_at`, plus the shared `lifecycle`. So the four
- * templates need NO new node type — they cultivate the existing Decision and map
- * the universal status onto the node lifecycle:
+ * (the rationale prose), `decided_at`, plus the shared `lifecycle`. So the
+ * three templates need NO new node type — they cultivate the existing Decision
+ * and map the universal status onto the node lifecycle:
  *
  *   drafting = draft / RFC (the choice may still be open, `chosen` may be empty)
  *   queued   = proposed   (fully formed, awaiting sign-off)
  *   active   = accepted   (in force)
  *   retired  = deprecated / superseded (the replacement carries a `replaces` edge)
  *
- * The four share ONE core (`decisionRecordCore`) and differ only in a
- * domain-fit gate plus a few lines of domain guidance (`FLAVORS`). Adding a fifth
- * decision flavor is one `FLAVORS` entry — there is deliberately no fifth copy of
- * the core policy list to keep in sync.
+ * The three share ONE core (`decisionRecordCore`) and differ only in a
+ * domain-fit gate plus a few lines of domain guidance (`FLAVORS`). Adding a
+ * fourth decision flavor is one `FLAVORS` entry — there is deliberately no
+ * fourth copy of the core policy list to keep in sync. Data-modeling, storage,
+ * and governance decisions are recorded as ADRs — the architectural flavor
+ * subsumes them rather than carrying a separate data log.
  */
 import type { Lifecycle } from "@doco/shared";
 import type { DocoTemplate, TemplatePolicy } from "./doco-templates.js";
@@ -215,13 +217,15 @@ const FLAVORS: DecisionFlavor[] = [
     label: "Architectural decisions (ADR)",
     icon: "🏛️",
     description:
-      "Record architecturally significant decisions (ADRs) — the context, the options weighed, the choice, and its consequences — as an append-only log.",
+      "Record architecturally significant decisions (ADRs) — system structure, technology choices, and how data is modeled, stored, and governed — as an append-only log of the context, the options weighed, the choice, and its consequences.",
     fitSpec:
-      "Check the Decision. PASS when it records an architecturally significant choice — one that shapes system structure or runtime topology, selects a core technology or the datastore an application runs on, affects a quality attribute (scalability, performance, security, reliability, maintainability), spans components, or is costly to reverse. FAIL when it is a routine, local coding choice with no structural or cross-cutting impact, a non-technical product or design decision, or a data-modeling, schema, grain, partitioning, lineage, retention, or governance decision — which belongs in a data decision log even when it concerns the same database.",
+      "Check the Decision. PASS when it records an architecturally significant choice — one that shapes system structure or runtime topology, selects a core technology or the datastore an application runs on, affects a quality attribute (scalability, performance, security, reliability, maintainability), spans components, or is costly to reverse. This includes how data is structured and governed within the system: the data model, schema, or grain; the storage format, partitioning, or layout of a dataset; pipelines and transformations; the source of truth; data lineage; and retention, privacy, or governance rules. FAIL when it is a routine, local coding choice with no structural or cross-cutting impact, or a non-technical product or design decision — record those in their own logs.",
     guidance: [
       "An ADR's decision drivers are its architecturally significant requirements — the quality attributes and constraints it must satisfy (a latency budget, a compliance rule, team skills, cost). Capture each as a Rule linked by `constrained_by`.",
       "Spell out the technical consequences in the `decision` prose, including what becomes harder: the new constraints, the operational burden, and the technical debt the choice deliberately takes on.",
       "Reference the components, services, and external standards an ADR governs so the record sits next to the architecture it concerns.",
+      "Name the migration, backfill, or cutover a decision requires — the operational path to adopt it — in the `decision` prose, so the record carries not just the choice but how the system gets there.",
+      "When a decision concerns data, make its data dimension explicit: the grain and source of truth it establishes (what one row or record represents, and which system owns it), the lineage it affects, and its governance impact — privacy classification, retention, and access. Capture data contracts, SLAs, and quality thresholds as Rules via `constrained_by`, and the data-quality checks that enforce them as Evals via `supports`.",
     ],
   },
   {
@@ -249,20 +253,6 @@ const FLAVORS: DecisionFlavor[] = [
     guidance: [
       "Ground the rationale in evidence: link the user research, usability test, or experiment that informed the decision as an Eval (`supports`), and the mockups, prototypes, or design specs as References (`supports`).",
       "Capture the design principles and constraints that drove the decision — accessibility requirements, platform conventions, the design system — as Rules via `constrained_by`.",
-    ],
-  },
-  {
-    name: "data-decisions",
-    label: "Data decisions",
-    icon: "🗃️",
-    description:
-      "Record data decisions — data models, schema, storage, pipelines, governance, and retention — with their lineage and compliance impact.",
-    fitSpec:
-      "Check the Decision. PASS when it records a data choice — a data model, schema, or grain; the storage format, partitioning, or layout of a dataset; a pipeline or transformation; a source of truth; retention; lineage; or a governance/compliance rule. FAIL when it has no data dimension and is really a product, design, or general architectural decision. Choosing the application's datastore or runtime technology is an architectural decision, but how data is modeled, partitioned, governed, and retained within it is a data decision.",
-    guidance: [
-      "State the grain and source of truth the decision establishes — what one row or record represents, and which system owns it — and note the data lineage the choice affects.",
-      "Record the governance and compliance impact: privacy classification, retention, and access. Capture data contracts, SLAs, and quality thresholds as Rules via `constrained_by`, and the data-quality checks that enforce them as Evals via `supports`.",
-      "Name the migration or backfill a decision requires, and supersede the record (don't edit it) when the schema or model changes, so the data's decision history stays auditable.",
     ],
   },
 ];
@@ -301,6 +291,6 @@ function decisionRecordTemplate(flavor: DecisionFlavor): DocoTemplate {
 }
 
 /**
- * The four decision-record templates, spread into `DEFAULT_DOCO_TEMPLATES`.
+ * The three decision-record templates, spread into `DEFAULT_DOCO_TEMPLATES`.
  */
 export const DECISION_RECORD_TEMPLATES: DocoTemplate[] = FLAVORS.map(decisionRecordTemplate);
