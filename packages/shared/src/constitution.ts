@@ -12,4 +12,6 @@ export const DEFAULT_WORKSPACE_CONSTITUTION = `This is a spec-driven development
 
 Follow the policies of every Doco in this workspace. They are binding, not advisory: when two policies appear to conflict, surface the conflict rather than silently choosing one.
 
-Document anything a future collaborator, whether a person or an agent, would need to gain context later: the reasoning behind decisions, the constraints that ruled out alternatives, and the rules that emerged along the way. If it would be hard to reconstruct later, write it down now.`;
+Document anything a future collaborator, whether a person or an agent, would need to gain context later: the reasoning behind decisions, the constraints that ruled out alternatives, and the rules that emerged along the way. If it would be hard to reconstruct later, write it down now.
+
+Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.`;

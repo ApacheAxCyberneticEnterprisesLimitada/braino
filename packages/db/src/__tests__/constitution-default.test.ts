@@ -42,4 +42,10 @@ describe("default workspace constitution text stays in sync", () => {
     expect(text).toMatch(/policies of every Doco/i);
     expect(text).toMatch(/future collaborator/i);
   });
+
+  it("names the baseline duties: load context, document decisions, record conversations", () => {
+    expect(text).toMatch(/start of every (session|conversation)/i);
+    expect(text).toMatch(/every decision/i);
+    expect(text).toMatch(/record (every|each) conversation/i);
+  });
 });
