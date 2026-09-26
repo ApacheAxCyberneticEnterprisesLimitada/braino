@@ -73,6 +73,23 @@ CREATE TABLE IF NOT EXISTS workspaces (
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
 
+-- Every constitution carries the three baseline agent duties (load context,
+-- document every decision, record every conversation). New workspaces get
+-- them from DEFAULT_WORKSPACE_CONSTITUTION (packages/shared/src/constitution.ts);
+-- this appends the same paragraph to any existing constitution that lacks it,
+-- so a workspace still on the old default becomes byte-identical to the new
+-- one and a customized charter keeps its text. Only constitutions without the
+-- paragraph match, so a reboot never rewrites one that already has it. The
+-- paragraph is kept byte-for-byte in sync with constitution.ts by
+-- packages/db/src/__tests__/constitution-duties-backfill.test.ts.
+UPDATE workspaces
+   SET constitution = CASE
+         WHEN constitution = '' THEN $duties$Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.$duties$
+         ELSE constitution || E'\n\n' || $duties$Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.$duties$
+       END,
+       updated_at = now()
+ WHERE position($duties$Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.$duties$ IN constitution) = 0;
+
 -- Workspace users (per-workspace role grants).
 CREATE TABLE IF NOT EXISTS workspace_users (
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
