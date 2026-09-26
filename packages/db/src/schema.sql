@@ -875,6 +875,12 @@ CREATE TABLE IF NOT EXISTS group_chat_mirrors (
   -- authorization to store its data; this records who gave it, and when.
   consented_by     text REFERENCES users(id) ON DELETE SET NULL,
   consented_at     timestamptz NOT NULL,
+  -- Sync pacing (lib/slack-mirror-sync.server.ts). The channel list and
+  -- members are refreshed hourly; each paced Slack method (history, thread
+  -- replies) runs again no sooner than its *_next_at.
+  channels_synced_at timestamptz,
+  history_next_at  timestamptz,
+  replies_next_at  timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now()
 );
 
@@ -891,8 +897,11 @@ CREATE TABLE IF NOT EXISTS group_chat_channels (
   -- NULL until the bot has joined (it only receives a channel's events, and
   -- can only read its history, as a member).
   joined_at        timestamptz,
-  -- History backfill walks newest → oldest: Slack's `next_cursor`, and done.
+  -- History backfill walks newest → oldest: Slack's `next_cursor`, the oldest
+  -- message ts reached so far (the next page goes to the channel least far
+  -- back, so all channels fill newest-first together), and done.
   history_cursor   text,
+  history_oldest_ts text,
   history_done_at  timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (doco_id, channel_id)
@@ -904,7 +913,9 @@ CREATE TABLE IF NOT EXISTS group_chat_messages (
   ts           text NOT NULL,              -- Slack's message id within the channel
   thread_ts    text,                       -- the thread's root ts (set on the root too); NULL = unthreaded
   reply_count  int  NOT NULL DEFAULT 0,    -- on thread roots, as Slack reports it
-  -- History backfill has fetched this root's pre-mirror replies.
+  -- History backfill of a thread root's replies: Slack's `next_cursor` while
+  -- paging, and done.
+  replies_cursor    text,
   replies_synced_at timestamptz,
   author_id    text,                       -- Slack user (U…) or bot (B…) id
   subtype      text,                       -- NULL for an ordinary message
@@ -1065,6 +1076,16 @@ ALTER TABLE oauth_device_authorizations
 -- (it depends on the column), then the column itself.
 DROP INDEX IF EXISTS idx_chat_attachments_conversation;
 ALTER TABLE chat_attachments DROP COLUMN IF EXISTS conversation_id;
+
+-- Slack mirror history backfill (added after the mirror tables first shipped).
+ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS channels_synced_at timestamptz;
+ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS history_next_at timestamptz;
+ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS replies_next_at timestamptz;
+ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS history_oldest_ts text;
+ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS replies_cursor text;
+-- Thread roots whose earlier replies the backfill still has to fetch.
+CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
+  ON group_chat_messages (doco_id) WHERE reply_count > 0 AND replies_synced_at IS NULL;
 
 -- Actor access tokens act as their user, capped at actor_role, resolved live —
 -- so the access token (not just the refresh token) carries the actor marker.
