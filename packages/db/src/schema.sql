@@ -852,6 +852,92 @@ CREATE TABLE IF NOT EXISTS group_chat_channel_intros (
   PRIMARY KEY (provider, workspace_id, channel_id)
 );
 
+-- ── Slack public-channel mirror ─────────────────────────────────────────
+-- A Doco can be a read-only copy of a Slack team's PUBLIC channels, kept in
+-- sync. Never DMs, private channels, or Slack Connect channels shared with
+-- another organization. Files are kept as links, never bytes.
+--
+-- Deliberately NOT `nodes`: a message deleted in Slack (or the whole copy, on
+-- uninstall) must really disappear, and a Slack team runs to millions of
+-- messages, while nodes are append-only, policy-checked graph knowledge. Every
+-- mirror row cascades from the mirror, which cascades from BOTH its Doco and
+-- its Slack installation, so deleting either wipes the copy.
+
+-- One row per mirroring Doco: "this Doco mirrors that Slack team".
+CREATE TABLE IF NOT EXISTS group_chat_mirrors (
+  doco_id          text PRIMARY KEY REFERENCES docos(id) ON DELETE CASCADE,
+  installation_id  text NOT NULL UNIQUE REFERENCES group_chat_installations(id) ON DELETE CASCADE,
+  -- `<team_domain>.slack.com`, for message permalinks.
+  team_domain      text NOT NULL,
+  -- History backfill floor: nothing older is fetched.
+  history_since    timestamptz NOT NULL,
+  -- Slack's API terms require the installing organization's explicit
+  -- authorization to store its data; this records who gave it, and when.
+  consented_by     text REFERENCES users(id) ON DELETE SET NULL,
+  consented_at     timestamptz NOT NULL,
+  created_at       timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS group_chat_channels (
+  doco_id          text NOT NULL REFERENCES group_chat_mirrors(doco_id) ON DELETE CASCADE,
+  channel_id       text NOT NULL,                    -- Slack C…
+  name             text NOT NULL,
+  topic            text NOT NULL DEFAULT '',
+  purpose          text NOT NULL DEFAULT '',
+  archived         boolean NOT NULL DEFAULT false,
+  -- The owner opted this channel out: nothing from it is copied. Kept as a row
+  -- so channel discovery doesn't add it back.
+  excluded         boolean NOT NULL DEFAULT false,
+  -- NULL until the bot has joined (it only receives a channel's events, and
+  -- can only read its history, as a member).
+  joined_at        timestamptz,
+  -- History backfill walks newest → oldest: Slack's `next_cursor`, and done.
+  history_cursor   text,
+  history_done_at  timestamptz,
+  created_at       timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (doco_id, channel_id)
+);
+
+CREATE TABLE IF NOT EXISTS group_chat_messages (
+  doco_id      text NOT NULL,
+  channel_id   text NOT NULL,
+  ts           text NOT NULL,              -- Slack's message id within the channel
+  thread_ts    text,                       -- the thread's root ts (set on the root too); NULL = unthreaded
+  reply_count  int  NOT NULL DEFAULT 0,    -- on thread roots, as Slack reports it
+  -- History backfill has fetched this root's pre-mirror replies.
+  replies_synced_at timestamptz,
+  author_id    text,                       -- Slack user (U…) or bot (B…) id
+  subtype      text,                       -- NULL for an ordinary message
+  text         text NOT NULL DEFAULT '',   -- raw Slack mrkdwn
+  files        jsonb NOT NULL DEFAULT '[]'::jsonb,  -- name/type/size/permalink only
+  -- Slack's `edited.ts`: an edit applies only if newer (events can arrive out of order).
+  edited_ts    text,
+  posted_at    timestamptz NOT NULL,
+  -- 'simple' (no stemming): exact-term lookups in any language; meaning-based
+  -- retrieval is the embeddings' job.
+  search_tsv   tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
+  PRIMARY KEY (doco_id, channel_id, ts),
+  FOREIGN KEY (doco_id, channel_id) REFERENCES group_chat_channels (doco_id, channel_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS group_chat_messages_thread_idx
+  ON group_chat_messages (doco_id, channel_id, thread_ts, ts) WHERE thread_ts IS NOT NULL;
+CREATE INDEX IF NOT EXISTS group_chat_messages_posted_idx
+  ON group_chat_messages (doco_id, posted_at DESC);
+CREATE INDEX IF NOT EXISTS group_chat_messages_tsv_idx
+  ON group_chat_messages USING gin (search_tsv);
+
+-- Slack people, so the mirror shows names without a users.info call per message.
+CREATE TABLE IF NOT EXISTS group_chat_members (
+  doco_id       text NOT NULL REFERENCES group_chat_mirrors(doco_id) ON DELETE CASCADE,
+  chat_user_id  text NOT NULL,
+  display_name  text NOT NULL DEFAULT '',
+  real_name     text NOT NULL DEFAULT '',
+  avatar_url    text,
+  is_bot        boolean NOT NULL DEFAULT false,
+  deactivated   boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (doco_id, chat_user_id)
+);
+
 -- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id                    text PRIMARY KEY,
