@@ -63,6 +63,7 @@ describe("removed templates are gone", () => {
       "process",
       "product-decisions",
       "product-roadmap",
+      "slack",
       "test-scenarios",
     ]);
   });

@@ -972,6 +972,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "pull-requests", isDefault: true }],
   },
   {
+    // Slack public-channel mirror. The Doco holds a read-only copy of a Slack
+    // workspace's public channels, kept in sync, in the group_chat_* mirror
+    // tables (not nodes: mirrored messages must be deletable). The Slack page,
+    // opened right after creation, turns the mirror on. Knowledge distilled
+    // from the conversations lives in the graph as usual.
+    name: "slack",
+    label: "Slack workspace",
+    icon: "💬",
+    description:
+      "A read-only copy of a Slack workspace's public channels, kept in sync, so its conversations can be searched alongside your Doco knowledge.",
+    policies: [],
+  },
+  {
     // Org chart — document an organization's STRUCTURE: who holds which
     // seat, who reports to whom, how seats group into teams, and where
     // decision authority sits. It renders on the org-tree perspective, which

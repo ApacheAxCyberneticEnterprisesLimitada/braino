@@ -926,6 +926,32 @@ CREATE INDEX IF NOT EXISTS group_chat_messages_posted_idx
 CREATE INDEX IF NOT EXISTS group_chat_messages_tsv_idx
   ON group_chat_messages USING gin (search_tsv);
 
+-- A mirror Doco stays private: its channels are visible only to members of
+-- that Slack team, never to the internet. Enforced here, not per route, so no
+-- settings surface (UI, API, agent) can publish one.
+CREATE OR REPLACE FUNCTION doco_mirror_stays_private() RETURNS trigger AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'docos' THEN
+    IF NEW.visibility <> 'private'
+       AND EXISTS (SELECT 1 FROM group_chat_mirrors WHERE doco_id = NEW.id) THEN
+      RAISE EXCEPTION 'A Slack mirror Doco must stay private.';
+    END IF;
+  ELSIF (SELECT visibility FROM docos WHERE id = NEW.doco_id) <> 'private' THEN
+    RAISE EXCEPTION 'Only a private Doco can mirror Slack.';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS docos_mirror_stays_private ON docos;
+CREATE TRIGGER docos_mirror_stays_private
+  BEFORE UPDATE OF visibility ON docos
+  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+DROP TRIGGER IF EXISTS group_chat_mirrors_private_doco ON group_chat_mirrors;
+CREATE TRIGGER group_chat_mirrors_private_doco
+  BEFORE INSERT OR UPDATE OF doco_id ON group_chat_mirrors
+  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+
 -- Slack people, so the mirror shows names without a users.info call per message.
 CREATE TABLE IF NOT EXISTS group_chat_members (
   doco_id       text NOT NULL REFERENCES group_chat_mirrors(doco_id) ON DELETE CASCADE,
