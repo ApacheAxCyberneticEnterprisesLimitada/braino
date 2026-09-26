@@ -983,6 +983,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "A read-only copy of a Slack workspace's public channels, kept in sync, so its conversations can be searched alongside your Doco knowledge.",
     policies: [],
+    perspectives: [{ slug: "slack", isDefault: true }],
   },
   {
     // Org chart — document an organization's STRUCTURE: who holds which
