@@ -49,3 +49,12 @@ describe("default workspace constitution text stays in sync", () => {
     expect(text).toMatch(/record (every|each) conversation/i);
   });
 });
+
+describe("DEFAULT_WORKSPACE_CONSTITUTION voice", () => {
+  it("never speaks in the first person", () => {
+    const body = defaultConstitutionText();
+    expect(body).not.toMatch(
+      /(^|[^A-Za-z'’])(I|I['’](?:m|ll|ve|d)|[Mm]e|[Mm]y|[Mm]ine|[Ww]e|[Ww]e['’](?:re|ll|ve|d)|[Uu]s|[Oo]ur|[Oo]urs)(?=[^A-Za-z'’]|$)/,
+    );
+  });
+});

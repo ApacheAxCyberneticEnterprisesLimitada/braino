@@ -469,7 +469,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   granted_workspace_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
-  -- 'actor' = the human approved an "act as me" credential: the minted
+  -- 'actor' = the human approved an "all workspaces" credential: the minted
   -- refresh token carries NO explicit grants and resolves the user's LIVE
   -- workspace membership (one workspace per access token) at refresh time.
   -- 'regular' (default) copies the granted_* sets above through verbatim.

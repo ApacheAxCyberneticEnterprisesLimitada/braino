@@ -1,4 +1,4 @@
-// The consent screens can mint an "act as me" credential: grant_type='actor'.
+// The consent screens can mint an "all workspaces" credential: grant_type='actor'.
 // That value rides the OAuth code and device-authorization rows on its way to
 // the refresh token, so both tables carry a grant_type column with a CHECK that
 // admits only 'regular' (default) and 'actor'. schema.sql is re-applied on every
