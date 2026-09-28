@@ -986,6 +986,19 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "slack", isDefault: true }],
   },
   {
+    // Notion mirror. The Doco holds a read-only copy of the Notion pages and
+    // databases a workspace shares with the Doco integration, kept in sync, in
+    // the notion_* mirror tables (not nodes: mirrored pages must be deletable).
+    // The Notion page, opened right after creation, turns the mirror on.
+    // Knowledge distilled from the pages lives in the graph as usual.
+    name: "notion",
+    label: "Notion workspace",
+    icon: "📓",
+    description:
+      "A read-only copy of the Notion pages and databases you share, kept in sync, so they can be searched alongside your Doco knowledge.",
+    policies: [],
+  },
+  {
     // Org chart — document an organization's STRUCTURE: who holds which
     // seat, who reports to whom, how seats group into teams, and where
     // decision authority sits. It renders on the org-tree perspective, which

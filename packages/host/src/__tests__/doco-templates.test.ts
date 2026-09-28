@@ -59,6 +59,7 @@ describe("removed templates are gone", () => {
       "github-pull-requests",
       "glossary",
       "ideas",
+      "notion",
       "org-chart",
       "process",
       "product-decisions",
