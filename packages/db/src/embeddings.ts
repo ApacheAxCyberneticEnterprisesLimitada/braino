@@ -49,6 +49,13 @@ export interface UpsertEmbeddingsOptions {
   pruneStale?: boolean;
 }
 
+/** The query side of a semantic search: the query's vector and the model
+ *  that produced it, so only comparable rows are ranked. */
+export interface SemanticQuery {
+  queryEmbedding: ArrayLike<number>;
+  modelId: string;
+}
+
 export interface EmbeddingHit {
   doco_id: string;
   entity_id: string;

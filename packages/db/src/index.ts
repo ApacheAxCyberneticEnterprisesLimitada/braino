@@ -103,6 +103,7 @@ export {
   type EmbeddingProviderLike,
   type EmbeddingSource,
   type EmbeddingsReport,
+  type SemanticQuery,
   type UpsertEmbeddingsOptions,
 } from "./embeddings.js";
 export { CHUNK_CHARS, CHUNK_OVERLAP_CHARS, chunkText, nodeIndexText } from "./chunks.js";

@@ -960,6 +960,7 @@ CREATE TABLE IF NOT EXISTS group_chat_messages (
   -- Slack's `edited.ts`: an edit applies only if newer (events can arrive out of order).
   edited_ts    text,
   posted_at    timestamptz NOT NULL,
+  embedded_hash text,                     -- md5(text) when its chunk was last embedded
   -- 'simple' (no stemming): exact-term lookups in any language; meaning-based
   -- retrieval is the embeddings' job.
   search_tsv   tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
@@ -972,6 +973,10 @@ CREATE INDEX IF NOT EXISTS group_chat_messages_posted_idx
   ON group_chat_messages (doco_id, posted_at DESC);
 CREATE INDEX IF NOT EXISTS group_chat_messages_tsv_idx
   ON group_chat_messages USING gin (search_tsv);
+ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS embedded_hash text;
+-- What the embedding sweep still has to embed.
+CREATE INDEX IF NOT EXISTS group_chat_messages_embed_pending_idx ON group_chat_messages (doco_id)
+  WHERE embedded_hash IS DISTINCT FROM md5(text);
 
 -- A mirror Doco stays private: its channels are visible only to members of
 -- that Slack team, never to the internet. Enforced here, not per route, so no
@@ -1095,6 +1100,7 @@ CREATE TABLE IF NOT EXISTS notion_pages (
   query_cursor     text,                          -- a data source's row listing in progress
   seen_at          timestamptz,                   -- last time a discovery walk listed it
   synced_at        timestamptz,                   -- NULL until content has been fetched once
+  embedded_hash    text,                          -- content_hash when its chunks were last embedded
   -- 'simple' (no stemming): exact-term lookups in any language, as for Slack.
   search_tsv       tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', title), 'A') ||
@@ -1107,6 +1113,10 @@ CREATE INDEX IF NOT EXISTS notion_pages_pending_idx
   ON notion_pages (doco_id, fetch_attempts, page_id) WHERE fetch_pending;
 CREATE INDEX IF NOT EXISTS notion_pages_edited_idx  ON notion_pages (doco_id, last_edited_time DESC);
 CREATE INDEX IF NOT EXISTS notion_pages_tsv_idx     ON notion_pages USING gin (search_tsv);
+ALTER TABLE notion_pages ADD COLUMN IF NOT EXISTS embedded_hash text;
+-- What the embedding sweep still has to embed.
+CREATE INDEX IF NOT EXISTS notion_pages_embed_pending_idx ON notion_pages (doco_id)
+  WHERE synced_at IS NOT NULL AND embedded_hash IS DISTINCT FROM content_hash;
 
 -- Page-to-page links found in a page's Markdown (<page>, <mention-page>,
 -- <database> tags and notion.so links).
@@ -1292,3 +1302,34 @@ BEGIN
     DROP TABLE account_grants;
   END IF;
 END $$;
+
+-- Embedding rows follow their entity: deleting a node, a policy, a Notion
+-- page or a Slack message, directly or through a cascade, drops its chunks,
+-- so no application path has to remember to.
+CREATE OR REPLACE FUNCTION embeddings_drop_for_row() RETURNS trigger AS $$
+BEGIN
+  IF TG_TABLE_NAME = 'notion_pages' THEN
+    DELETE FROM embeddings
+     WHERE doco_id = OLD.doco_id AND source = 'notion' AND entity_id = OLD.page_id;
+  ELSIF TG_TABLE_NAME = 'group_chat_messages' THEN
+    DELETE FROM embeddings
+     WHERE doco_id = OLD.doco_id AND source = 'slack'
+       AND entity_id = OLD.channel_id || ':' || OLD.ts;
+  ELSE
+    DELETE FROM embeddings
+     WHERE doco_id = OLD.doco_id AND source = 'node' AND entity_id = OLD.id;
+  END IF;
+  RETURN OLD;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS nodes_embeddings_drop ON nodes;
+CREATE TRIGGER nodes_embeddings_drop
+  AFTER DELETE ON nodes FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
+DROP TRIGGER IF EXISTS policies_embeddings_drop ON policies;
+CREATE TRIGGER policies_embeddings_drop
+  AFTER DELETE ON policies FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
+DROP TRIGGER IF EXISTS notion_pages_embeddings_drop ON notion_pages;
+CREATE TRIGGER notion_pages_embeddings_drop
+  AFTER DELETE ON notion_pages FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
+DROP TRIGGER IF EXISTS group_chat_messages_embeddings_drop ON group_chat_messages;
+CREATE TRIGGER group_chat_messages_embeddings_drop
+  AFTER DELETE ON group_chat_messages FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
