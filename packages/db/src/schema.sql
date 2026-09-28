@@ -332,21 +332,40 @@ CREATE INDEX IF NOT EXISTS edges_from_idx           ON edges (from_id);
 CREATE INDEX IF NOT EXISTS edges_to_idx             ON edges (to_id);
 CREATE INDEX IF NOT EXISTS edges_lifecycle_idx      ON edges (doco_id, lifecycle);
 
--- Vector embeddings. One row per entity. Storage is bytea
--- (Float32Array bytes, little-endian). pgvector + ivfflat/hnsw is an
--- additive optimization; the current bytea shape keeps indexing simple.
--- model_id + content_hash let the reindex hook skip work when nothing
--- changed; a model swap invalidates rows whose model_id differs.
+-- Vector embeddings, in pgvector: one row per chunk of an entity's text, for
+-- graph entities and mirror rows alike. `source` says which table the
+-- `entity_id` names (a node or policy id; a Notion page id; a Slack
+-- message's "<channel>:<ts>"), so search filters by it and stopping a mirror
+-- deletes its chunks in one statement. `chunk_text` is exactly what was
+-- embedded and doubles as the search snippet. model_id + content_hash let the
+-- embedding pass skip unchanged chunks; a model swap re-embeds rows whose
+-- model_id differs. Vectors shorter than 1536 dimensions (Voyage's 1024) are
+-- zero-padded, which leaves cosine similarity unchanged.
+CREATE EXTENSION IF NOT EXISTS vector;
+-- The table used to hold one bytea vector per entity. bytea has no cast to
+-- vector and re-embedding is cheap, so an old-shape table is dropped and the
+-- embedding sweep (web: lib/embedding-sweep.server.ts) refills the new one.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = current_schema() AND table_name = 'embeddings'
+                AND column_name = 'embedding' AND data_type = 'bytea') THEN
+    DROP TABLE embeddings;
+  END IF;
+END $$;
 CREATE TABLE IF NOT EXISTS embeddings (
-  entity_id     text PRIMARY KEY,
   doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  source        text NOT NULL CHECK (source IN ('node','notion','slack')),
+  entity_id     text NOT NULL,
+  chunk_index   int  NOT NULL DEFAULT 0,
   model_id      text NOT NULL,
   content_hash  text NOT NULL,
-  embedding     bytea NOT NULL,
-  updated_at    timestamptz NOT NULL DEFAULT now()
+  chunk_text    text NOT NULL,
+  embedding     vector(1536) NOT NULL,
+  updated_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (doco_id, entity_id, chunk_index)
 );
-CREATE INDEX IF NOT EXISTS embeddings_doco_idx  ON embeddings (doco_id);
-CREATE INDEX IF NOT EXISTS embeddings_model_idx ON embeddings (model_id);
+CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (doco_id, source, model_id);
+CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings USING hnsw (embedding vector_cosine_ops);
 
 -- Full-text search. Only nodes are indexed (entity_fts_nodes): the indexer
 -- populates summary + body, and Slack search — the lone reader — queries the

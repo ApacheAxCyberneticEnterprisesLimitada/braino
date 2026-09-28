@@ -92,17 +92,20 @@ export {
 } from "./types.js";
 
 export {
+  EMBEDDING_BATCH,
+  EMBEDDING_DIMENSIONS,
+  deleteEmbeddings,
+  rankEmbeddings,
   upsertEmbeddings,
-  getAllEmbeddingsForDoco,
-  computeContentHash,
-  cosineSimilarity,
-  embeddingToBuffer,
-  bufferToEmbedding,
+  vectorLiteral,
+  type EmbeddingHit,
+  type EmbeddingInput,
   type EmbeddingProviderLike,
+  type EmbeddingSource,
   type EmbeddingsReport,
   type UpsertEmbeddingsOptions,
-  type EmbeddingInput,
 } from "./embeddings.js";
+export { CHUNK_CHARS, CHUNK_OVERLAP_CHARS, chunkText, nodeIndexText } from "./chunks.js";
 
 export {
   rebuildDocoDerivedData,

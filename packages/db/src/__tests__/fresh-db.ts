@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite/vector";
 
 // The canonical baseline schema every Doco database is built from. Tests that
 // stand up a *legacy* shape (to exercise a self-healing migration) build their
@@ -19,7 +20,7 @@ let snapshot: Promise<Blob | File> | undefined;
 function schemaSnapshot(): Promise<Blob | File> {
   if (!snapshot) {
     snapshot = (async () => {
-      const seed = new PGlite();
+      const seed = new PGlite({ extensions: { vector } });
       await seed.exec(schemaSql);
       const dump = await seed.dumpDataDir("none"); // uncompressed = fastest
       await seed.close();
@@ -34,5 +35,5 @@ function schemaSnapshot(): Promise<Blob | File> {
  * applied. Drop-in replacement for `new PGlite(); await db.exec(schemaSql)`.
  */
 export async function freshDb(): Promise<PGlite> {
-  return PGlite.create({ loadDataDir: await schemaSnapshot() });
+  return PGlite.create({ loadDataDir: await schemaSnapshot(), extensions: { vector } });
 }

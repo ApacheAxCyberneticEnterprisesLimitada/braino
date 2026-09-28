@@ -4,45 +4,26 @@
 
 import {
   ALL_ENTITY_TABLES,
+  type EmbeddingInput,
   type EmbeddingProviderLike,
   type EmbeddingsReport,
-  computeContentHash,
+  chunkText,
+  nodeIndexText as indexTextOf,
   rebuildDocoDerivedData,
   upsertEmbeddings,
+  withClient,
 } from "@doco/db";
 import type { LoadedDoco, LoadedEntity } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 import { loadDocoFromPostgres } from "./loadDoco.js";
 
-// Identifying fields to index when a node has no prose yet. Order is the
-// fallback preference; deduped at join time.
-const FALLBACK_INDEX_FIELDS = ["locator", "name", "verb"] as const;
-
 /**
- * The text to index for a node — its FTS body and its embedding input: the
- * node's `prose`, its one text home.
- *
- * When the prose is empty — a content-thin node such as a freshly-created
- * Reference whose title hasn't been written yet — fall back to the node's
- * identifying fields so it still enters the index. Without this, an empty-prose
- * node is dropped by the `if (!text) continue` guard below: present in `nodes`
- * (and on the page) but absent from search. Pure.
+ * The text to index for a loaded node — its FTS body and its embedding
+ * input: the node's `prose`, or its identifying fields while the prose is
+ * empty (see @doco/db's `nodeIndexText`, which the embedding sweep shares).
  */
 export function nodeIndexText(le: LoadedEntity): string {
-  const data = (le.parsed.data ?? {}) as Record<string, unknown>;
-  const prose = le.parsed.prose?.trim() ?? "";
-  if (prose) return prose;
-  const seen = new Set<string>();
-  const parts: string[] = [];
-  for (const key of FALLBACK_INDEX_FIELDS) {
-    const raw = data[key];
-    if (typeof raw !== "string") continue;
-    const value = raw.trim();
-    if (!value || seen.has(value)) continue;
-    seen.add(value);
-    parts.push(value);
-  }
-  return parts.join(" — ");
+  return indexTextOf(le.parsed.prose, (le.parsed.data ?? {}) as Record<string, unknown>);
 }
 
 export interface BuildReport {
@@ -170,7 +151,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
 
   let embeddings: EmbeddingsReport | undefined;
   if (opts.embeddingProvider && !opts.skipEmbeddings) {
-    const texts: { entity_id: string; doco_id: string; text: string; content_hash: string }[] = [];
+    const texts: EmbeddingInput[] = [];
     for (const le of loaded.entities.values()) {
       if (incrementalIds && !incrementalIds.has(le.entity.id)) continue;
       // Nodes (including principals) embed their `prose` verbatim; policies
@@ -178,34 +159,29 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       const nodeType = entityTypeFromId(le.entity.id) || "unknown";
       const typeNamedColumn =
         nodeType !== "unknown" ? ALL_ENTITY_TABLES[nodeType]?.typeNamedColumn : undefined;
-      let summary: string;
-      let body: string;
       let text: string;
       if (typeNamedColumn) {
-        summary = "";
-        body = nodeIndexText(le);
-        text = body;
+        text = nodeIndexText(le);
       } else {
         const e = le.entity as unknown as Record<string, unknown>;
-        summary = typeof e.policy === "string" ? e.policy : "";
-        body = "";
-        text = `${summary}\n\n${body}`.trim();
+        text = typeof e.policy === "string" ? e.policy.trim() : "";
       }
       if (!text) continue;
       texts.push({
+        source: "node",
         entity_id: (le.entity as { id: string }).id,
         doco_id: docoId,
-        text,
-        content_hash: await computeContentHash(summary, body),
+        chunks: chunkText(text),
       });
     }
     try {
       // Prune-stale wipes embeddings for entities NOT in `texts`. On
       // an incremental pass we're only passing one entity, so pruning
       // would nuke every other embedding in the Doco — disable.
-      embeddings = await upsertEmbeddings(texts, opts.embeddingProvider, {
-        pruneStale: !incrementalIds,
-      });
+      const provider = opts.embeddingProvider;
+      embeddings = await withClient((c) =>
+        upsertEmbeddings(c, texts, provider, { pruneStale: !incrementalIds }),
+      );
     } catch (err) {
       // Best-effort: a transient provider failure (rate limit, network
       // blip) must not break the user-visible PATCH that triggered the

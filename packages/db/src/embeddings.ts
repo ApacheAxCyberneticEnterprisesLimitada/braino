@@ -1,15 +1,22 @@
-// Postgres-backed embedding storage. Replaces the SQLite `embeddings`
-// table that lived in @doco/index. Same algorithm (content-hash-gated
-// upsert, model-id stamping), different store.
-//
-// Storage wire format is `bytea` (Float32Array bytes, little-endian) —
-// same on-disk shape as the SQLite BLOB it replaces, so a future swap
-// to pgvector's `vector(N)` type is a column-type change with no
-// reformat.
+// pgvector-backed embedding storage: one row per chunk of an entity's text,
+// for graph entities and mirror rows alike (schema.sql, `embeddings`). Each
+// chunk is gated by its own content hash, so an edit to one paragraph
+// re-embeds one chunk, and ranking is one SQL statement: the nearest chunk of
+// each entity to the query. Callers pass the client, so the same code runs
+// inside a request, a cron tick, or a test's in-process Postgres.
 
-// node:crypto deferred to a dynamic import inside computeContentHash so
-// vite/rollup don't drag it into browser bundles via the @doco/db barrel.
-import { withClient, withTransaction } from "./client.js";
+export type EmbeddingSource = "node" | "notion" | "slack";
+
+/** The column's dimensions; shorter vectors are zero-padded on the way in,
+ *  which leaves cosine similarity unchanged. */
+export const EMBEDDING_DIMENSIONS = 1536;
+/** Chunks per provider call: well under OpenAI's 2,048 inputs, and short
+ *  enough that a call finishes in a second or two. */
+export const EMBEDDING_BATCH = 100;
+
+export interface QueryClient {
+  query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
+}
 
 // `inputType` mirrors @doco/index's EmbeddingInputType ("query" | "document").
 // Inlined rather than imported because @doco/index depends on @doco/db, not
@@ -20,40 +27,13 @@ export interface EmbeddingProviderLike {
   embed(texts: string[], inputType?: "query" | "document"): Promise<Float32Array[]>;
 }
 
-/** SHA-1 of (summary + "\n\n" + body). Stable across runs. */
-export async function computeContentHash(summary: string, body: string): Promise<string> {
-  const { createHash } = await import(/* @vite-ignore */ "node:crypto");
-  return createHash("sha1").update(`${summary}\n\n${body}`).digest("hex");
-}
-
-/** Cosine similarity between two equally-sized vectors. Returns 0 on a zero vector. */
-export function cosineSimilarity(a: Float32Array, b: Float32Array): number {
-  const n = Math.min(a.length, b.length);
-  let dot = 0;
-  let na = 0;
-  let nb = 0;
-  for (let i = 0; i < n; i++) {
-    dot += a[i] * b[i];
-    na += a[i] * a[i];
-    nb += b[i] * b[i];
-  }
-  if (na === 0 || nb === 0) return 0;
-  return dot / (Math.sqrt(na) * Math.sqrt(nb));
-}
-
-/** Float32Array → Buffer (no copy). Little-endian. */
-export function embeddingToBuffer(arr: Float32Array): Buffer {
-  return Buffer.from(arr.buffer, arr.byteOffset, arr.byteLength);
-}
-
-/** Buffer → Float32Array. Copies into an aligned buffer when needed. */
-export function bufferToEmbedding(buf: Buffer): Float32Array {
-  if (buf.byteOffset % 4 === 0) {
-    return new Float32Array(buf.buffer, buf.byteOffset, buf.byteLength / 4);
-  }
-  const copy = new ArrayBuffer(buf.byteLength);
-  new Uint8Array(copy).set(buf);
-  return new Float32Array(copy);
+export interface EmbeddingInput {
+  source: EmbeddingSource;
+  entity_id: string;
+  doco_id: string;
+  /** The texts to embed, in order. Blank ones are dropped; an entity left
+   *  with none loses its rows. */
+  chunks: string[];
 }
 
 export interface EmbeddingsReport {
@@ -64,144 +44,221 @@ export interface EmbeddingsReport {
 }
 
 export interface UpsertEmbeddingsOptions {
-  /**
-   * When true, delete embedding rows for entity_ids not present in
-   * the input set after the upsert. Scoped to the Doco of the
-   * passed entries (we won't ever delete across docos).
-   */
+  /** Delete the rows of the inputs' sources, in the inputs' Docos, for
+   *  entities not in the input set: a full reindex's stale sweep. */
   pruneStale?: boolean;
 }
 
-export interface EmbeddingInput {
-  entity_id: string;
+export interface EmbeddingHit {
   doco_id: string;
-  text: string;
-  content_hash: string;
+  entity_id: string;
+  /** The entity's nearest chunk: what to show as the snippet. */
+  chunk_text: string;
+  /** Cosine similarity to the query, 1 for identical. */
+  score: number;
+}
+
+/** The pgvector literal for a vector, zero-padded (or cut) to the column's
+ *  dimensions. */
+export function vectorLiteral(
+  vector: ArrayLike<number>,
+  dimensions = EMBEDDING_DIMENSIONS,
+): string {
+  const parts: string[] = new Array(dimensions);
+  for (let i = 0; i < dimensions; i++) parts[i] = i < vector.length ? String(vector[i]) : "0";
+  return `[${parts.join(",")}]`;
 }
 
 /**
- * Walk every entity, embed any whose `(model_id, content_hash)` doesn't
- * match the current row, and upsert. Runs the whole pass inside one
- * transaction so a crash mid-batch doesn't leave half-written rows.
- *
- * Empty / whitespace-only texts are skipped — there's nothing to embed.
+ * Embed the inputs' chunks that the table lacks for this model and write
+ * them, one provider call per batch. Unchanged chunks (same model, same
+ * hash) are skipped; chunks past an entity's new count are dropped.
  */
 export async function upsertEmbeddings(
+  c: QueryClient,
   inputs: EmbeddingInput[],
   provider: EmbeddingProviderLike,
   opts: UpsertEmbeddingsOptions = {},
 ): Promise<EmbeddingsReport> {
   const modelId = provider.modelId;
-  const candidates = inputs.filter((t) => t.text.trim().length > 0);
-
-  // Group by doco_id for the prune step (single-Doco runs are the
-  // common case, but we don't assume).
-  const docoIds = Array.from(new Set(candidates.map((c) => c.doco_id)));
+  const entities = inputs.map((input) => ({
+    ...input,
+    chunks: input.chunks.map((chunk) => chunk.trim()).filter(Boolean),
+  }));
+  const docoIds = [...new Set(entities.map((e) => e.doco_id))];
+  const entityIds = entities.map((e) => e.entity_id);
 
   let pruned = 0;
-  if (opts.pruneStale) {
-    pruned = await pruneStaleEmbeddings(docoIds, new Set(candidates.map((c) => c.entity_id)));
+  if (opts.pruneStale && docoIds.length > 0) {
+    const sources = [...new Set(entities.map((e) => e.source))];
+    pruned = (
+      await c.query<{ entity_id: string }>(
+        `DELETE FROM embeddings
+          WHERE doco_id = ANY($1::text[]) AND source = ANY($2::text[])
+            AND entity_id <> ALL($3::text[])
+          RETURNING entity_id`,
+        [docoIds, sources, entityIds],
+      )
+    ).rows.length;
   }
+  if (entities.length === 0) return { computed: 0, skipped: 0, pruned, modelId };
 
-  if (candidates.length === 0) {
-    return { computed: 0, skipped: 0, pruned, modelId };
-  }
-
-  const ids = candidates.map((c) => c.entity_id);
-  const existing = await withClient(async (c) => {
-    const r = await c.query<{ entity_id: string; model_id: string; content_hash: string }>(
-      `SELECT entity_id, model_id, content_hash
-         FROM embeddings
-        WHERE entity_id = ANY($1::text[])`,
-      [ids],
-    );
-    return r.rows;
-  });
-  const byId = new Map(existing.map((r) => [r.entity_id, r]));
-
-  const toEmbed: EmbeddingInput[] = [];
-  let skipped = 0;
-  for (const c of candidates) {
-    const prev = byId.get(c.entity_id);
-    if (prev && prev.model_id === modelId && prev.content_hash === c.content_hash) {
-      skipped++;
-      continue;
-    }
-    toEmbed.push(c);
-  }
-  if (toEmbed.length === 0) {
-    return { computed: 0, skipped, pruned, modelId };
-  }
-
-  // Indexing the corpus: these are documents, not queries. Asymmetric
-  // providers (Voyage/Cohere) use the hint; symmetric ones ignore it.
-  const vectors = await provider.embed(
-    toEmbed.map((c) => c.text),
-    "document",
+  // Rows past each entity's chunk count go: a shorter text, or an emptied one.
+  await c.query(
+    `DELETE FROM embeddings e
+      USING unnest($1::text[], $2::text[], $3::int[]) AS t(doco_id, entity_id, keep)
+      WHERE e.doco_id = t.doco_id AND e.entity_id = t.entity_id AND e.chunk_index >= t.keep`,
+    [entities.map((e) => e.doco_id), entityIds, entities.map((e) => e.chunks.length)],
   );
-  if (vectors.length !== toEmbed.length) {
-    throw new Error(
-      `Embedding provider returned ${vectors.length} vectors for ${toEmbed.length} inputs (provider=${modelId}).`,
-    );
+
+  const existing = (
+    await c.query<{
+      doco_id: string;
+      entity_id: string;
+      chunk_index: number;
+      model_id: string;
+      content_hash: string;
+    }>(
+      `SELECT doco_id, entity_id, chunk_index, model_id, content_hash
+         FROM embeddings
+        WHERE doco_id = ANY($1::text[]) AND entity_id = ANY($2::text[])`,
+      [docoIds, entityIds],
+    )
+  ).rows;
+  const have = new Map(existing.map((r) => [`${r.doco_id}\n${r.entity_id}\n${r.chunk_index}`, r]));
+
+  // node:crypto is imported lazily so the @doco/db barrel stays out of
+  // browser bundles.
+  const { createHash } = await import(/* @vite-ignore */ "node:crypto");
+  const pending: {
+    entity: (typeof entities)[number];
+    index: number;
+    text: string;
+    hash: string;
+  }[] = [];
+  let skipped = 0;
+  for (const entity of entities) {
+    for (let index = 0; index < entity.chunks.length; index++) {
+      const text = entity.chunks[index];
+      const hash = createHash("sha1").update(text).digest("hex");
+      const prev = have.get(`${entity.doco_id}\n${entity.entity_id}\n${index}`);
+      if (prev && prev.model_id === modelId && prev.content_hash === hash) {
+        skipped++;
+        continue;
+      }
+      pending.push({ entity, index, text, hash });
+    }
   }
 
-  await withTransaction(async (c) => {
-    for (let i = 0; i < toEmbed.length; i++) {
-      const t = toEmbed[i];
-      await c.query(
-        `INSERT INTO embeddings (entity_id, doco_id, model_id, content_hash, embedding, updated_at)
-              VALUES ($1, $2, $3, $4, $5, now())
-         ON CONFLICT (entity_id) DO UPDATE SET
-              doco_id      = EXCLUDED.doco_id,
-              model_id     = EXCLUDED.model_id,
-              content_hash = EXCLUDED.content_hash,
-              embedding    = EXCLUDED.embedding,
-              updated_at   = now()`,
-        [t.entity_id, t.doco_id, modelId, t.content_hash, embeddingToBuffer(vectors[i])],
+  let computed = 0;
+  for (let at = 0; at < pending.length; at += EMBEDDING_BATCH) {
+    const batch = pending.slice(at, at + EMBEDDING_BATCH);
+    // Indexing the corpus: these are documents, not queries. Asymmetric
+    // providers (Voyage/Cohere) use the hint; symmetric ones ignore it.
+    const vectors = await provider.embed(
+      batch.map((p) => p.text),
+      "document",
+    );
+    if (vectors.length !== batch.length) {
+      throw new Error(
+        `Embedding provider returned ${vectors.length} vectors for ${batch.length} inputs (provider=${modelId}).`,
       );
     }
-  });
-
-  return { computed: toEmbed.length, skipped, pruned, modelId };
-}
-
-/**
- * Delete embedding rows in the named docos whose entity_id is NOT in `keep`.
- * Operates per-Doco so a reindex of Doco X never wipes Doco Y's vectors.
- */
-async function pruneStaleEmbeddings(docoIds: string[], keep: Set<string>): Promise<number> {
-  if (docoIds.length === 0) return 0;
-  return withClient(async (c) => {
-    if (keep.size === 0) {
-      const r = await c.query("DELETE FROM embeddings WHERE doco_id = ANY($1::text[])", [docoIds]);
-      return r.rowCount ?? 0;
-    }
-    const r = await c.query(
-      `DELETE FROM embeddings
-        WHERE doco_id = ANY($1::text[])
-          AND entity_id <> ALL($2::text[])`,
-      [docoIds, Array.from(keep)],
+    await c.query(
+      `INSERT INTO embeddings
+         (doco_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
+       SELECT r.doco_id, r.source, r.entity_id, r.chunk_index, $1, r.content_hash, r.chunk_text,
+              r.embedding::vector
+         FROM unnest($2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::text[], $8::text[])
+           AS r(doco_id, source, entity_id, chunk_index, content_hash, chunk_text, embedding)
+       ON CONFLICT (doco_id, entity_id, chunk_index) DO UPDATE SET
+         source = EXCLUDED.source,
+         model_id = EXCLUDED.model_id,
+         content_hash = EXCLUDED.content_hash,
+         chunk_text = EXCLUDED.chunk_text,
+         embedding = EXCLUDED.embedding,
+         updated_at = now()`,
+      [
+        modelId,
+        batch.map((p) => p.entity.doco_id),
+        batch.map((p) => p.entity.source),
+        batch.map((p) => p.entity.entity_id),
+        batch.map((p) => p.index),
+        batch.map((p) => p.hash),
+        batch.map((p) => p.text),
+        vectors.map((v) => vectorLiteral(v)),
+      ],
     );
-    return r.rowCount ?? 0;
-  });
+    computed += batch.length;
+  }
+  return { computed, skipped, pruned, modelId };
 }
 
-/**
- * Every embedding for one Doco. Used by the semantic search endpoints
- * (ADR-052): candidate set is the full Doco, ranked by cosine in
- * application code.
- */
-export async function getAllEmbeddingsForDoco(
+/** Delete a source's rows in a Doco: all of them, or the named entities'.
+ *  Returns how many went. */
+export async function deleteEmbeddings(
+  c: QueryClient,
   docoId: string,
-): Promise<{ entity_id: string; embedding: Float32Array }[]> {
-  return withClient(async (c) => {
-    const r = await c.query<{ entity_id: string; embedding: Buffer }>(
-      "SELECT entity_id, embedding FROM embeddings WHERE doco_id = $1",
-      [docoId],
-    );
-    return r.rows.map((row) => ({
-      entity_id: row.entity_id,
-      embedding: bufferToEmbedding(row.embedding),
-    }));
-  });
+  source: EmbeddingSource,
+  entityIds?: string[],
+): Promise<number> {
+  if (entityIds && entityIds.length === 0) return 0;
+  const rows = (
+    await c.query<{ entity_id: string }>(
+      `DELETE FROM embeddings
+        WHERE doco_id = $1 AND source = $2
+          AND ($3::text[] IS NULL OR entity_id = ANY($3::text[]))
+        RETURNING entity_id`,
+      [docoId, source, entityIds ?? null],
+    )
+  ).rows;
+  return rows.length;
+}
+
+/**
+ * The entities nearest the query: each entity's best chunk, best first,
+ * among the Docos asked, for one source and the query's model (vectors from
+ * another model are not comparable). `entityIds` narrows to a candidate set.
+ */
+export async function rankEmbeddings(
+  c: QueryClient,
+  args: {
+    docoIds: string[];
+    source: EmbeddingSource;
+    modelId: string;
+    queryEmbedding: ArrayLike<number>;
+    limit: number;
+    entityIds?: string[] | null;
+  },
+): Promise<EmbeddingHit[]> {
+  if (args.docoIds.length === 0 || args.limit <= 0) return [];
+  if (args.entityIds && args.entityIds.length === 0) return [];
+  const rows = (
+    await c.query<{
+      doco_id: string;
+      entity_id: string;
+      chunk_text: string;
+      score: number | string;
+    }>(
+      `SELECT doco_id, entity_id, chunk_text, score FROM (
+         SELECT DISTINCT ON (doco_id, entity_id)
+                doco_id, entity_id, chunk_text, 1 - (embedding <=> $1::vector) AS score
+           FROM embeddings
+          WHERE doco_id = ANY($2::text[]) AND source = $3 AND model_id = $4
+            AND ($5::text[] IS NULL OR entity_id = ANY($5::text[]))
+          ORDER BY doco_id, entity_id, embedding <=> $1::vector
+       ) best
+       ORDER BY score DESC, doco_id, entity_id
+       LIMIT $6`,
+      [
+        vectorLiteral(args.queryEmbedding),
+        args.docoIds,
+        args.source,
+        args.modelId,
+        args.entityIds ?? null,
+        args.limit,
+      ],
+    )
+  ).rows;
+  return rows.map((row) => ({ ...row, score: Number(row.score) }));
 }
