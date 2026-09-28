@@ -650,7 +650,7 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
-  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack')),
+  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion')),
   name            text NOT NULL,
   description     text,
   icon            text,
@@ -1222,15 +1222,17 @@ ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS replies_cursor text;
 CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
   ON group_chat_messages (doco_id) WHERE reply_count > 0 AND replies_synced_at IS NULL;
 
--- The Slack perspective (a Slack-mirror Doco's channel reader). Its kind joins
--- the perspectives CHECK here, before its built-in row, because on an existing
--- database the inline CHECK above is a no-op and the old constraint would
--- reject the row and abort the schema apply.
+-- The mirror perspectives (a Slack-mirror Doco's channel reader, a
+-- Notion-mirror Doco's page reader). Their kinds join the perspectives CHECK
+-- here, before their built-in rows, because on an existing database the
+-- inline CHECK above is a no-op and the old constraint would reject the rows
+-- and abort the schema apply.
 ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
 ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
-  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack'));
+  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion'));
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
-  ('perspective_slack','slack','slack','Slack','A mirrored Slack workspace''s public channels: messages, threads, and search.','💬',NULL,true,'{}'::jsonb)
+  ('perspective_slack','slack','slack','Slack','A mirrored Slack workspace''s public channels: messages, threads, and search.','💬',NULL,true,'{}'::jsonb),
+  ('perspective_notion','notion','notion','Notion','A mirrored Notion workspace''s shared pages and databases: the page tree, each page, and search.','📓',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- Actor access tokens act as their user, capped at actor_role, resolved live —

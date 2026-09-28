@@ -997,6 +997,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "A read-only copy of the Notion pages and databases you share, kept in sync, so they can be searched alongside your Doco knowledge.",
     policies: [],
+    perspectives: [{ slug: "notion", isDefault: true }],
   },
   {
     // Org chart — document an organization's STRUCTURE: who holds which

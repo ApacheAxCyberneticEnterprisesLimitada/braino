@@ -2273,3 +2273,10 @@ describe("edge-type allowlists (requires_edge_type)", () => {
     expect(seeded.predicate.edge_types).toContain("flows_to");
   });
 });
+
+describe("notion template", () => {
+  it("opens on the Notion perspective", () => {
+    const template = findDocoTemplateByName("notion");
+    expect(template?.perspectives).toEqual([{ slug: "notion", isDefault: true }]);
+  });
+});
