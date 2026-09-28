@@ -957,15 +957,18 @@ CREATE INDEX IF NOT EXISTS group_chat_messages_tsv_idx
 -- A mirror Doco stays private: its channels are visible only to members of
 -- that Slack team, never to the internet. Enforced here, not per route, so no
 -- settings surface (UI, API, agent) can publish one.
+-- Shared with the Notion mirror below: a Doco that mirrors either source
+-- stays private, and only a private Doco can start mirroring.
 CREATE OR REPLACE FUNCTION doco_mirror_stays_private() RETURNS trigger AS $$
 BEGIN
   IF TG_TABLE_NAME = 'docos' THEN
     IF NEW.visibility <> 'private'
-       AND EXISTS (SELECT 1 FROM group_chat_mirrors WHERE doco_id = NEW.id) THEN
-      RAISE EXCEPTION 'A Slack mirror Doco must stay private.';
+       AND (EXISTS (SELECT 1 FROM group_chat_mirrors WHERE doco_id = NEW.id)
+            OR EXISTS (SELECT 1 FROM notion_mirrors WHERE doco_id = NEW.id)) THEN
+      RAISE EXCEPTION 'A mirror Doco must stay private.';
     END IF;
   ELSIF (SELECT visibility FROM docos WHERE id = NEW.doco_id) <> 'private' THEN
-    RAISE EXCEPTION 'Only a private Doco can mirror Slack.';
+    RAISE EXCEPTION 'Only a private Doco can be a mirror.';
   END IF;
   RETURN NEW;
 END;
@@ -990,6 +993,121 @@ CREATE TABLE IF NOT EXISTS group_chat_members (
   is_bot        boolean NOT NULL DEFAULT false,
   deactivated   boolean NOT NULL DEFAULT false,
   PRIMARY KEY (doco_id, chat_user_id)
+);
+
+-- ── Notion mirror ─────────────────────────────────────────────────────────
+-- A Doco can be a read-only copy of the Notion pages and databases a
+-- workspace owner shared with the Doco integration, kept in sync. The same
+-- rules as the Slack mirror: deliberately NOT `nodes` (a page trashed or
+-- unshared in Notion must really disappear, and a workspace runs to tens of
+-- thousands of pages), every row cascades from the mirror, which cascades
+-- from the Doco, and the Doco stays private (the trigger above). Files and
+-- images are kept as links, never bytes.
+
+-- One row per mirroring Doco: "this Doco mirrors that Notion workspace".
+CREATE TABLE IF NOT EXISTS notion_mirrors (
+  doco_id              text PRIMARY KEY REFERENCES docos(id) ON DELETE CASCADE,
+  -- One Notion workspace feeds one mirror.
+  workspace_id         text NOT NULL UNIQUE,
+  workspace_name       text NOT NULL DEFAULT '',
+  workspace_icon       text,
+  -- One authorization = one bot. Webhook events name the bots that can reach
+  -- an entity, so this is the routing key.
+  bot_id               text NOT NULL UNIQUE,
+  -- Encrypted at rest (lib/secret-box.server.ts), as the Slack bot token is.
+  access_token         text NOT NULL,
+  refresh_token        text,
+  -- The Notion user who approved the authorization (name or id).
+  authorized_by        text,
+  -- Who confirmed, on behalf of their organization, that Doco may keep the copy.
+  consented_by         text REFERENCES users(id) ON DELETE SET NULL,
+  consented_at         timestamptz NOT NULL,
+  -- Sync pacing (lib/notion-mirror-sync.server.ts): a discovery walk's search
+  -- cursor and timestamps, the last incremental reconcile, the users listing,
+  -- a rate-limit pause, the tick heartbeat (the integration status calls the
+  -- copy stalled when pages are pending and this is old), the lease a running
+  -- tick holds so the next cron tick skips the mirror, and when the token
+  -- stopped working.
+  discovery_cursor     text,
+  discovery_started_at timestamptz,
+  discovered_at        timestamptz,
+  reconciled_at        timestamptz,
+  users_cursor         text,
+  users_synced_at      timestamptz,
+  next_at              timestamptz,
+  ticked_at            timestamptz,
+  ticking_until        timestamptz,
+  needs_reauth_at      timestamptz,
+  created_at           timestamptz NOT NULL DEFAULT now()
+);
+
+DROP TRIGGER IF EXISTS notion_mirrors_private_doco ON notion_mirrors;
+CREATE TRIGGER notion_mirrors_private_doco
+  BEFORE INSERT OR UPDATE OF doco_id ON notion_mirrors
+  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+
+-- One row per mirrored object: a page (every database row is a page too) or a
+-- data source (a database's table). Discovery and webhooks insert stubs with
+-- `fetch_pending`; the sync's drain fills them. The primary key dedupes, so a
+-- burst of events for one page is one fetch.
+CREATE TABLE IF NOT EXISTS notion_pages (
+  doco_id          text NOT NULL REFERENCES notion_mirrors(doco_id) ON DELETE CASCADE,
+  page_id          text NOT NULL,                 -- Notion uuid (dashed)
+  object           text NOT NULL CHECK (object IN ('page','data_source')),
+  parent_id        text,                          -- page or data source uuid; NULL at a shared root
+  parent_type      text,                          -- page | data_source | database | workspace | block
+  title            text NOT NULL DEFAULT '',
+  icon             text,
+  -- https://www.notion.so/<id>: stable across renames (Notion's own url embeds the title).
+  url              text NOT NULL,
+  -- A row's flattened property values; a data source's schema.
+  properties       jsonb NOT NULL DEFAULT '{}'::jsonb,
+  markdown         text NOT NULL DEFAULT '',      -- normalized enhanced Markdown, for rendering
+  plain_text       text NOT NULL DEFAULT '',      -- tags stripped; what search sees
+  content_hash     text NOT NULL DEFAULT '',
+  created_time     timestamptz,
+  last_edited_time timestamptz,
+  last_edited_by   text,
+  truncated        boolean NOT NULL DEFAULT false,
+  fetch_pending    boolean NOT NULL DEFAULT true,
+  fetch_reason     text,                          -- discover | reconcile | webhook | schema | retry
+  fetch_attempts   int  NOT NULL DEFAULT 0,
+  fetch_error      text,
+  query_cursor     text,                          -- a data source's row listing in progress
+  seen_at          timestamptz,                   -- last time a discovery walk listed it
+  synced_at        timestamptz,                   -- NULL until content has been fetched once
+  -- 'simple' (no stemming): exact-term lookups in any language, as for Slack.
+  search_tsv       tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', title), 'A') ||
+    to_tsvector('simple', left(plain_text, 500000))
+  ) STORED,
+  PRIMARY KEY (doco_id, page_id)
+);
+CREATE INDEX IF NOT EXISTS notion_pages_parent_idx  ON notion_pages (doco_id, parent_id);
+CREATE INDEX IF NOT EXISTS notion_pages_pending_idx
+  ON notion_pages (doco_id, fetch_attempts, page_id) WHERE fetch_pending;
+CREATE INDEX IF NOT EXISTS notion_pages_edited_idx  ON notion_pages (doco_id, last_edited_time DESC);
+CREATE INDEX IF NOT EXISTS notion_pages_tsv_idx     ON notion_pages USING gin (search_tsv);
+
+-- Page-to-page links found in a page's Markdown (<page>, <mention-page>,
+-- <database> tags and notion.so links).
+CREATE TABLE IF NOT EXISTS notion_links (
+  doco_id       text NOT NULL,
+  from_page_id  text NOT NULL,
+  to_page_id    text NOT NULL,
+  PRIMARY KEY (doco_id, from_page_id, to_page_id),
+  FOREIGN KEY (doco_id, from_page_id) REFERENCES notion_pages (doco_id, page_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS notion_links_to_idx ON notion_links (doco_id, to_page_id);
+
+-- Notion people, so pages show editor names without a users call per page.
+CREATE TABLE IF NOT EXISTS notion_users (
+  doco_id      text NOT NULL REFERENCES notion_mirrors(doco_id) ON DELETE CASCADE,
+  user_id      text NOT NULL,
+  name         text NOT NULL DEFAULT '',
+  avatar_url   text,
+  is_bot       boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (doco_id, user_id)
 );
 
 -- Feedback reports.
