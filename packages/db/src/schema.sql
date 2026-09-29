@@ -1067,13 +1067,15 @@ CREATE TABLE IF NOT EXISTS notion_mirrors (
   -- through the pages that name them, and never treats an unlisted page as
   -- gone.
   listing_capped_at    timestamptz,
-  -- When the copied pages were scanned once for children the listing had
-  -- missed (pages copied before the sync learned to queue them).
-  children_scanned_at  timestamptz,
+  -- The version of the content scan (lib/notion-mirror-sync.server.ts,
+  -- CONTENT_SCAN) last run over the copied pages: what they link to and the
+  -- children they name, read again whenever that reading changes.
+  content_scan         text,
   created_at           timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS listing_capped_at timestamptz;
-ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS children_scanned_at timestamptz;
+ALTER TABLE notion_mirrors DROP COLUMN IF EXISTS children_scanned_at;
+ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS content_scan text;
 
 DROP TRIGGER IF EXISTS notion_mirrors_private_doco ON notion_mirrors;
 CREATE TRIGGER notion_mirrors_private_doco
