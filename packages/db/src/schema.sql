@@ -1062,8 +1062,18 @@ CREATE TABLE IF NOT EXISTS notion_mirrors (
   ticked_at            timestamptz,
   ticking_until        timestamptz,
   needs_reauth_at      timestamptz,
+  -- Notion caps how many results one search walk may page through, so a
+  -- capped listing is not the whole workspace: the sync then finds the rest
+  -- through the pages that name them, and never treats an unlisted page as
+  -- gone.
+  listing_capped_at    timestamptz,
+  -- When the copied pages were scanned once for children the listing had
+  -- missed (pages copied before the sync learned to queue them).
+  children_scanned_at  timestamptz,
   created_at           timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS listing_capped_at timestamptz;
+ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS children_scanned_at timestamptz;
 
 DROP TRIGGER IF EXISTS notion_mirrors_private_doco ON notion_mirrors;
 CREATE TRIGGER notion_mirrors_private_doco
