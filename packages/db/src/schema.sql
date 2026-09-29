@@ -490,7 +490,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- 'actor' = the human approved an "all workspaces" credential: the minted
   -- refresh token carries NO explicit grants and resolves the user's LIVE
-  -- workspace membership (one workspace per access token) at refresh time.
+  -- workspace membership on every request.
   -- 'regular' (default) copies the granted_* sets above through verbatim.
   grant_type            text NOT NULL DEFAULT 'regular'
                         CHECK (grant_type IN ('regular', 'actor')),
@@ -557,10 +557,10 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- 'actor' = a user-level credential whose breadth is the user's LIVE
-  -- workspace membership (resolved at exchange), down-scoped to ONE workspace
-  -- per access token via the RFC 8707 `resource`. 'regular' (default) = a
-  -- single-workspace refresh whose grants copy through to the access token
-  -- verbatim. An actor refresh carries NO explicit workspace/doco grants.
+  -- workspace membership, resolved on every request. 'regular' (default) = a
+  -- refresh whose explicit grants (any set of workspaces and Docos) copy
+  -- through to the access token verbatim. An actor refresh carries NO
+  -- explicit workspace/doco grants.
   grant_type        text NOT NULL DEFAULT 'regular'
                     CHECK (grant_type IN ('regular', 'actor')),
   -- Role CEILING for an actor refresh, applied to every workspace: at refresh
