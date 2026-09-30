@@ -51,6 +51,7 @@ describe("removed templates are gone", () => {
 
   it("ships exactly the surviving templates", () => {
     expect(DEFAULT_DOCO_TEMPLATES.map((t) => t.name).sort()).toEqual([
+      "agents-chats",
       "architectural-decisions",
       "bugs",
       "design-decisions",
@@ -2278,5 +2279,30 @@ describe("notion template", () => {
   it("opens on the Notion perspective", () => {
     const template = findDocoTemplateByName("notion");
     expect(template?.perspectives).toEqual([{ slug: "notion", isDefault: true }]);
+  });
+});
+
+describe("agents chats template", () => {
+  const template = findDocoTemplateByName("agents-chats");
+  if (!template) throw new Error("agents-chats template not registered");
+
+  it("is labeled Agents chats and opens on the List perspective", () => {
+    expect(template.label).toBe("Agents chats");
+    expect(template.description).toMatch(/chat/i);
+    expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
+  });
+
+  it("holds only Logs: one per chat, blocking anything else", () => {
+    const allowlist = template.policies.find(
+      (p) => p.predicate?.kind === "requires_node_type",
+    )?.predicate;
+    expect(allowlist).toEqual({ kind: "requires_node_type", node_types: ["log"] });
+  });
+
+  it("sends what a chat produced to the Docos it belongs in", () => {
+    const prose = template.policies.map((p) => p.policy ?? "").join("\n");
+    for (const doco of ["Product decisions", "Design decisions", "Architectural decisions"]) {
+      expect(prose).toContain(doco);
+    }
   });
 });

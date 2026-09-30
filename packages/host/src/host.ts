@@ -233,6 +233,7 @@ export const DEFAULT_WORKSPACE_DOCO_TEMPLATES = [
   "architectural-decisions",
   "process",
   "bugs",
+  "agents-chats",
 ] as const;
 
 /**

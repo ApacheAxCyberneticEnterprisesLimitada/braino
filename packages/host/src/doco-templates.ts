@@ -2300,6 +2300,47 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
     ],
   },
+  {
+    // Agents chats — the record of every chat an agent has with a user. The
+    // baseline duties have each agent capture one Log per chat here before the
+    // chat ends. Only Logs belong: what a chat produced (a Decision, an Idea, a
+    // bug) goes in the Doco that holds that kind of knowledge, and edges don't
+    // cross Docos, so the Log lists those nodes' ids in its `outputs`.
+    name: "agents-chats",
+    label: "Agents chats",
+    icon: "🤖",
+    description:
+      "Record every chat an agent has with a user — who took part, what was asked, what was worked on, what came of it, and what was left open — one Log per chat, pointing to the decisions and work it produced.",
+    // A chat record is read newest first, as a list.
+    perspectives: [{ slug: "list", isDefault: true }],
+    policies: [
+      {
+        policy:
+          "Only Logs belong here: one per chat. What a chat produced goes in the Doco that holds that kind of knowledge — a Decision in the Product decisions, Design decisions or Architectural decisions Doco (and, when it is about a business process, in Processes too), an idea in Ideas, a bug in the Bug tracker — and the chat's Log points to it.",
+        predicate: { kind: "requires_node_type", node_types: ["log"] },
+      },
+      {
+        on_violation: "warn",
+        predicate: {
+          kind: "probabilistic",
+          spec: "A chat Log names who took part (the user by name, the agent by its credential label), what the user asked for, what was worked on, what came of it, and what was left open. Pass when all five are clear from the Log; fail when any is missing or vague.",
+          when_node_type: ["log"],
+        },
+      },
+      {
+        policy:
+          'Capture the Log before the chat ends, with `verb` "chatted", `happened_at` when the chat began, and `prose` that summarizes the chat in the third person. Summarize rather than transcribe; quote the user only where the exact words matter, such as a requirement, a correction or an approval.',
+      },
+      {
+        policy:
+          'List what the chat produced in the Log\'s `outputs`: the ids of the nodes it captured in other Docos (decisions, ideas, bugs, actions) and the pull requests, issues or documents it touched. A chat that produced nothing says so, for example `{ "produced": "nothing" }`.',
+      },
+      {
+        policy:
+          "When a chat picks up where an earlier one left off, link its Log to the earlier Log with `relates_to`, so a long piece of work reads as one thread.",
+      },
+    ],
+  },
   // The four decision-record templates (ADR, product, design, data) share one
   // core and live in their own module; see `decision-record-templates.ts`.
   ...DECISION_RECORD_TEMPLATES,
