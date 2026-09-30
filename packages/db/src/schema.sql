@@ -672,7 +672,7 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
-  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion')),
+  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion','code')),
   name            text NOT NULL,
   description     text,
   icon            text,
@@ -991,7 +991,8 @@ BEGIN
   IF TG_TABLE_NAME = 'docos' THEN
     IF NEW.visibility <> 'private'
        AND (EXISTS (SELECT 1 FROM group_chat_mirrors WHERE doco_id = NEW.id)
-            OR EXISTS (SELECT 1 FROM notion_mirrors WHERE doco_id = NEW.id)) THEN
+            OR EXISTS (SELECT 1 FROM notion_mirrors WHERE doco_id = NEW.id)
+            OR EXISTS (SELECT 1 FROM code_files WHERE doco_id = NEW.id)) THEN
       RAISE EXCEPTION 'A mirror Doco must stay private.';
     END IF;
   ELSIF (SELECT visibility FROM docos WHERE id = NEW.doco_id) <> 'private' THEN
@@ -1154,6 +1155,72 @@ CREATE TABLE IF NOT EXISTS notion_users (
   PRIMARY KEY (doco_id, user_id)
 );
 
+-- ── Codebase copy ─────────────────────────────────────────────────────────
+-- A codebase Doco holds a copy of every file on the default branch of the
+-- GitHub repositories it brings from (github-imports), kept in sync on every
+-- push and searchable. Like the mirrors: not `nodes` (a file deleted in the
+-- repository must really disappear), every row cascades from the Doco, and
+-- the Doco stays private (doco_mirror_stays_private). One row per file; a
+-- binary, oversized or unfetchable file keeps its row with `omitted` saying
+-- why and no content, so paths still resolve and search by name.
+CREATE TABLE IF NOT EXISTS code_files (
+  doco_id    text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  repo       text NOT NULL,                       -- "owner/name"
+  path       text NOT NULL,
+  sha        text NOT NULL,                       -- the git blob sha: unchanged files are skipped
+  size       int  NOT NULL,
+  content    text NOT NULL DEFAULT '',
+  omitted    text CHECK (omitted IN ('binary','too_large','unavailable')),
+  synced_at  timestamptz NOT NULL DEFAULT now(),
+  -- 'simple' (no stemming): identifiers and paths match as written.
+  search_tsv tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', path), 'A') || to_tsvector('simple', content)
+  ) STORED,
+  PRIMARY KEY (doco_id, repo, path)
+);
+CREATE INDEX IF NOT EXISTS code_files_repo_idx ON code_files (repo);
+CREATE INDEX IF NOT EXISTS code_files_tsv_idx  ON code_files USING gin (search_tsv);
+DROP TRIGGER IF EXISTS code_files_private_doco ON code_files;
+CREATE TRIGGER code_files_private_doco
+  BEFORE INSERT OR UPDATE OF doco_id ON code_files
+  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+
+-- The copy follows the connections: a Doco holds a repository's files only
+-- while it brings that repository, by a repo connection or by a subscription
+-- to the installation of the repository's owner. Checked on every write of
+-- files, and a change to the connections drops the files they no longer
+-- cover, whichever code path made it.
+CREATE OR REPLACE FUNCTION code_repo_connected(gh jsonb, repo text) RETURNS boolean AS $$
+  SELECT EXISTS (
+           SELECT 1
+             FROM jsonb_array_elements(CASE jsonb_typeof(gh->'connections')
+                                       WHEN 'array' THEN gh->'connections' ELSE '[]' END) AS c
+            WHERE c->>'repo' = repo)
+      OR EXISTS (
+           SELECT 1
+             FROM jsonb_array_elements(CASE jsonb_typeof(gh->'installations')
+                                       WHEN 'array' THEN gh->'installations' ELSE '[]' END) AS i
+            WHERE lower(i->>'account') = lower(split_part(repo, '/', 1)))
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION code_files_follow_connections() RETURNS trigger AS $$
+BEGIN
+  DELETE FROM code_files
+   WHERE doco_id = NEW.id
+     AND NOT code_repo_connected(NEW.data->'github_integration', repo);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS docos_code_files_follow_connections ON docos;
+CREATE TRIGGER docos_code_files_follow_connections
+  AFTER UPDATE OF data ON docos
+  FOR EACH ROW
+  WHEN (OLD.data->'github_integration'->'connections'
+          IS DISTINCT FROM NEW.data->'github_integration'->'connections'
+     OR OLD.data->'github_integration'->'installations'
+          IS DISTINCT FROM NEW.data->'github_integration'->'installations')
+  EXECUTE FUNCTION code_files_follow_connections();
+
 -- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id                    text PRIMARY KEY,
@@ -1267,16 +1334,17 @@ CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
   ON group_chat_messages (doco_id) WHERE reply_count > 0 AND replies_synced_at IS NULL;
 
 -- The mirror perspectives (a Slack-mirror Doco's channel reader, a
--- Notion-mirror Doco's page reader). Their kinds join the perspectives CHECK
+-- Notion-mirror Doco's page reader, a codebase Doco's file browser). Their kinds join the perspectives CHECK
 -- here, before their built-in rows, because on an existing database the
 -- inline CHECK above is a no-op and the old constraint would reject the rows
 -- and abort the schema apply.
 ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
 ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
-  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion'));
+  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion','code'));
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
   ('perspective_slack','slack','slack','Slack','A mirrored Slack workspace''s public channels: messages, threads, and search.','💬',NULL,true,'{}'::jsonb),
-  ('perspective_notion','notion','notion','Notion','A mirrored Notion workspace''s shared pages and databases: the page tree, each page, and search.','📓',NULL,true,'{}'::jsonb)
+  ('perspective_notion','notion','notion','Notion','A mirrored Notion workspace''s shared pages and databases: the page tree, each page, and search.','📓',NULL,true,'{}'::jsonb),
+  ('perspective_code','code','code','Code','A codebase copied from GitHub: each repository''s folders and files, and search.','🗂️',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- Actor access tokens act as their user, capped at actor_role, resolved live —

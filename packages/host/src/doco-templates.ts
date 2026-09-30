@@ -972,6 +972,20 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "pull-requests", isDefault: true }],
   },
   {
+    // GitHub codebase. The Doco holds a copy of every file on the default
+    // branch of the repositories it brings from, kept in sync on every push,
+    // in the code_files table (not nodes: a file deleted in the repository
+    // must really disappear). The GitHub setup fills it; knowledge distilled
+    // from the code lives in the graph as usual.
+    name: "codebase",
+    label: "GitHub codebase",
+    icon: "🗂️",
+    description:
+      "A copy of your GitHub repositories' code, kept in sync on every push, so it can be browsed and searched alongside your Doco knowledge.",
+    policies: [],
+    perspectives: [{ slug: "code", isDefault: true }],
+  },
+  {
     // Slack public-channel mirror. The Doco holds a read-only copy of a Slack
     // workspace's public channels, kept in sync, in the group_chat_* mirror
     // tables (not nodes: mirrored messages must be deletable). The Slack page,

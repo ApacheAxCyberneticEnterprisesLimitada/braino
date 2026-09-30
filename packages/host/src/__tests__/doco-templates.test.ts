@@ -54,6 +54,7 @@ describe("removed templates are gone", () => {
       "agents-chats",
       "architectural-decisions",
       "bugs",
+      "codebase",
       "design-decisions",
       "evals",
       "faq",
@@ -1346,6 +1347,16 @@ describe("process template", () => {
         ).toBe(firesActive);
       }
     });
+  });
+});
+
+describe("codebase template", () => {
+  const template = findDocoTemplateByName("codebase");
+
+  it("keeps the copied code out of the graph and opens on the Code perspective", () => {
+    expect(template?.label).toBe("GitHub codebase");
+    expect(template?.policies).toEqual([]);
+    expect(template?.perspectives).toEqual([{ slug: "code", isDefault: true }]);
   });
 });
 
