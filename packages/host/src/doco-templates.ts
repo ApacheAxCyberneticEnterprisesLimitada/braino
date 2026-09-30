@@ -972,6 +972,21 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "pull-requests", isDefault: true }],
   },
   {
+    // GitHub bugs. A repository's bug issues (labeled bug, or of the Bug issue
+    // type) are synced as Evals keyed on the issue URL, and a closed issue
+    // retires its bug. Like every integration it fills a standalone Doco of its
+    // own, never the Bug tracker people file bugs in, so it imposes no
+    // authoring constraints; the GitHub integration, set up right after
+    // creation, does the syncing.
+    name: "github-bugs",
+    label: "GitHub bugs",
+    icon: "🐞",
+    description:
+      "Track a GitHub repository's bugs — issues labeled bug, or of the Bug issue type, sync automatically, and closed issues retire.",
+    policies: [],
+    perspectives: [{ slug: "list", isDefault: true }],
+  },
+  {
     // GitHub codebase. The Doco holds a copy of every file on the default
     // branch of the repositories it brings from, kept in sync on every push,
     // in the code_files table (not nodes: a file deleted in the repository

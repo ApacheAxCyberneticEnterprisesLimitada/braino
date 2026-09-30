@@ -1221,6 +1221,17 @@ CREATE TRIGGER docos_code_files_follow_connections
           IS DISTINCT FROM NEW.data->'github_integration'->'installations')
   EXECUTE FUNCTION code_files_follow_connections();
 
+-- Bugs from GitHub fill a GitHub bugs Doco of their own (template
+-- `github-bugs`), never the Bug tracker people file bugs in. A Bug tracker the
+-- GitHub setup connected while bugs landed there would otherwise fall back to
+-- bringing pull requests, so it loses its GitHub connection; running the setup
+-- again brings the bugs into a GitHub bugs Doco. Only a Bug tracker still
+-- holding a connection matches, so a reboot changes nothing.
+UPDATE docos
+   SET data = data - 'github_integration'
+ WHERE data->>'template_handle' = 'bugs'
+   AND data ? 'github_integration';
+
 -- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (
   id                    text PRIMARY KEY,

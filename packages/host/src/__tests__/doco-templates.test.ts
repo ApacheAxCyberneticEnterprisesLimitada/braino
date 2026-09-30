@@ -58,6 +58,7 @@ describe("removed templates are gone", () => {
       "design-decisions",
       "evals",
       "faq",
+      "github-bugs",
       "github-pull-requests",
       "glossary",
       "ideas",
@@ -1357,6 +1358,18 @@ describe("codebase template", () => {
     expect(template?.label).toBe("GitHub codebase");
     expect(template?.policies).toEqual([]);
     expect(template?.perspectives).toEqual([{ slug: "code", isDefault: true }]);
+  });
+});
+
+describe("github-bugs template", () => {
+  const template = findDocoTemplateByName("github-bugs");
+
+  // Alexander, 2026-09-30: every integration fills a standalone Doco of its
+  // own, so bugs from GitHub never land in the Bug tracker people file in.
+  it("mirrors a repository's bugs with no authoring constraints, opening on the list", () => {
+    expect(template?.label).toBe("GitHub bugs");
+    expect(template?.policies).toEqual([]);
+    expect(template?.perspectives).toEqual([{ slug: "list", isDefault: true }]);
   });
 });
 
