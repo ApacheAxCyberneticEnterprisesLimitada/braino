@@ -478,6 +478,9 @@ export interface Eval extends CommonFields {
   expected?: unknown;
   actual?: unknown;
   criterion: EvalCriterion;
+  /** Where the check lives or is tracked — a test's `path:line`, or the URL of
+   *  the GitHub issue a bug was imported from. */
+  locator?: string;
   last_run_at?: string;
   last_status?: "pass" | "fail" | "pending";
   last_reason?: string;

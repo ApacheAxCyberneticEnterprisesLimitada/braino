@@ -77,11 +77,17 @@ export const NODE_PROMOTED_COLUMNS: Readonly<Record<string, readonly PromotedCol
   // `kind` (eval/state) stays promoted, plus idea's `proposer_id` FK.
   action: [],
   log: [],
-  eval: [{ column: "kind", field: "kind", stripFromData: true }],
+  // An eval's `locator` is where the check lives or is tracked — a test's
+  // `path:line`, or the GitHub issue a bug was imported from (its dedup key).
+  eval: [
+    { column: "kind", field: "kind", stripFromData: true },
+    { column: "locator", field: "locator", stripFromData: true },
+  ],
   rule: [],
   state: [{ column: "kind", field: "kind", stripFromData: true }],
   // `locator` is the reference dedup key — promoted to its own typed column (the
-  // remaining reference scalars stay in `extra` until Slice C drops them).
+  // remaining reference scalars stay in `extra` until Slice C drops them). The
+  // GitHub pull-request import keys on it.
   reference: [{ column: "locator", field: "locator", stripFromData: true }],
   // principal: `kind` (human/agent) is promoted to its column; its name lands
   // in the shared `prose` column (written directly by the writer).

@@ -68,6 +68,13 @@ describe("promoted columns — single source of truth round-trips", () => {
         data: { reference: "a doc", locator: "https://example.com/doc" },
         expect: ["locator", "https://example.com/doc"],
       },
+      {
+        // A bug imported from GitHub keeps the issue it came from.
+        type: "eval",
+        id: "eval_promotedlocator0000000000000",
+        data: { eval: "login fails", locator: "https://github.com/acme/app/issues/7" },
+        expect: ["locator", "https://github.com/acme/app/issues/7"],
+      },
     ];
 
     for (const c of cases) {

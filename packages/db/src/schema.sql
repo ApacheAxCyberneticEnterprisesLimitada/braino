@@ -183,9 +183,10 @@ CREATE TABLE IF NOT EXISTS nodes (
   -- moved into `extra` and is dropped below; `kind` is the last one
   -- (eval/state, plus principal human|agent).
   kind         text,                          -- eval, state, principal
-  -- Reference dedup key, promoted out of `extra` to its own typed column:
-  -- it is the one node domain field with a real column (the PR-import
-  -- idempotency lookup indexes it). Null for non-reference nodes.
+  -- Where a node's source lives, promoted out of `extra` to its own typed
+  -- column: a reference's locator, or an eval's (a test's path:line, or the
+  -- GitHub issue a bug came from). The GitHub imports' idempotency lookups
+  -- index it. Null for every other node type.
   locator      text,
   -- Node-shape slim-down: the unified per-node extra bag is the single
   -- home for per-node domain fields — it replaced every per-type promoted
@@ -200,9 +201,11 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
--- Reference dedupe key on the promoted `locator` column — the PR-import
--- idempotency lookup (github-pr-import.server.ts) is an indexed read on it.
-CREATE INDEX IF NOT EXISTS nodes_ref_locator_idx ON nodes (doco_id, locator) WHERE node_type = 'reference';
+-- Dedupe key on the promoted `locator` column — the GitHub imports'
+-- idempotency lookups (a pull request's Reference, a bug's Eval) are indexed
+-- reads on it.
+DROP INDEX IF EXISTS nodes_ref_locator_idx;
+CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (doco_id, locator) WHERE locator IS NOT NULL;
 
 -- Audit events: one row per mutation.
 

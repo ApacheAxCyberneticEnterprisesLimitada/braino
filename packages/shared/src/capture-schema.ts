@@ -86,6 +86,11 @@ export const CAPTURE_SCHEMAS = {
     field("how_to_run", "optional", "free-form reproduction steps"),
     field("input", "optional", "input value, any JSON shape"),
     field("expected", "optional", "expected outcome, any JSON shape"),
+    field(
+      "locator",
+      "optional",
+      "where the check lives or is tracked: a test's path:line or an issue URL",
+    ),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
   reference: schema("reference", "Reference", "references", "active", [
