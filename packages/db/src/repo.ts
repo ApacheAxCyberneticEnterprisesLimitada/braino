@@ -488,16 +488,6 @@ export async function listWorkspacesForUser(
   });
 }
 
-export async function isWorkspaceUser(workspaceId: string, userId: string): Promise<boolean> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      "SELECT 1 FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
-      [workspaceId, userId],
-    );
-    return r.rowCount !== null && r.rowCount > 0;
-  });
-}
-
 export async function upsertWorkspaceUser(opts: {
   workspace_id: string;
   user_id: string;

@@ -39,7 +39,6 @@ export {
   listWorkspacesForUser,
   upsertWorkspaceUser,
   removeWorkspaceUser,
-  isWorkspaceUser,
   getWorkspaceRole,
   getWorkspaceGrant,
   getWorkspaceConstitutionsByIds,
