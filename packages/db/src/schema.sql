@@ -672,7 +672,7 @@ CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
-  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion','code')),
+  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack')),
   name            text NOT NULL,
   description     text,
   icon            text,
@@ -1344,18 +1344,19 @@ ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS replies_cursor text;
 CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
   ON group_chat_messages (doco_id) WHERE reply_count > 0 AND replies_synced_at IS NULL;
 
--- The mirror perspectives (a Slack-mirror Doco's channel reader, a
--- Notion-mirror Doco's page reader, a codebase Doco's file browser). Their kinds join the perspectives CHECK
--- here, before their built-in rows, because on an existing database the
--- inline CHECK above is a no-op and the old constraint would reject the rows
--- and abort the schema apply.
+-- The Slack mirror's perspective (a Slack-mirror Doco's channel reader). Its
+-- kind joins the perspectives CHECK here, before its built-in row, because on
+-- an existing database the inline CHECK above is a no-op and the old
+-- constraint would reject the row and abort the schema apply. Codebase and
+-- Notion Docos open in a reader of their own (the web app's reader.ts), so
+-- the Code and Notion perspectives they had are deleted first, taking every
+-- Doco's attachment to them along (ON DELETE CASCADE).
+DELETE FROM perspectives WHERE id IN ('perspective_code', 'perspective_notion');
 ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
 ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
-  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','notion','code'));
+  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack'));
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
-  ('perspective_slack','slack','slack','Slack','A mirrored Slack workspace''s public channels: messages, threads, and search.','💬',NULL,true,'{}'::jsonb),
-  ('perspective_notion','notion','notion','Notion','A mirrored Notion workspace''s shared pages and databases: the page tree, each page, and search.','📓',NULL,true,'{}'::jsonb),
-  ('perspective_code','code','code','Code','A codebase copied from GitHub: each repository''s folders and files, and search.','🗂️',NULL,true,'{}'::jsonb)
+  ('perspective_slack','slack','slack','Slack','A mirrored Slack workspace''s public channels: messages, threads, and search.','💬',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- Actor access tokens act as their user, capped at actor_role, resolved live —

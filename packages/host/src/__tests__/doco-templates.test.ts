@@ -1354,10 +1354,11 @@ describe("process template", () => {
 describe("codebase template", () => {
   const template = findDocoTemplateByName("codebase");
 
-  it("keeps the copied code out of the graph and opens on the Code perspective", () => {
+  // The copied code opens in the web app's reader, not on a perspective.
+  it("keeps the copied code out of the graph, with no perspective of its own", () => {
     expect(template?.label).toBe("GitHub codebase");
     expect(template?.policies).toEqual([]);
-    expect(template?.perspectives).toEqual([{ slug: "code", isDefault: true }]);
+    expect(template?.perspectives).toBeUndefined();
   });
 });
 
@@ -2300,9 +2301,10 @@ describe("edge-type allowlists (requires_edge_type)", () => {
 });
 
 describe("notion template", () => {
-  it("opens on the Notion perspective", () => {
+  // The copied pages open in the web app's reader, not on a perspective.
+  it("has no perspective of its own", () => {
     const template = findDocoTemplateByName("notion");
-    expect(template?.perspectives).toEqual([{ slug: "notion", isDefault: true }]);
+    expect(template?.perspectives).toBeUndefined();
   });
 });
 

@@ -990,15 +990,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // GitHub codebase. The Doco holds a copy of every file on the default
     // branch of the repositories it brings from, kept in sync on every push,
     // in the code_files table (not nodes: a file deleted in the repository
-    // must really disappear). The GitHub setup fills it; knowledge distilled
-    // from the code lives in the graph as usual.
+    // must really disappear). The GitHub setup fills it. It opens in the web
+    // app's code reader (/<doco>/code), not on a perspective.
     name: "codebase",
     label: "GitHub codebase",
     icon: "🗂️",
     description:
       "A copy of your GitHub repositories' code, kept in sync on every push, so it can be browsed and searched alongside your Doco knowledge.",
     policies: [],
-    perspectives: [{ slug: "code", isDefault: true }],
   },
   {
     // Slack public-channel mirror. The Doco holds a read-only copy of a Slack
@@ -1018,15 +1017,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // Notion mirror. The Doco holds a read-only copy of the Notion pages and
     // databases a workspace shares with the Doco integration, kept in sync, in
     // the notion_* mirror tables (not nodes: mirrored pages must be deletable).
-    // The Notion page, opened right after creation, turns the mirror on.
-    // Knowledge distilled from the pages lives in the graph as usual.
+    // The Notion page, opened right after creation, turns the mirror on. It
+    // opens in the web app's pages reader (/<doco>/pages), not on a perspective.
     name: "notion",
     label: "Notion workspace",
     icon: "📓",
     description:
       "A read-only copy of the Notion pages and databases you share, kept in sync, so they can be searched alongside your Doco knowledge.",
     policies: [],
-    perspectives: [{ slug: "notion", isDefault: true }],
   },
   {
     // Org chart — document an organization's STRUCTURE: who holds which
