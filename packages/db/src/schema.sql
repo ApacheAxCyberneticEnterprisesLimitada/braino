@@ -1094,8 +1094,10 @@ CREATE TABLE IF NOT EXISTS notion_pages (
   doco_id          text NOT NULL REFERENCES notion_mirrors(doco_id) ON DELETE CASCADE,
   page_id          text NOT NULL,                 -- Notion uuid (dashed)
   object           text NOT NULL CHECK (object IN ('page','data_source')),
-  parent_id        text,                          -- page or data source uuid; NULL at a shared root
-  parent_type      text,                          -- page | data_source | database | workspace | block
+  -- Page or data source uuid; NULL at a shared root, or until the page
+  -- holding the block Notion keeps it in (a column, a toggle) names it.
+  parent_id        text,
+  parent_type      text,                          -- page | data_source | database | workspace
   title            text NOT NULL DEFAULT '',
   icon             text,
   -- https://www.notion.so/<id>: stable across renames (Notion's own url embeds the title).
@@ -1125,6 +1127,11 @@ CREATE TABLE IF NOT EXISTS notion_pages (
   PRIMARY KEY (doco_id, page_id)
 );
 CREATE INDEX IF NOT EXISTS notion_pages_parent_idx  ON notion_pages (doco_id, parent_id);
+-- A block was once kept as a page's parent, which no page in the copy is, so
+-- the page sat at the top of the tree. The page holding the block places it
+-- instead (the sync's content scan reads every page again for that). Only a
+-- block-parented row matches, so a reboot changes nothing.
+UPDATE notion_pages SET parent_id = NULL, parent_type = NULL WHERE parent_type = 'block';
 CREATE INDEX IF NOT EXISTS notion_pages_pending_idx
   ON notion_pages (doco_id, fetch_attempts, page_id) WHERE fetch_pending;
 CREATE INDEX IF NOT EXISTS notion_pages_edited_idx  ON notion_pages (doco_id, last_edited_time DESC);
