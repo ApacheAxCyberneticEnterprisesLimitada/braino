@@ -7,7 +7,8 @@
 // missing the column must be HEALED by re-applying schema.sql.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshDb, schemaSql } from "./fresh-db.js";
+import { freshDb } from "./fresh-db.js";
+import { schemaSql } from "./schema-sql.js";
 
 const OAUTH_TABLES = [
   "oauth_authorization_codes",

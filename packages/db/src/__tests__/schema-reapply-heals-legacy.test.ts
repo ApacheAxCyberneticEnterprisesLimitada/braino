@@ -21,7 +21,8 @@
 // converges back to the exact fresh shape.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshDb, schemaSql } from "./fresh-db.js";
+import { freshDb } from "./fresh-db.js";
+import { schemaSql } from "./schema-sql.js";
 
 /** Columns the migration tail re-adds — i.e. columns an older table can lack. */
 function migrationHealedColumns(sql: string): Array<{ table: string; column: string }> {

@@ -7,7 +7,8 @@
 // table. This test reproduces that legacy shape and asserts the heal.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshDb, schemaSql } from "./fresh-db.js";
+import { freshDb } from "./fresh-db.js";
+import { schemaSql } from "./schema-sql.js";
 
 let db: PGlite;
 

@@ -6,7 +6,8 @@
 // Every other Doco keeps its connection, and a reboot changes nothing.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshDb, schemaSql } from "./fresh-db.js";
+import { freshDb } from "./fresh-db.js";
+import { schemaSql } from "./schema-sql.js";
 
 const GITHUB = {
   connections: [{ repo: "acme/app", installation_id: 9 }],

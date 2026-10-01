@@ -11,7 +11,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { freshDb, schemaSql } from "./fresh-db.js";
+import { freshDb } from "./fresh-db.js";
+import { schemaSql } from "./schema-sql.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const constitutionTs = readFileSync(
