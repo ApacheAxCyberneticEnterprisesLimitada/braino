@@ -1476,3 +1476,33 @@ CREATE TRIGGER notion_pages_embeddings_drop
 DROP TRIGGER IF EXISTS group_chat_messages_embeddings_drop ON group_chat_messages;
 CREATE TRIGGER group_chat_messages_embeddings_drop
   AFTER DELETE ON group_chat_messages FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Silence alerts: an integration Doco that stopped receiving data, or an agent
+-- that stopped reading and writing in a workspace, for longer than its own
+-- history makes expected (silence-alerts.server.ts decides, every hour). A row
+-- is one episode: it opens when the silence turns unexpected, its email goes
+-- out once (emailed_at), and it is deleted when data or calls resume.
+CREATE TABLE IF NOT EXISTS silence_alerts (
+  id            text PRIMARY KEY,
+  workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  -- What went quiet: an integration Doco, or an agent (a person and the agent
+  -- they read and write through, named as agentName names it).
+  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  user_id       text REFERENCES users(id) ON DELETE CASCADE,
+  agent         text,
+  -- The Docos it concerns: the integration Doco, or the ones the agent used.
+  doco_ids      text[] NOT NULL,
+  -- The last item or call before the silence.
+  quiet_since   timestamptz NOT NULL,
+  -- How many the same hours of each of the past four weeks brought, on average.
+  usual         int NOT NULL,
+  opened_at     timestamptz NOT NULL DEFAULT now(),
+  emailed_at    timestamptz,
+  CHECK ((doco_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_doco_idx
+  ON silence_alerts (doco_id) WHERE doco_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
+  ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
+CREATE INDEX IF NOT EXISTS silence_alerts_docos_idx ON silence_alerts USING gin (doco_ids);
