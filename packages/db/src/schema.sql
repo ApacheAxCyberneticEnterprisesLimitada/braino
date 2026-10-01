@@ -103,15 +103,15 @@ CREATE TABLE IF NOT EXISTS workspace_users (
 );
 CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
 
--- Onboarding: one row per person a workspace walks through getting started.
--- Whoever creates a workspace sets it up in three steps (connect GitHub,
+-- Onboarding: every member of a workspace (but not of their personal one)
+-- walks its getting-started steps. Owners set it up in three (connect GitHub,
 -- connect other sources of knowledge, ask their agent to start using Doco);
--- whoever joins it from an invite only asks their agent. Each step reads as
--- done from what the database already holds (web lib/onboarding.server.ts);
--- the row keeps only what nothing else records: when it started (the reminder
--- email's clock), when the person finished or skipped the other-sources step,
--- and when the reminder email went out. Workspaces created before onboarding
--- existed have no rows, so their people never see it.
+-- everyone else only asks their agent. Each step reads as done from what the
+-- database already holds (web lib/onboarding.server.ts); a row keeps only what
+-- nothing else records: who created the workspace or joined it from an invite,
+-- and when (the reminder email's clock), when the person finished or skipped
+-- the other-sources step, and when the reminder went out. A member without a
+-- row walks the steps by role and is never reminded.
 CREATE TABLE IF NOT EXISTS workspace_onboarding (
   workspace_id     text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
