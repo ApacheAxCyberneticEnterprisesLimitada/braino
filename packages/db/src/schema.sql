@@ -70,7 +70,10 @@ CREATE TABLE IF NOT EXISTS workspaces (
   -- bootstrap, and shown on the workspace home page.
   constitution text NOT NULL DEFAULT '',
   created_at  timestamptz NOT NULL DEFAULT now(),
-  updated_at  timestamptz NOT NULL DEFAULT now()
+  updated_at  timestamptz NOT NULL DEFAULT now(),
+  -- When its last activity digest went out (lib/activity-digest.server.ts):
+  -- claimed before sending, so two runs never both send one.
+  digest_sent_at timestamptz
 );
 
 -- Every constitution carries the three baseline agent duties (load context,
@@ -99,6 +102,8 @@ CREATE TABLE IF NOT EXISTS workspace_users (
   -- write everything.
   write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
+  -- Set when the member unsubscribed from the workspace's activity digest.
+  digest_unsubscribed_at timestamptz,
   PRIMARY KEY (workspace_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
@@ -1362,6 +1367,9 @@ END $$;
 ALTER TABLE docos
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 CREATE INDEX IF NOT EXISTS docos_deleted_at_idx ON docos (deleted_at) WHERE deleted_at IS NOT NULL;
+
+ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS digest_sent_at timestamptz;
+ALTER TABLE workspace_users ADD COLUMN IF NOT EXISTS digest_unsubscribed_at timestamptz;
 
 ALTER TABLE oauth_authorization_codes
   ADD COLUMN IF NOT EXISTS actor_role text
