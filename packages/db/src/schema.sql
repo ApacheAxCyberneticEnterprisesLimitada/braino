@@ -763,24 +763,27 @@ CREATE INDEX IF NOT EXISTS access_requests_doco_status_idx
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_idx
   ON access_requests (doco_id, requester_id) WHERE status = 'pending';
 
--- Committable read-only "project tokens" for Docos. Distinct from
--- oauth_access_tokens: tied to the Doco (not a user), fixed
--- reader scope on one Doco, no expiry — designed to live in the
--- repo at .doco/project-tokens.json so agents that clone the repo
--- can read the Doco without OAuth. Suitable only when repo-readers
--- = acceptable Doco-readers; the owner mints with explicit
--- confirmation.
-CREATE TABLE IF NOT EXISTS doco_project_tokens (
+-- Project tokens: a committable, read-only credential for one workspace, the
+-- unit a project maps to. Not a user's: it stands for the repository that
+-- holds it, fixed at reader on every live Doco of the workspace, with no
+-- expiry; revoking is the only kill switch. Lives at
+-- .doco/project-tokens.json so the Doco hook and agents that clone the repo
+-- read the workspace without OAuth. An owner mints one after confirming that
+-- the repository's readers may read the whole workspace. The per-Doco
+-- doco_project_tokens table that preceded it never held a token in
+-- production.
+DROP TABLE IF EXISTS doco_project_tokens;
+CREATE TABLE IF NOT EXISTS project_tokens (
   token                 text PRIMARY KEY,
-  doco_id               text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  workspace_id          text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   label                 text,
   revoked               boolean NOT NULL DEFAULT false,
   created_at            timestamptz NOT NULL DEFAULT now(),
   last_used_at          timestamptz
 );
-CREATE INDEX IF NOT EXISTS doco_project_tokens_doco_idx
-  ON doco_project_tokens (doco_id) WHERE NOT revoked;
+CREATE INDEX IF NOT EXISTS project_tokens_workspace_idx
+  ON project_tokens (workspace_id) WHERE NOT revoked;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Visualization perspectives and the per-Doco attachment join. Ownership is
