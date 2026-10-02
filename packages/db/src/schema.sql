@@ -435,6 +435,76 @@ CREATE TABLE IF NOT EXISTS entity_fts_nodes (
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_doco_idx ON entity_fts_nodes (doco_id);
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING gin (search_tsv);
 
+-- ── Touches ──────────────────────────────────────────────────────────────
+-- What a node names: the file paths, URLs, node ids and pull request numbers
+-- found in its prose and locator, one row each. A trigger keeps them, so every
+-- write path (capture, changesets, the GitHub imports) fills them with no
+-- caller plumbing, and the brief (web: lib/brief) reads them to find the
+-- decisions, rules and pull requests that mention what an agent is about to
+-- touch. Paths are stored without a leading "./" or "/"; a pull request is
+-- "#<number>", whether written that way or as a github.com/…/pull/<number>
+-- link; URLs lose trailing punctuation.
+CREATE TABLE IF NOT EXISTS node_touches (
+  node_id  text NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
+  doco_id  text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  kind     text NOT NULL CHECK (kind IN ('path', 'url', 'node', 'pr')),
+  value    text NOT NULL,
+  PRIMARY KEY (node_id, kind, value)
+);
+CREATE INDEX IF NOT EXISTS node_touches_value_idx ON node_touches (doco_id, kind, value);
+
+CREATE OR REPLACE FUNCTION node_touches_of(prose text, locator text)
+  RETURNS TABLE (kind text, value text) AS $$
+  WITH src AS (
+    SELECT coalesce(prose, '') || E'\n' || coalesce(locator, '') AS t
+  ),
+  urls AS (
+    SELECT rtrim(m[1], '.,;:') AS value
+      FROM src, regexp_matches(t, '(https?://[^[:space:]<>"''\)\]]+)', 'g') AS m
+  ),
+  no_urls AS (
+    SELECT regexp_replace(t, 'https?://[^[:space:]<>"''\)\]]+', ' ', 'g') AS t FROM src
+  )
+  SELECT 'url', value FROM urls
+  UNION
+  SELECT 'path', regexp_replace(m[1], '^(\./|/)', '')
+    FROM no_urls,
+         regexp_matches(t, '(?:^|[[:space:](`''"\[])((?:\./|/)?(?:[A-Za-z0-9_.@-]+/)+[A-Za-z0-9_.@-]+\.[A-Za-z0-9]{1,8})', 'g') AS m
+  UNION
+  SELECT 'node', m[1]
+    FROM src,
+         regexp_matches(t, '\m((?:intent|idea|rule|decision|action|log|eval|reference|state|principal|policy)_[0-9A-HJKMNP-TV-Z]{26})\M', 'g') AS m
+  UNION
+  SELECT 'pr', '#' || m[1]
+    FROM no_urls, regexp_matches(t, '(?:^|[[:space:](])#([0-9]{1,7})\M', 'g') AS m
+  UNION
+  SELECT 'pr', '#' || m[1]
+    FROM urls, regexp_matches(value, 'github\.com/[^/[:space:]]+/[^/[:space:]]+/pull/([0-9]+)') AS m
+$$ LANGUAGE sql IMMUTABLE;
+
+CREATE OR REPLACE FUNCTION node_touches_refresh() RETURNS trigger AS $$
+BEGIN
+  DELETE FROM node_touches WHERE node_id = NEW.id;
+  INSERT INTO node_touches (node_id, doco_id, kind, value)
+    SELECT NEW.id, NEW.doco_id, t.kind, t.value
+      FROM node_touches_of(NEW.prose, NEW.locator) AS t
+    ON CONFLICT DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS nodes_touches_refresh ON nodes;
+CREATE TRIGGER nodes_touches_refresh
+  AFTER INSERT OR UPDATE OF prose, locator, doco_id ON nodes
+  FOR EACH ROW EXECUTE FUNCTION node_touches_refresh();
+
+-- Nodes written before the trigger existed get their rows once: only an
+-- empty table is backfilled, so a later boot scans nothing.
+INSERT INTO node_touches (node_id, doco_id, kind, value)
+SELECT n.id, n.doco_id, t.kind, t.value
+  FROM nodes n, node_touches_of(n.prose, n.locator) AS t
+ WHERE NOT EXISTS (SELECT 1 FROM node_touches LIMIT 1)
+ON CONFLICT DO NOTHING;
+
 -- ──────────────────────────────────────────────────────────────────────────
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
