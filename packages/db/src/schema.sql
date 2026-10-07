@@ -109,20 +109,22 @@ CREATE TABLE IF NOT EXISTS workspace_users (
 CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
 
 -- Onboarding: every member of a workspace (but not of their personal one)
--- walks its getting-started steps. Owners set it up in three (connect GitHub,
--- connect other sources of knowledge, ask their agent to start using Doco);
--- everyone else only asks their agent. Each step reads as done from what the
--- database already holds (web lib/onboarding.server.ts); a row keeps only what
--- nothing else records: who created the workspace or joined it from an invite,
--- and when (the reminder email's clock), when the person finished or skipped
--- the other-sources step, and when the reminder went out. A member without a
--- row walks the steps by role and is never reminded.
+-- walks its getting-started steps: owners all five (connect GitHub, connect
+-- other sources of knowledge, connect Doco to their agent, ask it to start
+-- using Doco, turn on the Doco hook), everyone else the two about their agent.
+-- Each step reads as done from what the database already holds (web
+-- lib/onboarding.server.ts); a row keeps only what nothing else records: who
+-- created the workspace or joined it from an invite, and when (the reminder
+-- email's clock), when the person ended the other-sources and hook steps
+-- themselves, and when the reminder went out. A member without a row walks the
+-- steps by role and is never reminded.
 CREATE TABLE IF NOT EXISTS workspace_onboarding (
   workspace_id     text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   joined_as        text NOT NULL CHECK (joined_as IN ('creator', 'invitee')),
   started_at       timestamptz NOT NULL DEFAULT now(),
   sources_done_at  timestamptz,
+  hook_done_at     timestamptz,
   reminded_at      timestamptz,
   PRIMARY KEY (workspace_id, user_id)
 );
@@ -1443,6 +1445,7 @@ CREATE INDEX IF NOT EXISTS docos_deleted_at_idx ON docos (deleted_at) WHERE dele
 
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS digest_sent_at timestamptz;
 ALTER TABLE workspace_users ADD COLUMN IF NOT EXISTS digest_unsubscribed_at timestamptz;
+ALTER TABLE workspace_onboarding ADD COLUMN IF NOT EXISTS hook_done_at timestamptz;
 
 ALTER TABLE oauth_authorization_codes
   ADD COLUMN IF NOT EXISTS actor_role text
