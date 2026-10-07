@@ -765,17 +765,24 @@ CREATE INDEX IF NOT EXISTS access_requests_doco_status_idx
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_idx
   ON access_requests (doco_id, requester_id) WHERE status = 'pending';
 
--- Project tokens: a committable, read-only credential for one workspace, the
--- unit a project maps to. Not a user's: it stands for the repository that
--- holds it, fixed at reader on every live Doco of the workspace, with no
--- expiry; revoking is the only kill switch. Lives at
--- .doco/project-tokens.json so the Doco hook and agents that clone the repo
--- read the workspace without OAuth. An owner mints one after confirming that
--- the repository's readers may read the whole workspace. The per-Doco
--- doco_project_tokens table that preceded it never held a token in
--- production.
-DROP TABLE IF EXISTS doco_project_tokens;
-CREATE TABLE IF NOT EXISTS project_tokens (
+-- Hook tokens: a person's read-only credential for one workspace, reading
+-- what its maker can read there (decision_01M4C2J610DPD028P55Q8X6VG2), with
+-- no expiry; revoking is the only kill switch. Any member mints their own; an
+-- agent gets its person's with the MCP tool doco_hook_token and saves it in
+-- .doco/hook-tokens.json, out of git, where the Doco hook reads it. They were
+-- project tokens (doco_pt_…) until they were named for the hook: a guarded,
+-- self-removing block renames the table, its index and each token's prefix
+-- on the first boot that still has project_tokens.
+DO $$
+BEGIN
+  IF to_regclass('public.project_tokens') IS NOT NULL THEN
+    ALTER TABLE project_tokens RENAME TO hook_tokens;
+    ALTER INDEX project_tokens_workspace_idx RENAME TO hook_tokens_workspace_idx;
+    UPDATE hook_tokens SET token = 'doco_ht_' || substr(token, 9)
+     WHERE token LIKE 'doco\_pt\_%';
+  END IF;
+END $$;
+CREATE TABLE IF NOT EXISTS hook_tokens (
   token                 text PRIMARY KEY,
   workspace_id          text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -784,8 +791,8 @@ CREATE TABLE IF NOT EXISTS project_tokens (
   created_at            timestamptz NOT NULL DEFAULT now(),
   last_used_at          timestamptz
 );
-CREATE INDEX IF NOT EXISTS project_tokens_workspace_idx
-  ON project_tokens (workspace_id) WHERE NOT revoked;
+CREATE INDEX IF NOT EXISTS hook_tokens_workspace_idx
+  ON hook_tokens (workspace_id) WHERE NOT revoked;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Visualization perspectives and the per-Doco attachment join. Ownership is
