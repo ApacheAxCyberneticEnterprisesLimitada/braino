@@ -284,6 +284,9 @@ CREATE INDEX IF NOT EXISTS changesets_doco_idx ON changesets (doco_id, tx_id DES
 -- the workspace setup steps look for: a few rows beside every import's.
 CREATE INDEX IF NOT EXISTS changesets_by_agent_idx ON changesets (doco_id, actor)
   WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
+-- A Doco's writes over a period, for the days the activity rollup hasn't
+-- counted yet (activity_days below).
+CREATE INDEX IF NOT EXISTS changesets_recorded_idx ON changesets (doco_id, recorded_at);
 
 -- Query log — one row per query, the read-side twin of `changesets`: who
 -- (actor), how they came in (source + metadata, the same request context a
@@ -307,6 +310,32 @@ CREATE INDEX IF NOT EXISTS query_events_actor_idx ON query_events (actor, at DES
 -- Reads by an agent over the MCP server or the API, as for changesets above.
 CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_id, actor)
   WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
+
+-- The activity logs counted per UTC day (activity-log.server.ts), so the
+-- Activity calendars and top lists read days instead of every row: one row per
+-- day, log, Doco (or, for a search across a whole workspace, no Doco and the
+-- workspace), person, and the agent they worked through (`via`, null for the
+-- website) or, for imports, the integration. An hourly cron counts each day
+-- of writes and queries once, after it ends, and every day of imports again on
+-- every run, since imports change in place and arrive dated in the past.
+-- `activity_rollup.through` is the last day counted.
+CREATE TABLE IF NOT EXISTS activity_days (
+  day           date NOT NULL,
+  log           text NOT NULL CHECK (log IN ('writes', 'queries', 'imports')),
+  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  workspace_id  text REFERENCES workspaces(id) ON DELETE CASCADE,
+  actor         text,
+  via           text,
+  n             integer NOT NULL,
+  last_at       timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS activity_days_doco_idx ON activity_days (doco_id, day);
+CREATE INDEX IF NOT EXISTS activity_days_workspace_idx ON activity_days (workspace_id, day)
+  WHERE doco_id IS NULL;
+CREATE TABLE IF NOT EXISTS activity_rollup (
+  one      boolean PRIMARY KEY DEFAULT true CHECK (one),
+  through  date NOT NULL
+);
 
 -- Immutable version snapshots — one row per (entity, version). payload is
 -- the FULL state of the node/edge at that version, so "how it was" is an
