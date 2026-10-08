@@ -53,7 +53,7 @@ describe("account_grants retirement migration", () => {
        VALUES ('user_a', 'user_b', 'writer', ARRAY['decision'])`,
     );
 
-    // Boot-time convergence re-applies the whole schema.sql.
+    // The next change to schema.sql re-applies the whole file.
     await db.exec(schemaSql);
 
     expect(await tableExists("account_grants")).toBe(false);

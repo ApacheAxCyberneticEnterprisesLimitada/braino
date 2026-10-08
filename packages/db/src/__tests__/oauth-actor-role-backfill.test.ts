@@ -42,7 +42,7 @@ describe("oauth actor_role column backfill", () => {
       expect(await hasColumn(table, "actor_role")).toBe(false);
     }
 
-    // Boot-time convergence re-applies the whole schema.sql.
+    // The next change to schema.sql re-applies the whole file.
     await db.exec(schemaSql);
 
     for (const table of OAUTH_TABLES) {

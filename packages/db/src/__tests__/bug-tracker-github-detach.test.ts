@@ -2,8 +2,9 @@
 // so bugs from GitHub moved out of the workspace's Bug tracker into a GitHub
 // bugs Doco. A Bug tracker the GitHub setup had already connected would
 // otherwise fall back to bringing pull requests, so schema.sql, which
-// re-applies on every boot, drops the GitHub connection of every Bug tracker.
-// Every other Doco keeps its connection, and a reboot changes nothing.
+// re-applies after every change to it, drops the GitHub connection of every
+// Bug tracker. Every other Doco keeps its connection, and applying it again
+// changes nothing.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";

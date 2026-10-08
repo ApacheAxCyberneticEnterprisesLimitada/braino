@@ -1,8 +1,9 @@
 // Existing workspaces were seeded with the default constitution of their day.
 // When the three baseline duties (load context, document every decision,
 // record every conversation) joined the default, Alexander asked that existing
-// constitutions get them too — so schema.sql, which re-applies on every boot,
-// appends the duties paragraph to any constitution that lacks it. A workspace
+// constitutions get them too — so schema.sql, which re-applies after every
+// change to it, appends the duties paragraph to any constitution that lacks
+// it. A workspace
 // still on the old default ends up byte-identical to the new default; a
 // customized one keeps its text and gains the paragraph at the end; one that
 // already carries it is left alone, so a reboot changes nothing.

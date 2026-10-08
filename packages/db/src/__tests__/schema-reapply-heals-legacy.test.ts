@@ -1,7 +1,8 @@
 // Systemic guard for the "schema.sql doesn't reach existing prod tables" class
 // of incident (#1142 actor_role 500; #1155 deleted_at index ordering took the
-// whole site down). schema.sql re-applies top-to-bottom on EVERY boot
-// (applySchema). On a fresh DB the inline CREATE TABLEs make every column, so
+// whole site down). schema.sql re-applies top-to-bottom on the first boot
+// after EVERY change to it (applySchemaIfChanged). On a fresh DB the inline
+// CREATE TABLEs make every column, so
 // CI/PGlite is green — but a real prod database already has the tables, so an
 // inline column is NOT added by `CREATE TABLE IF NOT EXISTS` (it's a no-op) and
 // must be healed by an `ADD COLUMN IF NOT EXISTS` in the migration tail. Two

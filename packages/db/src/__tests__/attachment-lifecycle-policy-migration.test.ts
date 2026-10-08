@@ -2,10 +2,10 @@
 // the three business-process flow-node attachment gates — a flow node serves an
 // Intent (`supports` → intent), an Action names its performer and a gateway
 // Decision its decider (`attributed_to` → principal). They were one-time
-// convergence for already-seeded Docos, but schema.sql re-applies on EVERY
-// boot, and their `? 'drafting'` guards re-matched the moment an owner edited a
-// gate's lifecycle stages — so the next cold-start silently reverted the edit
-// and the change "wouldn't save".
+// convergence for already-seeded Docos, but schema.sql re-applies after EVERY
+// change to it, and their `? 'drafting'` guards re-matched the moment an owner
+// edited a gate's lifecycle stages — so the next apply silently reverted the
+// edit and the change "wouldn't save".
 //
 // Those re-applied UPDATEs have been removed. This test is the regression guard:
 // an owner-customized attachment gate must SURVIVE a re-boot unchanged, in any
@@ -106,7 +106,7 @@ describe("business-processes attachment-gate lifecycle: owner edits survive a re
 
   it("does NOT re-add `drafting` to the Action performed_by gate after an owner removes it", async () => {
     const id = await seedEdge({ ...PERFORMED_BY, fires: ["queued", "active"] });
-    await db.exec(schemaSql); // re-apply baseline — what every boot does
+    await db.exec(schemaSql); // re-apply baseline — what every change to it does
     expect(await firesOf(id)).toEqual(["queued", "active"]);
   });
 

@@ -1,8 +1,8 @@
 // Alexander, 2026-10-01: codebase and Notion Docos open in a reader of their
 // own, so the Code and Notion perspectives are gone. schema.sql, which
-// re-applies on every boot, deletes their built-in rows and every Doco's
-// attachment to them, and the kinds leave the perspectives CHECK. Slack keeps
-// its perspective.
+// re-applies after every change to it, deletes their built-in rows and every
+// Doco's attachment to them, and the kinds leave the perspectives CHECK. Slack
+// keeps its perspective.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";

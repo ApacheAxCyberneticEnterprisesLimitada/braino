@@ -1485,8 +1485,8 @@ END $$;
 -- the CREATE TABLE already made it). The CHECK matches the inline definition.
 -- Soft-delete tombstone for Docos created before the column shipped. The
 -- partial sweeper index lives HERE, after the ADD COLUMN — not in the docos
--- table block above — because schema.sql re-applies top-to-bottom on every
--- boot: on a pre-existing docos table the inline CREATE TABLE is a no-op, so an
+-- table block above — because schema.sql re-applies top-to-bottom after every
+-- change: on a pre-existing docos table the inline CREATE TABLE is a no-op, so an
 -- index that referenced `deleted_at` earlier in the file would hit a column
 -- that this migration hasn't added yet and abort the entire schema-apply.
 ALTER TABLE docos
@@ -1641,3 +1641,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_doco_idx
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_docos_idx ON silence_alerts USING gin (doco_ids);
+
+-- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
+-- a cold start applies this file only when it differs, so its every change
+-- still reaches the database on the first boot after it deploys and its
+-- migrations stay idempotent (decision_01M4CH63Z7SP3XZFNE8TY811BN).
+CREATE TABLE IF NOT EXISTS schema_applied (
+  one         boolean PRIMARY KEY DEFAULT true CHECK (one),
+  hash        text NOT NULL,
+  applied_at  timestamptz NOT NULL DEFAULT now()
+);
