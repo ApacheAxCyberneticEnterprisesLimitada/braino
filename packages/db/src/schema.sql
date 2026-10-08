@@ -234,6 +234,12 @@ CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
 -- reads on it.
 DROP INDEX IF EXISTS nodes_ref_locator_idx;
 CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (doco_id, locator) WHERE locator IS NOT NULL;
+-- When a Doco's GitHub import last wrote a pull request's Reference or a bug's
+-- Eval is one probe of this index (loadLatestActivity in
+-- lib/activity-log.server.ts); the predicate is the import's (IMPORT_SOURCES).
+CREATE INDEX IF NOT EXISTS nodes_github_import_idx ON nodes (doco_id, updated_at)
+  WHERE node_type IN ('reference', 'eval')
+    AND locator ~ '^https://github\.com/[^/]+/[^/]+/(pull|issues)/[0-9]+$';
 
 -- Audit events: one row per mutation.
 
@@ -275,6 +281,10 @@ CREATE TABLE IF NOT EXISTS changesets (
   recorded_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS changesets_doco_idx ON changesets (doco_id, tx_id DESC);
+-- Writes by an agent over the MCP server or the API (byAgentOverApiSql), which
+-- the workspace setup steps look for: a few rows beside every import's.
+CREATE INDEX IF NOT EXISTS changesets_by_agent_idx ON changesets (doco_id, actor)
+  WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
 
 -- Query log — one row per query, the read-side twin of `changesets`: who
 -- (actor), how they came in (source + metadata, the same request context a
@@ -295,6 +305,9 @@ CREATE TABLE IF NOT EXISTS query_events (
 CREATE INDEX IF NOT EXISTS query_events_workspace_idx ON query_events (workspace_id, at DESC);
 CREATE INDEX IF NOT EXISTS query_events_doco_idx ON query_events (doco_id, at DESC);
 CREATE INDEX IF NOT EXISTS query_events_actor_idx ON query_events (actor, at DESC);
+-- Reads by an agent over the MCP server or the API, as for changesets above.
+CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_id, actor)
+  WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
 
 -- Immutable version snapshots — one row per (entity, version). payload is
 -- the FULL state of the node/edge at that version, so "how it was" is an
@@ -1314,6 +1327,8 @@ CREATE TABLE IF NOT EXISTS code_files (
   PRIMARY KEY (doco_id, repo, path)
 );
 CREATE INDEX IF NOT EXISTS code_files_repo_idx ON code_files (repo);
+-- When a codebase last copied a file is one probe (loadLatestActivity).
+CREATE INDEX IF NOT EXISTS code_files_synced_idx ON code_files (doco_id, synced_at);
 CREATE INDEX IF NOT EXISTS code_files_tsv_idx  ON code_files USING gin (search_tsv);
 DROP TRIGGER IF EXISTS code_files_private_doco ON code_files;
 CREATE TRIGGER code_files_private_doco
