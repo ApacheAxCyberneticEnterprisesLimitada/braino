@@ -102,6 +102,7 @@ export {
   type EmbeddingProviderLike,
   type EmbeddingSource,
   type EmbeddingsReport,
+  type QueryClient,
   type SemanticQuery,
   type UpsertEmbeddingsOptions,
 } from "./embeddings.js";

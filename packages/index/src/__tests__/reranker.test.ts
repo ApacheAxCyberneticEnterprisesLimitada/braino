@@ -140,3 +140,23 @@ describe("getDefaultReranker", () => {
     expect(getDefaultReranker()).toBeUndefined();
   });
 });
+
+// The brief's deadline stops a rerank that is still in flight.
+describe("abort signal", () => {
+  it.each([
+    ["Cohere", () => new CohereReranker("co-test"), { results: [] }],
+    ["Voyage", () => new VoyageReranker("va-test"), { data: [] }],
+  ])("%s passes the caller's signal to its request", async (_name, make, body) => {
+    const { calls } = stubFetch(body);
+    const signal = new AbortController().signal;
+    await make().rerank("q", ["a"], undefined, signal);
+    expect(calls[0].init.signal).toBe(signal);
+  });
+
+  it("rerankItems hands the signal to the reranker", async () => {
+    const reranker = { modelId: "test", rerank: vi.fn(async () => [{ index: 0, score: 1 }]) };
+    const signal = new AbortController().signal;
+    await rerankItems(reranker, "q", [{ text: "a" }], (i) => i.text, undefined, signal);
+    expect(reranker.rerank).toHaveBeenCalledWith("q", ["a"], undefined, signal);
+  });
+});

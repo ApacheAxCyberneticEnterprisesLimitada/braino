@@ -17,7 +17,8 @@
  * an optional `inputType`: the indexer passes `"document"`, the search path
  * passes `"query"`. The param is optional and ignored by symmetric models
  * (OpenAI text-embedding-3-* has no such knob), so every existing
- * single-arg caller keeps working unchanged.
+ * single-arg caller keeps working unchanged. An optional `signal` aborts the
+ * request: the brief's deadline stops a query embedding still in flight.
  */
 
 /** Which side of an asymmetric retrieval pair a text is being embedded as. */
@@ -26,7 +27,11 @@ export type EmbeddingInputType = "query" | "document";
 export interface EmbeddingProvider {
   modelId: string;
   dimensions: number;
-  embed(texts: string[], inputType?: EmbeddingInputType): Promise<Float32Array[]>;
+  embed(
+    texts: string[],
+    inputType?: EmbeddingInputType,
+    signal?: AbortSignal,
+  ): Promise<Float32Array[]>;
 }
 
 /**
@@ -73,9 +78,14 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
     assertLatin1ApiKey(apiKey, "OPENAI_API_KEY");
   }
 
-  async embed(texts: string[], _inputType?: EmbeddingInputType): Promise<Float32Array[]> {
+  async embed(
+    texts: string[],
+    _inputType?: EmbeddingInputType,
+    signal?: AbortSignal,
+  ): Promise<Float32Array[]> {
     const res = await fetch("https://api.openai.com/v1/embeddings", {
       method: "POST",
+      signal: signal ?? null,
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.apiKey}`,
@@ -116,9 +126,14 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
     return this.modelId.slice("voyage:".length);
   }
 
-  async embed(texts: string[], inputType?: EmbeddingInputType): Promise<Float32Array[]> {
+  async embed(
+    texts: string[],
+    inputType?: EmbeddingInputType,
+    signal?: AbortSignal,
+  ): Promise<Float32Array[]> {
     const res = await fetch("https://api.voyageai.com/v1/embeddings", {
       method: "POST",
+      signal: signal ?? null,
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.apiKey}`,
@@ -167,10 +182,15 @@ export class CohereEmbeddingProvider implements EmbeddingProvider {
     return this.modelId.slice("cohere:".length);
   }
 
-  async embed(texts: string[], inputType?: EmbeddingInputType): Promise<Float32Array[]> {
+  async embed(
+    texts: string[],
+    inputType?: EmbeddingInputType,
+    signal?: AbortSignal,
+  ): Promise<Float32Array[]> {
     const cohereInputType = inputType === "query" ? "search_query" : "search_document";
     const res = await fetch("https://api.cohere.com/v2/embed", {
       method: "POST",
+      signal: signal ?? null,
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.apiKey}`,

@@ -424,6 +424,39 @@ CREATE INDEX IF NOT EXISTS edges_from_idx           ON edges (from_id);
 CREATE INDEX IF NOT EXISTS edges_to_idx             ON edges (to_id);
 CREATE INDEX IF NOT EXISTS edges_lifecycle_idx      ON edges (doco_id, lifecycle);
 
+-- PageRank stored per node (decision_01M4EXESAH2XENAB3B612P8ZAR): each Doco's
+-- nodes ranked over its live edges, directed, and scaled so the average node
+-- of the graph ranks 1, which keeps ranks of Docos of different sizes
+-- comparable. Briefs and search read it instead of loading every edge per
+-- request. A node with no live edge has no row (rank 0). A write to a Doco's
+-- edges queues the Doco in node_ranks_stale (append-only, so concurrent
+-- writers never wait on each other); the minute sweep drains the queue and
+-- recomputes each queued Doco once (lib/node-ranks.server.ts).
+CREATE TABLE IF NOT EXISTS node_ranks (
+  node_id  text PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
+  rank     double precision NOT NULL
+);
+CREATE TABLE IF NOT EXISTS node_ranks_stale (
+  doco_id  text NOT NULL
+);
+CREATE OR REPLACE FUNCTION node_ranks_mark_stale() RETURNS trigger AS $$
+BEGIN
+  INSERT INTO node_ranks_stale (doco_id) SELECT DISTINCT doco_id FROM changed_edges;
+  RETURN NULL;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS edges_ranks_stale_insert ON edges;
+CREATE TRIGGER edges_ranks_stale_insert
+  AFTER INSERT ON edges REFERENCING NEW TABLE AS changed_edges
+  FOR EACH STATEMENT EXECUTE FUNCTION node_ranks_mark_stale();
+DROP TRIGGER IF EXISTS edges_ranks_stale_update ON edges;
+CREATE TRIGGER edges_ranks_stale_update
+  AFTER UPDATE ON edges REFERENCING NEW TABLE AS changed_edges
+  FOR EACH STATEMENT EXECUTE FUNCTION node_ranks_mark_stale();
+-- The first time, every Doco with edges is stale.
+INSERT INTO node_ranks_stale (doco_id)
+SELECT DISTINCT doco_id FROM edges
+ WHERE NOT EXISTS (SELECT 1 FROM node_ranks) AND NOT EXISTS (SELECT 1 FROM node_ranks_stale);
+
 -- Vector embeddings, in pgvector: one row per chunk of an entity's text, for
 -- graph entities and mirror rows alike. `source` says which table the
 -- `entity_id` names (a node or policy id; a Notion page id; a Slack

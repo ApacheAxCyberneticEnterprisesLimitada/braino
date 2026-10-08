@@ -160,3 +160,17 @@ describe("getDefaultEmbeddingProvider", () => {
     expect(getDefaultEmbeddingProvider()).toBeInstanceOf(NoopEmbeddingProvider);
   });
 });
+
+// The brief's deadline stops a query embedding that is still in flight.
+describe("abort signal", () => {
+  it.each([
+    ["OpenAI", () => new OpenAIEmbeddingProvider("sk-test"), { data: [{ embedding: [0] }] }],
+    ["Voyage", () => new VoyageEmbeddingProvider("va-test"), { data: [{ embedding: [0] }] }],
+    ["Cohere", () => new CohereEmbeddingProvider("co-test"), { embeddings: { float: [[0]] } }],
+  ])("%s passes the caller's signal to its request", async (_name, make, body) => {
+    const { calls } = stubFetch(body);
+    const signal = new AbortController().signal;
+    await make().embed(["q"], "query", signal);
+    expect(calls[0].init.signal).toBe(signal);
+  });
+});

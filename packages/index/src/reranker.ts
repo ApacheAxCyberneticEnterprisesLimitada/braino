@@ -28,9 +28,15 @@ export interface Reranker {
   modelId: string;
   /**
    * Score `documents` against `query` and return results sorted by
-   * descending relevance. `topN` caps how many are returned (default: all).
+   * descending relevance. `topN` caps how many are returned (default: all);
+   * `signal` aborts the request (the brief's deadline).
    */
-  rerank(query: string, documents: string[], topN?: number): Promise<RerankResult[]>;
+  rerank(
+    query: string,
+    documents: string[],
+    topN?: number,
+    signal?: AbortSignal,
+  ): Promise<RerankResult[]>;
 }
 
 /**
@@ -62,10 +68,16 @@ export class CohereReranker implements Reranker {
     return this.modelId.slice("cohere:".length);
   }
 
-  async rerank(query: string, documents: string[], topN?: number): Promise<RerankResult[]> {
+  async rerank(
+    query: string,
+    documents: string[],
+    topN?: number,
+    signal?: AbortSignal,
+  ): Promise<RerankResult[]> {
     if (documents.length === 0) return [];
     const res = await fetch("https://api.cohere.com/v2/rerank", {
       method: "POST",
+      signal: signal ?? null,
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.apiKey}`,
@@ -105,10 +117,16 @@ export class VoyageReranker implements Reranker {
     return this.modelId.slice("voyage:".length);
   }
 
-  async rerank(query: string, documents: string[], topN?: number): Promise<RerankResult[]> {
+  async rerank(
+    query: string,
+    documents: string[],
+    topN?: number,
+    signal?: AbortSignal,
+  ): Promise<RerankResult[]> {
     if (documents.length === 0) return [];
     const res = await fetch("https://api.voyageai.com/v1/rerank", {
       method: "POST",
+      signal: signal ?? null,
       headers: {
         "content-type": "application/json",
         authorization: `Bearer ${this.apiKey}`,
@@ -146,9 +164,10 @@ export async function rerankItems<T>(
   items: T[],
   getText: (item: T) => string,
   topN?: number,
+  signal?: AbortSignal,
 ): Promise<{ item: T; score: number }[]> {
   if (items.length === 0) return [];
-  const results = await reranker.rerank(query, items.map(getText), topN);
+  const results = await reranker.rerank(query, items.map(getText), topN, signal);
   return results
     .filter((r) => r.index >= 0 && r.index < items.length)
     .map((r) => ({ item: items[r.index], score: r.score }));
