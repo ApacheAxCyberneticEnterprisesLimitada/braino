@@ -628,7 +628,6 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   client_id             text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id               text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   redirect_uri          text NOT NULL,
-  token_name            text,
   code_challenge        text NOT NULL,
   code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
   granted_doco_ids      text[] NOT NULL,
@@ -757,7 +756,6 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   status           text NOT NULL DEFAULT 'pending'
                      CHECK (status IN ('pending','approved','denied')),
   user_id             text REFERENCES users(id) ON DELETE CASCADE,
-  token_name          text,
   granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -1507,6 +1505,11 @@ ALTER TABLE oauth_refresh_tokens
 ALTER TABLE oauth_device_authorizations
   ADD COLUMN IF NOT EXISTS actor_role text
   CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
+-- Allowing an agent asks for no token name (decision_01M4EQPJ6AKETJ1508W254DXVB):
+-- its connection goes by the client's name. API keys still carry their label
+-- on the access and refresh tokens.
+ALTER TABLE oauth_authorization_codes DROP COLUMN IF EXISTS token_name;
+ALTER TABLE oauth_device_authorizations DROP COLUMN IF EXISTS token_name;
 
 -- Untie chat_attachments from a single conversation. The composer uploads
 -- bytes before the turn knows which thread it runs on, so keying the row to a
