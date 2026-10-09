@@ -108,8 +108,10 @@ CREATE TABLE IF NOT EXISTS workspace_users (
   -- write everything.
   write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  -- Set when the member unsubscribed from the workspace's activity digest.
-  digest_unsubscribed_at timestamptz,
+  -- How often the member gets the workspace's activity digest
+  -- (lib/activity-digest.ts): every day unless they switched it to every
+  -- Monday, or never once they unsubscribed. The email's links set it.
+  digest text NOT NULL DEFAULT 'daily' CHECK (digest IN ('daily', 'weekly', 'off')),
   PRIMARY KEY (workspace_id, user_id)
 );
 CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
@@ -1705,7 +1707,24 @@ BEGIN
      WHERE lower(u.github_login) = lower(w.handle);
   END IF;
 END $$;
-ALTER TABLE workspace_users ADD COLUMN IF NOT EXISTS digest_unsubscribed_at timestamptz;
+ALTER TABLE workspace_users
+  ADD COLUMN IF NOT EXISTS digest text NOT NULL DEFAULT 'daily'
+  CHECK (digest IN ('daily', 'weekly', 'off'));
+-- `digest` replaced digest_unsubscribed_at, when the digest was daily only
+-- during a workspace's first week: everyone now gets it daily, and whoever had
+-- unsubscribed stays unsubscribed.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'workspace_users'
+       AND column_name = 'digest_unsubscribed_at'
+  ) THEN
+    UPDATE workspace_users SET digest = 'off' WHERE digest_unsubscribed_at IS NOT NULL;
+    ALTER TABLE workspace_users DROP COLUMN digest_unsubscribed_at;
+  END IF;
+END $$;
 -- Every agent Doco supports runs hooks, so nobody skips the hook any more.
 ALTER TABLE workspace_onboarding DROP COLUMN IF EXISTS hook_done_at;
 
