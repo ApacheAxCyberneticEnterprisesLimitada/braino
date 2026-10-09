@@ -73,7 +73,13 @@ CREATE TABLE IF NOT EXISTS workspaces (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   -- When its last activity digest went out (lib/activity-digest.server.ts):
   -- claimed before sending, so two runs never both send one.
-  digest_sent_at timestamptz
+  digest_sent_at timestamptz,
+  -- Whose personal workspace this is. Signing up used to create one named
+  -- after the person; it no longer does (decision_01M4GF757E9T2X902JZKYG0DKG),
+  -- so this is set only on the ones people already had (marked once, below)
+  -- and nothing writes it. It is no project's: its person walks no setup
+  -- steps and gets no digest for it.
+  personal_user_id text REFERENCES users(id) ON DELETE SET NULL
 );
 
 -- Every constitution carries the three baseline agent duties (load context,
@@ -1630,6 +1636,27 @@ ALTER TABLE docos
 CREATE INDEX IF NOT EXISTS docos_deleted_at_idx ON docos (deleted_at) WHERE deleted_at IS NOT NULL;
 
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS digest_sent_at timestamptz;
+-- Mark the personal workspaces people already have with whose they are: the
+-- ones named after a person's GitHub login, which is how they were recognized
+-- before (decision_01M4GF7HA9NQ6ZX1E9M4G8S2DG). Runs once, on the boot that
+-- adds the column, so a workspace someone later names after themselves stays
+-- an ordinary one.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'workspaces'
+       AND column_name = 'personal_user_id'
+  ) THEN
+    ALTER TABLE workspaces
+      ADD COLUMN personal_user_id text REFERENCES users(id) ON DELETE SET NULL;
+    UPDATE workspaces w
+       SET personal_user_id = u.id
+      FROM users u
+     WHERE lower(u.github_login) = lower(w.handle);
+  END IF;
+END $$;
 ALTER TABLE workspace_users ADD COLUMN IF NOT EXISTS digest_unsubscribed_at timestamptz;
 -- Every agent Doco supports runs hooks, so nobody skips the hook any more.
 ALTER TABLE workspace_onboarding DROP COLUMN IF EXISTS hook_done_at;

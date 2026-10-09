@@ -60,9 +60,11 @@ export function buildTemplatePerspectiveSeeds(
   return seeds;
 }
 
-function assertPublicHandleAllowed(handle: string, kind: "user" | "workspace"): void {
+function assertWorkspaceHandleAllowed(handle: string): void {
   if (!HANDLE_PATTERN.test(handle)) {
-    throw new Error(`Invalid ${kind} handle "${handle}" — expected lowercase [a-z0-9][a-z0-9_-]*.`);
+    throw new Error(
+      `Invalid workspace handle "${handle}" — expected lowercase [a-z0-9][a-z0-9_-]*.`,
+    );
   }
   if (HOST_RESERVED_SLUGS.has(handle)) {
     throw new Error(`Handle "${handle}" is reserved by Doco's URL routing.`);
@@ -97,8 +99,12 @@ export async function findUserByGitHubLogin(
   };
 }
 
+/**
+ * Create a person's account, and nothing else: signing up creates no
+ * workspace (decision_01M4GF757E9T2X902JZKYG0DKG), so the login reserves no
+ * workspace handle.
+ */
 export async function addUser(opts: AddUserOptions): Promise<EntityId<"user">> {
-  assertPublicHandleAllowed(opts.username, "user");
   const id = makeEntityId("user", generateUlid()) as EntityId<"user">;
   const created = nowIso();
   const gh: { github_id?: string; github_login: string; email?: string } = opts.github_identity ?? {
@@ -117,13 +123,9 @@ export async function addUser(opts: AddUserOptions): Promise<EntityId<"user">> {
 
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
-    const dup = await c.query(
-      `SELECT 1 FROM users WHERE LOWER(github_login) = LOWER($1)
-       UNION
-       SELECT 1 FROM workspaces WHERE handle = $1
-       LIMIT 1`,
-      [opts.username],
-    );
+    const dup = await c.query("SELECT 1 FROM users WHERE LOWER(github_login) = LOWER($1) LIMIT 1", [
+      opts.username,
+    ]);
     if (dup.rows.length > 0) {
       throw new Error(`Handle "${opts.username}" is already taken.`);
     }
@@ -141,50 +143,13 @@ export async function addUser(opts: AddUserOptions): Promise<EntityId<"user">> {
       ],
     );
   });
-  await ensurePersonalWorkspace(id, opts.username);
   return id;
-}
-
-export async function ensurePersonalWorkspace(
-  userId: string,
-  username: string,
-): Promise<EntityId<"workspace">> {
-  const { withClient } = await import("@doco/db");
-  return withClient(async (c) => {
-    const existing = await c.query<{ id: string }>(
-      "SELECT id FROM workspaces WHERE handle = $1 LIMIT 1",
-      [username],
-    );
-    if (existing.rows[0]) {
-      await c.query(
-        `INSERT INTO workspace_users (workspace_id, user_id, role)
-         VALUES ($1, $2, 'owner')
-         ON CONFLICT (workspace_id, user_id) DO NOTHING`,
-        [existing.rows[0].id, userId],
-      );
-      return existing.rows[0].id as EntityId<"workspace">;
-    }
-
-    const id = makeEntityId("workspace", generateUlid()) as EntityId<"workspace">;
-    const created = nowIso();
-    await c.query(
-      `INSERT INTO workspaces (id, handle, name, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $4)`,
-      [id, username, username, created],
-    );
-    await c.query(
-      `INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)
-       VALUES ($1, $2, 'owner', $3)`,
-      [id, userId, created],
-    );
-    return id;
-  });
 }
 
 export async function findAvailableWorkspaceHandle(requested: string): Promise<string> {
   const base = requested.trim().toLowerCase();
   if (!base) throw new Error("Workspace handle is required.");
-  assertPublicHandleAllowed(base, "workspace");
+  assertWorkspaceHandleAllowed(base);
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
     let candidate = base;
@@ -238,9 +203,7 @@ export const DEFAULT_WORKSPACE_DOCO_TEMPLATES = [
 
 /**
  * Create a workspace owned by `ownerUserId` and seed it with the
- * `DEFAULT_WORKSPACE_DOCO_TEMPLATES` Docos. Personal workspaces
- * (`ensurePersonalWorkspace`) are not seeded: they are not a project's
- * workspace.
+ * `DEFAULT_WORKSPACE_DOCO_TEMPLATES` Docos.
  */
 export async function addWorkspaceByHandle(opts: {
   handle: string;
@@ -265,7 +228,7 @@ async function insertWorkspace(opts: {
   ownerUserId: string;
   autoSuffix?: boolean;
 }): Promise<{ id: EntityId<"workspace">; handle: string }> {
-  assertPublicHandleAllowed(opts.handle, "workspace");
+  assertWorkspaceHandleAllowed(opts.handle);
   const { withClient } = await import("@doco/db");
   const finalHandle = opts.autoSuffix
     ? await findAvailableWorkspaceHandle(opts.handle)
