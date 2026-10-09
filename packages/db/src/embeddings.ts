@@ -1,9 +1,10 @@
 // pgvector-backed embedding storage: one row per chunk of an entity's text,
-// for graph entities and mirror rows alike (schema.sql, `embeddings`). Each
-// chunk is gated by its own content hash, so an edit to one paragraph
-// re-embeds one chunk, and ranking is one SQL statement: the nearest chunk of
-// each entity to the query. Callers pass the client, so the same code runs
-// inside a request, a cron tick, or a test's in-process Postgres.
+// for graph entities and mirror rows alike (schema.sql, `embeddings`, one
+// partition per Doco). Each chunk is gated by its own content hash, so an edit
+// to one paragraph re-embeds one chunk, and ranking is one SQL statement: the
+// nearest chunk of each entity to the query. Callers pass the client, so the
+// same code runs inside a request, a cron tick, or a test's in-process
+// Postgres.
 
 export type EmbeddingSource = "node" | "notion" | "slack";
 
@@ -225,7 +226,9 @@ export async function deleteEmbeddings(
 /**
  * The entities nearest the query: each entity's best chunk, best first,
  * among the Docos asked, for one source and the query's model (vectors from
- * another model are not comparable). `entityIds` narrows to a candidate set.
+ * another model are not comparable). It walks the Docos' indexes and rescores
+ * on the whole vector (schema.sql, embeddings_nearest). `entityIds` narrows to
+ * a candidate set, which is scored exactly.
  */
 export async function rankEmbeddings(
   c: QueryClient,
@@ -240,6 +243,13 @@ export async function rankEmbeddings(
 ): Promise<EmbeddingHit[]> {
   if (args.docoIds.length === 0 || args.limit <= 0) return [];
   if (args.entityIds && args.entityIds.length === 0) return [];
+  const params = [
+    vectorLiteral(args.queryEmbedding),
+    args.docoIds,
+    args.source,
+    args.modelId,
+    args.limit,
+  ];
   const rows = (
     await c.query<{
       doco_id: string;
@@ -247,24 +257,19 @@ export async function rankEmbeddings(
       chunk_text: string;
       score: number | string;
     }>(
-      `SELECT doco_id, entity_id, chunk_text, score FROM (
-         SELECT DISTINCT ON (doco_id, entity_id)
-                doco_id, entity_id, chunk_text, 1 - (embedding <=> $1::vector) AS score
-           FROM embeddings
-          WHERE doco_id = ANY($2::text[]) AND source = $3 AND model_id = $4
-            AND ($5::text[] IS NULL OR entity_id = ANY($5::text[]))
-          ORDER BY doco_id, entity_id, embedding <=> $1::vector
-       ) best
-       ORDER BY score DESC, doco_id, entity_id
-       LIMIT $6`,
-      [
-        vectorLiteral(args.queryEmbedding),
-        args.docoIds,
-        args.source,
-        args.modelId,
-        args.entityIds ?? null,
-        args.limit,
-      ],
+      args.entityIds
+        ? `SELECT doco_id, entity_id, chunk_text, score FROM (
+             SELECT DISTINCT ON (doco_id, entity_id)
+                    doco_id, entity_id, chunk_text, 1 - (embedding <=> $1::vector) AS score
+               FROM embeddings
+              WHERE doco_id = ANY($2::text[]) AND source = $3 AND model_id = $4
+                AND entity_id = ANY($6::text[])
+              ORDER BY doco_id, entity_id, embedding <=> $1::vector
+           ) best
+           ORDER BY score DESC, doco_id, entity_id
+           LIMIT $5`
+        : "SELECT doco_id, entity_id, chunk_text, score FROM embeddings_nearest($1::vector, $2::text[], $3, $4, $5)",
+      args.entityIds ? [...params, args.entityIds] : params,
     )
   ).rows;
   return rows.map((row) => ({ ...row, score: Number(row.score) }));

@@ -466,19 +466,28 @@ SELECT DISTINCT doco_id FROM edges
 -- embedding pass skip unchanged chunks; a model swap re-embeds rows whose
 -- model_id differs. Vectors shorter than 1536 dimensions (Voyage's 1024) are
 -- zero-padded, which leaves cosine similarity unchanged.
+--
+-- Each Doco's chunks are a partition of their own, `embeddings_<doco id>`,
+-- made with the Doco and dropped with it, so each Doco has its own HNSW index
+-- and a search walks only the indexes of the Docos it reads: a Doco of 18
+-- chunks is searched as fully as one of 250,000. The index holds each vector's
+-- first 512 dimensions in half precision (OpenAI's text-embedding-3 models are
+-- trained to be cut there), a sixth of the whole vector's size, and
+-- embeddings_nearest rescores what it finds with all 1,536, so the order it
+-- returns is the exact one (decision_01M4EZEPDBVGDGSPW6TJN3RG8B).
 CREATE EXTENSION IF NOT EXISTS vector;
--- The table used to hold one bytea vector per entity. bytea has no cast to
--- vector and re-embedding is cheap, so an old-shape table is dropped and the
--- embedding sweep (web: lib/embedding-sweep.server.ts) refills the new one.
+-- A database that kept every chunk in one table moves to the partitions: the
+-- table steps aside here, and its rows move once the partitions exist (below).
 DO $$ BEGIN
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_schema = current_schema() AND table_name = 'embeddings'
-                AND column_name = 'embedding' AND data_type = 'bytea') THEN
-    DROP TABLE embeddings;
+  IF EXISTS (SELECT 1 FROM pg_class WHERE oid = to_regclass('embeddings') AND relkind = 'r') THEN
+    ALTER TABLE embeddings RENAME TO embeddings_unpartitioned;
+    ALTER TABLE embeddings_unpartitioned RENAME CONSTRAINT embeddings_pkey TO embeddings_unpartitioned_pkey;
+    DROP INDEX IF EXISTS embeddings_source_idx;
+    DROP INDEX IF EXISTS embeddings_hnsw_idx;
   END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS embeddings (
-  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  doco_id       text NOT NULL,
   source        text NOT NULL CHECK (source IN ('node','notion','slack')),
   entity_id     text NOT NULL,
   chunk_index   int  NOT NULL DEFAULT 0,
@@ -488,9 +497,105 @@ CREATE TABLE IF NOT EXISTS embeddings (
   embedding     vector(1536) NOT NULL,
   updated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (doco_id, entity_id, chunk_index)
-);
+) PARTITION BY LIST (doco_id);
 CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (doco_id, source, model_id);
-CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings
+  USING hnsw ((subvector(embedding, 1, 512)::halfvec(512)) halfvec_cosine_ops)
+  WITH (m = 32, ef_construction = 200);
+
+-- A Doco's partition. Created empty and then attached, which locks the parent
+-- against schema changes only (CREATE TABLE ... PARTITION OF would block every
+-- search until the transaction ends).
+CREATE OR REPLACE FUNCTION embeddings_partition(parent regclass, doco text) RETURNS void AS $$
+DECLARE
+  part text := 'embeddings_' || doco;
+BEGIN
+  IF to_regclass(quote_ident(part)) IS NULL THEN
+    EXECUTE format('CREATE TABLE %I (LIKE %s INCLUDING DEFAULTS INCLUDING CONSTRAINTS)', part, parent);
+    EXECUTE format('ALTER TABLE %s ATTACH PARTITION %I FOR VALUES IN (%L)', parent, part, doco);
+  END IF;
+END $$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION docos_embeddings_partitions() RETURNS trigger AS $$
+DECLARE
+  doco text;
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    PERFORM embeddings_partition('embeddings', id) FROM created_docos;
+  ELSE
+    FOR doco IN SELECT id FROM deleted_docos LOOP
+      EXECUTE format('DROP TABLE IF EXISTS %I', 'embeddings_' || doco);
+    END LOOP;
+  END IF;
+  RETURN NULL;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS docos_embeddings_partition_create ON docos;
+CREATE TRIGGER docos_embeddings_partition_create
+  AFTER INSERT ON docos REFERENCING NEW TABLE AS created_docos
+  FOR EACH STATEMENT EXECUTE FUNCTION docos_embeddings_partitions();
+DROP TRIGGER IF EXISTS docos_embeddings_partition_drop ON docos;
+CREATE TRIGGER docos_embeddings_partition_drop
+  AFTER DELETE ON docos REFERENCING OLD TABLE AS deleted_docos
+  FOR EACH STATEMENT EXECUTE FUNCTION docos_embeddings_partitions();
+DO $$ BEGIN
+  PERFORM embeddings_partition('embeddings', id) FROM docos;
+END $$;
+
+DO $$ BEGIN
+  IF to_regclass('embeddings_unpartitioned') IS NOT NULL THEN
+    INSERT INTO embeddings
+      (doco_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding, updated_at)
+    SELECT doco_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text,
+           embedding, updated_at
+      FROM embeddings_unpartitioned;
+    DROP TABLE embeddings_unpartitioned;
+  END IF;
+END $$;
+
+-- The `limit` entities nearest the query among the Docos asked, for one
+-- source and one model: each entity's best chunk, best first. It keeps the
+-- Docos that hold chunks of that source and model (a mirror Doco's index holds
+-- no nodes, and walking it for some would scan it in vain), walks their
+-- 512-dimension indexes for four candidate chunks per entity asked (at least
+-- 200), then scores those on the whole vector. The walk keeps twice as many
+-- candidates in view as it returns: Slack's thousands of near-identical bot
+-- alerts trap a narrower one, which is also why the index links each chunk to
+-- 32 neighbours. The query runs through EXECUTE so it is planned with the
+-- Docos known and touches only their partitions; the iterative scan keeps the
+-- walk going until the candidates are found.
+CREATE OR REPLACE FUNCTION embeddings_nearest(
+  query vector, doco_ids text[], chunk_source text, chunk_model text, entity_limit int
+) RETURNS TABLE (doco_id text, entity_id text, chunk_text text, score double precision)
+LANGUAGE plpgsql STABLE
+SET hnsw.iterative_scan = strict_order
+SET hnsw.ef_search = 400
+AS $$
+DECLARE
+  holding text[];
+  candidates int := greatest(entity_limit * 4, 200);
+BEGIN
+  SELECT array_agg(d) INTO holding FROM unnest(doco_ids) AS d
+   WHERE EXISTS (SELECT 1 FROM embeddings e
+                  WHERE e.doco_id = d AND e.source = chunk_source AND e.model_id = chunk_model);
+  IF holding IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM set_config('hnsw.ef_search', least(candidates * 2, 1000)::text, true);
+  RETURN QUERY EXECUTE $q$
+    SELECT doco_id, entity_id, chunk_text, score FROM (
+      SELECT DISTINCT ON (doco_id, entity_id)
+             doco_id, entity_id, chunk_text, 1 - (embedding <=> $1) AS score
+        FROM (SELECT doco_id, entity_id, chunk_text, embedding
+                FROM embeddings
+               WHERE doco_id = ANY($2) AND source = $3 AND model_id = $4
+               ORDER BY subvector(embedding, 1, 512)::halfvec(512) <=> $5
+               LIMIT $7) candidates
+       ORDER BY doco_id, entity_id, embedding <=> $1) best
+     ORDER BY score DESC, doco_id, entity_id
+     LIMIT $6
+  $q$ USING query, holding, chunk_source, chunk_model,
+            subvector(query, 1, 512)::halfvec(512), entity_limit, candidates;
+END $$;
 
 -- Full-text search. Only nodes are indexed (entity_fts_nodes): the indexer
 -- populates summary + body, and Slack search — the lone reader — queries the
