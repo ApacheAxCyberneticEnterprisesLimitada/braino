@@ -240,8 +240,8 @@ CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
 DROP INDEX IF EXISTS nodes_ref_locator_idx;
 CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (doco_id, locator) WHERE locator IS NOT NULL;
 -- When a Doco's GitHub import last wrote a pull request's Reference or an
--- issue's Eval is one probe of this index (loadLatestActivity in
--- lib/activity-log.server.ts); the predicate is the import's (IMPORT_SOURCES).
+-- issue's Eval is one probe of this index; the predicate is the import's
+-- (the imported_items view).
 CREATE INDEX IF NOT EXISTS nodes_github_import_idx ON nodes (doco_id, updated_at)
   WHERE node_type IN ('reference', 'eval')
     AND locator ~ '^https://github\.com/[^/]+/[^/]+/(pull|issues)/[0-9]+$';
@@ -1497,7 +1497,7 @@ CREATE TABLE IF NOT EXISTS code_files (
   PRIMARY KEY (doco_id, repo, path)
 );
 CREATE INDEX IF NOT EXISTS code_files_repo_idx ON code_files (repo);
--- When a codebase last copied a file is one probe (loadLatestActivity).
+-- When a codebase last copied a file is one probe of this index.
 CREATE INDEX IF NOT EXISTS code_files_synced_idx ON code_files (doco_id, synced_at);
 CREATE INDEX IF NOT EXISTS code_files_tsv_idx  ON code_files USING gin (search_tsv);
 DROP TRIGGER IF EXISTS code_files_private_doco ON code_files;
@@ -1857,6 +1857,108 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_doco_idx
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_docos_idx ON silence_alerts USING gin (doco_ids);
+
+-- ──────────────────────────────────────────────────────────────────────────
+-- Activity. A Doco's activity is a change to its content (an audit event;
+-- policies are settings, not activity) or an item an integration brought.
+-- imported_items is the one definition of the latter, read by the activity
+-- logs, item counts, silence alerts and integration status (lib/
+-- activity-log.server.ts and its readers): from GitHub the files of a codebase
+-- and the pull requests and issues it keeps (a pull request's Reference, an
+-- issue's Eval), from Slack the messages of the channels it copies, from
+-- Notion the pages fetched so far. `at` is when an item happened in the source
+-- where the source says (a message posted, a page last edited; null when
+-- Notion gave no time), else when Doco last wrote it (a code file, a pull
+-- request or issue). Each branch has an index on (doco_id, at), with its WHERE
+-- as a partial one's predicate where it filters.
+CREATE OR REPLACE VIEW imported_items AS
+  SELECT i.doco_id, 'github'::text AS integration, i.synced_at AS at FROM code_files i
+  UNION ALL
+  SELECT i.doco_id, 'github', i.updated_at FROM nodes i
+   WHERE i.node_type IN ('reference', 'eval')
+     AND i.locator ~ '^https://github\.com/[^/]+/[^/]+/(pull|issues)/[0-9]+$'
+  UNION ALL
+  SELECT i.doco_id, 'slack', i.posted_at FROM group_chat_messages i
+   WHERE NOT EXISTS (SELECT 1 FROM group_chat_channels ch
+                      WHERE ch.doco_id = i.doco_id AND ch.channel_id = i.channel_id
+                        AND ch.excluded)
+  UNION ALL
+  SELECT i.doco_id, 'notion', i.last_edited_time FROM notion_pages i
+   WHERE i.synced_at IS NOT NULL;
+
+-- When each Doco last saw activity, kept on its row so pages read it with the
+-- Docos they load instead of probing every source on every view
+-- (decision_01M4GZ5ZJ30TM35CV77ZYREAA9). After each statement that writes a
+-- source, every Doco it touched catches up to its newest activity after the
+-- stored time: a ranged read of each source's (doco_id, at) index, so old
+-- history (an import of last year's messages) reads nothing and moves
+-- nothing. It only moves forward. Custom plans, because the range decides
+-- whether an index or a scan is right.
+CREATE OR REPLACE FUNCTION doco_catch_up_activity(doco text) RETURNS void AS $$
+DECLARE
+  since timestamptz := coalesce(
+    (SELECT latest_activity_at FROM docos WHERE id = doco), '-infinity');
+  newest timestamptz;
+BEGIN
+  newest := GREATEST(
+    (SELECT max(a.at) FROM audit_events a
+      WHERE a.doco_id = doco AND a.at > since AND a.entity_type <> 'policy'),
+    (SELECT max(i.at) FROM imported_items i WHERE i.doco_id = doco AND i.at > since));
+  IF newest IS NOT NULL THEN
+    UPDATE docos SET latest_activity_at = GREATEST(latest_activity_at, newest) WHERE id = doco;
+  END IF;
+END;
+$$ LANGUAGE plpgsql SET plan_cache_mode = force_custom_plan;
+
+-- The trigger on each source, given the source's time column: only the Docos
+-- the statement wrote something newer than their stored time to catch up, so
+-- an import of old history costs one cheap look at the rows it wrote.
+CREATE OR REPLACE FUNCTION catch_up_docos_activity() RETURNS trigger AS $$
+BEGIN
+  EXECUTE format(
+    'SELECT doco_catch_up_activity(w.doco_id)
+       FROM (SELECT doco_id, max(%I) AS at FROM changed_rows GROUP BY doco_id) w
+       JOIN docos d ON d.id = w.doco_id
+      WHERE w.at > coalesce(d.latest_activity_at, ''-infinity'')',
+    TG_ARGV[0]);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Filled once, from each Doco's whole history, on the boot that adds it.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'docos'
+       AND column_name = 'latest_activity_at'
+  ) THEN
+    ALTER TABLE docos ADD COLUMN latest_activity_at timestamptz;
+    PERFORM doco_catch_up_activity(id) FROM docos;
+  END IF;
+END $$;
+
+-- Every write to a source catches its Docos up. Slack messages and audit
+-- events are only ever inserted with their time; the rest change it when
+-- rewritten (a file resynced, a pull request updated, a Notion page fetched).
+DO $$
+DECLARE t record;
+BEGIN
+  FOR t IN SELECT * FROM (VALUES
+    ('audit_events', 'INSERT', 'at'),
+    ('group_chat_messages', 'INSERT', 'posted_at'),
+    ('code_files', 'INSERT', 'synced_at'), ('code_files', 'UPDATE', 'synced_at'),
+    ('nodes', 'INSERT', 'updated_at'), ('nodes', 'UPDATE', 'updated_at'),
+    ('notion_pages', 'INSERT', 'last_edited_time'), ('notion_pages', 'UPDATE', 'last_edited_time')
+  ) AS v(tbl, ev, at) LOOP
+    EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t.tbl || '_activity_' || lower(t.ev), t.tbl);
+    EXECUTE format(
+      'CREATE TRIGGER %I AFTER %s ON %I REFERENCING NEW TABLE AS changed_rows '
+      'FOR EACH STATEMENT EXECUTE FUNCTION catch_up_docos_activity(%L)',
+      t.tbl || '_activity_' || lower(t.ev), t.ev, t.tbl, t.at);
+  END LOOP;
+END $$;
 
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change
