@@ -218,7 +218,7 @@ CREATE TABLE IF NOT EXISTS nodes (
   kind         text,                          -- eval, state, principal
   -- Where a node's source lives, promoted out of `extra` to its own typed
   -- column: a reference's locator, or an eval's (a test's path:line, or the
-  -- GitHub issue a bug came from). The GitHub imports' idempotency lookups
+  -- GitHub issue it mirrors). The GitHub imports' idempotency lookups
   -- index it. Null for every other node type.
   locator      text,
   -- Node-shape slim-down: the unified per-node extra bag is the single
@@ -235,12 +235,12 @@ CREATE TABLE IF NOT EXISTS nodes (
 CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
 -- Dedupe key on the promoted `locator` column — the GitHub imports'
--- idempotency lookups (a pull request's Reference, a bug's Eval) are indexed
+-- idempotency lookups (a pull request's Reference, an issue's Eval) are indexed
 -- reads on it.
 DROP INDEX IF EXISTS nodes_ref_locator_idx;
 CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (doco_id, locator) WHERE locator IS NOT NULL;
--- When a Doco's GitHub import last wrote a pull request's Reference or a bug's
--- Eval is one probe of this index (loadLatestActivity in
+-- When a Doco's GitHub import last wrote a pull request's Reference or an
+-- issue's Eval is one probe of this index (loadLatestActivity in
 -- lib/activity-log.server.ts); the predicate is the import's (IMPORT_SOURCES).
 CREATE INDEX IF NOT EXISTS nodes_github_import_idx ON nodes (doco_id, updated_at)
   WHERE node_type IN ('reference', 'eval')
@@ -1541,16 +1541,64 @@ CREATE TRIGGER docos_code_files_follow_connections
           IS DISTINCT FROM NEW.data->'github_integration'->'installations')
   EXECUTE FUNCTION code_files_follow_connections();
 
--- Bugs from GitHub fill a GitHub bugs Doco of their own (template
--- `github-bugs`), never the Bug tracker people file bugs in. A Bug tracker the
--- GitHub setup connected while bugs landed there would otherwise fall back to
--- bringing pull requests, so it loses its GitHub connection; running the setup
--- again brings the bugs into a GitHub bugs Doco. Only a Bug tracker still
--- holding a connection matches, so a reboot changes nothing.
+-- Issues from GitHub fill a GitHub issues Doco of their own (template
+-- `github-issues`), never the Bug tracker people file bugs in. A Bug tracker
+-- the GitHub setup connected while bugs landed there would otherwise fall back
+-- to bringing pull requests, so it loses its GitHub connection; running the
+-- setup again brings the issues into a GitHub issues Doco. Only a Bug tracker
+-- still holding a connection matches, so a reboot changes nothing.
 UPDATE docos
    SET data = data - 'github_integration'
  WHERE data->>'template_handle' = 'bugs'
    AND data ? 'github_integration';
+
+-- GitHub brings issues, not bugs (decision_01M4GFJ3A5R9ASCBA6CWKDKSH3): a
+-- GitHub bugs Doco (template `github-bugs`, which brought only the issues
+-- labeled bug) becomes a GitHub issues Doco. The setup's
+-- `<workspace>-github-bugs` handle becomes `<workspace>-github-issues` when
+-- that handle is free and fits in 64 characters; a goal still the template's
+-- takes the new template's; and a Doco connected to repositories imports them
+-- again (a running marker with no queue, which the backfill sweep resumes from
+-- its connections), now bringing every issue. Only a `github-bugs` Doco
+-- matches, so a reboot changes nothing.
+WITH bugs_docos AS (
+  SELECT d.id,
+         CASE
+           WHEN d.handle LIKE '%-github-bugs'
+            AND length(d.handle) + 2 <= 64
+            AND NOT EXISTS (
+                  SELECT 1 FROM docos o
+                   WHERE o.handle = left(d.handle, -length('-github-bugs')) || '-github-issues')
+           THEN left(d.handle, -length('-github-bugs')) || '-github-issues'
+           ELSE d.handle
+         END AS handle,
+         jsonb_array_length(
+           COALESCE(d.data->'github_integration'->'connections', '[]'::jsonb)
+         ) > 0 AS connected
+    FROM docos d
+   WHERE d.data->>'template_handle' = 'github-bugs'
+)
+UPDATE docos d
+   SET handle = b.handle,
+       data = jsonb_set(d.data, '{template_handle}', '"github-issues"')
+              || jsonb_build_object('handle', b.handle)
+              || CASE WHEN b.connected
+                   THEN jsonb_build_object(
+                          'github_integration',
+                          d.data->'github_integration'
+                            || jsonb_build_object(
+                                 'backfill',
+                                 jsonb_build_object('status', 'running', 'started_at', now())))
+                   ELSE '{}'::jsonb
+                 END,
+       goal = CASE
+                WHEN d.goal = 'Track a GitHub repository''s bugs — issues labeled bug, or of the Bug issue type, sync automatically, and closed issues retire.'
+                THEN 'Track a GitHub repository''s issues — every issue syncs automatically, and closed issues retire.'
+                ELSE d.goal
+              END,
+       updated_at = now()
+  FROM bugs_docos b
+ WHERE d.id = b.id;
 
 -- Feedback reports.
 CREATE TABLE IF NOT EXISTS feedback_reports (

@@ -972,17 +972,16 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "pull-requests", isDefault: true }],
   },
   {
-    // GitHub bugs. A repository's bug issues (labeled bug, or of the Bug issue
-    // type) are synced as Evals keyed on the issue URL, and a closed issue
-    // retires its bug. Like every integration it fills a standalone Doco of its
-    // own, never the Bug tracker people file bugs in, so it imposes no
-    // authoring constraints; the GitHub integration, set up right after
-    // creation, does the syncing.
-    name: "github-bugs",
-    label: "GitHub bugs",
-    icon: "🐞",
+    // GitHub issues. Every issue of a repository is synced as an Eval keyed on
+    // the issue URL, and a closed issue retires it. Like every integration it
+    // fills a standalone Doco of its own, never the Bug tracker people file
+    // bugs in, so it imposes no authoring constraints; the GitHub integration,
+    // set up right after creation, does the syncing.
+    name: "github-issues",
+    label: "GitHub issues",
+    icon: "🎫",
     description:
-      "Track a GitHub repository's bugs — issues labeled bug, or of the Bug issue type, sync automatically, and closed issues retire.",
+      "Track a GitHub repository's issues — every issue syncs automatically, and closed issues retire.",
     policies: [],
     perspectives: [{ slug: "list", isDefault: true }],
   },

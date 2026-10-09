@@ -1,6 +1,6 @@
 // Alexander, 2026-09-30: every integration fills a standalone Doco of its own,
 // so bugs from GitHub moved out of the workspace's Bug tracker into a GitHub
-// bugs Doco. A Bug tracker the GitHub setup had already connected would
+// bugs Doco (now a GitHub issues Doco). A Bug tracker the GitHub setup had already connected would
 // otherwise fall back to bringing pull requests, so schema.sql, which
 // re-applies after every change to it, drops the GitHub connection of every
 // Bug tracker. Every other Doco keeps its connection, and applying it again
@@ -48,14 +48,17 @@ describe("a Bug tracker no longer brings anything from GitHub", () => {
   });
 
   it("leaves every other Doco's GitHub connection alone", async () => {
-    await seed("acme-github-bugs", { template_handle: "github-bugs", github_integration: GITHUB });
+    await seed("acme-github-issues", {
+      template_handle: "github-issues",
+      github_integration: GITHUB,
+    });
     await seed("acme-pull-requests", {
       template_handle: "github-pull-requests",
       github_integration: GITHUB,
     });
     await seed("acme-legacy", { github_integration: GITHUB });
     await db.exec(schemaSql);
-    for (const id of ["acme-github-bugs", "acme-pull-requests", "acme-legacy"]) {
+    for (const id of ["acme-github-issues", "acme-pull-requests", "acme-legacy"]) {
       expect((await dataOf(id)).github_integration, id).toEqual(GITHUB);
     }
   });

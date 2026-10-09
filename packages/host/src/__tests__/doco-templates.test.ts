@@ -41,8 +41,9 @@ describe("removed templates are gone", () => {
   // (`decision-record-templates.ts`), and `org-chart` returns as the
   // abstraction for documenting org structure — all tested below. The
   // `data-decisions` flavor folded into `architectural-decisions`, which now
-  // subsumes data-modeling, storage, and governance decisions.
-  for (const name of ["glossaries", "data-decisions"]) {
+  // subsumes data-modeling, storage, and governance decisions. `github-bugs`
+  // became `github-issues`: GitHub brings every issue, not only bugs.
+  for (const name of ["glossaries", "data-decisions", "github-bugs"]) {
     it(`does not register the removed \`${name}\` template`, () => {
       expect(findDocoTemplateByName(name)).toBeUndefined();
       expect(DEFAULT_DOCO_TEMPLATES.some((t) => t.name === name)).toBe(false);
@@ -58,7 +59,7 @@ describe("removed templates are gone", () => {
       "design-decisions",
       "evals",
       "faq",
-      "github-bugs",
+      "github-issues",
       "github-pull-requests",
       "glossary",
       "ideas",
@@ -1362,13 +1363,14 @@ describe("codebase template", () => {
   });
 });
 
-describe("github-bugs template", () => {
-  const template = findDocoTemplateByName("github-bugs");
+describe("github-issues template", () => {
+  const template = findDocoTemplateByName("github-issues");
 
   // Alexander, 2026-09-30: every integration fills a standalone Doco of its
-  // own, so bugs from GitHub never land in the Bug tracker people file in.
-  it("mirrors a repository's bugs with no authoring constraints, opening on the list", () => {
-    expect(template?.label).toBe("GitHub bugs");
+  // own, so issues from GitHub never land in the Bug tracker people file in;
+  // 2026-10-09: it brings issues, not bugs.
+  it("mirrors a repository's issues with no authoring constraints, opening on the list", () => {
+    expect(template?.label).toBe("GitHub issues");
     expect(template?.policies).toEqual([]);
     expect(template?.perspectives).toEqual([{ slug: "list", isDefault: true }]);
   });
