@@ -132,6 +132,7 @@ CREATE TABLE IF NOT EXISTS workspace_onboarding (
   joined_as        text NOT NULL CHECK (joined_as IN ('creator', 'invitee')),
   started_at       timestamptz NOT NULL DEFAULT now(),
   sources_done_at  timestamptz,
+  invite_done_at   timestamptz,
   reminded_at      timestamptz,
   PRIMARY KEY (workspace_id, user_id)
 );
@@ -1727,6 +1728,9 @@ BEGIN
 END $$;
 -- Every agent Doco supports runs hooks, so nobody skips the hook any more.
 ALTER TABLE workspace_onboarding DROP COLUMN IF EXISTS hook_done_at;
+-- When an owner ended (or skipped) inviting their team
+-- (decision_01M4NJQXQZXFA74A7MCSYY9B6S).
+ALTER TABLE workspace_onboarding ADD COLUMN IF NOT EXISTS invite_done_at timestamptz;
 
 ALTER TABLE oauth_authorization_codes
   ADD COLUMN IF NOT EXISTS actor_role text
