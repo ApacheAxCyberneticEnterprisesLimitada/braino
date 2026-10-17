@@ -117,15 +117,13 @@ CREATE TABLE IF NOT EXISTS workspace_users (
 CREATE INDEX IF NOT EXISTS workspace_users_user_idx ON workspace_users (user_id);
 
 -- Onboarding: every member of a workspace (but not of their personal one)
--- walks its getting-started steps: owners all three (connect GitHub, connect
--- other sources of knowledge, ask their agent to start using Doco, which
--- connects it and turns on the Doco hook), everyone else the last. Each step
+-- walks its getting-started steps (web lib/onboarding-steps.ts). Each step
 -- reads as done from what the database already holds
 -- (web lib/onboarding.server.ts); a row keeps only what nothing else records:
 -- who created the workspace or joined it from an invite, and when (the
--- reminder email's clock), when the person ended the other-sources step, and
--- when the reminder went out. A member without a row walks the steps by role
--- and is never reminded.
+-- reminder email's clock), when the person ended the other-sources and invite
+-- steps, and when the reminder went out. A member without a row walks the
+-- steps by role and is never reminded.
 CREATE TABLE IF NOT EXISTS workspace_onboarding (
   workspace_id     text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -1728,9 +1726,35 @@ BEGIN
 END $$;
 -- Every agent Doco supports runs hooks, so nobody skips the hook any more.
 ALTER TABLE workspace_onboarding DROP COLUMN IF EXISTS hook_done_at;
--- When an owner ended (or skipped) inviting their team
+-- When an owner ended (or skipped) inviting their colleagues
 -- (decision_01M4NJQXQZXFA74A7MCSYY9B6S).
 ALTER TABLE workspace_onboarding ADD COLUMN IF NOT EXISTS invite_done_at timestamptz;
+-- Inviting colleagues became an owner's last step when it shipped on
+-- 2026-10-17, done only once they end or skip it
+-- (decision_01M4TGN2D498GD9FXS7R3M5KH9). Until then it read as done once any
+-- agent worked in the workspace, so it is ended for every owner it read as
+-- done for then: an owner who had joined a workspace agents had read or
+-- written in by then. A workspace already set up never shows its steps
+-- again, and only members and work from before the move match, so a reboot
+-- changes nothing.
+INSERT INTO workspace_onboarding (workspace_id, user_id, joined_as, invite_done_at, reminded_at)
+SELECT wu.workspace_id, wu.user_id, 'creator', now(), now()
+  FROM workspace_users wu
+ WHERE wu.role = 'owner'
+   AND wu.joined_at < '2026-10-17T12:30:00Z'
+   AND (EXISTS (
+          SELECT 1 FROM changesets cs
+            JOIN docos d ON d.id = cs.doco_id
+           WHERE d.workspace_id = wu.workspace_id
+             AND cs.recorded_at < '2026-10-17T12:30:00Z'
+             AND (cs.source = 'mcp' OR (cs.source = 'api' AND cs.metadata ? 'auth')))
+        OR EXISTS (
+          SELECT 1 FROM query_events q
+           WHERE q.workspace_id = wu.workspace_id
+             AND q.at < '2026-10-17T12:30:00Z'
+             AND (q.source = 'mcp' OR (q.source = 'api' AND q.metadata ? 'auth'))))
+ON CONFLICT (workspace_id, user_id) DO UPDATE
+  SET invite_done_at = COALESCE(workspace_onboarding.invite_done_at, now());
 
 ALTER TABLE oauth_authorization_codes
   ADD COLUMN IF NOT EXISTS actor_role text
