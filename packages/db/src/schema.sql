@@ -1814,6 +1814,21 @@ ALTER TABLE oauth_access_tokens
   ADD COLUMN IF NOT EXISTS actor_role text
   CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner'));
 
+-- When the token last authenticated a request: /tokens' "Last used". Filled
+-- from created_at, the best known, on the boot that adds it.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'oauth_access_tokens'
+       AND column_name = 'last_used_at'
+  ) THEN
+    ALTER TABLE oauth_access_tokens ADD COLUMN last_used_at timestamptz;
+    UPDATE oauth_access_tokens SET last_used_at = created_at;
+  END IF;
+END $$;
+
 -- ──────────────────────────────────────────────────────────────────────────
 -- account_grants retirement. The live person-to-person "all my workspaces,
 -- including ones I create later" delegation is gone: that breadth now lives
@@ -1891,11 +1906,14 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   agent         text,
   -- The Docos it concerns: the integration Doco, or the ones the agent used.
   doco_ids      text[] NOT NULL,
-  -- The last item or call before the silence.
+  -- The last item or call before the silence; for an agent never used, when
+  -- it was connected.
   quiet_since   timestamptz NOT NULL,
-  -- How many the same hours of each of the past four weeks brought, on average.
+  -- How many the same hours of past weeks (up to four) brought, on average;
+  -- 0 for an agent with less than a week of history.
   usual         int NOT NULL,
   opened_at     timestamptz NOT NULL DEFAULT now(),
+  -- When the last email about it went out (up to three, a day apart).
   emailed_at    timestamptz,
   CHECK ((doco_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
 );
@@ -1904,6 +1922,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_doco_idx
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_docos_idx ON silence_alerts USING gin (doco_ids);
+-- How many emails went out about each alert: one for those already emailed,
+-- on the boot that adds it.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'silence_alerts'
+       AND column_name = 'emails'
+  ) THEN
+    ALTER TABLE silence_alerts ADD COLUMN emails int NOT NULL DEFAULT 0;
+    UPDATE silence_alerts SET emails = 1 WHERE emailed_at IS NOT NULL;
+  END IF;
+END $$;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Activity. A Doco's activity is a change to its content (an audit event;
