@@ -1913,7 +1913,7 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   -- 0 for an agent with less than a week of history.
   usual         int NOT NULL,
   opened_at     timestamptz NOT NULL DEFAULT now(),
-  -- When the last email about it went out (up to three, a day apart).
+  -- When the last email about it went out (up to three, on weekdays a day apart).
   emailed_at    timestamptz,
   CHECK ((doco_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
 );
