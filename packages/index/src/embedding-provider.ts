@@ -9,8 +9,6 @@
  * `VOYAGE_API_KEY`, `COHERE_API_KEY`). No collection-prefixed variant. To pick a
  * provider explicitly when more than one key is present, set
  * `DOCO_EMBEDDING_PROVIDER` to `openai` | `voyage` | `cohere` | `none`.
- * `DOCO_VOYAGE_EMBEDDING_MODEL` selects the Voyage model and defaults to
- * `voyage-4`.
  *
  * Asymmetric retrieval. Agent queries are short natural-language questions;
  * the corpus is dense typed prose (decisions, rules, intents). That's an
@@ -107,7 +105,7 @@ export class OpenAIEmbeddingProvider implements EmbeddingProvider {
 }
 
 /**
- * Voyage AI (voyage-4 by default). Retrieval-tuned and asymmetric: it
+ * Voyage AI (voyage-3.5 by default). Retrieval-tuned and asymmetric: it
  * takes `input_type: "query" | "document"`, which maps 1:1 onto our
  * `inputType`. Omitting it (undefined) asks Voyage for a neutral embedding —
  * we still send nothing in that case so behavior matches Voyage's default.
@@ -118,7 +116,7 @@ export class VoyageEmbeddingProvider implements EmbeddingProvider {
 
   constructor(
     private apiKey: string,
-    model = process.env.DOCO_VOYAGE_EMBEDDING_MODEL?.trim() || "voyage-4",
+    model = "voyage-3.5",
   ) {
     assertLatin1ApiKey(apiKey, "VOYAGE_API_KEY");
     this.modelId = `voyage:${model}`;

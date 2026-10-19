@@ -23,10 +23,6 @@ pnpm --filter @doco/index eval:retrieval
 OPENAI_API_KEY=… VOYAGE_API_KEY=… COHERE_API_KEY=… \
   pnpm --filter @doco/index eval:retrieval -- --provider openai,voyage,cohere
 
-# Voyage defaults to voyage-4; override it explicitly when comparing variants:
-VOYAGE_API_KEY=… DOCO_VOYAGE_EMBEDDING_MODEL=voyage-4-lite \
-  pnpm --filter @doco/index eval:retrieval -- --provider voyage
-
 # Measure the reranker lift (prints a "+rerank" row under each provider):
 VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
   --provider voyage --rerank voyage
