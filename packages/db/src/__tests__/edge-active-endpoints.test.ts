@@ -15,7 +15,7 @@ import {
 import { freshDb } from "./fresh-db.js";
 
 const ORG = "workspace_activeedge0000000000";
-const DOCO = "doco_activeedge00000000000000000";
+const COLLECTION = "collection_activeedge00000000000000000";
 const FROM = "decision_activeedge00000000000000";
 const TO = "intent_activeedge0000000000000000";
 
@@ -23,19 +23,17 @@ let db: PGlite;
 type Client = Parameters<typeof createEdge>[0];
 
 async function seedNode(id: string, type: string, lifecycle: string): Promise<void> {
-  await db.query("INSERT INTO nodes (id, doco_id, node_type, lifecycle) VALUES ($1,$2,$3,$4)", [
-    id,
-    DOCO,
-    type,
-    lifecycle,
-  ]);
+  await db.query(
+    "INSERT INTO nodes (id, collection_id, node_type, lifecycle) VALUES ($1,$2,$3,$4)",
+    [id, COLLECTION, type, lifecycle],
+  );
 }
 
 async function makeEdge(lifecycle: "drafting" | "queued" | "active") {
   const client = db as unknown as Client;
-  const tx = await createChangeset(client, { docoId: DOCO, source: "api" });
+  const tx = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
   return createEdge(client, tx, {
-    docoId: DOCO,
+    collectionId: COLLECTION,
     edgeType: "supports",
     fromId: FROM,
     fromNodeType: "decision",
@@ -49,8 +47,8 @@ beforeEach(async () => {
   db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1,'ae','AE')", [ORG]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'ae',$2,$2,'{}')",
-    [DOCO, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,'ae',$2,$2,'{}')",
+    [COLLECTION, ORG],
   );
 });
 
@@ -80,7 +78,7 @@ describe("active-edge endpoint invariant", () => {
     await seedNode(TO, "intent", "drafting");
     const edge = await makeEdge("drafting");
     const client = db as unknown as Client;
-    const tx = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     await expect(updateEdge(client, tx, { id: edge.id, lifecycle: "active" })).rejects.toThrow(
       EDGE_ENDPOINTS_NOT_ACTIVE,
     );
@@ -95,10 +93,10 @@ describe("retireActiveEdgesForNode cascade", () => {
     await seedNode(other, "action", "active");
 
     const client = db as unknown as Client;
-    const tx1 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx1 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     // Outgoing FROM→TO and incoming other→FROM, both active.
     await createEdge(client, tx1, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "supports",
       fromId: FROM,
       fromNodeType: "decision",
@@ -107,7 +105,7 @@ describe("retireActiveEdgesForNode cascade", () => {
       lifecycle: "active",
     });
     await createEdge(client, tx1, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "supports",
       fromId: other,
       fromNodeType: "action",
@@ -116,14 +114,17 @@ describe("retireActiveEdgesForNode cascade", () => {
       lifecycle: "active",
     });
 
-    const tx2 = await createChangeset(client, { docoId: DOCO, source: "api" });
-    const retired = await retireActiveEdgesForNode(client, tx2, { docoId: DOCO, nodeId: FROM });
+    const tx2 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
+    const retired = await retireActiveEdgesForNode(client, tx2, {
+      collectionId: COLLECTION,
+      nodeId: FROM,
+    });
     expect(retired).toHaveLength(2);
     expect(retired.every((e) => e.lifecycle === "retired")).toBe(true);
 
     const { rows } = await db.query<{ n: string }>(
-      "SELECT count(*)::text AS n FROM edges WHERE doco_id = $1 AND lifecycle = 'active'",
-      [DOCO],
+      "SELECT count(*)::text AS n FROM edges WHERE collection_id = $1 AND lifecycle = 'active'",
+      [COLLECTION],
     );
     expect(rows[0].n).toBe("0");
   });

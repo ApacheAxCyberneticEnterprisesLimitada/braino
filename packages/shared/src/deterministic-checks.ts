@@ -20,17 +20,17 @@ import { EDGE_TYPES } from "./access-types.js";
 import type { CandidateFields, EngineEdge, PrincipalIndex } from "./authoring-evaluator.js";
 import type { DeterministicPredicate, DeterministicSubKind } from "./entities.js";
 
-/** Everything an engine check needs about the doco around the candidate. */
+/** Everything an engine check needs about the collection around the candidate. */
 export interface CheckEvalContext {
   /** The candidate's fields (NOT yet persisted). */
   candidate: CandidateFields;
   /** Active outgoing edges for the candidate. */
   candidateEdges: EngineEdge[];
-  /** Existing edges in the doco (other nodes' edges). */
+  /** Existing edges in the collection (other nodes' edges). */
   edges: EngineEdge[];
   /** Principals known to the host. */
   principals: PrincipalIndex;
-  /** Fields of OTHER nodes in the doco. */
+  /** Fields of OTHER nodes in the collection. */
   population: CandidateFields[];
 }
 
@@ -109,7 +109,7 @@ function entityTypeFromId(id: string): string {
 }
 
 /**
- * Policy records are Doco-scoped metadata; the membership gates
+ * Policy records are collection-scoped metadata; the membership gates
  * (`requires_node_type` / `requires_entity_type`) let them pass without forcing
  * each template to list `policy` as domain content.
  */

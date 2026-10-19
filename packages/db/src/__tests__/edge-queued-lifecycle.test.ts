@@ -10,7 +10,7 @@ import { createChangeset, createEdge, updateEdge } from "../index.js";
 import { freshDb } from "./fresh-db.js";
 
 const ORG = "workspace_queued00000000000000";
-const DOCO = "doco_queued00000000000000000000";
+const COLLECTION = "collection_queued00000000000000000000";
 const FROM = "decision_queued000000000000000000";
 const TO = "intent_queued0000000000000000000";
 
@@ -21,16 +21,16 @@ async function seed(): Promise<void> {
     ORG,
   ]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'queued',$2,$2,'{}')",
-    [DOCO, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,'queued',$2,$2,'{}')",
+    [COLLECTION, ORG],
   );
   for (const [id, type] of [
     [FROM, "decision"],
     [TO, "intent"],
   ] as const) {
-    await db.query("INSERT INTO nodes (id, doco_id, node_type) VALUES ($1,$2,$3)", [
+    await db.query("INSERT INTO nodes (id, collection_id, node_type) VALUES ($1,$2,$3)", [
       id,
-      DOCO,
+      COLLECTION,
       type,
     ]);
   }
@@ -44,9 +44,9 @@ beforeEach(async () => {
 describe("edge queued lifecycle", () => {
   it("creates an edge directly in the queued stage", async () => {
     const client = db as unknown as Parameters<typeof createEdge>[0];
-    const tx = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const edge = await createEdge(client, tx, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "supports",
       fromId: FROM,
       fromNodeType: "decision",
@@ -59,9 +59,9 @@ describe("edge queued lifecycle", () => {
 
   it("transitions a drafting edge to queued via updateEdge", async () => {
     const client = db as unknown as Parameters<typeof createEdge>[0];
-    const tx1 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx1 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const edge = await createEdge(client, tx1, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "supports",
       fromId: FROM,
       fromNodeType: "decision",
@@ -70,7 +70,7 @@ describe("edge queued lifecycle", () => {
       lifecycle: "drafting",
     });
 
-    const tx2 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx2 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const queued = await updateEdge(client, tx2, { id: edge.id, lifecycle: "queued" });
     expect(queued.lifecycle).toBe("queued");
     expect(queued.retired_at).toBeNull();

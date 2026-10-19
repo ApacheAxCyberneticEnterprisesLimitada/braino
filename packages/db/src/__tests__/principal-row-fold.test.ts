@@ -4,7 +4,7 @@ import { freshDb } from "./fresh-db.js";
 
 // A Principal is an ordinary node
 // (`node_type = 'principal'`), so `getPrincipalById` / `listPrincipals` read it
-// through the ONE canonical node path (getEntity / listNodesByDoco →
+// through the ONE canonical node path (getEntity / listNodesByCollection →
 // rowToEntity) — no bespoke `prose AS name` SQL + `mapPrincipalRow`. This pins
 // the legacy `PrincipalRow` shape those readers depend on: name (from prose),
 // `data.owner_id` (from extra), `data.created_by` (from the column).
@@ -17,7 +17,7 @@ vi.mock("../client.js", () => ({
 import { getPrincipalById, listPrincipals } from "../repo.js";
 
 const ORG = "workspace_pfold00000000000000";
-const DOCO = "doco_pfold0000000000000000000000";
+const COLLECTION = "collection_pfold0000000000000000000000";
 const USER = "user_pfold0000000000000000000000";
 const P1 = "principal_pfold1000000000000000";
 const P2 = "principal_pfold2000000000000000";
@@ -29,19 +29,19 @@ beforeAll(async () => {
   ]);
   await mocks.db.query("INSERT INTO users (id, data) VALUES ($1,'{}')", [USER]);
   await mocks.db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'pfold',$2,$2,'{}'::jsonb)",
-    [DOCO, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,'pfold',$2,$2,'{}'::jsonb)",
+    [COLLECTION, ORG],
   );
   // Two principals: "alice" carries an owner_id in extra; "bob" is bare.
   await mocks.db.query(
-    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra, created_by)
+    `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, extra, created_by)
        VALUES ($1,$2,'principal','active','alice','{"owner_id":"user_x"}'::jsonb,$3)`,
-    [P1, DOCO, USER],
+    [P1, COLLECTION, USER],
   );
   await mocks.db.query(
-    `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, extra)
+    `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, extra)
        VALUES ($1,$2,'principal','active','bob','{}'::jsonb)`,
-    [P2, DOCO],
+    [P2, COLLECTION],
   );
 });
 
@@ -51,7 +51,7 @@ describe("principal read folded onto the canonical node path", () => {
     expect(p).not.toBeNull();
     expect(p?.id).toBe(P1);
     expect(p?.prose).toBe("alice");
-    expect(p?.doco_id).toBe(DOCO);
+    expect(p?.collection_id).toBe(COLLECTION);
     expect(p?.extra.owner_id).toBe("user_x");
     expect(p?.created_by).toBe(USER);
   });
@@ -61,7 +61,7 @@ describe("principal read folded onto the canonical node path", () => {
   });
 
   it("listPrincipals returns every principal, name-ordered", async () => {
-    const rows = await listPrincipals(DOCO);
+    const rows = await listPrincipals(COLLECTION);
     expect(rows.map((r) => r.prose)).toEqual(["alice", "bob"]);
     expect(rows.find((r) => r.prose === "alice")?.extra.owner_id).toBe("user_x");
   });

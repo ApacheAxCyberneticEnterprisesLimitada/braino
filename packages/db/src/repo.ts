@@ -3,7 +3,7 @@
 //
 // Principals are role-personas in the graph; users are human OAuth
 // identities. Membership + OAuth tables reference `user_id`.
-// `docos.owner_id` is polymorphic: `user_<ulid>` or `workspace_<ulid>`.
+// `collections.owner_id` is polymorphic: `user_<ulid>` or `workspace_<ulid>`.
 
 import { randomBytes } from "node:crypto";
 import { BLOCKED_NODE_JSON_EDGE_FIELD_SET, WRITE_ALL, normalizeWriteTypes } from "@doco/shared";
@@ -45,7 +45,7 @@ function stripLegacyProseKeys(data: Record<string, unknown>): Record<string, unk
 const EXTRA_EXCLUDED_KEYS: ReadonlySet<string> = new Set<string>([
   // identity / audit / lifecycle — real columns
   "id",
-  "doco_id",
+  "collection_id",
   "node_type",
   "lifecycle",
   "created_at",
@@ -116,7 +116,7 @@ export function nodeRowFromFields(nodeType: string, fields: Record<string, unkno
   };
   return {
     id: String(fields.id),
-    doco_id: fields.doco_id ? String(fields.doco_id) : "",
+    collection_id: fields.collection_id ? String(fields.collection_id) : "",
     node_type: nodeType,
     lifecycle: str(fields.lifecycle),
     prose: typeof fields.prose === "string" ? fields.prose : "",
@@ -139,10 +139,10 @@ export function nodeRowFromFields(nodeType: string, fields: Record<string, unkno
  */
 export async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise<void> {
   const t = node.node_type;
-  const cols: string[] = ["id", "doco_id", "node_type", "lifecycle", "prose", "extra"];
+  const cols: string[] = ["id", "collection_id", "node_type", "lifecycle", "prose", "extra"];
   const vals: unknown[] = [
     node.id,
-    node.doco_id,
+    node.collection_id,
     t,
     node.lifecycle,
     node.prose,
@@ -179,17 +179,17 @@ export async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise
 }
 
 /**
- * Upsert a policy into the per-Doco `policies` table. Policies are NOT folded
+ * Upsert a policy into the per-collection `policies` table. Policies are NOT folded
  * into `nodes` — they are governance config, not graph knowledge. Unlike nodes,
  * a policy keeps its real `policies.data` jsonb (the structured predicate /
  * on_violation / fires_when fields); the standalone `kind` classifier is
  * mirrored to its own column for filtering. `policy.lifecycle` drives the column.
  */
 export async function upsertPolicy(policy: PolicyWrite, client?: pg.PoolClient): Promise<void> {
-  const cols = ["id", "doco_id", "lifecycle", "data", "kind"];
+  const cols = ["id", "collection_id", "lifecycle", "data", "kind"];
   const vals: unknown[] = [
     policy.id,
-    policy.doco_id,
+    policy.collection_id,
     policy.lifecycle,
     JSON.stringify(policy.data),
     typeof policy.data.kind === "string" ? policy.data.kind : "",
@@ -219,7 +219,7 @@ export async function upsertPolicy(policy: PolicyWrite, client?: pg.PoolClient):
 }
 
 // Reads are node-only: policies are read through the bespoke policy path and
-// identity rows (user/doco/workspace) through their own row readers. Every node
+// identity rows (user/collection/workspace) through their own row readers. Every node
 // type lives in the `nodes` table; `node_type` is the discriminator.
 
 export async function getEntity(nodeType: string, id: string): Promise<NodeRow | null> {
@@ -232,10 +232,13 @@ export async function getEntity(nodeType: string, id: string): Promise<NodeRow |
   });
 }
 
-export async function listNodesByDoco(nodeType: string, docoId: string): Promise<NodeRow[]> {
+export async function listNodesByCollection(
+  nodeType: string,
+  collectionId: string,
+): Promise<NodeRow[]> {
   return withClient(async (c) => {
-    const r = await c.query("SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2", [
-      docoId,
+    const r = await c.query("SELECT * FROM nodes WHERE collection_id = $1 AND node_type = $2", [
+      collectionId,
       nodeType,
     ]);
     return r.rows.map(rowToNode);
@@ -243,20 +246,20 @@ export async function listNodesByDoco(nodeType: string, docoId: string): Promise
 }
 
 /**
- * Like `listNodesByDoco`, but restricted to the given ids. Used by the
+ * Like `listNodesByCollection`, but restricted to the given ids. Used by the
  * incremental reindex path so a one-node capture doesn't drag every
- * row in the Doco off disk just to throw them away.
+ * row in the collection off disk just to throw them away.
  */
-export async function listNodesByDocoAndIds(
+export async function listNodesByCollectionAndIds(
   nodeType: string,
-  docoId: string,
+  collectionId: string,
   ids: string[],
 ): Promise<NodeRow[]> {
   if (ids.length === 0) return [];
   return withClient(async (c) => {
     const r = await c.query(
-      "SELECT * FROM nodes WHERE doco_id = $1 AND node_type = $2 AND id = ANY($3::text[])",
-      [docoId, nodeType, ids],
+      "SELECT * FROM nodes WHERE collection_id = $1 AND node_type = $2 AND id = ANY($3::text[])",
+      [collectionId, nodeType, ids],
     );
     return r.rows.map(rowToNode);
   });
@@ -275,7 +278,7 @@ export function rowToNode(row: Record<string, unknown>): NodeRow {
   const str = (v: unknown): string | null => (v === null || v === undefined ? null : String(v));
   return {
     id: String(row.id),
-    doco_id: row.doco_id ? String(row.doco_id) : "",
+    collection_id: row.collection_id ? String(row.collection_id) : "",
     node_type: row.node_type ? String(row.node_type) : "",
     lifecycle: str(row.lifecycle),
     prose: typeof row.prose === "string" ? row.prose : "",
@@ -393,7 +396,7 @@ export async function listUsers(): Promise<UserRow[]> {
 
 // ─── Principals (role-personas, node) ───────────────────────────────────
 //
-// Each Doco owns its own role-personas; the same name in two different Docos
+// Each collection owns its own role-personas; the same name in two different collections
 // is two different rows.
 
 // A Principal is an ordinary node (`node_type = 'principal'`): its name is its
@@ -405,11 +408,11 @@ export async function getPrincipalById(id: string): Promise<NodeRow | null> {
 }
 
 /**
- * List Principals (role-personas) in a Doco, ordered by name (`prose`) then
+ * List Principals (role-personas) in a collection, ordered by name (`prose`) then
  * creation, so `find`-by-name lookups in callers are deterministic.
  */
-export async function listPrincipals(docoId: string): Promise<NodeRow[]> {
-  const recs = await listNodesByDoco("principal", docoId);
+export async function listPrincipals(collectionId: string): Promise<NodeRow[]> {
+  const recs = await listNodesByCollection("principal", collectionId);
   return recs.sort((a, b) => {
     const byName = a.prose.localeCompare(b.prose);
     if (byName !== 0) return byName;
@@ -491,7 +494,7 @@ export async function listWorkspacesForUser(
 export async function upsertWorkspaceUser(opts: {
   workspace_id: string;
   user_id: string;
-  role: DocoRole;
+  role: CollectionRole;
   /** Per-type write set; defaults to wildcard for writer, empty otherwise. */
   write_types?: string[];
 }): Promise<void> {
@@ -518,27 +521,29 @@ export async function removeWorkspaceUser(workspaceId: string, userId: string): 
 
 // ─── Role policies (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62) ───────────────────
 
-export type DocoRole = "owner" | "writer" | "reader";
+export type CollectionRole = "owner" | "writer" | "reader";
 
-export const ROLE_RANK: Record<DocoRole, number> = {
+export const ROLE_RANK: Record<CollectionRole, number> = {
   owner: 2,
   writer: 1,
   reader: 0,
 };
 
-const ROLE_VALUES = new Set<DocoRole>(["owner", "writer", "reader"]);
+const ROLE_VALUES = new Set<CollectionRole>(["owner", "writer", "reader"]);
 
-function toRole(v: unknown): DocoRole | null {
-  return typeof v === "string" && ROLE_VALUES.has(v as DocoRole) ? (v as DocoRole) : null;
+function toRole(v: unknown): CollectionRole | null {
+  return typeof v === "string" && ROLE_VALUES.has(v as CollectionRole)
+    ? (v as CollectionRole)
+    : null;
 }
 
-export function roleAtLeast(role: DocoRole | null, threshold: DocoRole): boolean {
+export function roleAtLeast(role: CollectionRole | null, threshold: CollectionRole): boolean {
   if (!role) return false;
   return ROLE_RANK[role] >= ROLE_RANK[threshold];
 }
 
-export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | null {
-  let best: DocoRole | null = null;
+export function maxRole(...roles: (CollectionRole | null | undefined)[]): CollectionRole | null {
+  let best: CollectionRole | null = null;
   let bestRank = -1;
   for (const r of roles) {
     if (!r) continue;
@@ -553,7 +558,7 @@ export function maxRole(...roles: (DocoRole | null | undefined)[]): DocoRole | n
 export async function getWorkspaceRole(
   workspaceId: string,
   userId: string,
-): Promise<DocoRole | null> {
+): Promise<CollectionRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
       "SELECT role FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
@@ -570,12 +575,12 @@ export async function getWorkspaceRole(
  * tokens (or the "*" wildcard); empty means "no write on any type"
  * unless the role is owner. Returns null when there is no grant row.
  */
-export interface DocoGrant {
-  role: DocoRole;
+export interface CollectionGrant {
+  role: CollectionRole;
   writeTypes: string[];
 }
 
-function normalizeGrantWriteTypes(role: DocoRole, raw: unknown): string[] {
+function normalizeGrantWriteTypes(role: CollectionRole, raw: unknown): string[] {
   const writeTypes = normalizeWriteTypes(raw);
   if (role === "owner") return [];
   if (role === "writer" && writeTypes.length === 0) return [WRITE_ALL];
@@ -585,7 +590,7 @@ function normalizeGrantWriteTypes(role: DocoRole, raw: unknown): string[] {
 export async function getWorkspaceGrant(
   workspaceId: string,
   userId: string,
-): Promise<DocoGrant | null> {
+): Promise<CollectionGrant | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string; write_types: string[] }>(
       "SELECT role, write_types FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
@@ -598,11 +603,14 @@ export async function getWorkspaceGrant(
   });
 }
 
-export async function getDocoUserGrant(docoId: string, userId: string): Promise<DocoGrant | null> {
+export async function getCollectionUserGrant(
+  collectionId: string,
+  userId: string,
+): Promise<CollectionGrant | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string; write_types: string[] }>(
-      "SELECT role, write_types FROM doco_users WHERE doco_id = $1 AND user_id = $2",
-      [docoId, userId],
+      "SELECT role, write_types FROM collection_users WHERE collection_id = $1 AND user_id = $2",
+      [collectionId, userId],
     );
     if (r.rowCount === 0) return null;
     const role = toRole(r.rows[0]?.role);
@@ -611,38 +619,41 @@ export async function getDocoUserGrant(docoId: string, userId: string): Promise<
   });
 }
 
-// ─── doco_users ────────────────────────────────────────────────────────────
+// ─── collection_users ────────────────────────────────────────────────────────────
 
-export interface DocoUserRow {
-  doco_id: string;
+export interface CollectionUserRow {
+  collection_id: string;
   user_id: string;
-  role: DocoRole;
+  role: CollectionRole;
   write_types: string[];
   joined_at: string;
 }
 
-export async function getDocoUserRole(docoId: string, userId: string): Promise<DocoRole | null> {
+export async function getCollectionUserRole(
+  collectionId: string,
+  userId: string,
+): Promise<CollectionRole | null> {
   return withClient(async (c) => {
     const r = await c.query<{ role: string }>(
-      "SELECT role FROM doco_users WHERE doco_id = $1 AND user_id = $2",
-      [docoId, userId],
+      "SELECT role FROM collection_users WHERE collection_id = $1 AND user_id = $2",
+      [collectionId, userId],
     );
     if (r.rowCount === 0) return null;
     return toRole(r.rows[0]?.role);
   });
 }
 
-export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
+export async function listCollectionUsers(collectionId: string): Promise<CollectionUserRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT doco_id, user_id, role, write_types, joined_at FROM doco_users
-       WHERE doco_id = $1 ORDER BY joined_at`,
-      [docoId],
+      `SELECT collection_id, user_id, role, write_types, joined_at FROM collection_users
+       WHERE collection_id = $1 ORDER BY joined_at`,
+      [collectionId],
     );
     return r.rows.map((row) => {
       const role = toRole(row.role) ?? "reader";
       return {
-        doco_id: String(row.doco_id),
+        collection_id: String(row.collection_id),
         user_id: String(row.user_id),
         role,
         write_types: normalizeGrantWriteTypes(role, row.write_types),
@@ -653,43 +664,46 @@ export async function listDocoUsers(docoId: string): Promise<DocoUserRow[]> {
   });
 }
 
-export async function listDocoIdsForUser(userId: string): Promise<string[]> {
+export async function listCollectionIdsForUser(userId: string): Promise<string[]> {
   return withClient(async (c) => {
-    // Join docos so a tombstoned Doco drops out of the member's listing even
-    // though its doco_users grant rows are retained for the grace window.
-    const r = await c.query<{ doco_id: string }>(
-      `SELECT du.doco_id
-         FROM doco_users du
-         JOIN docos d ON d.id = du.doco_id
+    // Join collections so a tombstoned collection drops out of the member's listing even
+    // though its collection_users grant rows are retained for the grace window.
+    const r = await c.query<{ collection_id: string }>(
+      `SELECT du.collection_id
+         FROM collection_users du
+         JOIN collections d ON d.id = du.collection_id
         WHERE du.user_id = $1 AND d.deleted_at IS NULL`,
       [userId],
     );
-    return r.rows.map((row) => String(row.doco_id));
+    return r.rows.map((row) => String(row.collection_id));
   });
 }
 
-export async function upsertDocoUser(opts: {
-  doco_id: string;
+export async function upsertCollectionUser(opts: {
+  collection_id: string;
   user_id: string;
-  role: DocoRole;
+  role: CollectionRole;
   /** Per-type write set; defaults to wildcard for writer, empty otherwise. */
   write_types?: string[];
 }): Promise<void> {
   const writeTypes = normalizeGrantWriteTypes(opts.role, opts.write_types);
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO doco_users (doco_id, user_id, role, write_types)
+      `INSERT INTO collection_users (collection_id, user_id, role, write_types)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (doco_id, user_id)
+       ON CONFLICT (collection_id, user_id)
        DO UPDATE SET role = EXCLUDED.role, write_types = EXCLUDED.write_types`,
-      [opts.doco_id, opts.user_id, opts.role, writeTypes],
+      [opts.collection_id, opts.user_id, opts.role, writeTypes],
     );
   });
 }
 
-export async function removeDocoUser(docoId: string, userId: string): Promise<void> {
+export async function removeCollectionUser(collectionId: string, userId: string): Promise<void> {
   await withClient(async (c) => {
-    await c.query("DELETE FROM doco_users WHERE doco_id = $1 AND user_id = $2", [docoId, userId]);
+    await c.query("DELETE FROM collection_users WHERE collection_id = $1 AND user_id = $2", [
+      collectionId,
+      userId,
+    ]);
   });
 }
 
@@ -697,9 +711,9 @@ export async function removeDocoUser(docoId: string, userId: string): Promise<vo
 
 export interface AccessRequestRow {
   id: string;
-  doco_id: string;
+  collection_id: string;
   requester_id: string;
-  requested_role: DocoRole;
+  requested_role: CollectionRole;
   reason: string | null;
   status: "pending" | "approved" | "denied" | "cancelled";
   created_at: string;
@@ -710,9 +724,9 @@ export interface AccessRequestRow {
 function mapAccessRequestRow(r: Record<string, unknown>): AccessRequestRow {
   return {
     id: String(r.id),
-    doco_id: String(r.doco_id),
+    collection_id: String(r.collection_id),
     requester_id: String(r.requester_id),
-    requested_role: r.requested_role as DocoRole,
+    requested_role: r.requested_role as CollectionRole,
     reason: r.reason == null ? null : String(r.reason),
     status: r.status as AccessRequestRow["status"],
     created_at: String(r.created_at),
@@ -722,28 +736,28 @@ function mapAccessRequestRow(r: Record<string, unknown>): AccessRequestRow {
 }
 
 /**
- * Create (or refresh) the caller's pending access request for a Doco. The
- * partial unique index permits one live request per (doco, requester), so a
+ * Create (or refresh) the caller's pending access request for a collection. The
+ * partial unique index permits one live request per (collection, requester), so a
  * repeat upserts the role/reason instead of duplicating. Writing the grant on
- * approval is the caller's job (see `decideAccessRequest` + `upsertDocoUser`).
+ * approval is the caller's job (see `decideAccessRequest` + `upsertCollectionUser`).
  */
 export async function createAccessRequest(opts: {
-  doco_id: string;
+  collection_id: string;
   requester_id: string;
-  requested_role: DocoRole;
+  requested_role: CollectionRole;
   reason?: string | null;
 }): Promise<AccessRequestRow> {
   const id = `accreq_${randomBytes(16).toString("base64url")}`;
   return withClient(async (c) => {
     const r = await c.query(
-      `INSERT INTO access_requests (id, doco_id, requester_id, requested_role, reason)
+      `INSERT INTO access_requests (id, collection_id, requester_id, requested_role, reason)
        VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (doco_id, requester_id) WHERE status = 'pending'
+       ON CONFLICT (collection_id, requester_id) WHERE status = 'pending'
        DO UPDATE SET requested_role = EXCLUDED.requested_role,
                      reason = EXCLUDED.reason,
                      created_at = now()
        RETURNING *`,
-      [id, opts.doco_id, opts.requester_id, opts.requested_role, opts.reason ?? null],
+      [id, opts.collection_id, opts.requester_id, opts.requested_role, opts.reason ?? null],
     );
     return mapAccessRequestRow(r.rows[0] as Record<string, unknown>);
   });
@@ -756,42 +770,42 @@ export async function getAccessRequest(id: string): Promise<AccessRequestRow | n
   });
 }
 
-/** Pending requests across a set of Docos (an owner's inbox), oldest first. */
-export async function listPendingAccessRequestsForDocos(
-  docoIds: string[],
+/** Pending requests across a set of collections (an owner's inbox), oldest first. */
+export async function listPendingAccessRequestsForCollections(
+  collectionIds: string[],
 ): Promise<AccessRequestRow[]> {
-  if (docoIds.length === 0) return [];
+  if (collectionIds.length === 0) return [];
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT * FROM access_requests
-       WHERE status = 'pending' AND doco_id = ANY($1::text[])
+       WHERE status = 'pending' AND collection_id = ANY($1::text[])
        ORDER BY created_at ASC`,
-      [docoIds],
+      [collectionIds],
     );
     return r.rows.map((row) => mapAccessRequestRow(row as Record<string, unknown>));
   });
 }
 
 /**
- * Pending-request counts for every Doco that currently has any — joined to the
- * Doco's `owner_id` so a caller can resolve ownership without an N+1 of
- * `getDocoById`. The result set is bounded by the (usually tiny) number of
- * Docos with live requests, not by how many a viewer owns; callers filter it
- * down to their own Docos. Powers the header's pending-requests badge.
+ * Pending-request counts for every collection that currently has any — joined to the
+ * Collection's `owner_id` so a caller can resolve ownership without an N+1 of
+ * `getCollectionById`. The result set is bounded by the (usually tiny) number of
+ * Collections with live requests, not by how many a viewer owns; callers filter it
+ * down to their own collections. Powers the header's pending-requests badge.
  */
-export async function listPendingAccessRequestCountsByDoco(): Promise<
-  { doco_id: string; owner_id: string; n: number }[]
+export async function listPendingAccessRequestCountsByCollection(): Promise<
+  { collection_id: string; owner_id: string; n: number }[]
 > {
   return withClient(async (c) => {
-    const r = await c.query<{ doco_id: string; owner_id: string; n: number | string }>(
-      `SELECT d.id AS doco_id, d.owner_id, count(*)::int AS n
+    const r = await c.query<{ collection_id: string; owner_id: string; n: number | string }>(
+      `SELECT d.id AS collection_id, d.owner_id, count(*)::int AS n
          FROM access_requests r
-         JOIN docos d ON d.id = r.doco_id
+         JOIN collections d ON d.id = r.collection_id
         WHERE r.status = 'pending' AND d.deleted_at IS NULL
         GROUP BY d.id, d.owner_id`,
     );
     return r.rows.map((row) => ({
-      doco_id: String(row.doco_id),
+      collection_id: String(row.collection_id),
       owner_id: String(row.owner_id),
       n: typeof row.n === "number" ? row.n : Number(row.n),
     }));
@@ -802,7 +816,7 @@ export async function listPendingAccessRequestCountsByDoco(): Promise<
  * Flip a pending request to approved/denied. Returns the updated row, or null
  * if it was not pending (already decided or unknown id) — callers treat null
  * as "nothing to do". A pure status transition; on approval the caller writes
- * the grant via `upsertDocoUser`.
+ * the grant via `upsertCollectionUser`.
  */
 export async function decideAccessRequest(opts: {
   id: string;
@@ -832,15 +846,15 @@ export async function cancelAccessRequest(id: string, requesterId: string): Prom
   });
 }
 
-// ─── Docos ────────────────────────────────────────────────────────────────
+// ─── collections ────────────────────────────────────────────────────────────────
 
-export interface DocoRow {
+export interface CollectionRow {
   id: string;
   handle: string;
   /**
    * Owner label — User.github_login for human/agent owners,
-   * Workspace.handle for workspace owners. Derived via JOIN in `mapDocoRow`
-   * from `owner_id`. NOT a doco identifier.
+   * Workspace.handle for workspace owners. Derived via JOIN in `mapCollectionRow`
+   * from `owner_id`. NOT a collection identifier.
    */
   owner_slug: string;
   owner_id: string;
@@ -850,14 +864,14 @@ export interface DocoRow {
   data: Record<string, unknown>;
   /**
    * Template-seeded default lifecycle for new nodes captured into this
-   * Doco (e.g. `org-chart` / `glossaries` / `process` ship
-   * `drafting`). Null when the Doco's template set no default; capture
+   * Collection (e.g. `org-chart` / `glossaries` / `process` ship
+   * `drafting`). Null when the collection's template set no default; capture
    * then falls back to each node type's built-in default.
    */
   default_node_lifecycle: string | null;
 }
 
-function mapDocoRow(row: Record<string, unknown>): DocoRow {
+function mapCollectionRow(row: Record<string, unknown>): CollectionRow {
   return {
     id: String(row.id),
     handle: String(row.handle ?? ""),
@@ -874,75 +888,81 @@ function mapDocoRow(row: Record<string, unknown>): DocoRow {
 
 /**
  * Resolves `owner_slug` from `users.github_login` /
- * `workspaces.handle` keyed by `docos.owner_id`.
+ * `workspaces.handle` keyed by `collections.owner_id`.
  */
-const DOCO_SELECT = `
+const COLLECTION_SELECT = `
   SELECT d.id, d.handle, d.owner_id, d.workspace_id, d.visibility, d.goal, d.data,
          d.default_node_lifecycle,
          COALESCE(c.github_login, o.handle, '') AS owner_slug
-    FROM docos d
+    FROM collections d
     LEFT JOIN users c ON c.id = d.owner_id
     LEFT JOIN workspaces o ON o.id = d.owner_id`;
 
-// Tombstoned (soft-deleted) Docos are invisible to every resolution and
-// listing path — `getDocoByIdOrHandle` returning null is what makes a deleted
-// Doco 404 from every route. The only callers that see tombstoned rows are the
+// Tombstoned (soft-deleted) collections are invisible to every resolution and
+// listing path — `getCollectionByIdOrHandle` returning null is what makes a deleted
+// collection 404 from every route. The only callers that see tombstoned rows are the
 // soft-delete write and the purge sweep. The soft-delete frees the original
-// handle (see `markDocoDeleted`), so handle-availability checks need no
+// handle (see `markCollectionDeleted`), so handle-availability checks need no
 // deleted-row special-casing — the original name is simply free. All reads
 // here filter `deleted_at`.
-export async function listAllDocos(): Promise<DocoRow[]> {
+export async function listAllCollections(): Promise<CollectionRow[]> {
   return withClient(async (c) => {
-    const r = await c.query(`${DOCO_SELECT} WHERE d.deleted_at IS NULL ORDER BY d.handle`);
-    return r.rows.map(mapDocoRow);
+    const r = await c.query(`${COLLECTION_SELECT} WHERE d.deleted_at IS NULL ORDER BY d.handle`);
+    return r.rows.map(mapCollectionRow);
   });
 }
 
-export async function getDocoById(docoId: string): Promise<DocoRow | null> {
+export async function getCollectionById(collectionId: string): Promise<CollectionRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(`${DOCO_SELECT} WHERE d.id = $1 AND d.deleted_at IS NULL`, [docoId]);
-    return r.rows[0] ? mapDocoRow(r.rows[0]) : null;
+    const r = await c.query(`${COLLECTION_SELECT} WHERE d.id = $1 AND d.deleted_at IS NULL`, [
+      collectionId,
+    ]);
+    return r.rows[0] ? mapCollectionRow(r.rows[0]) : null;
   });
 }
 
-export async function getDocoByHandle(handle: string): Promise<DocoRow | null> {
+export async function getCollectionByHandle(handle: string): Promise<CollectionRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(`${DOCO_SELECT} WHERE d.handle = $1 AND d.deleted_at IS NULL`, [
+    const r = await c.query(`${COLLECTION_SELECT} WHERE d.handle = $1 AND d.deleted_at IS NULL`, [
       handle,
     ]);
-    return r.rows[0] ? mapDocoRow(r.rows[0]) : null;
+    return r.rows[0] ? mapCollectionRow(r.rows[0]) : null;
   });
 }
 
-export async function getDocoByIdOrHandle(idOrHandle: string): Promise<DocoRow | null> {
-  if (idOrHandle.startsWith("doco_")) {
-    const byId = await getDocoById(idOrHandle);
-    if (byId) return byId;
-  }
-  return getDocoByHandle(idOrHandle);
+// Ids carry an uppercase ULID and handles are lowercase, so a value matches one
+// or the other; an id's prefix is whatever it was minted with.
+export async function getCollectionByIdOrHandle(idOrHandle: string): Promise<CollectionRow | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `${COLLECTION_SELECT} WHERE (d.id = $1 OR d.handle = $1) AND d.deleted_at IS NULL`,
+      [idOrHandle],
+    );
+    return r.rows[0] ? mapCollectionRow(r.rows[0]) : null;
+  });
 }
 
 /**
- * Soft-delete a Doco: stamp `deleted_at` so it vanishes from every read path
+ * Soft-delete a collection: stamp `deleted_at` so it vanishes from every read path
  * while its rows are retained for the 30-day grace window. Resolves by id or
- * handle. Idempotent — a Doco that is already tombstoned (or absent) returns
+ * handle. Idempotent — a collection that is already tombstoned (or absent) returns
  * null. The original handle is freed for immediate reuse: the tombstoned row's
  * handle is rewritten to `<handle>-deleted-<deletion-epoch-millis>` in the same
- * write, so a new Doco can claim the original name right away while the
+ * write, so a new collection can claim the original name right away while the
  * tombstone keeps a unique handle of its own. Returns the new (timestamped)
  * handle.
  */
-export async function markDocoDeleted(opts: {
-  docoId?: string;
+export async function markCollectionDeleted(opts: {
+  collectionId?: string;
   handle?: string;
 }): Promise<{ id: string; handle: string } | null> {
   // Fixed allowlist — never user input — so it is safe to interpolate.
-  const column = opts.docoId ? "id" : opts.handle ? "handle" : null;
-  if (!column) throw new Error("Doco id or handle is required.");
-  const value = column === "id" ? opts.docoId : opts.handle;
+  const column = opts.collectionId ? "id" : opts.handle ? "handle" : null;
+  if (!column) throw new Error("Collection id or handle is required.");
+  const value = column === "id" ? opts.collectionId : opts.handle;
   return withClient(async (c) => {
     const r = await c.query<{ id: string; handle: string }>(
-      `UPDATE docos
+      `UPDATE collections
           SET deleted_at = now(),
               updated_at = now(),
               handle     = handle || '-deleted-' || (extract(epoch from now()) * 1000)::bigint::text
@@ -956,18 +976,18 @@ export async function markDocoDeleted(opts: {
 }
 
 /**
- * Hard-delete every Doco tombstoned before `cutoff` — the purge sweep behind
- * the 30-day grace window. Reuses the proven `DELETE FROM docos` cascade
- * (ON DELETE CASCADE + the allow-history-delete trigger) so the Doco and all
+ * Hard-delete every collection tombstoned before `cutoff` — the purge sweep behind
+ * the 30-day grace window. Reuses the proven `DELETE FROM collections` cascade
+ * (ON DELETE CASCADE + the allow-history-delete trigger) so the collection and all
  * its rows — nodes, edges, immutable history, grants — go in one shot. Returns
- * the purged Docos for the sweep's audit log.
+ * the purged collections for the sweep's audit log.
  */
-export async function purgeDocosDeletedBefore(
+export async function purgeCollectionsDeletedBefore(
   cutoff: Date,
 ): Promise<{ id: string; handle: string }[]> {
   return withClient(async (c) => {
     const r = await c.query<{ id: string; handle: string }>(
-      `DELETE FROM docos
+      `DELETE FROM collections
         WHERE deleted_at IS NOT NULL AND deleted_at < $1
         RETURNING id, handle`,
       [cutoff.toISOString()],
@@ -1034,7 +1054,7 @@ export interface AuditEventRow {
   event_id: string;
   at: string;
   by_user: string | null;
-  doco_id: string | null;
+  collection_id: string | null;
   workspace_id?: string | null;
   entity_type: string;
   entity_id: string;
@@ -1047,13 +1067,13 @@ export interface AuditEventRow {
 export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
   await withClient(async (c) => {
     await c.query(
-      `INSERT INTO audit_events (event_id, at, by_user, doco_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason)
+      `INSERT INTO audit_events (event_id, at, by_user, collection_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         evt.event_id,
         evt.at,
         evt.by_user,
-        evt.doco_id,
+        evt.collection_id,
         evt.workspace_id ?? null,
         evt.entity_type,
         evt.entity_id,
@@ -1067,7 +1087,7 @@ export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
 }
 
 export async function readAuditEventRows(filters: {
-  doco_id?: string;
+  collection_id?: string;
   workspace_id?: string;
   entity_id?: string;
   entity_type?: string;
@@ -1081,9 +1101,9 @@ export async function readAuditEventRows(filters: {
   const where: string[] = [];
   const vals: unknown[] = [];
   let idx = 1;
-  if (filters.doco_id) {
-    where.push(`doco_id = $${idx++}`);
-    vals.push(filters.doco_id);
+  if (filters.collection_id) {
+    where.push(`collection_id = $${idx++}`);
+    vals.push(filters.collection_id);
   }
   if (filters.workspace_id) {
     where.push(`workspace_id = $${idx++}`);
@@ -1118,7 +1138,7 @@ export async function readAuditEventRows(filters: {
     vals.push(filters.until);
   }
   const limit = Math.min(Math.max(filters.limit ?? 200, 1), 1000);
-  const sql = `SELECT event_id, at, by_user, doco_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason
+  const sql = `SELECT event_id, at, by_user, collection_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason
                FROM audit_events
                ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
                ORDER BY at DESC
@@ -1130,7 +1150,7 @@ export async function readAuditEventRows(filters: {
       event_id: String(row.event_id),
       at: row.at instanceof Date ? row.at.toISOString() : String(row.at),
       by_user: row.by_user ? String(row.by_user) : null,
-      doco_id: row.doco_id ? String(row.doco_id) : null,
+      collection_id: row.collection_id ? String(row.collection_id) : null,
       workspace_id: row.workspace_id ? String(row.workspace_id) : null,
       entity_type: String(row.entity_type),
       entity_id: String(row.entity_id),

@@ -9,7 +9,7 @@ import { createChangeset, createEdge, retireEdge, updateEdge } from "../index.js
 import { freshDb } from "./fresh-db.js";
 
 const ORG = "workspace_revive00000000000000";
-const DOCO = "doco_revive00000000000000000000";
+const COLLECTION = "collection_revive00000000000000000000";
 const FROM = "decision_revive000000000000000000";
 const TO = "intent_revive0000000000000000000";
 
@@ -20,8 +20,8 @@ async function seed(): Promise<void> {
     ORG,
   ]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'revive',$2,$2,'{}')",
-    [DOCO, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,'revive',$2,$2,'{}')",
+    [COLLECTION, ORG],
   );
   for (const [id, type] of [
     [FROM, "decision"],
@@ -29,9 +29,9 @@ async function seed(): Promise<void> {
   ] as const) {
     // `nodes.data` was dropped (per-node data now lives in `extra`); these
     // nodes only need to exist to satisfy the edge FKs, so insert a bare row.
-    await db.query("INSERT INTO nodes (id, doco_id, node_type) VALUES ($1,$2,$3)", [
+    await db.query("INSERT INTO nodes (id, collection_id, node_type) VALUES ($1,$2,$3)", [
       id,
-      DOCO,
+      COLLECTION,
       type,
     ]);
   }
@@ -45,9 +45,9 @@ beforeEach(async () => {
 describe("updateEdge reviving a retired edge", () => {
   it("clears retired_at when the lifecycle moves back to active", async () => {
     const client = db as unknown as Parameters<typeof createEdge>[0];
-    const tx1 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx1 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const edge = await createEdge(client, tx1, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "supports",
       fromId: FROM,
       fromNodeType: "decision",
@@ -56,12 +56,12 @@ describe("updateEdge reviving a retired edge", () => {
       lifecycle: "active",
     });
 
-    const tx2 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx2 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const retired = await retireEdge(client, tx2, { id: edge.id });
     expect(retired.lifecycle).toBe("retired");
     expect(retired.retired_at).not.toBeNull();
 
-    const tx3 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx3 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const revived = await updateEdge(client, tx3, { id: edge.id, lifecycle: "active" });
     expect(revived.lifecycle).toBe("active");
     expect(revived.retired_at).toBeNull();
@@ -69,9 +69,9 @@ describe("updateEdge reviving a retired edge", () => {
 
   it("leaves retired_at untouched when only props change", async () => {
     const client = db as unknown as Parameters<typeof createEdge>[0];
-    const tx1 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx1 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const edge = await createEdge(client, tx1, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "supports",
       fromId: FROM,
       fromNodeType: "decision",
@@ -79,10 +79,10 @@ describe("updateEdge reviving a retired edge", () => {
       toNodeType: "intent",
       lifecycle: "active",
     });
-    const tx2 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx2 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     await retireEdge(client, tx2, { id: edge.id });
 
-    const tx3 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx3 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const updated = await updateEdge(client, tx3, { id: edge.id, props: { note: "x" } });
     expect(updated.lifecycle).toBe("retired");
     expect(updated.retired_at).not.toBeNull();

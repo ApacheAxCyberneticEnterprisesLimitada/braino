@@ -27,21 +27,21 @@ export interface EntityTableSpec {
 
 // All node types live in `nodes` (discriminated by nodeType →
 // node_type). Principals are included because they are graph nodes.
-export const DOCO_NODE_TABLE_SPECS: readonly EntityTableSpec[] = NODE_TYPES.map((type) => ({
+export const COLLECTION_NODE_TABLE_SPECS: readonly EntityTableSpec[] = NODE_TYPES.map((type) => ({
   table: NODE_CATALOG[type].storage.table,
   nodeType: type,
 }));
 
 // Generic capture nodes only. Use this when a surface intentionally wants
 // `/api/<plural>.json` prose captures and not bespoke Principal endpoints.
-export const DOCO_GENERIC_CAPTURE_NODE_TABLE_SPECS: readonly EntityTableSpec[] =
+export const COLLECTION_GENERIC_CAPTURE_NODE_TABLE_SPECS: readonly EntityTableSpec[] =
   GENERIC_CAPTURE_NODE_TYPES.map((type) => ({
     table: NODE_CATALOG[type].storage.table,
     nodeType: type,
   }));
 
-export const DOCO_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
-  Object.fromEntries(DOCO_NODE_TABLE_SPECS.map((spec) => [spec.nodeType, spec]));
+export const COLLECTION_NODE_TABLE_BY_TYPE: Readonly<Record<string, EntityTableSpec>> =
+  Object.fromEntries(COLLECTION_NODE_TABLE_SPECS.map((spec) => [spec.nodeType, spec]));
 
 /**
  * Promoted columns on the unified `nodes` table, per node type. Single source
@@ -99,9 +99,9 @@ export const USER_TABLES: Record<string, { table: string }> = {
   user: { table: "users" },
 };
 
-/** Containers — docos and workspaces are their own top-level categories. */
+/** Containers — collections and workspaces are their own top-level categories. */
 export const CONTAINER_TABLES: Record<string, { table: string }> = {
-  doco: { table: "docos" },
+  collection: { table: "collections" },
   workspace: { table: "workspaces" },
 };
 
@@ -114,7 +114,7 @@ export const ALL_ENTITY_TABLES: Record<string, { table: string; typeNamedColumn?
   ...NODE_TABLES,
   ...USER_TABLES,
   ...CONTAINER_TABLES,
-  // Policies all live in the single per-Doco `policies` table.
+  // Policies all live in the single per-collection `policies` table.
   policy: { table: "policies" },
 };
 
@@ -123,12 +123,12 @@ export const ALL_ENTITY_TABLES: Record<string, { table: string; typeNamedColumn?
  * jsonb (the kept `policies.data` column holding the structured predicate /
  * on_violation / fires_when fields). `upsertPolicy` mirrors `data.kind` to the
  * `kind` column and `lifecycle` to its column. Nodes have no such bag: they
- * write a `NodeRow`; identity rows (user/doco/workspace) have their own typed
+ * write a `NodeRow`; identity rows (user/collection/workspace) have their own typed
  * writers. There is no generic cross-category `EntityRecord` envelope.
  */
 export interface PolicyWrite {
   id: string;
-  doco_id: string;
+  collection_id: string;
   lifecycle: string | null;
   /** Structured policy fields, stored verbatim in the `policies.data` jsonb. */
   data: Record<string, unknown>;
@@ -142,11 +142,11 @@ export interface PolicyWrite {
  * The honest READ shape of a graph node — one field per real column of the
  * `nodes` table, plus the author-owned `extra` bag. There is no synthetic
  * `data` bag: `rowToNode` maps a row to this 1:1, and `getEntity` /
- * `listNodesByDoco` return it for every node type.
+ * `listNodesByCollection` return it for every node type.
  */
 export interface NodeRow {
   id: string;
-  doco_id: string;
+  collection_id: string;
   node_type: string;
   lifecycle: string | null;
   /** The node's one canonical text. */

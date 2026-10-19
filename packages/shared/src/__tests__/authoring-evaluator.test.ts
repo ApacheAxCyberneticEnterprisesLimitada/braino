@@ -300,7 +300,7 @@ describe("authoring evaluator — requires_node_type", () => {
     expect(v[0]?.reason).toMatch(/log/);
   });
 
-  it("treats Doco policy records as metadata outside template node allowlists", () => {
+  it("treats collection policy records as metadata outside template node allowlists", () => {
     const membershipPolicy = P({
       sub_kind: "requires_node_type",
       node_types: ["intent", "decision", "principal"],
@@ -328,7 +328,7 @@ describe("authoring evaluator — requires_entity_type", () => {
     expect(v[0]?.reason).toMatch(/action/);
   });
 
-  it("treats Doco policy records as metadata outside template membership allowlists", () => {
+  it("treats collection policy records as metadata outside template membership allowlists", () => {
     const policyCandidate: CandidateFields = { id: "policy_01" };
     expect(evaluate(policyCandidate, [membershipPolicy])).toEqual([]);
   });
@@ -541,7 +541,7 @@ describe("authoring evaluator — suggestion", () => {
 });
 
 describe("authoring evaluator — requires_edge_type (edge-type allowlist)", () => {
-  // The edge analogue of requires_node_type: a Doco-wide deterministic gate
+  // The edge analogue of requires_node_type: a collection-wide deterministic gate
   // enforced on edge CREATION via evaluateEdgePolicies. An edge whose type isn't
   // in the allowlist is rejected.
   const allowlist = (extras: Partial<LoadedPolicy> = {}) =>

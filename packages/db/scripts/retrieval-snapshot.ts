@@ -15,7 +15,7 @@ const gunzipAsync = promisify(gunzip);
 
 function usage(): never {
   throw new Error(`Usage:
-  pnpm eval:corpus export --doco <id-or-handle> [--out .doco/snapshots/name.json.gz] [--app-revision <sha>]
+  pnpm eval:corpus export --collection <id-or-handle> [--out .doco/snapshots/name.json.gz] [--app-revision <sha>]
   pnpm eval:corpus restore --in <snapshot.json.gz> [--grant-user <local-github-login>]
 
 Environment:
@@ -53,7 +53,7 @@ function assertLocalTarget(connectionString: string): void {
 }
 
 function safeFilename(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "doco";
+  return value.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "collection";
 }
 
 async function writeSnapshot(path: string, snapshot: RetrievalSnapshot): Promise<void> {
@@ -70,22 +70,22 @@ async function readSnapshot(path: string): Promise<RetrievalSnapshot> {
 }
 
 async function exportCommand(args: string[]): Promise<void> {
-  const doco = option(args, "--doco");
-  if (!doco) usage();
+  const collection = option(args, "--collection");
+  if (!collection) usage();
   const pool = new pg.Pool({
     connectionString: requiredEnv("DOCO_SNAPSHOT_SOURCE_DATABASE_URL"),
     max: 1,
   });
   const client = await pool.connect();
   try {
-    const snapshot = await exportRetrievalSnapshot(client, doco, {
+    const snapshot = await exportRetrievalSnapshot(client, collection, {
       appRevision:
         option(args, "--app-revision") ??
         process.env.VERCEL_GIT_COMMIT_SHA ??
         process.env.GITHUB_SHA ??
         null,
     });
-    const defaultName = `${safeFilename(snapshot.manifest.docoHandle)}-${snapshot.manifest.digest.slice(0, 12)}.json.gz`;
+    const defaultName = `${safeFilename(snapshot.manifest.collectionHandle)}-${snapshot.manifest.digest.slice(0, 12)}.json.gz`;
     const output = resolve(option(args, "--out") ?? `.doco/snapshots/${defaultName}`);
     await writeSnapshot(output, snapshot);
     process.stdout.write(
@@ -93,7 +93,7 @@ async function exportCommand(args: string[]): Promise<void> {
         {
           operation: "export",
           output,
-          docoId: snapshot.manifest.docoId,
+          collectionId: snapshot.manifest.collectionId,
           digest: snapshot.manifest.digest,
           modelIds: snapshot.manifest.modelIds,
           rowCounts: snapshot.manifest.rowCounts,

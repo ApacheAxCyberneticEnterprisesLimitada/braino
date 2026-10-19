@@ -10,7 +10,7 @@ import { createChangeset, createEdge, retireEdge, updateEdge, verifyHistory } fr
 import { freshDb } from "./fresh-db.js";
 
 const ORG = "workspace_edgeverparity000000000";
-const DOCO = "doco_edgeverparity0000000000000000";
+const COLLECTION = "collection_edgeverparity0000000000000000";
 const FROM = "decision_edgeverparity0000000000";
 const TO = "action_edgeverparity000000000000";
 
@@ -19,8 +19,8 @@ type Client = Parameters<typeof createEdge>[0];
 
 async function seedNode(id: string, type: string): Promise<void> {
   await db.query(
-    "INSERT INTO nodes (id, doco_id, node_type, lifecycle) VALUES ($1,$2,$3,'active')",
-    [id, DOCO, type],
+    "INSERT INTO nodes (id, collection_id, node_type, lifecycle) VALUES ($1,$2,$3,'active')",
+    [id, COLLECTION, type],
   );
 }
 
@@ -36,8 +36,8 @@ beforeEach(async () => {
   db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1,'ep','EP')", [ORG]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,'ep',$2,$2,'{}')",
-    [DOCO, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,'ep',$2,$2,'{}')",
+    [COLLECTION, ORG],
   );
   await seedNode(FROM, "decision");
   await seedNode(TO, "action");
@@ -47,9 +47,9 @@ describe("edge version records its specific type (parity with nodes)", () => {
   it("stamps the edge type on create, update, and retire — never a generic 'edge'", async () => {
     const client = db as unknown as Client;
 
-    const tx1 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx1 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     const edge = await createEdge(client, tx1, {
-      docoId: DOCO,
+      collectionId: COLLECTION,
       edgeType: "flows_to",
       fromId: FROM,
       fromNodeType: "decision",
@@ -58,10 +58,10 @@ describe("edge version records its specific type (parity with nodes)", () => {
       lifecycle: "active",
     });
 
-    const tx2 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx2 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     await updateEdge(client, tx2, { id: edge.id, label: "Yes" });
 
-    const tx3 = await createChangeset(client, { docoId: DOCO, source: "api" });
+    const tx3 = await createChangeset(client, { collectionId: COLLECTION, source: "api" });
     await retireEdge(client, tx3, { id: edge.id });
 
     // Every version row carries the real type, like node_versions does.

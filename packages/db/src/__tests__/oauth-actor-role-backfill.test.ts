@@ -56,13 +56,13 @@ describe("oauth actor_role column backfill", () => {
 
     await db.exec(
       `INSERT INTO oauth_refresh_tokens
-         (token, client_id, user_id, granted_doco_ids, grant_type, actor_role, expires_at)
+         (token, client_id, user_id, granted_collection_ids, grant_type, actor_role, expires_at)
        VALUES ('rt_ok', 'doco_client_x', 'user_a', ARRAY[]::text[], 'actor', 'reader', now() + interval '60 days')`,
     );
     await expect(
       db.exec(
         `INSERT INTO oauth_refresh_tokens
-           (token, client_id, user_id, granted_doco_ids, grant_type, actor_role, expires_at)
+           (token, client_id, user_id, granted_collection_ids, grant_type, actor_role, expires_at)
          VALUES ('rt_bad', 'doco_client_x', 'user_a', ARRAY[]::text[], 'actor', 'superuser', now() + interval '60 days')`,
       ),
     ).rejects.toThrow();

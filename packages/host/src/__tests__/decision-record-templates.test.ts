@@ -6,13 +6,13 @@ import {
   evaluatePolicies,
 } from "@doco/shared";
 import { describe, expect, it } from "vitest";
-import { DECISION_RECORD_TEMPLATES } from "../decision-record-templates.js";
 import {
-  type DocoTemplate,
+  type CollectionTemplate,
   type TemplatePolicy,
-  findDocoTemplateByName,
+  findCollectionTemplateByName,
   templatePolicyToPolicyRow,
-} from "../doco-templates.js";
+} from "../collection-templates.js";
+import { DECISION_RECORD_TEMPLATES } from "../decision-record-templates.js";
 
 const FLAVOR_HANDLES = [
   "architectural-decisions",
@@ -34,7 +34,7 @@ function loaded(p: TemplatePolicy): LoadedPolicy {
   };
 }
 
-function policyByPredicateKind(t: DocoTemplate, kind: string): TemplatePolicy {
+function policyByPredicateKind(t: CollectionTemplate, kind: string): TemplatePolicy {
   const p = t.policies.find((r) => r.predicate?.kind === kind);
   if (!p) throw new Error(`${t.name} has no policy with predicate kind \`${kind}\``);
   return p;
@@ -62,7 +62,7 @@ describe("the three decision-record templates are registered", () => {
 
   for (const handle of FLAVOR_HANDLES) {
     it(`registers \`${handle}\` and is findable by handle`, () => {
-      const t = findDocoTemplateByName(handle);
+      const t = findCollectionTemplateByName(handle);
       expect(t).toBeDefined();
       expect(t?.name).toBe(handle);
     });
@@ -71,7 +71,7 @@ describe("the three decision-record templates are registered", () => {
 
 describe("every decision-record template shares the core shape", () => {
   for (const handle of FLAVOR_HANDLES) {
-    const t = findDocoTemplateByName(handle);
+    const t = findCollectionTemplateByName(handle);
     if (!t) throw new Error(`${handle} not registered`);
 
     describe(handle, () => {
@@ -190,7 +190,7 @@ describe("every decision-record template shares the core shape", () => {
 
 describe("the domain-fit gates differ per flavor", () => {
   function fitSpec(handle: string): string {
-    const t = findDocoTemplateByName(handle);
+    const t = findCollectionTemplateByName(handle);
     const fit = t?.policies.find(
       (r) =>
         r.predicate?.kind === "probabilistic" && /\bPASS when it records\b/i.test(r.predicate.spec),
@@ -217,7 +217,7 @@ describe("the domain-fit gates differ per flavor", () => {
 // ── Behavioral: run the seeded gates through the REAL evaluator ──────────────
 describe("decision-record gates fire correctly through the real evaluator", () => {
   // One flavor exercises the shared core; the core is identical across all three.
-  const t = findDocoTemplateByName("architectural-decisions");
+  const t = findCollectionTemplateByName("architectural-decisions");
   if (!t) throw new Error("architectural-decisions not registered");
 
   const nodeAllowlist = policyByPredicateKind(t, "requires_node_type");

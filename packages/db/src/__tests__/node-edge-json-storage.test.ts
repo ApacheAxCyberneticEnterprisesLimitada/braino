@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { type NodeRow, nodeRowFromFields, upsertNode } from "../repo.js";
 import { freshDb } from "./fresh-db.js";
 
-const DOCO = "doco_test0000000000000000000000";
+const COLLECTION = "collection_test0000000000000000000000";
 const ORG = "workspace_test000000000000000";
 const DECISION = "decision_test0000000000000000000";
 const INTENT = "intent_test000000000000000000000";
@@ -14,7 +14,7 @@ let db: PGlite;
 function decisionRecord(): NodeRow {
   return nodeRowFromFields("decision", {
     id: DECISION,
-    doco_id: DOCO,
+    collection_id: COLLECTION,
     node_type: "decision",
     prose: "Pick the path",
     question: "Which path?",
@@ -34,8 +34,8 @@ beforeAll(async () => {
     "Workspace Test",
   ]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
-    [DOCO, "doco-test", ORG, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    [COLLECTION, "collection-test", ORG, ORG],
   );
 });
 

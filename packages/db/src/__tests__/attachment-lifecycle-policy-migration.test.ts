@@ -2,7 +2,7 @@
 // the three business-process flow-node attachment gates — a flow node serves an
 // Intent (`supports` → intent), an Action names its performer and a gateway
 // Decision its decider (`attributed_to` → principal). They were one-time
-// convergence for already-seeded Docos, but schema.sql re-applies after EVERY
+// convergence for already-seeded collections, but schema.sql re-applies after EVERY
 // change to it, and their `? 'drafting'` guards re-matched the moment an owner
 // edited a gate's lifecycle stages — so the next apply silently reverted the
 // edit and the change "wouldn't save".
@@ -10,7 +10,7 @@
 // Those re-applied UPDATEs have been removed. This test is the regression guard:
 // an owner-customized attachment gate must SURVIVE a re-boot unchanged, in any
 // direction (drafting removed, drafting added, narrowed to active-only). New
-// Docos still get the right stages from the template at seed time (host.ts), so
+// collections still get the right stages from the template at seed time (host.ts), so
 // nothing relies on the boot-time heal anymore.
 //
 // Edge `role` is retired: these gates are role-free `requires_edge` predicates
@@ -25,12 +25,12 @@ import { schemaSql } from "./schema-sql.js";
 
 let db: PGlite;
 
-async function ensureDoco(): Promise<void> {
+async function ensureCollection(): Promise<void> {
   await db.exec(`
     INSERT INTO workspaces (id, handle, name) VALUES ('workspace_test', 'ws', 'WS')
       ON CONFLICT (id) DO NOTHING;
-    INSERT INTO docos (id, handle, owner_id, workspace_id, data)
-      VALUES ('doco_test', 'bp', 'workspace_test', 'workspace_test', '{}'::jsonb)
+    INSERT INTO collections (id, handle, owner_id, workspace_id, data)
+      VALUES ('collection_test', 'bp', 'workspace_test', 'workspace_test', '{}'::jsonb)
       ON CONFLICT (id) DO NOTHING;
   `);
 }
@@ -43,7 +43,7 @@ async function seedEdge(opts: {
   direction?: string;
   fires?: string[];
 }): Promise<string> {
-  await ensureDoco();
+  await ensureCollection();
   const id = `policy_${Math.random().toString(36).slice(2)}`;
   const predicate: Record<string, unknown> = {
     sub_kind: "requires_edge",
@@ -54,15 +54,15 @@ async function seedEdge(opts: {
   };
   const data: Record<string, unknown> = {
     id,
-    doco_id: "doco_test",
+    collection_id: "collection_test",
     kind: "deterministic",
     predicate,
     on_violation: "block",
     ...(opts.fires ? { fires_when_node_lifecycle: opts.fires } : {}),
   };
   await db.query(
-    `INSERT INTO policies (id, doco_id, kind, data, lifecycle)
-       VALUES ($1, 'doco_test', 'deterministic', $2::jsonb, 'active')`,
+    `INSERT INTO policies (id, collection_id, kind, data, lifecycle)
+       VALUES ($1, 'collection_test', 'deterministic', $2::jsonb, 'active')`,
     [id, JSON.stringify(data)],
   );
   return id;

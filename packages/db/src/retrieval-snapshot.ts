@@ -11,7 +11,7 @@ export type SnapshotRow = Record<string, SnapshotValue>;
 
 const TABLE_NAMES = [
   "workspaces",
-  "docos",
+  "collections",
   "policies",
   "nodes",
   "edges",
@@ -41,8 +41,8 @@ export interface RetrievalSnapshotManifest {
   appRevision: string | null;
   postgresVersion: string;
   vectorExtensionVersion: string | null;
-  docoId: string;
-  docoHandle: string;
+  collectionId: string;
+  collectionHandle: string;
   workspaceId: string;
   modelIds: string[];
   rowCounts: Record<SnapshotTableName, number>;
@@ -64,7 +64,7 @@ export interface ExportRetrievalSnapshotOptions {
 }
 
 export interface RestoreRetrievalSnapshotResult {
-  docoId: string;
+  collectionId: string;
   digest: string;
   rowCounts: Record<SnapshotTableName, number>;
 }
@@ -74,13 +74,13 @@ interface TableSpec {
   columns: readonly string[];
   jsonColumns?: readonly string[];
   casts?: Readonly<Record<string, string>>;
-  select: (docoId: string, workspaceId: string) => { sql: string; params: unknown[] };
+  select: (collectionId: string, workspaceId: string) => { sql: string; params: unknown[] };
 }
 
-const forDoco =
-  (table: string, columns: readonly string[], orderBy: string) => (docoId: string) => ({
-    sql: `SELECT ${columns.join(", ")} FROM ${table} WHERE doco_id = $1 ORDER BY ${orderBy}`,
-    params: [docoId],
+const forCollection =
+  (table: string, columns: readonly string[], orderBy: string) => (collectionId: string) => ({
+    sql: `SELECT ${columns.join(", ")} FROM ${table} WHERE collection_id = $1 ORDER BY ${orderBy}`,
+    params: [collectionId],
   });
 
 const TABLE_SPECS: readonly TableSpec[] = [
@@ -96,7 +96,7 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "digest_sent_at",
       "personal_user_id",
     ],
-    select: (_docoId, workspaceId) => ({
+    select: (_collectionId, workspaceId) => ({
       sql: `SELECT id, handle, name, constitution, created_at, updated_at, digest_sent_at,
                    NULL::text AS personal_user_id
               FROM workspaces WHERE id = $1`,
@@ -104,7 +104,7 @@ const TABLE_SPECS: readonly TableSpec[] = [
     }),
   },
   {
-    name: "docos",
+    name: "collections",
     columns: [
       "id",
       "handle",
@@ -121,18 +121,18 @@ const TABLE_SPECS: readonly TableSpec[] = [
     ],
     jsonColumns: ["data"],
     casts: { data: "jsonb" },
-    select: (docoId) => ({
+    select: (collectionId) => ({
       sql: `SELECT id, handle, owner_id, workspace_id, visibility, default_node_lifecycle, goal,
                    '{}'::jsonb AS data, created_at, updated_at, deleted_at, latest_activity_at
-              FROM docos WHERE id = $1`,
-      params: [docoId],
+              FROM collections WHERE id = $1`,
+      params: [collectionId],
     }),
   },
   {
     name: "policies",
     columns: [
       "id",
-      "doco_id",
+      "collection_id",
       "kind",
       "lifecycle",
       "data",
@@ -143,11 +143,11 @@ const TABLE_SPECS: readonly TableSpec[] = [
     ],
     jsonColumns: ["data"],
     casts: { data: "jsonb" },
-    select: forDoco(
+    select: forCollection(
       "policies",
       [
         "id",
-        "doco_id",
+        "collection_id",
         "kind",
         "lifecycle",
         "data",
@@ -163,7 +163,7 @@ const TABLE_SPECS: readonly TableSpec[] = [
     name: "nodes",
     columns: [
       "id",
-      "doco_id",
+      "collection_id",
       "node_type",
       "lifecycle",
       "prose",
@@ -178,18 +178,18 @@ const TABLE_SPECS: readonly TableSpec[] = [
     ],
     jsonColumns: ["extra"],
     casts: { extra: "jsonb" },
-    select: (docoId) => ({
-      sql: `SELECT id, doco_id, node_type, lifecycle, prose, NULL::text AS proposer_id,
+    select: (collectionId) => ({
+      sql: `SELECT id, collection_id, node_type, lifecycle, prose, NULL::text AS proposer_id,
                    kind, locator, extra, created_at, created_by, updated_at, updated_by
-              FROM nodes WHERE doco_id = $1 ORDER BY id`,
-      params: [docoId],
+              FROM nodes WHERE collection_id = $1 ORDER BY id`,
+      params: [collectionId],
     }),
   },
   {
     name: "edges",
     columns: [
       "id",
-      "doco_id",
+      "collection_id",
       "edge_type",
       "from_id",
       "from_node_type",
@@ -206,11 +206,11 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "updated_by",
       "retired_at",
     ],
-    select: forDoco(
+    select: forCollection(
       "edges",
       [
         "id",
-        "doco_id",
+        "collection_id",
         "edge_type",
         "from_id",
         "from_node_type",
@@ -233,28 +233,28 @@ const TABLE_SPECS: readonly TableSpec[] = [
   {
     name: "node_ranks",
     columns: ["node_id", "rank"],
-    select: (docoId) => ({
+    select: (collectionId) => ({
       sql: `SELECT r.node_id, r.rank
               FROM node_ranks r JOIN nodes n ON n.id = r.node_id
-             WHERE n.doco_id = $1 ORDER BY r.node_id`,
-      params: [docoId],
+             WHERE n.collection_id = $1 ORDER BY r.node_id`,
+      params: [collectionId],
     }),
   },
   {
     name: "entity_fts_nodes",
-    columns: ["entity_id", "doco_id", "node_type", "summary", "body"],
-    select: forDoco(
+    columns: ["entity_id", "collection_id", "node_type", "summary", "body"],
+    select: forCollection(
       "entity_fts_nodes",
-      ["entity_id", "doco_id", "node_type", "summary", "body"],
+      ["entity_id", "collection_id", "node_type", "summary", "body"],
       "entity_id",
     ),
   },
   {
     name: "node_touches",
-    columns: ["node_id", "doco_id", "kind", "value"],
-    select: forDoco(
+    columns: ["node_id", "collection_id", "kind", "value"],
+    select: forCollection(
       "node_touches",
-      ["node_id", "doco_id", "kind", "value"],
+      ["node_id", "collection_id", "kind", "value"],
       "node_id, kind, value",
     ),
   },
@@ -277,21 +277,21 @@ const TABLE_SPECS: readonly TableSpec[] = [
     ],
     jsonColumns: ["data"],
     casts: { bot_scope: "text[]", data: "jsonb" },
-    select: (docoId) => ({
+    select: (collectionId) => ({
       sql: `SELECT i.id, i.provider, i.workspace_id, i.workspace_name, i.bot_user_id,
                    NULL::text AS bot_access_token, i.bot_scope, i.installed_by_chat_user_id,
                    NULL::text AS installed_by_user_id, i.doco_workspace_id,
                    '{}'::jsonb AS data, i.created_at, i.updated_at
               FROM group_chat_installations i
               JOIN group_chat_mirrors m ON m.installation_id = i.id
-             WHERE m.doco_id = $1 ORDER BY i.id`,
-      params: [docoId],
+             WHERE m.collection_id = $1 ORDER BY i.id`,
+      params: [collectionId],
     }),
   },
   {
     name: "group_chat_mirrors",
     columns: [
-      "doco_id",
+      "collection_id",
       "installation_id",
       "team_domain",
       "history_since",
@@ -302,18 +302,18 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "replies_next_at",
       "created_at",
     ],
-    select: (docoId) => ({
-      sql: `SELECT doco_id, installation_id, team_domain, history_since,
+    select: (collectionId) => ({
+      sql: `SELECT collection_id, installation_id, team_domain, history_since,
                    NULL::text AS consented_by, consented_at, channels_synced_at,
                    history_next_at, replies_next_at, created_at
-              FROM group_chat_mirrors WHERE doco_id = $1`,
-      params: [docoId],
+              FROM group_chat_mirrors WHERE collection_id = $1`,
+      params: [collectionId],
     }),
   },
   {
     name: "group_chat_channels",
     columns: [
-      "doco_id",
+      "collection_id",
       "channel_id",
       "name",
       "topic",
@@ -326,10 +326,10 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "history_done_at",
       "created_at",
     ],
-    select: forDoco(
+    select: forCollection(
       "group_chat_channels",
       [
-        "doco_id",
+        "collection_id",
         "channel_id",
         "name",
         "topic",
@@ -348,7 +348,7 @@ const TABLE_SPECS: readonly TableSpec[] = [
   {
     name: "group_chat_members",
     columns: [
-      "doco_id",
+      "collection_id",
       "chat_user_id",
       "display_name",
       "real_name",
@@ -356,10 +356,10 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "is_bot",
       "deactivated",
     ],
-    select: forDoco(
+    select: forCollection(
       "group_chat_members",
       [
-        "doco_id",
+        "collection_id",
         "chat_user_id",
         "display_name",
         "real_name",
@@ -373,7 +373,7 @@ const TABLE_SPECS: readonly TableSpec[] = [
   {
     name: "group_chat_messages",
     columns: [
-      "doco_id",
+      "collection_id",
       "channel_id",
       "ts",
       "thread_ts",
@@ -390,10 +390,10 @@ const TABLE_SPECS: readonly TableSpec[] = [
     ],
     jsonColumns: ["files"],
     casts: { files: "jsonb" },
-    select: forDoco(
+    select: forCollection(
       "group_chat_messages",
       [
-        "doco_id",
+        "collection_id",
         "channel_id",
         "ts",
         "thread_ts",
@@ -414,7 +414,7 @@ const TABLE_SPECS: readonly TableSpec[] = [
   {
     name: "notion_mirrors",
     columns: [
-      "doco_id",
+      "collection_id",
       "workspace_id",
       "workspace_name",
       "workspace_icon",
@@ -438,22 +438,22 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "content_scan",
       "created_at",
     ],
-    select: (docoId) => ({
-      sql: `SELECT doco_id, workspace_id, workspace_name, workspace_icon, bot_id,
+    select: (collectionId) => ({
+      sql: `SELECT collection_id, workspace_id, workspace_name, workspace_icon, bot_id,
                    '${INERT_NOTION_TOKEN}'::text AS access_token, NULL::text AS refresh_token,
                    NULL::text AS authorized_by, NULL::text AS consented_by, consented_at,
                    discovery_cursor, discovery_started_at, discovered_at, reconciled_at,
                    users_cursor, users_synced_at, next_at, ticked_at, ticking_until,
                    COALESCE(needs_reauth_at, now()) AS needs_reauth_at,
                    listing_capped_at, content_scan, created_at
-              FROM notion_mirrors WHERE doco_id = $1`,
-      params: [docoId],
+              FROM notion_mirrors WHERE collection_id = $1`,
+      params: [collectionId],
     }),
   },
   {
     name: "notion_pages",
     columns: [
-      "doco_id",
+      "collection_id",
       "page_id",
       "object",
       "parent_id",
@@ -480,10 +480,10 @@ const TABLE_SPECS: readonly TableSpec[] = [
     ],
     jsonColumns: ["properties"],
     casts: { properties: "jsonb" },
-    select: forDoco(
+    select: forCollection(
       "notion_pages",
       [
-        "doco_id",
+        "collection_id",
         "page_id",
         "object",
         "parent_id",
@@ -513,35 +513,35 @@ const TABLE_SPECS: readonly TableSpec[] = [
   },
   {
     name: "notion_links",
-    columns: ["doco_id", "from_page_id", "to_page_id"],
-    select: forDoco(
+    columns: ["collection_id", "from_page_id", "to_page_id"],
+    select: forCollection(
       "notion_links",
-      ["doco_id", "from_page_id", "to_page_id"],
+      ["collection_id", "from_page_id", "to_page_id"],
       "from_page_id, to_page_id",
     ),
   },
   {
     name: "notion_users",
-    columns: ["doco_id", "user_id", "name", "avatar_url", "is_bot"],
-    select: forDoco(
+    columns: ["collection_id", "user_id", "name", "avatar_url", "is_bot"],
+    select: forCollection(
       "notion_users",
-      ["doco_id", "user_id", "name", "avatar_url", "is_bot"],
+      ["collection_id", "user_id", "name", "avatar_url", "is_bot"],
       "user_id",
     ),
   },
   {
     name: "code_files",
-    columns: ["doco_id", "repo", "path", "sha", "size", "content", "omitted", "synced_at"],
-    select: forDoco(
+    columns: ["collection_id", "repo", "path", "sha", "size", "content", "omitted", "synced_at"],
+    select: forCollection(
       "code_files",
-      ["doco_id", "repo", "path", "sha", "size", "content", "omitted", "synced_at"],
+      ["collection_id", "repo", "path", "sha", "size", "content", "omitted", "synced_at"],
       "repo, path",
     ),
   },
   {
     name: "embeddings",
     columns: [
-      "doco_id",
+      "collection_id",
       "source",
       "entity_id",
       "chunk_index",
@@ -552,12 +552,12 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "updated_at",
     ],
     casts: { embedding: "vector" },
-    select: (docoId) => ({
-      sql: `SELECT doco_id, source, entity_id, chunk_index, model_id, content_hash,
+    select: (collectionId) => ({
+      sql: `SELECT collection_id, source, entity_id, chunk_index, model_id, content_hash,
                    chunk_text, embedding::text AS embedding, updated_at
-              FROM embeddings WHERE doco_id = $1
+              FROM embeddings WHERE collection_id = $1
              ORDER BY source, entity_id, chunk_index`,
-      params: [docoId],
+      params: [collectionId],
     }),
   },
 ];
@@ -602,8 +602,8 @@ function corpusPayload(snapshot: Pick<RetrievalSnapshot, "manifest" | "tables">)
   return {
     format: snapshot.manifest.format,
     version: snapshot.manifest.version,
-    docoId: snapshot.manifest.docoId,
-    docoHandle: snapshot.manifest.docoHandle,
+    collectionId: snapshot.manifest.collectionId,
+    collectionHandle: snapshot.manifest.collectionHandle,
     workspaceId: snapshot.manifest.workspaceId,
     tables: snapshot.tables,
   };
@@ -623,7 +623,7 @@ function emptyTables(): RetrievalSnapshotTables {
   return tables;
 }
 
-function safeDocoData(repos: string[]): SnapshotValue {
+function safeCollectionData(repos: string[]): SnapshotValue {
   return {
     retrieval_snapshot: true,
     github_integration: {
@@ -635,31 +635,31 @@ function safeDocoData(repos: string[]): SnapshotValue {
 
 async function readRetrievalSnapshot(
   c: QueryClient,
-  docoRef: string,
+  collectionRef: string,
   options: ExportRetrievalSnapshotOptions = {},
 ): Promise<RetrievalSnapshot> {
-  const docoResult = await c.query<{
+  const collectionResult = await c.query<{
     id: string;
     handle: string;
     workspace_id: string;
   }>(
-    `SELECT id, handle, workspace_id FROM docos
+    `SELECT id, handle, workspace_id FROM collections
       WHERE deleted_at IS NULL AND (id = $1 OR handle = $1)
       ORDER BY CASE WHEN id = $1 THEN 0 ELSE 1 END LIMIT 1`,
-    [docoRef],
+    [collectionRef],
   );
-  const doco = docoResult.rows[0];
-  if (!doco) throw new Error(`Doco ${docoRef} was not found`);
+  const collection = collectionResult.rows[0];
+  if (!collection) throw new Error(`Collection ${collectionRef} was not found`);
 
   const tables = emptyTables();
   for (const spec of TABLE_SPECS) {
-    const query = spec.select(doco.id, doco.workspace_id);
+    const query = spec.select(collection.id, collection.workspace_id);
     const result = await c.query<Record<string, unknown>>(query.sql, query.params);
     tables[spec.name] = result.rows.map(normalizeRow);
   }
 
   const repos = [...new Set(tables.code_files.map((row) => String(row.repo)))].sort();
-  if (tables.docos[0]) tables.docos[0].data = safeDocoData(repos);
+  if (tables.collections[0]) tables.collections[0].data = safeCollectionData(repos);
 
   const postgresVersionResult = await c.query<{ version: string }>(
     "SELECT current_setting('server_version') AS version",
@@ -680,9 +680,9 @@ async function readRetrievalSnapshot(
       appRevision: options.appRevision ?? null,
       postgresVersion: postgresVersionResult.rows[0]?.version ?? "unknown",
       vectorExtensionVersion: vectorVersionResult.rows[0]?.extversion ?? null,
-      docoId: doco.id,
-      docoHandle: doco.handle,
-      workspaceId: doco.workspace_id,
+      collectionId: collection.id,
+      collectionHandle: collection.handle,
+      workspaceId: collection.workspace_id,
       modelIds,
       rowCounts,
       digest: "",
@@ -697,12 +697,12 @@ async function readRetrievalSnapshot(
 
 export async function exportRetrievalSnapshot(
   c: QueryClient,
-  docoRef: string,
+  collectionRef: string,
   options: ExportRetrievalSnapshotOptions = {},
 ): Promise<RetrievalSnapshot> {
   await c.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY");
   try {
-    const snapshot = await readRetrievalSnapshot(c, docoRef, options);
+    const snapshot = await readRetrievalSnapshot(c, collectionRef, options);
     await c.query("COMMIT");
     return snapshot;
   } catch (error) {
@@ -764,11 +764,11 @@ export async function restoreRetrievalSnapshot(
   await c.query("BEGIN");
   try {
     const existing = await c.query<{ present: boolean }>(
-      "SELECT EXISTS (SELECT 1 FROM docos WHERE id = $1 OR handle = $2) AS present",
-      [snapshot.manifest.docoId, snapshot.manifest.docoHandle],
+      "SELECT EXISTS (SELECT 1 FROM collections WHERE id = $1 OR handle = $2) AS present",
+      [snapshot.manifest.collectionId, snapshot.manifest.collectionHandle],
     );
     if (existing.rows[0]?.present) {
-      throw new Error(`target already contains Doco ${snapshot.manifest.docoId}`);
+      throw new Error(`target already contains collection ${snapshot.manifest.collectionId}`);
     }
     const workspace = await c.query<{ present: boolean }>(
       "SELECT EXISTS (SELECT 1 FROM workspaces WHERE id = $1 OR handle = $2) AS present",
@@ -783,14 +783,18 @@ export async function restoreRetrievalSnapshot(
     for (const spec of TABLE_SPECS) {
       if (spec.name === "node_touches") {
         // Node inserts regenerate touches. Replace them with the captured read-side state.
-        await c.query("DELETE FROM node_touches WHERE doco_id = $1", [snapshot.manifest.docoId]);
+        await c.query("DELETE FROM node_touches WHERE collection_id = $1", [
+          snapshot.manifest.collectionId,
+        ]);
       }
       await insertRows(c, spec, snapshot.tables[spec.name]);
     }
     // Edge inserts queue a PageRank rebuild. The captured ranks are the exact
     // read-side state under evaluation, so do not let a local sweep replace them.
-    await c.query("DELETE FROM node_ranks_stale WHERE doco_id = $1", [snapshot.manifest.docoId]);
-    const restored = await readRetrievalSnapshot(c, snapshot.manifest.docoId, {
+    await c.query("DELETE FROM node_ranks_stale WHERE collection_id = $1", [
+      snapshot.manifest.collectionId,
+    ]);
+    const restored = await readRetrievalSnapshot(c, snapshot.manifest.collectionId, {
       appRevision: snapshot.manifest.appRevision,
       exportedAt: snapshot.manifest.exportedAt,
     });
@@ -801,7 +805,7 @@ export async function restoreRetrievalSnapshot(
     }
     await c.query("COMMIT");
     return {
-      docoId: snapshot.manifest.docoId,
+      collectionId: snapshot.manifest.collectionId,
       digest: restored.manifest.digest,
       rowCounts: restored.manifest.rowCounts,
     };

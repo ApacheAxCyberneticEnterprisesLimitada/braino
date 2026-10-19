@@ -6,9 +6,9 @@
  * Post-rename vocabulary:
  *   - Nodes (10): graph-knowledge entities (intent, idea, rule,
  *     decision, action, log, eval, reference, state, principal)
- *   - Policies (1): Doco-level authoring metadata — one `policies` table,
+ *   - Policies (1): Collection-level authoring metadata — one `policies` table,
  *     classified by `kind: "suggestion" | "deterministic" | "probabilistic"`
- *   - Doco: the root container
+ *   - Collection: the root container
  *
  * The OAuth identity layer and the workspace container have no entity shape
  * here; their honest types are `UserRow` / `WorkspaceRow` in `@doco/db`.
@@ -16,7 +16,7 @@
  * Per-category discriminator fields:
  *   - Nodes    → `node_type: NodeType`
  *   - Policies → `kind: "suggestion" | "deterministic" | "probabilistic"`
- *   - Doco     → no per-row discriminator
+ *   - Collection → no per-row discriminator
  *
  * `created_by` / `updated_by` reference users (the OAuth identity).
  * Graph relationships live in first-class edge rows.
@@ -50,7 +50,7 @@ export type Outcome = "succeeded" | "failed";
  */
 export interface CommonFields {
   id: EntityId;
-  doco_id: EntityId<"doco">;
+  collection_id: EntityId<"collection">;
   created_at: string; // ISO 8601 UTC
   created_by: EntityId<"user">;
   updated_at?: string;
@@ -91,13 +91,13 @@ export interface Principal extends CommonFields {
   kind?: "human" | "agent";
 }
 
-// ─── Doco (root entity) ───────────────────────────────────────────────────
+// ─── collection (root entity) ───────────────────────────────────────────────────
 
-/** Doco.owner_id is polymorphic: User OR Workspace. */
+/** collection.owner_id is polymorphic: User OR Workspace. */
 export type OwnerRef = EntityId<"user"> | EntityId<"workspace">;
 
-export interface Doco {
-  id: EntityId<"doco">;
+export interface Collection {
+  id: EntityId<"collection">;
   handle: string;
   visibility: "private" | "public";
   owner_id: OwnerRef;
@@ -244,7 +244,7 @@ export interface DeterministicChecks {
   unique_field: { field: string; case_fold?: boolean; when_node_type?: NodeType[] };
   requires_node_type: { node_types: NodeType[] };
   /**
-   * Edge-type allowlist — the edge analogue of `requires_node_type`. A Doco-wide
+   * Edge-type allowlist — the edge analogue of `requires_node_type`. A collection-wide
    * membership gate evaluated when an edge is CREATED: an edge whose `edge_type`
    * is not in `edge_types` is rejected. Like the node-type allowlist it carries
    * no `when_node_type` and is not lifecycle-scoped (a disallowed edge type is
@@ -534,8 +534,8 @@ export type Node =
   | State;
 
 /**
- * A graph-knowledge entity the index loader hydrates. Containers (`Doco`) and
+ * A graph-knowledge entity the index loader hydrates. Containers (`Collection`) and
  * the OAuth identity / workspace rows are read through their own `@doco/db`
  * row types, not this union.
  */
-export type Entity = Node | Policy | Doco;
+export type Entity = Node | Policy | Collection;

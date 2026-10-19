@@ -9,7 +9,7 @@ import { freshDb } from "./fresh-db.js";
 // cycle, and the long-dead `role_principal` (no column, never persisted) never
 // reappears.
 
-const DOCO = "doco_promoted0000000000000000000";
+const COLLECTION = "collection_promoted0000000000000000000";
 const ORG = "workspace_promoted00000000000";
 
 let db: PGlite;
@@ -27,8 +27,8 @@ beforeAll(async () => {
     "Workspace Promoted",
   ]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
-    [DOCO, "doco-promoted", ORG, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    [COLLECTION, "collection-promoted", ORG, ORG],
   );
   await db.query("INSERT INTO users (id, github_login, data) VALUES ($1,$2,'{}'::jsonb)", [
     "user_promoted0000000000000000000",
@@ -81,7 +81,7 @@ describe("promoted columns — single source of truth round-trips", () => {
       await upsertNode(
         nodeRowFromFields(c.type, {
           id: c.id,
-          doco_id: DOCO,
+          collection_id: COLLECTION,
           node_type: c.type,
           lifecycle: "active",
           ...c.data,
@@ -101,7 +101,7 @@ describe("promoted columns — single source of truth round-trips", () => {
     await upsertNode(
       nodeRowFromFields("principal", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "principal",
         prose: "Reviewer",
         kind: "agent",

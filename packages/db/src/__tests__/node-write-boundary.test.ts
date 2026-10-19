@@ -11,7 +11,7 @@ describe("nodeRowFromFields — the write split into a NodeRow", () => {
   it("routes prose, promoted columns, and domain fields to the right slots", () => {
     const node = nodeRowFromFields("reference", {
       id: "reference_01ABCDEFGHJKMNPQRSTVWXYZ00",
-      doco_id: "doco_01",
+      collection_id: "collection_01",
       node_type: "reference", // ignored — the explicit nodeType arg wins
       prose: "ACME PR #1",
       locator: "https://example.com/pr/1", // promoted column
@@ -23,7 +23,7 @@ describe("nodeRowFromFields — the write split into a NodeRow", () => {
     });
     expect(node).toMatchObject({
       id: "reference_01ABCDEFGHJKMNPQRSTVWXYZ00",
-      doco_id: "doco_01",
+      collection_id: "collection_01",
       node_type: "reference",
       prose: "ACME PR #1",
       locator: "https://example.com/pr/1",
@@ -39,7 +39,7 @@ describe("nodeRowFromFields — the write split into a NodeRow", () => {
 
   it("promotes only the columns the node type carries; reserved keys never hit extra", () => {
     // `kind` is promoted for eval/state/principal -> its column, never extra.
-    const evalNode = nodeRowFromFields("eval", { id: "eval_01", doco_id: "d", kind: "unit" });
+    const evalNode = nodeRowFromFields("eval", { id: "eval_01", collection_id: "d", kind: "unit" });
     expect(evalNode.kind).toBe("unit");
     expect(evalNode.extra).not.toHaveProperty("kind");
 
@@ -47,7 +47,7 @@ describe("nodeRowFromFields — the write split into a NodeRow", () => {
     // and is excluded from extra), while a real domain field is kept.
     const intent = nodeRowFromFields("intent", {
       id: "intent_01",
-      doco_id: "d",
+      collection_id: "d",
       locator: "x",
       priority: "p1",
     });
@@ -58,7 +58,7 @@ describe("nodeRowFromFields — the write split into a NodeRow", () => {
   it("excludes identity/audit/legacy keys from extra", () => {
     const node = nodeRowFromFields("decision", {
       id: "decision_01",
-      doco_id: "d",
+      collection_id: "d",
       node_type: "decision",
       prose: "Pick A",
       lifecycle: "active",

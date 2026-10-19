@@ -11,7 +11,7 @@ export * from "./time.js";
 export * from "./entities.js";
 export * from "./public-url.js";
 export * from "./url-conventions.js";
-export * from "./loaded-doco.js";
+export * from "./loaded-collection.js";
 export * from "./authoring-evaluator.js";
 export * from "./deterministic-checks.js";
 export * from "./policy-format.js";

@@ -1,5 +1,5 @@
 {
-  "_comment": "Labeled retrieval fixture for scripts/eval-retrieval.mjs. Documents and queries are drawn from this repository's real Doco-domain content (ADRs, auth flow, workflow rules, search architecture) so the harness exercises representative agent traffic. `relevant` is a list of document ids, or an object of { id: gain } for graded nDCG. Replace with exported Doco nodes once the Doco handle resolves.",
+  "_comment": "Labeled retrieval fixture for scripts/eval-retrieval.mjs. Documents and queries are drawn from this repository's real collection-domain content (ADRs, auth flow, workflow rules, search architecture) so the harness exercises representative agent traffic. `relevant` is a list of document ids, or an object of { id: gain } for graded nDCG. Replace with exported collection nodes once the collection handle resolves.",
   "documents": [
     {
       "id": "decision_adr052_provider",
@@ -9,7 +9,7 @@
     {
       "id": "decision_adr049_tier",
       "type": "decision",
-      "text": "ADR-049: the deployment is at Tier B scale, where sequential cosine similarity over every embedding in a Doco runs in microseconds. pgvector with ivfflat or hnsw indexes is an additive optimization deferred to Tier C; it is not needed yet."
+      "text": "ADR-049: the deployment is at Tier B scale, where sequential cosine similarity over every embedding in a collection runs in microseconds. pgvector with ivfflat or hnsw indexes is an additive optimization deferred to Tier C; it is not needed yet."
     },
     {
       "id": "rule_embedding_storage",
@@ -34,17 +34,17 @@
     {
       "id": "rule_hybrid_ranking",
       "type": "rule",
-      "text": "Search is hybrid: a dense vector cosine score, Postgres full-text search over a weighted tsvector with English stemming, and a global PageRank centrality signal computed over the Doco's edge graph. Cross-category search is a union over the per-type FTS tables."
+      "text": "Search is hybrid: a dense vector cosine score, Postgres full-text search over a weighted tsvector with English stemming, and a global PageRank centrality signal computed over the collection's edge graph. Cross-category search is a union over the per-type FTS tables."
     },
     {
       "id": "reference_oauth_device_flow",
       "type": "reference",
-      "text": "Agents authenticate to a Doco over OAuth 2.1. Shell-capable agents use the localhost-loopback flow; chat-only or sandboxed agents use the RFC 8628 device authorization grant, where the project owner approves the device code at doco.to/device. Both end with an Authorization Bearer token."
+      "text": "Agents authenticate to a collection over OAuth 2.1. Shell-capable agents use the localhost-loopback flow; chat-only or sandboxed agents use the RFC 8628 device authorization grant, where the project owner approves the device code at doco.to/device. Both end with an Authorization Bearer token."
     },
     {
       "id": "reference_project_token",
       "type": "reference",
-      "text": "A read-only project token is a committable credential stored in .doco/project-tokens.json that lets any agent cloning the repo read the Doco without an interactive OAuth approval. The owner mints it from the project-tokens page after confirming repo readers may read the Doco."
+      "text": "A read-only project token is a committable credential stored in .doco/project-tokens.json that lets any agent cloning the repo read the collection without an interactive OAuth approval. The owner mints it from the project-tokens page after confirming repo readers may read the collection."
     },
     {
       "id": "reference_dev_signin",
@@ -59,7 +59,7 @@
     {
       "id": "rule_indicator_protocol",
       "type": "rule",
-      "text": "Every turn that touches the Doco renders an indicator at the top of the first text output, footer lines verbatim after any write, and a tally line at the very end reporting how many nodes were added or updated per source."
+      "text": "Every turn that touches the collection renders an indicator at the top of the first text output, footer lines verbatim after any write, and a tally line at the very end reporting how many nodes were added or updated per source."
     }
   ],
   "queries": [
@@ -76,7 +76,7 @@
       "relevant": ["decision_adr049_tier", "rule_embedding_storage"]
     },
     {
-      "query": "how do agents sign in to read a private Doco?",
+      "query": "how do agents sign in to read a private collection?",
       "relevant": ["reference_oauth_device_flow", "reference_project_token"]
     },
     {

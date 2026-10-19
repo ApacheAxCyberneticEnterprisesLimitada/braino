@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  DEFAULT_DOCO_TEMPLATES,
-  findDocoTemplateByName,
+  DEFAULT_COLLECTION_TEMPLATES,
+  findCollectionTemplateByName,
   templatePolicyToPolicyRow,
-} from "../doco-templates.js";
+} from "../collection-templates.js";
 
 describe("template policies carry no vestigial rule `kind`", () => {
   // Rules are no longer guidances: every policy lives in the one unified
@@ -11,7 +11,7 @@ describe("template policies carry no vestigial rule `kind`", () => {
   // in host.ts — a TemplatePolicy never carries a `kind` field itself
   // (decision_01KRRR5BQ16ASY8HQEE0V499YG). Keep the vestige out for good.
   it("no seeded template policy declares a `kind`", () => {
-    for (const t of DEFAULT_DOCO_TEMPLATES) {
+    for (const t of DEFAULT_COLLECTION_TEMPLATES) {
       for (const p of t.policies) {
         expect(p).not.toHaveProperty("kind");
       }
@@ -20,16 +20,16 @@ describe("template policies carry no vestigial rule `kind`", () => {
 });
 
 describe("orphaned pre-unification templates are gone", () => {
-  // `global` and `important` were never in the new-Doco picker
-  // (DOCO_TEMPLATES); the API and UI reject any handle outside that list,
+  // `global` and `important` were never in the new-collection picker
+  // (COLLECTION_TEMPLATES); the API and UI reject any handle outside that list,
   // so both were unreachable. `global` also still seeded the removed
   // `guidance_policy` / `node_authoring_policy` node types into the
   // write-only `allowed_node_types` column. Both removed with the policy
   // unify — keep them out.
   for (const name of ["global", "important"]) {
     it(`does not register the orphaned \`${name}\` template`, () => {
-      expect(findDocoTemplateByName(name)).toBeUndefined();
-      expect(DEFAULT_DOCO_TEMPLATES.some((t) => t.name === name)).toBe(false);
+      expect(findCollectionTemplateByName(name)).toBeUndefined();
+      expect(DEFAULT_COLLECTION_TEMPLATES.some((t) => t.name === name)).toBe(false);
     });
   }
 });
@@ -45,13 +45,13 @@ describe("removed templates are gone", () => {
   // became `github-issues`: GitHub brings every issue, not only bugs.
   for (const name of ["glossaries", "data-decisions", "github-bugs"]) {
     it(`does not register the removed \`${name}\` template`, () => {
-      expect(findDocoTemplateByName(name)).toBeUndefined();
-      expect(DEFAULT_DOCO_TEMPLATES.some((t) => t.name === name)).toBe(false);
+      expect(findCollectionTemplateByName(name)).toBeUndefined();
+      expect(DEFAULT_COLLECTION_TEMPLATES.some((t) => t.name === name)).toBe(false);
     });
   }
 
   it("ships exactly the surviving templates", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.map((t) => t.name).sort()).toEqual([
+    expect(DEFAULT_COLLECTION_TEMPLATES.map((t) => t.name).sort()).toEqual([
       "agents-chats",
       "architectural-decisions",
       "bugs",
@@ -75,11 +75,11 @@ describe("removed templates are gone", () => {
 });
 
 describe("evals template", () => {
-  const template = findDocoTemplateByName("evals");
+  const template = findCollectionTemplateByName("evals");
   if (!template) throw new Error("evals template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "evals")).toBeDefined();
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "evals")).toBeDefined();
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
@@ -259,11 +259,11 @@ describe("evals template", () => {
 });
 
 describe("glossary template", () => {
-  const template = findDocoTemplateByName("glossary");
+  const template = findCollectionTemplateByName("glossary");
   if (!template) throw new Error("glossary template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "glossary")).toBeDefined();
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "glossary")).toBeDefined();
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
@@ -360,11 +360,11 @@ describe("glossary template", () => {
 });
 
 describe("faq template", () => {
-  const template = findDocoTemplateByName("faq");
+  const template = findCollectionTemplateByName("faq");
   if (!template) throw new Error("faq template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "faq")).toBeDefined();
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "faq")).toBeDefined();
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
@@ -508,11 +508,11 @@ describe("faq template", () => {
 });
 
 describe("bug tracker template", () => {
-  const template = findDocoTemplateByName("bugs");
+  const template = findCollectionTemplateByName("bugs");
   if (!template) throw new Error("bugs template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "bugs")).toBeDefined();
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "bugs")).toBeDefined();
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
@@ -541,7 +541,7 @@ describe("bug tracker template", () => {
       );
     });
 
-    it("excludes flow/decision/idea node types (those live in their own Docos)", () => {
+    it("excludes flow/decision/idea node types (those live in their own collections)", () => {
       if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
       for (const barred of ["action", "state", "decision", "intent", "idea"]) {
         expect(allowlist.node_types).not.toContain(barred as never);
@@ -693,16 +693,16 @@ describe("bug tracker template", () => {
 });
 
 describe("process template", () => {
-  const template = findDocoTemplateByName("process");
+  const template = findCollectionTemplateByName("process");
   if (!template) throw new Error("process template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "process")).toBeDefined();
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "process")).toBeDefined();
   });
 
   it("is reachable via its bare handle and is NOT reachable via the legacy hashtag-prefixed form", () => {
-    const bare = findDocoTemplateByName("process");
-    const hashtagged = findDocoTemplateByName("#process");
+    const bare = findCollectionTemplateByName("process");
+    const hashtagged = findCollectionTemplateByName("#process");
     expect(bare).toBeDefined();
     expect(bare?.name).toBe("process");
     expect(hashtagged).toBeUndefined();
@@ -734,13 +734,13 @@ describe("process template", () => {
       expect(allowlist.node_types).not.toContain("intent");
     });
 
-    it("does not list Doco policy metadata as business-process content", () => {
+    it("does not list collection policy metadata as business-process content", () => {
       if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
       expect(allowlist.node_types).not.toContain("guidance_policy" as never);
       expect(allowlist.node_types).not.toContain("node_authoring_policy" as never);
     });
 
-    it("describes only business-process nodes, not Doco policy metadata", () => {
+    it("describes only business-process nodes, not collection policy metadata", () => {
       const policy = template.policies.find(
         (r) => r.predicate?.kind === "requires_node_type",
       )?.policy;
@@ -750,7 +750,7 @@ describe("process template", () => {
       expect(policy ?? "").not.toMatch(/guidance_policy|node_authoring_policy|policy records/i);
     });
 
-    it("excludes Log and Idea (Logs live in a sibling Doco; Ideas live in their own home)", () => {
+    it("excludes Log and Idea (Logs live in a sibling collection; Ideas live in their own home)", () => {
       if (allowlist?.kind !== "requires_node_type") throw new Error("allowlist missing");
       expect(allowlist.node_types).not.toContain("log");
       expect(allowlist.node_types).not.toContain("idea");
@@ -1172,7 +1172,7 @@ describe("process template", () => {
     // additional structure belongs in a separate field. This guards every
     // template against reintroducing the retired `field-line-shape` predicate
     // or a "first line"-scoped probabilistic spec.
-    for (const t of DEFAULT_DOCO_TEMPLATES) {
+    for (const t of DEFAULT_COLLECTION_TEMPLATES) {
       it(`${t.name} has no line-scoped policy`, () => {
         for (const p of t.policies) {
           expect(p.predicate?.kind, `${t.name} still uses field-line-shape`).not.toBe(
@@ -1246,10 +1246,11 @@ describe("process template", () => {
         ),
       ).toBe(true);
     });
-    it("Log separation (instances live in a sibling Doco)", () => {
+    it("Log separation (instances live in a sibling collection)", () => {
       expect(
         summaries.some(
-          (s) => /instance/i.test(s) && /(separate|sibling) doco/i.test(s) && /reference/i.test(s),
+          (s) =>
+            /instance/i.test(s) && /(separate|sibling) collection/i.test(s) && /reference/i.test(s),
         ),
       ).toBe(true);
     });
@@ -1353,7 +1354,7 @@ describe("process template", () => {
 });
 
 describe("codebase template", () => {
-  const template = findDocoTemplateByName("codebase");
+  const template = findCollectionTemplateByName("codebase");
 
   // The copied code opens in the web app's reader, not on a perspective.
   it("keeps the copied code out of the graph, with no perspective of its own", () => {
@@ -1364,9 +1365,9 @@ describe("codebase template", () => {
 });
 
 describe("github-issues template", () => {
-  const template = findDocoTemplateByName("github-issues");
+  const template = findCollectionTemplateByName("github-issues");
 
-  // Alexander, 2026-09-30: every integration fills a standalone Doco of its
+  // Alexander, 2026-09-30: every integration fills a standalone collection of its
   // own, so issues from GitHub never land in the Bug tracker people file in;
   // 2026-10-09: it brings issues, not bugs.
   it("mirrors a repository's issues with no authoring constraints, opening on the list", () => {
@@ -1378,36 +1379,36 @@ describe("github-issues template", () => {
 
 describe("github-pull-requests template", () => {
   it("is registered and findable by handle", () => {
-    const template = findDocoTemplateByName("github-pull-requests");
+    const template = findCollectionTemplateByName("github-pull-requests");
     expect(template).toBeDefined();
     expect(template?.name).toBe("github-pull-requests");
   });
 
   it("has a non-empty label and description", () => {
-    const template = findDocoTemplateByName("github-pull-requests");
+    const template = findCollectionTemplateByName("github-pull-requests");
     expect(template?.label).toBeTruthy();
     expect(template?.description).toBeTruthy();
     expect(template?.description.length).toBeGreaterThan(10);
   });
 
   it("ships with an empty policies array (no authoring constraints)", () => {
-    const template = findDocoTemplateByName("github-pull-requests");
+    const template = findCollectionTemplateByName("github-pull-requests");
     expect(template?.policies).toEqual([]);
   });
 
-  it("defaults the Doco overview to the Pull requests perspective", () => {
-    const template = findDocoTemplateByName("github-pull-requests");
+  it("defaults the collection overview to the Pull requests perspective", () => {
+    const template = findCollectionTemplateByName("github-pull-requests");
     expect(template?.perspectives).toEqual([{ slug: "pull-requests", isDefault: true }]);
   });
 });
 
 describe("org-chart template", () => {
-  const template = findDocoTemplateByName("org-chart");
+  const template = findCollectionTemplateByName("org-chart");
   if (!template) throw new Error("org-chart template not registered");
 
   it("is registered and findable by its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "org-chart")).toBeDefined();
-    expect(findDocoTemplateByName("org-chart")?.name).toBe("org-chart");
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "org-chart")).toBeDefined();
+    expect(findCollectionTemplateByName("org-chart")?.name).toBe("org-chart");
   });
 
   it("has the expected metadata (icon, label, description)", () => {
@@ -1562,12 +1563,12 @@ describe("org-chart template", () => {
 });
 
 describe("product-roadmap template", () => {
-  const template = findDocoTemplateByName("product-roadmap");
+  const template = findCollectionTemplateByName("product-roadmap");
   if (!template) throw new Error("product-roadmap template not registered");
 
   it("is registered and findable by its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "product-roadmap")).toBeDefined();
-    expect(findDocoTemplateByName("product-roadmap")?.name).toBe("product-roadmap");
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "product-roadmap")).toBeDefined();
+    expect(findCollectionTemplateByName("product-roadmap")?.name).toBe("product-roadmap");
   });
 
   it("has the expected metadata (icon, label, description, defaultNodeLifecycle)", () => {
@@ -1801,12 +1802,12 @@ describe("product-roadmap template", () => {
 });
 
 describe("test-scenarios template", () => {
-  const template = findDocoTemplateByName("test-scenarios");
+  const template = findCollectionTemplateByName("test-scenarios");
   if (!template) throw new Error("test-scenarios template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "test-scenarios")).toBeDefined();
-    expect(findDocoTemplateByName("test-scenarios")?.name).toBe("test-scenarios");
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "test-scenarios")).toBeDefined();
+    expect(findCollectionTemplateByName("test-scenarios")?.name).toBe("test-scenarios");
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
@@ -1820,7 +1821,7 @@ describe("test-scenarios template", () => {
     expect(template.description).toMatch(/run|environment|evidence/i);
   });
 
-  it("opens on the list reading (a test Doco is a list of scenarios + runs)", () => {
+  it("opens on the list reading (a test collection is a list of scenarios + runs)", () => {
     expect(template.perspectives).toEqual([{ slug: "list", isDefault: true }]);
   });
 
@@ -1868,7 +1869,7 @@ describe("test-scenarios template", () => {
         ]),
       );
       // `flows_to` is process sequence; `constrained_by` guards with a Rule —
-      // neither belongs in a test Doco.
+      // neither belongs in a test collection.
       expect(allowlist.edge_types).not.toContain("flows_to");
       expect(allowlist.edge_types).not.toContain("constrained_by");
     });
@@ -1920,7 +1921,8 @@ describe("test-scenarios template", () => {
     it("warns when a node does not read as test content (membership), exempting Principals", () => {
       const gate = template.policies.find(
         (r) =>
-          r.predicate?.kind === "probabilistic" && /belongs in a test Doco/i.test(r.predicate.spec),
+          r.predicate?.kind === "probabilistic" &&
+          /belongs in a test collection/i.test(r.predicate.spec),
       );
       expect(gate?.on_violation).toBe("warn");
       if (gate?.predicate?.kind !== "probabilistic") return;
@@ -1995,11 +1997,11 @@ describe("test-scenarios template", () => {
 });
 
 describe("ideas template", () => {
-  const template = findDocoTemplateByName("ideas");
+  const template = findCollectionTemplateByName("ideas");
   if (!template) throw new Error("ideas template not registered");
 
-  it("is registered in DEFAULT_DOCO_TEMPLATES under its plain handle", () => {
-    expect(DEFAULT_DOCO_TEMPLATES.find((t) => t.name === "ideas")).toBeDefined();
+  it("is registered in DEFAULT_COLLECTION_TEMPLATES under its plain handle", () => {
+    expect(DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === "ideas")).toBeDefined();
   });
 
   it("has the expected metadata (icon, label, defaultNodeLifecycle, description)", () => {
@@ -2252,7 +2254,7 @@ describe("edge-type allowlists (requires_edge_type)", () => {
   // The edge analogue of the node-type allowlist: each template declares which
   // relationship edge types it permits, enforced (block) on edge creation.
   function allowlistOf(name: string): string[] | undefined {
-    const t = findDocoTemplateByName(name);
+    const t = findCollectionTemplateByName(name);
     const p = t?.policies.find((r) => r.predicate?.kind === "requires_edge_type");
     return p?.predicate?.kind === "requires_edge_type" ? [...p.predicate.edge_types] : undefined;
   }
@@ -2291,7 +2293,7 @@ describe("edge-type allowlists (requires_edge_type)", () => {
   });
 
   it("seeds as a blocking deterministic policy carrying the edge_types allowlist", () => {
-    const template = findDocoTemplateByName("process");
+    const template = findCollectionTemplateByName("process");
     const policy = template?.policies.find((r) => r.predicate?.kind === "requires_edge_type");
     if (!policy) throw new Error("process requires_edge_type policy missing");
     const seeded = templatePolicyToPolicyRow(policy);
@@ -2305,13 +2307,13 @@ describe("edge-type allowlists (requires_edge_type)", () => {
 describe("notion template", () => {
   // The copied pages open in the web app's reader, not on a perspective.
   it("has no perspective of its own", () => {
-    const template = findDocoTemplateByName("notion");
+    const template = findCollectionTemplateByName("notion");
     expect(template?.perspectives).toBeUndefined();
   });
 });
 
 describe("agents chats template", () => {
-  const template = findDocoTemplateByName("agents-chats");
+  const template = findCollectionTemplateByName("agents-chats");
   if (!template) throw new Error("agents-chats template not registered");
 
   it("is labeled Agents chats and opens on the List perspective", () => {
@@ -2327,10 +2329,10 @@ describe("agents chats template", () => {
     expect(allowlist).toEqual({ kind: "requires_node_type", node_types: ["log"] });
   });
 
-  it("sends what a chat produced to the Docos it belongs in", () => {
+  it("sends what a chat produced to the collections it belongs in", () => {
     const prose = template.policies.map((p) => p.policy ?? "").join("\n");
-    for (const doco of ["Product decisions", "Design decisions", "Architectural decisions"]) {
-      expect(prose).toContain(doco);
+    for (const collection of ["Product decisions", "Design decisions", "Architectural decisions"]) {
+      expect(prose).toContain(collection);
     }
   });
 });

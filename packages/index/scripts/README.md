@@ -34,7 +34,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 |---|---|---|
 | `--provider a,b,c` | `fake` | One or more of `fake`, `openai`, `voyage`, `cohere`, `auto`. `auto` uses `getDefaultEmbeddingProvider()`. |
 | `--rerank name` | `none` | `none`, `cohere`, `voyage`, or `auto` (`getDefaultReranker()`). Adds a `+rerank` row per provider. |
-| `--fixture path` | `eval-fixtures/doco-retrieval.json` | Labeled query/document set. |
+| `--fixture path` | `eval-fixtures/collection-retrieval.json` | Labeled query/document set. |
 | `--ks 1,5,10` | `1,5,10` | Recall cutoffs; nDCG/`+rerank` use the largest. |
 | `--rerank-depth N` | `20` | Top-K passed to the reranker. |
 | `--verbose` | off | Print the top-3 retrieved ids per query. |
@@ -52,7 +52,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 `{ "id": gain }` for graded nDCG (e.g. `2` = perfect, `1` = related).
 
 The committed fixture is built from this repository's real Doco-domain content
-(ADRs, the auth flow, workflow rules, the search architecture). Once the Doco
+(ADRs, the auth flow, workflow rules, the search architecture). Once the collection
 handle in `.doco/connections.md` resolves, export real nodes into the same
 shape (id, type, prose) and point `--fixture` at them to evaluate on live
 content.

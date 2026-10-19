@@ -36,7 +36,7 @@ describe("deterministic-checks registry — single source of truth", () => {
 
 describe("unknown sub_kind — total, never-throwing lookups", () => {
   // Stored policy `data` is jsonb that predates the current registry, was
-  // imported (e.g. a BPMN Doco), or was hand-edited — so a policy's
+  // imported (e.g. a BPMN collection), or was hand-edited — so a policy's
   // `sub_kind` can be a value the registry no longer knows. The lookups must
   // be total: indexing `DETERMINISTIC_CHECKS[unknown]` blindly threw
   // `undefined is not an object (evaluating 'w[e].fields')`, which crashed the

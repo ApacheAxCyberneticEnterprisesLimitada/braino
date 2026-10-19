@@ -2,8 +2,8 @@
 // segment from an entity id (e.g. "decision_01H…" -> "decision",
 // "reference_01H…" -> "reference").
 //
-// Deliberately a zero-import leaf module: loadDoco, build, and edges all need
-// this, and a leaf with no imports cannot participate in the loadDoco<->edges
+// Deliberately a zero-import leaf module: loadCollection, build, and edges all need
+// this, and a leaf with no imports cannot participate in the loadCollection<->edges
 // import cycle.
 //
 // NOT parseEntityId() from @doco/shared on purpose: parseEntityId maps the

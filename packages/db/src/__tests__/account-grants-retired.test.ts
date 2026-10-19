@@ -3,7 +3,7 @@
 // (the actor/mint-snapshot paths). A pre-existing prod table still holds live
 // grants, so re-applying schema.sql must convert each one into the concrete
 // memberships it currently confers (a snapshot of the grantor's owned
-// workspaces + personally-owned docos) so no one loses access, then drop the
+// workspaces + personally-owned collections) so no one loses access, then drop the
 // table. This test reproduces that legacy shape and asserts the heal.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -35,14 +35,14 @@ async function tableExists(table: string): Promise<boolean> {
 describe("account_grants retirement migration", () => {
   beforeEach(async () => {
     db = await freshDb();
-    // Grantor A owns workspace W and a personal doco D; B is the grantee.
+    // Grantor A owns workspace W and a personal collection D; B is the grantee.
     await db.exec(`
       INSERT INTO users (id, data) VALUES ('user_a', '{}'), ('user_b', '{}');
       INSERT INTO workspaces (id, handle, name) VALUES ('workspace_w', 'w', 'W');
       INSERT INTO workspace_users (workspace_id, user_id, role)
         VALUES ('workspace_w', 'user_a', 'owner');
-      INSERT INTO docos (id, handle, owner_id, workspace_id, data)
-        VALUES ('doco_d', 'd', 'user_a', 'workspace_w', '{}'::jsonb);
+      INSERT INTO collections (id, handle, owner_id, workspace_id, data)
+        VALUES ('collection_d', 'd', 'user_a', 'workspace_w', '{}'::jsonb);
     `);
   });
 
@@ -64,7 +64,7 @@ describe("account_grants retirement migration", () => {
     expect(wu.rows[0]).toMatchObject({ role: "writer", write_types: ["decision"] });
 
     const du = await db.query(
-      `SELECT role, write_types FROM doco_users WHERE doco_id = 'doco_d' AND user_id = 'user_b'`,
+      `SELECT role, write_types FROM collection_users WHERE collection_id = 'collection_d' AND user_id = 'user_b'`,
     );
     expect(du.rows[0]).toMatchObject({ role: "writer", write_types: ["decision"] });
   });

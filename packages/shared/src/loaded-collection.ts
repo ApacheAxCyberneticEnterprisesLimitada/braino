@@ -1,8 +1,8 @@
-// Types for a loaded Doco — produced by the Postgres loader
-// (@doco/index/loadDoco).
+// Types for a loaded collection — produced by the Postgres loader
+// (@doco/index/loadCollection).
 
 import type { EntityId, EntityType } from "./branded.js";
-import type { Doco, Entity } from "./entities.js";
+import type { Collection, Entity } from "./entities.js";
 
 export type LoadedEntitySourceFormat = "postgres";
 
@@ -28,8 +28,8 @@ export interface LoadFailure {
   reason: string;
 }
 
-export interface LoadedDoco {
-  doco: Doco;
+export interface LoadedCollection {
+  collection: Collection;
   entities: Map<EntityId, LoadedEntity>;
   byType: Map<EntityType, LoadedEntity[]>;
   failures: LoadFailure[];

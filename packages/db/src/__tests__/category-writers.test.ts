@@ -9,7 +9,7 @@ import { freshDb } from "./fresh-db.js";
 //   - policies → `upsertPolicy(PolicyWrite)` — keeps its real `policies.data` jsonb
 // These pin that both land their rows correctly through a real Postgres.
 
-const DOCO = "doco_cw00000000000000000000000000";
+const COLLECTION = "collection_cw00000000000000000000000000";
 const ORG = "workspace_cw0000000000000000000";
 
 let db: PGlite;
@@ -22,8 +22,8 @@ beforeAll(async () => {
     "WS CW",
   ]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
-    [DOCO, "doco-cw", ORG, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    [COLLECTION, "collection-cw", ORG, ORG],
   );
 });
 
@@ -33,7 +33,7 @@ describe("per-category writers (no EntityRecord god-type)", () => {
     await upsertNode(
       nodeRowFromFields("reference", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "reference",
         prose: "ACME PR #1",
         locator: "https://example.com/pr/1", // promoted column
@@ -58,14 +58,14 @@ describe("per-category writers (no EntityRecord god-type)", () => {
     const id = "policy_cw00000000000000000000000000";
     const data = {
       id,
-      doco_id: DOCO,
+      collection_id: COLLECTION,
       kind: "deterministic",
       predicate: { sub_kind: "requires_edge", edge_type: "supports" },
       on_violation: "block",
       lifecycle: "active",
     };
     await upsertPolicy(
-      { id, doco_id: DOCO, lifecycle: "active", data, updated_by: "user_cw" },
+      { id, collection_id: COLLECTION, lifecycle: "active", data, updated_by: "user_cw" },
       db as never,
     );
     const r = await db.query<{

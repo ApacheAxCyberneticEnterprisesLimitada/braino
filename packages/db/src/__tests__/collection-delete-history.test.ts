@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";
 
 const ORG = "workspace_test000000000000000";
-const DOCO = "doco_test0000000000000000000000";
-const DOCO_TWO = "doco_test200000000000000000000";
+const COLLECTION = "collection_test0000000000000000000000";
+const COLLECTION_TWO = "collection_test200000000000000000000";
 const NODE = "decision_test0000000000000000000";
 const NODE_TWO = "decision_test200000000000000000";
 const EDGE = "edge_test000000000000000000000";
@@ -19,22 +19,22 @@ async function seedWorkspace(): Promise<void> {
   );
 }
 
-async function seedDocoWithHistory(
-  docoId = DOCO,
-  handle = "doco-test",
+async function seedCollectionWithHistory(
+  collectionId = COLLECTION,
+  handle = "collection-test",
   nodeId = NODE,
   edgeId = EDGE,
 ): Promise<void> {
   await seedWorkspace();
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}')",
-    [docoId, handle, ORG, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}')",
+    [collectionId, handle, ORG, ORG],
   );
   const changeset = await db.query<{ tx_id: string }>(
-    `INSERT INTO changesets (doco_id, actor, source, reason, metadata)
+    `INSERT INTO changesets (collection_id, actor, source, reason, metadata)
      VALUES ($1, NULL, 'api', 'seed history', '{}'::jsonb)
      RETURNING tx_id`,
-    [docoId],
+    [collectionId],
   );
   const txId = changeset.rows[0].tx_id;
   await db.query(
@@ -51,10 +51,10 @@ async function seedDocoWithHistory(
   );
 }
 
-describe("deleting docos with append-only history", () => {
+describe("deleting collections with append-only history", () => {
   beforeEach(async () => {
     db = await freshDb();
-    await seedDocoWithHistory();
+    await seedCollectionWithHistory();
   });
 
   it("keeps direct history deletion blocked", async () => {
@@ -63,19 +63,19 @@ describe("deleting docos with append-only history", () => {
     ).rejects.toThrow(/history append-only/i);
   });
 
-  it("allows a parent doco delete to clean up its history rows", async () => {
-    await db.query("DELETE FROM docos WHERE id = $1", [DOCO]);
+  it("allows a parent collection delete to clean up its history rows", async () => {
+    await db.query("DELETE FROM collections WHERE id = $1", [COLLECTION]);
 
-    for (const table of ["docos", "changesets", "node_versions", "edge_versions"]) {
+    for (const table of ["collections", "changesets", "node_versions", "edge_versions"]) {
       const { rows } = await db.query<{ count: string }>(`SELECT COUNT(*)::text FROM ${table}`);
       expect(rows[0].count, table).toBe("0");
     }
   });
 
   it("does not leave manual history deletes open in the same transaction", async () => {
-    await seedDocoWithHistory(DOCO_TWO, "doco-test-two", NODE_TWO, EDGE_TWO);
+    await seedCollectionWithHistory(COLLECTION_TWO, "collection-test-two", NODE_TWO, EDGE_TWO);
     await db.query("BEGIN");
-    await db.query("DELETE FROM docos WHERE id = $1", [DOCO]);
+    await db.query("DELETE FROM collections WHERE id = $1", [COLLECTION]);
 
     await expect(
       db.query("DELETE FROM node_versions WHERE entity_id = $1", [NODE_TWO]),

@@ -1,11 +1,11 @@
 // Per-type write access control (decision_per_type_write_grants).
 //
 // The access model is "grant up from reader": every collaborator (human
-// or agent) reads the whole Doco, and WRITE is granted per type. A grant
+// or agent) reads the whole collection, and WRITE is granted per type. A grant
 // is a set of writable-type tokens stored on the membership row
-// (doco_users / workspace_users) or the OAuth token's granted scope.
+// (collection_users / workspace_users) or the OAuth token's granted scope.
 //
-//   - role "owner"  → administers the Doco; writes every type implicitly.
+//   - role "owner"  → administers the collection; writes every type implicitly.
 //   - role "reader" → reads everything; writes nothing unless granted.
 //   - the wildcard token "*" in a write-type set → writes every type
 //     (this is how a pre-per-type "writer" is represented after backfill).
@@ -71,7 +71,7 @@ export function normalizeWriteTypes(raw: unknown): string[] {
 
 /**
  * The effective-write predicate. `role` is the membership role on the
- * Doco; `writeTypes` is the per-type grant set from the membership row
+ * Collection; `writeTypes` is the per-type grant set from the membership row
  * (already normalized or raw). Owners write everything; otherwise the
  * type must be covered by the wildcard or named explicitly.
  */

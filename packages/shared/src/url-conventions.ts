@@ -1,18 +1,18 @@
 /**
  * URL conventions and reserved ids — single source of truth.
  *
- * Doco URLs are `/<doco-handle>/...`. The handle is requested at
+ * Collection URLs are `/<collection-handle>/...`. The handle is requested at
  * creation time; it lives in the same flat namespace as the top-level
  * host routes, so the reserved-id set below prevents collisions.
  *
- * Entity URLs are `/<doco-handle>/<type>/<id>` where `<id>` is the
+ * Entity URLs are `/<collection-handle>/<type>/<id>` where `<id>` is the
  * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`).
  */
 
 import type { EntityType } from "./branded.js";
 
 /**
- * Top-level path segments that exist as host routes. A doco's
+ * Top-level path segments that exist as host routes. A collection's
  * requested handle is rejected if it matches one of these.
  */
 export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
@@ -24,9 +24,9 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "sign-in",
   "sign-out",
   "sign-up",
-  "new-doco",
+  "new-collection",
   "new",
-  "docos",
+  "collections",
   "workspaces",
   "admin",
   "settings",
@@ -59,48 +59,48 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
 export type { EntityType };
 
 export interface EntityUrlInput {
-  docoHandle: string;
+  collectionHandle: string;
   /** Entity type discriminator string. */
   nodeType: string;
   /** Entity ULID id (`<type>_<ULID>`). */
   id: string;
 }
 
-function docoPrefix(input: { docoHandle: string }): string {
-  return `/${input.docoHandle}`;
+function collectionPrefix(input: { collectionHandle: string }): string {
+  return `/${input.collectionHandle}`;
 }
 
 /** Canonical URL for an entity — short form, no `/e/`. */
 export function entityUrl(input: EntityUrlInput): string {
-  const prefix = docoPrefix(input);
+  const prefix = collectionPrefix(input);
   return `${prefix}/${input.nodeType}/${input.id}`;
 }
 
-export interface DocoUrlInput {
-  docoHandle: string;
+export interface CollectionUrlInput {
+  collectionHandle: string;
 }
 
-export function docoUrl(input: DocoUrlInput): string {
-  return docoPrefix(input);
+export function collectionUrl(input: CollectionUrlInput): string {
+  return collectionPrefix(input);
 }
 
 /**
- * Validate a requested Doco handle. Must be globally unique once
+ * Validate a requested collection handle. Must be globally unique once
  * stored; this validator only checks shape — collision handling is
  * the create-flow's job (auto-suffix on conflict).
  */
-export function validateRequestedDocoHandle(handle: string): string | null {
+export function validateRequestedCollectionHandle(handle: string): string | null {
   if (!/^[a-z0-9][a-z0-9_-]*$/.test(handle)) {
-    return `Invalid Doco handle "${handle}" — expected a URL-safe handle ([a-z0-9][a-z0-9_-]*).`;
+    return `Invalid collection handle "${handle}" — expected a URL-safe handle ([a-z0-9][a-z0-9_-]*).`;
   }
   if (handle.length > 64) {
-    return `Doco handle "${handle}" is too long (max 64 chars).`;
+    return `Collection handle "${handle}" is too long (max 64 chars).`;
   }
   if (handle.includes("/")) {
-    return `Doco handle "${handle}" must not contain '/'.`;
+    return `Collection handle "${handle}" must not contain '/'.`;
   }
   if (HOST_RESERVED_SLUGS.has(handle)) {
-    return `Doco handle "${handle}" is reserved by Doco's URL routing.`;
+    return `Collection handle "${handle}" is reserved by collection's URL routing.`;
   }
   return null;
 }

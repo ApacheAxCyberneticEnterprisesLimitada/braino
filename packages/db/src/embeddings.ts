@@ -1,6 +1,6 @@
 // pgvector-backed embedding storage: one row per chunk of an entity's text,
 // for graph entities and mirror rows alike (schema.sql, `embeddings`, one
-// partition per Doco). Each chunk is gated by its own content hash, so an edit
+// partition per collection). Each chunk is gated by its own content hash, so an edit
 // to one paragraph re-embeds one chunk, and ranking is one SQL statement: the
 // nearest chunk of each entity to the query. Callers pass the client, so the
 // same code runs inside a request, a cron tick, or a test's in-process
@@ -31,7 +31,7 @@ export interface EmbeddingProviderLike {
 export interface EmbeddingInput {
   source: EmbeddingSource;
   entity_id: string;
-  doco_id: string;
+  collection_id: string;
   /** The texts to embed, in order. Blank ones are dropped; an entity left
    *  with none loses its rows. */
   chunks: string[];
@@ -45,7 +45,7 @@ export interface EmbeddingsReport {
 }
 
 export interface UpsertEmbeddingsOptions {
-  /** Delete the rows of the inputs' sources, in the inputs' Docos, for
+  /** Delete the rows of the inputs' sources, in the inputs' Collections, for
    *  entities not in the input set: a full reindex's stale sweep. */
   pruneStale?: boolean;
 }
@@ -58,7 +58,7 @@ export interface SemanticQuery {
 }
 
 export interface EmbeddingHit {
-  doco_id: string;
+  collection_id: string;
   entity_id: string;
   /** The entity's nearest chunk: what to show as the snippet. */
   chunk_text: string;
@@ -93,19 +93,19 @@ export async function upsertEmbeddings(
     ...input,
     chunks: input.chunks.map((chunk) => chunk.trim()).filter(Boolean),
   }));
-  const docoIds = [...new Set(entities.map((e) => e.doco_id))];
+  const collectionIds = [...new Set(entities.map((e) => e.collection_id))];
   const entityIds = entities.map((e) => e.entity_id);
 
   let pruned = 0;
-  if (opts.pruneStale && docoIds.length > 0) {
+  if (opts.pruneStale && collectionIds.length > 0) {
     const sources = [...new Set(entities.map((e) => e.source))];
     pruned = (
       await c.query<{ entity_id: string }>(
         `DELETE FROM embeddings
-          WHERE doco_id = ANY($1::text[]) AND source = ANY($2::text[])
+          WHERE collection_id = ANY($1::text[]) AND source = ANY($2::text[])
             AND entity_id <> ALL($3::text[])
           RETURNING entity_id`,
-        [docoIds, sources, entityIds],
+        [collectionIds, sources, entityIds],
       )
     ).rows.length;
   }
@@ -114,26 +114,28 @@ export async function upsertEmbeddings(
   // Rows past each entity's chunk count go: a shorter text, or an emptied one.
   await c.query(
     `DELETE FROM embeddings e
-      USING unnest($1::text[], $2::text[], $3::int[]) AS t(doco_id, entity_id, keep)
-      WHERE e.doco_id = t.doco_id AND e.entity_id = t.entity_id AND e.chunk_index >= t.keep`,
-    [entities.map((e) => e.doco_id), entityIds, entities.map((e) => e.chunks.length)],
+      USING unnest($1::text[], $2::text[], $3::int[]) AS t(collection_id, entity_id, keep)
+      WHERE e.collection_id = t.collection_id AND e.entity_id = t.entity_id AND e.chunk_index >= t.keep`,
+    [entities.map((e) => e.collection_id), entityIds, entities.map((e) => e.chunks.length)],
   );
 
   const existing = (
     await c.query<{
-      doco_id: string;
+      collection_id: string;
       entity_id: string;
       chunk_index: number;
       model_id: string;
       content_hash: string;
     }>(
-      `SELECT doco_id, entity_id, chunk_index, model_id, content_hash
+      `SELECT collection_id, entity_id, chunk_index, model_id, content_hash
          FROM embeddings
-        WHERE doco_id = ANY($1::text[]) AND entity_id = ANY($2::text[])`,
-      [docoIds, entityIds],
+        WHERE collection_id = ANY($1::text[]) AND entity_id = ANY($2::text[])`,
+      [collectionIds, entityIds],
     )
   ).rows;
-  const have = new Map(existing.map((r) => [`${r.doco_id}\n${r.entity_id}\n${r.chunk_index}`, r]));
+  const have = new Map(
+    existing.map((r) => [`${r.collection_id}\n${r.entity_id}\n${r.chunk_index}`, r]),
+  );
 
   // node:crypto is imported lazily so the @doco/db barrel stays out of
   // browser bundles.
@@ -149,7 +151,7 @@ export async function upsertEmbeddings(
     for (let index = 0; index < entity.chunks.length; index++) {
       const text = entity.chunks[index];
       const hash = createHash("sha1").update(text).digest("hex");
-      const prev = have.get(`${entity.doco_id}\n${entity.entity_id}\n${index}`);
+      const prev = have.get(`${entity.collection_id}\n${entity.entity_id}\n${index}`);
       if (prev && prev.model_id === modelId && prev.content_hash === hash) {
         skipped++;
         continue;
@@ -174,12 +176,12 @@ export async function upsertEmbeddings(
     }
     await c.query(
       `INSERT INTO embeddings
-         (doco_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       SELECT r.doco_id, r.source, r.entity_id, r.chunk_index, $1, r.content_hash, r.chunk_text,
+         (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
+       SELECT r.collection_id, r.source, r.entity_id, r.chunk_index, $1, r.content_hash, r.chunk_text,
               r.embedding::vector
          FROM unnest($2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::text[], $8::text[])
-           AS r(doco_id, source, entity_id, chunk_index, content_hash, chunk_text, embedding)
-       ON CONFLICT (doco_id, entity_id, chunk_index) DO UPDATE SET
+           AS r(collection_id, source, entity_id, chunk_index, content_hash, chunk_text, embedding)
+       ON CONFLICT (collection_id, entity_id, chunk_index) DO UPDATE SET
          source = EXCLUDED.source,
          model_id = EXCLUDED.model_id,
          content_hash = EXCLUDED.content_hash,
@@ -188,7 +190,7 @@ export async function upsertEmbeddings(
          updated_at = now()`,
       [
         modelId,
-        batch.map((p) => p.entity.doco_id),
+        batch.map((p) => p.entity.collection_id),
         batch.map((p) => p.entity.source),
         batch.map((p) => p.entity.entity_id),
         batch.map((p) => p.index),
@@ -202,11 +204,11 @@ export async function upsertEmbeddings(
   return { computed, skipped, pruned, modelId };
 }
 
-/** Delete a source's rows in a Doco: all of them, or the named entities'.
+/** Delete a source's rows in a collection: all of them, or the named entities'.
  *  Returns how many went. */
 export async function deleteEmbeddings(
   c: QueryClient,
-  docoId: string,
+  collectionId: string,
   source: EmbeddingSource,
   entityIds?: string[],
 ): Promise<number> {
@@ -214,10 +216,10 @@ export async function deleteEmbeddings(
   const rows = (
     await c.query<{ entity_id: string }>(
       `DELETE FROM embeddings
-        WHERE doco_id = $1 AND source = $2
+        WHERE collection_id = $1 AND source = $2
           AND ($3::text[] IS NULL OR entity_id = ANY($3::text[]))
         RETURNING entity_id`,
-      [docoId, source, entityIds ?? null],
+      [collectionId, source, entityIds ?? null],
     )
   ).rows;
   return rows.length;
@@ -225,15 +227,15 @@ export async function deleteEmbeddings(
 
 /**
  * The entities nearest the query: each entity's best chunk, best first,
- * among the Docos asked, for one source and the query's model (vectors from
- * another model are not comparable). It walks the Docos' indexes and rescores
+ * among the collections asked, for one source and the query's model (vectors from
+ * another model are not comparable). It walks the collections' indexes and rescores
  * on the whole vector (schema.sql, embeddings_nearest). `entityIds` narrows to
  * a candidate set, which is scored exactly.
  */
 export async function rankEmbeddings(
   c: QueryClient,
   args: {
-    docoIds: string[];
+    collectionIds: string[];
     source: EmbeddingSource;
     modelId: string;
     queryEmbedding: ArrayLike<number>;
@@ -241,34 +243,34 @@ export async function rankEmbeddings(
     entityIds?: string[] | null;
   },
 ): Promise<EmbeddingHit[]> {
-  if (args.docoIds.length === 0 || args.limit <= 0) return [];
+  if (args.collectionIds.length === 0 || args.limit <= 0) return [];
   if (args.entityIds && args.entityIds.length === 0) return [];
   const params = [
     vectorLiteral(args.queryEmbedding),
-    args.docoIds,
+    args.collectionIds,
     args.source,
     args.modelId,
     args.limit,
   ];
   const rows = (
     await c.query<{
-      doco_id: string;
+      collection_id: string;
       entity_id: string;
       chunk_text: string;
       score: number | string;
     }>(
       args.entityIds
-        ? `SELECT doco_id, entity_id, chunk_text, score FROM (
-             SELECT DISTINCT ON (doco_id, entity_id)
-                    doco_id, entity_id, chunk_text, 1 - (embedding <=> $1::vector) AS score
+        ? `SELECT collection_id, entity_id, chunk_text, score FROM (
+             SELECT DISTINCT ON (collection_id, entity_id)
+                    collection_id, entity_id, chunk_text, 1 - (embedding <=> $1::vector) AS score
                FROM embeddings
-              WHERE doco_id = ANY($2::text[]) AND source = $3 AND model_id = $4
+              WHERE collection_id = ANY($2::text[]) AND source = $3 AND model_id = $4
                 AND entity_id = ANY($6::text[])
-              ORDER BY doco_id, entity_id, embedding <=> $1::vector
+              ORDER BY collection_id, entity_id, embedding <=> $1::vector
            ) best
-           ORDER BY score DESC, doco_id, entity_id
+           ORDER BY score DESC, collection_id, entity_id
            LIMIT $5`
-        : "SELECT doco_id, entity_id, chunk_text, score FROM embeddings_nearest($1::vector, $2::text[], $3, $4, $5)",
+        : "SELECT collection_id, entity_id, chunk_text, score FROM embeddings_nearest($1::vector, $2::text[], $3, $4, $5)",
       args.entityIds ? [...params, args.entityIds] : params,
     )
   ).rows;

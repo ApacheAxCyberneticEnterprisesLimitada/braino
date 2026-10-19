@@ -21,7 +21,7 @@
 // a deterministic bag-of-words hash — no network — so the harness (and the
 // metrics it reports) runs anywhere, including CI.
 //
-// Fixture shape (see scripts/eval-fixtures/doco-retrieval.json):
+// Fixture shape (see scripts/eval-fixtures/collection-retrieval.json):
 //   { "documents": [ { "id": "...", "type": "...", "text": "..." } ],
 //     "queries":   [ { "query": "...", "relevant": ["id", ...] } ] }
 // `relevant` may also be an object of { id: gain } for graded nDCG.
@@ -61,7 +61,7 @@ function parseArgs(argv) {
   const opts = {
     providers: ["fake"],
     rerank: "none",
-    fixture: join(HERE, "eval-fixtures", "doco-retrieval.json"),
+    fixture: join(HERE, "eval-fixtures", "collection-retrieval.json"),
     ks: [1, 5, 10],
     rerankDepth: 20,
     verbose: false,

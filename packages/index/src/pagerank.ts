@@ -6,7 +6,7 @@
  * Used by the entity-detail page's graph view (ADR-076) to pick which
  * neighbors to surface around the focal node.
  *
- * For the meta-Doco's ~130-entity scale, this runs in well under
+ * For meta-doco's ~130-entity scale, this runs in well under
  * 100ms with default iters. Iterates until rank deltas drop below a
  * tolerance; capped at iters.
  */

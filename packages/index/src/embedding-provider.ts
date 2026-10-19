@@ -6,7 +6,7 @@
  * getDefaultEmbeddingProvider.
  *
  * Env-var convention matches Speco: bare provider keys (`OPENAI_API_KEY`,
- * `VOYAGE_API_KEY`, `COHERE_API_KEY`). No Doco-prefixed variant. To pick a
+ * `VOYAGE_API_KEY`, `COHERE_API_KEY`). No collection-prefixed variant. To pick a
  * provider explicitly when more than one key is present, set
  * `DOCO_EMBEDDING_PROVIDER` to `openai` | `voyage` | `cohere` | `none`.
  *
@@ -236,7 +236,7 @@ export function getDefaultEmbeddingProvider(): EmbeddingProvider {
         break;
       default:
         console.error(
-          `[doco/embedding-provider] Unknown DOCO_EMBEDDING_PROVIDER="${selector}"; auto-detecting by key.`,
+          `[collection/embedding-provider] Unknown DOCO_EMBEDDING_PROVIDER="${selector}"; auto-detecting by key.`,
         );
     }
     if (process.env.OPENAI_API_KEY) return new OpenAIEmbeddingProvider(process.env.OPENAI_API_KEY);
@@ -248,7 +248,7 @@ export function getDefaultEmbeddingProvider(): EmbeddingProvider {
     // surface the existing "vector search unavailable" path instead of a
     // cryptic ByteString crash on every search. The thrown message names the
     // codepoint and index; log it so the admin can fix the env.
-    console.error(`[doco/embedding-provider] ${(e as Error).message}`);
+    console.error(`[collection/embedding-provider] ${(e as Error).message}`);
     return new NoopEmbeddingProvider();
   }
 }
@@ -264,7 +264,7 @@ function providerForKey(
   const key = process.env[envName];
   if (!key) {
     console.error(
-      `[doco/embedding-provider] DOCO_EMBEDDING_PROVIDER selects ${envName} but it is not set; embeddings disabled.`,
+      `[collection/embedding-provider] DOCO_EMBEDDING_PROVIDER selects ${envName} but it is not set; embeddings disabled.`,
     );
     return new NoopEmbeddingProvider();
   }

@@ -27,7 +27,7 @@ export type CommitSource = "api" | "mcp" | "ui" | "slack" | "import" | "reset" |
  */
 export interface Commit {
   tx_id: number;
-  doco_id: EntityId<"doco">;
+  collection_id: EntityId<"collection">;
   actor: EntityId<"user"> | null;
   source: CommitSource;
   /** The rich "why" — supplied by the writer (agent / UI / API). */

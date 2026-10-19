@@ -7,7 +7,10 @@ import {
   evaluatePolicies,
 } from "@doco/shared";
 import { describe, expect, it } from "vitest";
-import { findDocoTemplateByName, templatePolicyToPolicyRow } from "../doco-templates.js";
+import {
+  findCollectionTemplateByName,
+  templatePolicyToPolicyRow,
+} from "../collection-templates.js";
 
 interface Scenario {
   q: string; // the decision question
@@ -18,7 +21,7 @@ interface Scenario {
 }
 
 function loaded(handle: string): LoadedPolicy[] {
-  const t = findDocoTemplateByName(handle);
+  const t = findCollectionTemplateByName(handle);
   if (!t) throw new Error(`template ${handle} missing`);
   return t.policies.map((p, i) => {
     const row = templatePolicyToPolicyRow(p);

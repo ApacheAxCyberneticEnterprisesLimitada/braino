@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { deleteEmbeddings, rankEmbeddings, upsertEmbeddings } from "../embeddings.js";
 import { freshDb } from "./fresh-db.js";
 
-const DOCO = "doco_test0000000000000000000000";
+const COLLECTION = "collection_test0000000000000000000000";
 const ORG = "workspace_test000000000000000";
 
 /** A fake provider: a text's vector points along the axis of the first
@@ -36,7 +36,7 @@ const client = () => db as unknown as Client;
 const input = (entity_id: string, chunks: string[], source: "node" | "notion" = "node") => ({
   source,
   entity_id,
-  doco_id: DOCO,
+  collection_id: COLLECTION,
   chunks,
 });
 
@@ -59,8 +59,8 @@ beforeEach(async () => {
   db = await freshDb();
   await db.query("INSERT INTO workspaces (id, handle, name) VALUES ($1, 'w', 'W')", [ORG]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1, 'd', $2, $2, '{}')",
-    [DOCO, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1, 'd', $2, $2, '{}')",
+    [COLLECTION, ORG],
   );
 });
 
@@ -147,7 +147,7 @@ describe("rankEmbeddings", () => {
 
   it("returns each entity's best chunk, best first, for one source and the query's model", async () => {
     const hits = await rankEmbeddings(client(), {
-      docoIds: [DOCO],
+      collectionIds: [COLLECTION],
       source: "node",
       modelId: "test:model",
       queryEmbedding: Float32Array.from([0.9, 0.1, 0]),
@@ -163,7 +163,7 @@ describe("rankEmbeddings", () => {
 
   it("narrows to the candidate entities, and returns nothing for an empty candidate set", async () => {
     const base = {
-      docoIds: [DOCO],
+      collectionIds: [COLLECTION],
       source: "node" as const,
       modelId: "test:model",
       queryEmbedding: [1, 0, 0],
@@ -172,7 +172,7 @@ describe("rankEmbeddings", () => {
     const only = await rankEmbeddings(client(), { ...base, entityIds: ["decision_2"] });
     expect(only.map((h) => h.entity_id)).toEqual(["decision_2"]);
     expect(await rankEmbeddings(client(), { ...base, entityIds: [] })).toEqual([]);
-    expect(await rankEmbeddings(client(), { ...base, docoIds: [] })).toEqual([]);
+    expect(await rankEmbeddings(client(), { ...base, collectionIds: [] })).toEqual([]);
   });
 });
 
@@ -187,10 +187,10 @@ describe("deleteEmbeddings", () => {
       ],
       fakeProvider(),
     );
-    expect(await deleteEmbeddings(client(), DOCO, "node", ["decision_1"])).toBe(1);
-    expect(await deleteEmbeddings(client(), DOCO, "node", [])).toBe(0);
+    expect(await deleteEmbeddings(client(), COLLECTION, "node", ["decision_1"])).toBe(1);
+    expect(await deleteEmbeddings(client(), COLLECTION, "node", [])).toBe(0);
     expect((await rows()).map((r) => r.entity_id)).toEqual(["decision_2", "page_1"]);
-    expect(await deleteEmbeddings(client(), DOCO, "notion")).toBe(1);
+    expect(await deleteEmbeddings(client(), COLLECTION, "notion")).toBe(1);
     expect((await rows()).map((r) => r.entity_id)).toEqual(["decision_2"]);
   });
 });

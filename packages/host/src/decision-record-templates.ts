@@ -32,7 +32,7 @@
  * subsumes them rather than carrying a separate data log.
  */
 import type { Lifecycle } from "@doco/shared";
-import type { DocoTemplate, TemplatePolicy } from "./doco-templates.js";
+import type { CollectionTemplate, TemplatePolicy } from "./collection-templates.js";
 
 /**
  * A decision record fires its completeness gates on the two *committed* stages —
@@ -45,7 +45,7 @@ import type { DocoTemplate, TemplatePolicy } from "./doco-templates.js";
 const DECISION_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
 /**
- * The policies every decision-record Doco shares, regardless of domain. The
+ * The policies every decision-record collection shares, regardless of domain. The
  * domain templates append their fit gate and domain guidance to this list.
  */
 function decisionRecordCore(): TemplatePolicy[] {
@@ -56,9 +56,9 @@ function decisionRecordCore(): TemplatePolicy[] {
       // that gives each one meaning: the Principals accountable for it, the
       // Rules that captured its drivers/criteria, the Evals that confirm it, and
       // the References that supply context. Flow nodes (Action/State) belong in a
-      // process Doco, not here.
+      // process collection, not here.
       policy:
-        "Only Decision, Principal, Rule, Eval, and Reference belong in a decision record. A Decision is the record itself (its question, the options considered, the chosen path, and the rationale). Principals are who decided and who is accountable; Rules capture the decision drivers and criteria; Evals confirm or validate a decision; References supply context and link out to the artifacts a decision concerns. Actions, States, and other flow nodes belong in a process Doco.",
+        "Only Decision, Principal, Rule, Eval, and Reference belong in a decision record. A Decision is the record itself (its question, the options considered, the chosen path, and the rationale). Principals are who decided and who is accountable; Rules capture the decision drivers and criteria; Evals confirm or validate a decision; References supply context and link out to the artifacts a decision concerns. Actions, States, and other flow nodes belong in a process collection.",
       predicate: {
         kind: "requires_node_type",
         node_types: ["decision", "principal", "rule", "eval", "reference"],
@@ -69,7 +69,7 @@ function decisionRecordCore(): TemplatePolicy[] {
       // decisions joined by attribution, drivers, evidence, supersession, and
       // see-also links — never sequence flow or pool membership.
       policy:
-        "Only these relationship edge types may be used in a decision record: `attributed_to` (a Decision → the Principal who decided or is accountable), `constrained_by` (a Decision → a Rule that drove it), `supports` (an Eval or Reference → the Decision it confirms or informs), `replaces` (a new Decision → the one it supersedes), `derived_from` (provenance from a prior decision or source), and `relates_to` (a see-also link between related decisions). Sequence flow (`flows_to`) and pool membership (`has_parent`) belong in a process Doco.",
+        "Only these relationship edge types may be used in a decision record: `attributed_to` (a Decision → the Principal who decided or is accountable), `constrained_by` (a Decision → a Rule that drove it), `supports` (an Eval or Reference → the Decision it confirms or informs), `replaces` (a new Decision → the one it supersedes), `derived_from` (provenance from a prior decision or source), and `relates_to` (a see-also link between related decisions). Sequence flow (`flows_to`) and pool membership (`has_parent`) belong in a process collection.",
       predicate: {
         kind: "requires_edge_type",
         edge_types: [
@@ -258,7 +258,7 @@ const FLAVORS: DecisionFlavor[] = [
 ];
 
 /** Build one domain template from the shared core plus its flavor. */
-function decisionRecordTemplate(flavor: DecisionFlavor): DocoTemplate {
+function decisionRecordTemplate(flavor: DecisionFlavor): CollectionTemplate {
   return {
     name: flavor.name,
     label: flavor.label,
@@ -291,6 +291,6 @@ function decisionRecordTemplate(flavor: DecisionFlavor): DocoTemplate {
 }
 
 /**
- * The three decision-record templates, spread into `DEFAULT_DOCO_TEMPLATES`.
+ * The three decision-record templates, spread into `DEFAULT_COLLECTION_TEMPLATES`.
  */
-export const DECISION_RECORD_TEMPLATES: DocoTemplate[] = FLAVORS.map(decisionRecordTemplate);
+export const DECISION_RECORD_TEMPLATES: CollectionTemplate[] = FLAVORS.map(decisionRecordTemplate);

@@ -23,23 +23,23 @@ function defaultConstitutionText(): string {
 describe("default workspace constitution text stays in sync", () => {
   const text = defaultConstitutionText();
 
-  it("schema.sql declares workspaces.constitution and not docos.constitution", () => {
+  it("schema.sql declares workspaces.constitution and not collections.constitution", () => {
     const workspaceBlock = schemaSql.match(
       /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?workspaces\s*\(([\s\S]*?)\);/i,
     )?.[1];
     expect(workspaceBlock, "workspaces CREATE TABLE not found in schema.sql").toBeTruthy();
     expect(workspaceBlock).toMatch(/\bconstitution\s+text\b/);
 
-    const docoBlock = schemaSql.match(
-      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?docos\s*\(([\s\S]*?)\);/i,
+    const collectionBlock = schemaSql.match(
+      /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?collections\s*\(([\s\S]*?)\);/i,
     )?.[1];
-    expect(docoBlock, "docos CREATE TABLE not found in schema.sql").toBeTruthy();
-    expect(docoBlock).not.toMatch(/\bconstitution\s+text\b/);
+    expect(collectionBlock, "collections CREATE TABLE not found in schema.sql").toBeTruthy();
+    expect(collectionBlock).not.toMatch(/\bconstitution\s+text\b/);
   });
 
   it("the default text carries the three intended themes", () => {
     expect(text).toMatch(/spec-driven/i);
-    expect(text).toMatch(/policies of every Doco/i);
+    expect(text).toMatch(/policies of every collection/i);
     expect(text).toMatch(/future collaborator/i);
   });
 

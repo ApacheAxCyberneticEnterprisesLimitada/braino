@@ -16,7 +16,7 @@ import type pg from "pg";
 export type CommitSource = "api" | "mcp" | "ui" | "slack" | "import" | "reset" | "system";
 
 export interface CommitInput {
-  docoId: string;
+  collectionId: string;
   actor?: string | null;
   source?: CommitSource;
   reason?: string | null;
@@ -26,11 +26,11 @@ export interface CommitInput {
 /** Open a commit (changeset) and return its monotonic tx_id. */
 export async function createChangeset(c: pg.PoolClient, input: CommitInput): Promise<number> {
   const { rows } = await c.query<{ tx_id: string }>(
-    `INSERT INTO changesets (doco_id, actor, source, reason, metadata)
+    `INSERT INTO changesets (collection_id, actor, source, reason, metadata)
      VALUES ($1, $2, $3, $4, $5)
      RETURNING tx_id`,
     [
-      input.docoId,
+      input.collectionId,
       input.actor ?? null,
       input.source ?? "api",
       input.reason ?? null,
@@ -183,7 +183,7 @@ export async function appendEdgeVersion(
 export async function recordEntityVersion(
   c: pg.PoolClient,
   input: {
-    docoId: string;
+    collectionId: string;
     entityType: string;
     entityId: string;
     payload: Record<string, unknown>;
@@ -200,7 +200,7 @@ export async function recordEntityVersion(
   const lifecycle = typeof input.payload.lifecycle === "string" ? input.payload.lifecycle : null;
   const op: Op = rows[0].n === 0 ? "create" : lifecycle === "retired" ? "retire" : "update";
   const txId = await createChangeset(c, {
-    docoId: input.docoId,
+    collectionId: input.collectionId,
     actor: input.actor ?? null,
     source: input.source ?? "api",
     reason: input.reason ?? null,
@@ -217,7 +217,7 @@ export async function recordEntityVersion(
 }
 
 export interface CreateEdgeInput {
-  docoId: string;
+  collectionId: string;
   edgeType: string;
   fromId: string;
   fromNodeType: string;
@@ -234,7 +234,7 @@ export interface CreateEdgeInput {
 
 export interface EdgeRow {
   id: EntityId<"edge">;
-  doco_id: string;
+  collection_id: string;
   edge_type: string;
   from_id: string;
   from_node_type: string;
@@ -303,13 +303,13 @@ export async function createEdge(
   }
   const { rows } = await c.query<EdgeRow>(
     `INSERT INTO edges
-       (id, doco_id, edge_type, from_id, from_node_type, to_id, to_node_type,
+       (id, collection_id, edge_type, from_id, from_node_type, to_id, to_node_type,
         label, condition, kind, lifecycle, origin, created_by, updated_by)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$13)
      RETURNING *`,
     [
       id,
-      input.docoId,
+      input.collectionId,
       input.edgeType,
       input.fromId,
       input.fromNodeType,
@@ -430,12 +430,12 @@ export async function retireEdge(
 export async function retireActiveEdgesForNode(
   c: pg.PoolClient,
   txId: number,
-  input: { docoId: string; nodeId: string; actor?: string | null },
+  input: { collectionId: string; nodeId: string; actor?: string | null },
 ): Promise<EdgeRow[]> {
   const { rows } = await c.query<{ id: string }>(
     `SELECT id FROM edges
-      WHERE doco_id = $1 AND lifecycle = 'active' AND (from_id = $2 OR to_id = $2)`,
-    [input.docoId, input.nodeId],
+      WHERE collection_id = $1 AND lifecycle = 'active' AND (from_id = $2 OR to_id = $2)`,
+    [input.collectionId, input.nodeId],
   );
   const retired: EdgeRow[] = [];
   for (const { id } of rows) {

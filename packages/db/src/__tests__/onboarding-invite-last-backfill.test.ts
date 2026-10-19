@@ -52,13 +52,13 @@ describe("ending the invite step for owners it read as done for", () => {
         ('workspace_quiet', 'user_eve', 'owner', '${BEFORE}');
       INSERT INTO workspace_onboarding (workspace_id, user_id, joined_as, started_at) VALUES
         ('workspace_acme', 'user_cy', 'invitee', '${BEFORE}');
-      INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES
-        ('doco_acme', 'acme-decisions', 'workspace_acme', 'workspace_acme', '{}'),
-        ('doco_quiet', 'quiet-decisions', 'workspace_quiet', 'workspace_quiet', '{}');
+      INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES
+        ('collection_acme', 'acme-decisions', 'workspace_acme', 'workspace_acme', '{}'),
+        ('collection_quiet', 'quiet-decisions', 'workspace_quiet', 'workspace_quiet', '{}');
       -- An agent wrote in acme before the step moved; quiet's only after.
-      INSERT INTO changesets (doco_id, actor, source, metadata, recorded_at) VALUES
-        ('doco_acme', 'user_bo', 'mcp', '{"surface": "mcp"}', '${BEFORE}'),
-        ('doco_quiet', 'user_eve', 'mcp', '{"surface": "mcp"}', '${AFTER}');
+      INSERT INTO changesets (collection_id, actor, source, metadata, recorded_at) VALUES
+        ('collection_acme', 'user_bo', 'mcp', '{"surface": "mcp"}', '${BEFORE}'),
+        ('collection_quiet', 'user_eve', 'mcp', '{"surface": "mcp"}', '${AFTER}');
     `);
   });
 
@@ -97,8 +97,8 @@ describe("ending the invite step for owners it read as done for", () => {
     await db.exec(`
       INSERT INTO workspace_users (workspace_id, user_id, role, joined_at)
         VALUES ('workspace_quiet', 'user_dee', 'owner', '${AFTER}');
-      INSERT INTO changesets (doco_id, actor, source, metadata, recorded_at)
-        VALUES ('doco_quiet', 'user_dee', 'mcp', '{"surface": "mcp"}', '${AFTER}');
+      INSERT INTO changesets (collection_id, actor, source, metadata, recorded_at)
+        VALUES ('collection_quiet', 'user_dee', 'mcp', '{"surface": "mcp"}', '${AFTER}');
     `);
     await db.exec(schemaSql);
     expect(await rows()).toEqual(first);

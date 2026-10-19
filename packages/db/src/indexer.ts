@@ -2,7 +2,7 @@
 // the indexer (@doco/index) builds and writes them straight to Postgres.
 //
 // Pure side-effecting writer: caller supplies the entities' FTS rows and
-// the doco_id; we wipe and rebuild the PG-side FTS rows for that Doco
+// the collection_id; we wipe and rebuild the PG-side FTS rows for that collection
 // atomically. Edges are first-class rows authored via commit() + edge CRUD
 // (see history.ts), never derived, wiped, or rebuilt here.
 //
@@ -38,10 +38,10 @@ export interface FtsRowInput {
 export interface RebuildOptions {
   /**
    * When set, scope the wipe to FTS rows for these entity ids only —
-   * leaving the rest of the Doco's derived data untouched. Use this for
-   * single-entity captures where rebuilding the whole Doco would be wasteful.
+   * leaving the rest of the collection's derived data untouched. Use this for
+   * single-entity captures where rebuilding the whole collection would be wasteful.
    *
-   * When unset (default), every FTS row for the Doco is wiped before re-insert.
+   * When unset (default), every FTS row for the collection is wiped before re-insert.
    */
   onlyEntityIds?: string[];
 }
@@ -50,8 +50,8 @@ export interface RebuildOptions {
  * Replace the FTS rows in Postgres. Runs in a single transaction —
  * readers see the old set or the new set, never a partial mix.
  */
-export async function rebuildDocoDerivedData(
-  docoId: string,
+export async function rebuildCollectionDerivedData(
+  collectionId: string,
   fts: FtsRowInput[],
   opts: RebuildOptions = {},
 ): Promise<{ ftsRows: number }> {
@@ -64,26 +64,26 @@ export async function rebuildDocoDerivedData(
     if (opts.onlyEntityIds && opts.onlyEntityIds.length > 0) {
       // Incremental wipe — FTS rows for these entity ids only.
       await c.query(
-        "DELETE FROM entity_fts_nodes WHERE doco_id = $1 AND entity_id = ANY($2::text[])",
-        [docoId, opts.onlyEntityIds],
+        "DELETE FROM entity_fts_nodes WHERE collection_id = $1 AND entity_id = ANY($2::text[])",
+        [collectionId, opts.onlyEntityIds],
       );
     } else {
-      await c.query("DELETE FROM entity_fts_nodes WHERE doco_id = $1", [docoId]);
+      await c.query("DELETE FROM entity_fts_nodes WHERE collection_id = $1", [collectionId]);
     }
 
     if (nodeFts.length > 0) {
       await c.query(
-        `INSERT INTO entity_fts_nodes (entity_id, doco_id, node_type, summary, body)
+        `INSERT INTO entity_fts_nodes (entity_id, collection_id, node_type, summary, body)
          SELECT u.entity_id, $1, u.node_type, u.summary, u.body
          FROM unnest($2::text[], $3::text[], $4::text[], $5::text[])
               AS u(entity_id, node_type, summary, body)
          ON CONFLICT (entity_id) DO UPDATE SET
-              doco_id     = EXCLUDED.doco_id,
+              collection_id     = EXCLUDED.collection_id,
               node_type = EXCLUDED.node_type,
               summary     = EXCLUDED.summary,
               body        = EXCLUDED.body`,
         [
-          docoId,
+          collectionId,
           nodeFts.map((r) => r.entity_id),
           nodeFts.map((r) => r.node_type),
           nodeFts.map((r) => r.summary),

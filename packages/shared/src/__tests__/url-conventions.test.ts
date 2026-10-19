@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { validateRequestedDocoHandle } from "../url-conventions.js";
+import { validateRequestedCollectionHandle } from "../url-conventions.js";
 
-describe("validateRequestedDocoHandle", () => {
+describe("validateRequestedCollectionHandle", () => {
   it.each(["terms", "sign-up", "agents"])("reserves %s, a top-level host route", (handle) => {
-    expect(validateRequestedDocoHandle(handle)).toMatch(/is reserved/);
+    expect(validateRequestedCollectionHandle(handle)).toMatch(/is reserved/);
   });
 
   it("accepts an ordinary handle", () => {
-    expect(validateRequestedDocoHandle("acme-decisions")).toBeNull();
+    expect(validateRequestedCollectionHandle("acme-decisions")).toBeNull();
   });
 });

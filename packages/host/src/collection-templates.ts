@@ -1,8 +1,8 @@
 /**
- * Default Doco templates (ADR-082; v7 reshape per
+ * Default collection templates (ADR-082; v7 reshape per
  * decision_01KRRR5BQ16ASY8HQEE0V499YG).
  *
- * The framework ships curated templates describing common Doco shapes
+ * The framework ships curated templates describing common collection shapes
  * such as business processes and synced GitHub pull requests. Template
  * names are plain handles.
  *
@@ -63,20 +63,20 @@ export interface TemplatePerspectiveAttachment {
    * Slug of a perspective in the `perspectives` table. The host
    * resolves the slug at template-application time, so a template
    * referencing a slug that no longer exists silently skips it
-   * rather than failing the whole Doco creation. Built-in `graph`
+   * rather than failing the whole collection creation. Built-in `graph`
    * and `list` may be referenced to make either built-in the default
    * without duplicating its tab.
    */
   slug: string;
   /**
-   * When true, this perspective becomes the new Doco's default tab,
+   * When true, this perspective becomes the new collection's default tab,
    * superseding the `graph` default. Only the first `isDefault: true`
    * in the list takes effect — additional defaults are ignored.
    */
   isDefault?: boolean;
 }
 
-export interface DocoTemplate {
+export interface CollectionTemplate {
   name: string;
   /** Short readable label for the picker UI. */
   label: string;
@@ -90,12 +90,12 @@ export interface DocoTemplate {
    * Optional perspectives to attach on Doco creation. The built-in
    * perspectives (graph, list) are always attached even
    * if this list is empty; entries here append after them. The
-   * process template ships `[{slug:"process"}]` so a Doco
+   * process template ships `[{slug:"process"}]` so a collection
    * created from that template arrives with the BPMN tab ready.
    */
   perspectives?: TemplatePerspectiveAttachment[];
   /**
-   * When set, captures into a Doco created from this template default
+   * When set, captures into a collection created from this template default
    * the new node's `lifecycle` to this value unless the author
    * overrides with an explicit flag. The process template
    * uses `"drafting"` so authors can sketch incomplete processes
@@ -218,12 +218,12 @@ const TEST_SCENARIO_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
  */
 const IDEA_COMMITTED_LIFECYCLES: Lifecycle[] = ["queued", "active"];
 
-export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
+export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
   {
     // Repeatable business processes modeled on BPMN swimlanes and
     // gateways. Sequence flow is explicit via first-class `flows_to`
     // edges; flow normally runs forward, but
-    // rework loops may route back through a gateway. Generic Doco
+    // rework loops may route back through a gateway. Generic collection
     // dependency / rationale edges remain associations and are not
     // treated as BPMN arrows.
     //
@@ -242,7 +242,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       "Document repeatable business processes — the flow of work through actors, gateways, and milestones to a business outcome. Inspired by BPMN swimlanes and gateways.",
     defaultNodeLifecycle: "drafting",
     // Ship the BPMN perspective pre-attached and as the default tab,
-    // so a freshly-created process Doco opens directly on
+    // so a freshly-created process collection opens directly on
     // the swim-lane view (where the template's authoring rules are
     // most naturally visible). Graph + list defaults are still
     // attached behind it.
@@ -277,12 +277,12 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         // Deterministic node-type allowlist. Logs (recorded executions)
-        // live in a sibling Doco and are surfaced here via Reference;
+        // live in a sibling collection and are surfaced here via Reference;
         // Ideas live in their own home until promoted. Policy records are
-        // Doco-scoped metadata and bypass template membership gates in the
+        // collection-scoped metadata and bypass template membership gates in the
         // authoring evaluator.
         policy:
-          "Only Action, Decision, State, Eval, Reference, Rule, and Principal belong here. A process is an Action with one or more flow nodes linked to it by `has_parent` (its members); there is no separate Intent node. Logs (recorded executions) live in a sibling Doco and are referenced from here; Ideas live in their own home until promoted.",
+          "Only Action, Decision, State, Eval, Reference, Rule, and Principal belong here. A process is an Action with one or more flow nodes linked to it by `has_parent` (its members); there is no separate Intent node. Logs (recorded executions) live in a sibling collection and are referenced from here; Ideas live in their own home until promoted.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["action", "decision", "state", "eval", "reference", "rule", "principal"],
@@ -299,7 +299,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // meaning, so they are barred — keeping a process graph drawable as
         // swimlanes + sequence flow.
         policy:
-          "Only these relationship edge types may be used in a process Doco: `flows_to`, `has_parent`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. A flow node's `has_parent` to a process Action is its pool membership. Bare `relates_to` links belong in other Doco kinds.",
+          "Only these relationship edge types may be used in a process collection: `flows_to`, `has_parent`, `supports`, `attributed_to`, `constrained_by`, `replaces`, `derived_from`. A flow node's `has_parent` to a process Action is its pool membership. Bare `relates_to` links belong in other collection kinds.",
         predicate: {
           kind: "requires_edge_type",
           edge_types: [
@@ -550,7 +550,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       // ── State shape & sequence wiring ───────────────────────────
       {
-        // Milestone names must be unambiguous within the Doco. Deterministic:
+        // Milestone names must be unambiguous within the collection. Deterministic:
         // `unique_field` compares the candidate's `state` against other active
         // States.
         policy:
@@ -605,7 +605,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Relationships in a process Doco are first-class edges with lifecycle and history. Use `flows_to` for process order and the canonical families (`supports`, `attributed_to`, `constrained_by`, `has_parent`, `derived_from`, `replaces`, `relates_to`); an edge's specialized meaning comes from its type plus the node types it connects, not from a role tag. Re-point by retiring the old edge and adding the new one; endpoints are immutable.",
+          "Relationships in a process collection are first-class edges with lifecycle and history. Use `flows_to` for process order and the canonical families (`supports`, `attributed_to`, `constrained_by`, `has_parent`, `derived_from`, `replaces`, `relates_to`); an edge's specialized meaning comes from its type plus the node types it connects, not from a role tag. Re-point by retiring the old edge and adding the new one; endpoints are immutable.",
       },
       {
         policy:
@@ -613,11 +613,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Process *instances* (recorded runs) live in a separate Doco as Logs; surface them here only via References. This template describes the design of the process, not the history of its executions.",
+          "Process *instances* (recorded runs) live in a separate collection as Logs; surface them here only via References. This template describes the design of the process, not the history of its executions.",
       },
       {
         policy:
-          "Don't model every click, method call, or DB mutation — only the steps that mean something to a business operator. Implementation detail belongs in `apis` or code Docos, not here.",
+          "Don't model every click, method call, or DB mutation — only the steps that mean something to a business operator. Implementation detail belongs in `apis` or code collections, not here.",
       },
     ],
   },
@@ -629,7 +629,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // synonyms and deprecated variants hang off that one entry, and related
     // concepts are cross-referenced rather than re-defined.
     //
-    // The Doco shape that carries this: each term is a Reference — its `prose`
+    // The collection shape that carries this: each term is a Reference — its `prose`
     // is the headword (the bare word being defined) and its `definition`
     // attribute is the meaning, so the node's name stays the term and never
     // swallows its definition. A term cites its source inline in `locator` (a
@@ -668,9 +668,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Deterministic node-type allowlist. A glossary is terms + the people
         // who steward them: Reference (the term entries) and Principal (the
         // stewards). Everything else — a process step, a decision record, a
-        // free-form note — belongs in its own Doco.
+        // free-form note — belongs in its own collection.
         policy:
-          "Only Reference and Principal belong in a glossary. Each term is a Reference — its prose is the headword and its `definition` carries the meaning; Principals are the stewards who own terms. A process step, decision record, or free-form note belongs in its own Doco.",
+          "Only Reference and Principal belong in a glossary. Each term is a Reference — its prose is the headword and its `definition` carries the meaning; Principals are the stewards who own terms. A process step, decision record, or free-form note belongs in its own collection.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["reference", "principal"],
@@ -762,7 +762,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // (KCS) and help-center practice, which converge on one insight: an FAQ is
     // two linked objects, not one — an improvable Entry and an immutable stream
     // of Usage events ("reuse is review"; usage is the validation signal). The
-    // Doco shape that carries this maps both onto existing primitives, so the
+    // collection shape that carries this maps both onto existing primitives, so the
     // template needs no new node type:
     //
     //   - Each FAQ entry is a Reference. Its `prose` is the canonical question
@@ -817,9 +817,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // the people who steward them: Reference (the Q&A entries), Log (the
         // recorded results of asking), and Principal (the stewards). Everything
         // else — a process step, a decision record, a free-form idea — belongs
-        // in its own Doco.
+        // in its own collection.
         policy:
-          "Only Reference, Log, and Principal belong in an FAQ. Each entry is a Reference — its prose is the question and its `answer` carries the reply; each result of asking is a Log (with an `outcome` of `succeeded` or `failed`); Principals are the stewards who own entries. A process step, decision record, or free-form note belongs in its own Doco.",
+          "Only Reference, Log, and Principal belong in an FAQ. Each entry is a Reference — its prose is the question and its `answer` carries the reply; each result of asking is a Log (with an `outcome` of `succeeded` or `failed`); Principals are the stewards who own entries. A process step, decision record, or free-form note belongs in its own collection.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["reference", "log", "principal"],
@@ -959,7 +959,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // GitHub pull-requests template. PRs from a connected repository are
     // synced as Reference nodes. No authoring constraints are imposed —
     // the template is intentionally minimal; the GitHub integration
-    // (configured immediately after Doco creation) handles the sync logic.
+    // (configured immediately after collection creation) handles the sync logic.
     name: "github-pull-requests",
     label: "GitHub pull requests",
     icon: "🐙",
@@ -974,7 +974,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
   {
     // GitHub issues. Every issue of a repository is synced as an Eval keyed on
     // the issue URL, and a closed issue retires it. Like every integration it
-    // fills a standalone Doco of its own, never the Bug tracker people file
+    // fills a standalone collection of its own, never the Bug tracker people file
     // bugs in, so it imposes no authoring constraints; the GitHub integration,
     // set up right after creation, does the syncing.
     name: "github-issues",
@@ -986,11 +986,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "list", isDefault: true }],
   },
   {
-    // GitHub codebase. The Doco holds a copy of every file on the default
+    // GitHub codebase. The collection holds a copy of every file on the default
     // branch of the repositories it brings from, kept in sync on every push,
     // in the code_files table (not nodes: a file deleted in the repository
     // must really disappear). The GitHub setup fills it. It opens in the web
-    // app's code reader (/<doco>/code), not on a perspective.
+    // app's code reader (/<collection>/code), not on a perspective.
     name: "codebase",
     label: "GitHub codebase",
     icon: "🗂️",
@@ -999,7 +999,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     policies: [],
   },
   {
-    // Slack public-channel mirror. The Doco holds a read-only copy of a Slack
+    // Slack public-channel mirror. The collection holds a read-only copy of a Slack
     // workspace's public channels, kept in sync, in the group_chat_* mirror
     // tables (not nodes: mirrored messages must be deletable). The Slack page,
     // opened right after creation, turns the mirror on. Knowledge distilled
@@ -1013,11 +1013,11 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     perspectives: [{ slug: "slack", isDefault: true }],
   },
   {
-    // Notion mirror. The Doco holds a read-only copy of the Notion pages and
-    // databases a workspace shares with the Doco integration, kept in sync, in
+    // Notion mirror. The collection holds a read-only copy of the Notion pages and
+    // databases a workspace shares with the collection integration, kept in sync, in
     // the notion_* mirror tables (not nodes: mirrored pages must be deletable).
     // The Notion page, opened right after creation, turns the mirror on. It
-    // opens in the web app's pages reader (/<doco>/pages), not on a perspective.
+    // opens in the web app's pages reader (/<collection>/pages), not on a perspective.
     name: "notion",
     label: "Notion workspace",
     icon: "📓",
@@ -1059,7 +1059,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     icon: "🏢",
     description:
       "Document who reports to whom — seats as roles, a single solid reporting line per seat, teams, dotted-line coordination, and decision authority. Renders as an org tree.",
-    // Open a freshly-created org-chart Doco directly on the org-tree view,
+    // Open a freshly-created org-chart collection directly on the org-tree view,
     // where the reporting hierarchy this template authors is most legible.
     // Graph + list defaults stay attached behind it.
     perspectives: [{ slug: "org-tree", isDefault: true }],
@@ -1074,7 +1074,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in an org chart when it documents organizational STRUCTURE: a seat / role (Principal), a team or department (Intent), a decision right or accountability (Decision), or a supporting role charter / job description (Reference). Pass when the candidate is one of these. Fail when it instead describes how WORK flows — a process step, a task, a product feature, an event, or a one-off incident — which belongs in a process Doco, not here.",
+          spec: "A node belongs in an org chart when it documents organizational STRUCTURE: a seat / role (Principal), a team or department (Intent), a decision right or accountability (Decision), or a supporting role charter / job description (Reference). Pass when the candidate is one of these. Fail when it instead describes how WORK flows — a process step, a task, a product feature, an event, or a one-off incident — which belongs in a process collection, not here.",
           when_node_type: ["principal", "intent", "decision", "reference"],
         },
       },
@@ -1096,7 +1096,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Node-type allowlist (hard block) ─────────────────────────────
       {
         policy:
-          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. A Principal is a seat (a role); an Intent is a team or department that seats belong to; a Decision records a decision right and its accountable seat; a Reference attaches a role charter or job description; a Rule states a governance constraint. Process steps (Action), milestones (State), and tests (Eval) describe how work flows — they belong in a process Doco, not an org chart.",
+          "Only Principal, Intent, Decision, Reference, and Rule belong in an org chart. A Principal is a seat (a role); an Intent is a team or department that seats belong to; a Decision records a decision right and its accountable seat; a Reference attaches a role charter or job description; a Rule states a governance constraint. Process steps (Action), milestones (State), and tests (Eval) describe how work flows — they belong in a process collection, not an org chart.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["principal", "intent", "decision", "reference", "rule"],
@@ -1199,7 +1199,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // `has_parent`; a superseded eval is `replaces`-linked to the one it retires.
     //
     // What sets this template apart from `process` (which pushes recorded runs to
-    // a sibling Doco): here the RESULTS are the point, so Logs live in the Doco
+    // a sibling collection): here the RESULTS are the point, so Logs live in the collection
     // alongside the evals that produced them, building the longitudinal record
     // that catches regressions.
     //
@@ -1232,10 +1232,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       {
         // Deterministic node-type allowlist. Flow/work nodes (Action, State) and
         // free-form Ideas, plus ship/rollback Decisions (which belong in a
-        // decision-record Doco), are out; an eval log is evals + runs + the
+        // decision-record collection), are out; an eval log is evals + runs + the
         // data/systems they concern + their owners and gates.
         policy:
-          "Only Eval, Log, Reference, Rule, and Principal belong in an AI-eval log. An Eval is the test definition (what is measured, on what data, how it is graded, the target); a Log is one recorded run of an eval (its score and verdict, and the versions it ran against); a Reference is the versioned dataset / golden set, the system under test (model + prompt version), the harness/code, or an external benchmark or report; a Rule captures a success criterion or release gate; a Principal is the owner — person or agent — accountable for the eval. Process steps, free-form notes, and ship decisions belong in their own Docos.",
+          "Only Eval, Log, Reference, Rule, and Principal belong in an AI-eval log. An Eval is the test definition (what is measured, on what data, how it is graded, the target); a Log is one recorded run of an eval (its score and verdict, and the versions it ran against); a Reference is the versioned dataset / golden set, the system under test (model + prompt version), the harness/code, or an external benchmark or report; a Rule captures a success criterion or release gate; a Principal is the owner — person or agent — accountable for the eval. Process steps, free-form notes, and ship decisions belong in their own collections.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["eval", "log", "reference", "rule", "principal"],
@@ -1433,7 +1433,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Warn, not block: the author opted into the bug tracker, so this only
         // surfaces "this isn't really a defect" for reconsideration. It steers
         // feature requests and how-to questions toward a product-decisions or
-        // process Doco. Scoped to the Eval (the bug record); the supporting
+        // process collection. Scoped to the Eval (the bug record); the supporting
         // cast — Principals (owners), References (evidence / fix), Logs
         // (occurrences), Rules (violated contracts) — is exempt by omission.
         on_violation: "warn",
@@ -1450,9 +1450,9 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // References carry evidence and the fix; Logs are occurrences in the
         // wild; Rules are the behavior contracts a bug violates. Flow nodes
         // (Action / State), free-form Ideas, and Decisions belong in their own
-        // Docos and are linked, not duplicated, here.
+        // collections and are linked, not duplicated, here.
         policy:
-          "Only Eval, Principal, Reference, Log, and Rule belong in a bug tracker. Each bug is an Eval — its `expected` and `actual` are the discrepancy, its `how_to_run` the steps to reproduce, and its `last_status` flips from `fail` to `pass` when a fix is verified. Principals are the accountable owners; References carry evidence (stack traces, screenshots, logs) and the fix (the PR or commit); Logs record individual occurrences in the wild; Rules state the behavior contract a bug violates. Process steps, decisions, and free-form notes belong in their own Docos.",
+          "Only Eval, Principal, Reference, Log, and Rule belong in a bug tracker. Each bug is an Eval — its `expected` and `actual` are the discrepancy, its `how_to_run` the steps to reproduce, and its `last_status` flips from `fail` to `pass` when a fix is verified. Principals are the accountable owners; References carry evidence (stack traces, screenshots, logs) and the fix (the PR or commit); Logs record individual occurrences in the wild; Rules state the behavior contract a bug violates. Process steps, decisions, and free-form notes belong in their own collections.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["eval", "principal", "reference", "log", "rule"],
@@ -1464,7 +1464,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // provenance, and see-also links — never process sequence flow or pool
         // membership.
         policy:
-          "Only these relationship edge types may be used in a bug tracker: `attributed_to` (a bug → its accountable owner Principal), `supports` (evidence, occurrences, and the fix → the bug they inform or resolve), `constrained_by` (a bug → the Rule / spec / invariant it violates), `replaces` (a canonical bug supersedes a duplicate, or a regression supersedes a prior fixed bug), `derived_from` (provenance — the change or commit that introduced the bug), and `relates_to` (a see-also link between related bugs). Process flow (`flows_to`) and pool membership (`has_parent`) belong in a process Doco.",
+          "Only these relationship edge types may be used in a bug tracker: `attributed_to` (a bug → its accountable owner Principal), `supports` (evidence, occurrences, and the fix → the bug they inform or resolve), `constrained_by` (a bug → the Rule / spec / invariant it violates), `replaces` (a canonical bug supersedes a duplicate, or a regression supersedes a prior fixed bug), `derived_from` (provenance — the change or commit that introduced the bug), and `relates_to` (a see-also link between related bugs). Process flow (`flows_to`) and pool membership (`has_parent`) belong in a process collection.",
         predicate: {
           kind: "requires_edge_type",
           edge_types: [
@@ -1636,8 +1636,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // so a parking-lot idea can be sketched freely and is held to the full bar
     // only once it is committed to the roadmap.
     //
-    // Out of scope, kept in sibling Docos and referenced from here: the
-    // delivery PROCESS (Action/State flow → a `process` Doco) and the dated
+    // Out of scope, kept in sibling collections and referenced from here: the
+    // delivery PROCESS (Action/State flow → a `process` Collection) and the dated
     // shipped CHANGELOG (Logs). A roadmap documents intent and outcomes — not
     // the backlog of tasks nor the release plan.
     name: "product-roadmap",
@@ -1660,14 +1660,14 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs on a product roadmap when it documents an outcome-oriented bet or its result: an Intent (a desired outcome — a user-behavior change or business result — the team is betting on), an Eval (the measurement that says whether an outcome was met), a Decision (a prioritization call about what to bet on and why), or a Reference (the discovery, research, or data informing a bet). PASS when the candidate is one of these. FAIL when it instead describes HOW work gets built or delivered — a process step or implementation task, a release / changelog event, a UI spec, or a one-off incident — which belongs in a process Doco or the backlog, not on the roadmap.",
+          spec: "A node belongs on a product roadmap when it documents an outcome-oriented bet or its result: an Intent (a desired outcome — a user-behavior change or business result — the team is betting on), an Eval (the measurement that says whether an outcome was met), a Decision (a prioritization call about what to bet on and why), or a Reference (the discovery, research, or data informing a bet). PASS when the candidate is one of these. FAIL when it instead describes HOW work gets built or delivered — a process step or implementation task, a release / changelog event, a UI spec, or a one-off incident — which belongs in a process collection or the backlog, not on the roadmap.",
           when_node_type: ["intent", "eval", "decision", "reference"],
         },
       },
       // ── Node-type allowlist (hard block) ─────────────────────────────
       {
         policy:
-          "Only Intent, Eval, Principal, Reference, Decision, and Rule belong on a product roadmap. An Intent is a roadmap item — a desired outcome the team is betting on; an Eval is that bet's result — the measurement of whether the outcome was met; a Principal is the accountable owner; a Reference links the discovery, research, or data behind a bet; a Decision records a prioritization call; a Rule captures success criteria or guardrails. Delivery steps (Action), milestones (State), and shipped-event logs (Log) describe how and when work is built — they belong in a process Doco or a changelog, not on the roadmap.",
+          "Only Intent, Eval, Principal, Reference, Decision, and Rule belong on a product roadmap. An Intent is a roadmap item — a desired outcome the team is betting on; an Eval is that bet's result — the measurement of whether the outcome was met; a Principal is the accountable owner; a Reference links the discovery, research, or data behind a bet; a Decision records a prioritization call; a Rule captures success criteria or guardrails. Delivery steps (Action), milestones (State), and shipped-event logs (Log) describe how and when work is built — they belong in a process collection or a changelog, not on the roadmap.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["intent", "eval", "principal", "reference", "decision", "rule"],
@@ -1812,7 +1812,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "A roadmap is not a backlog and not a release plan. Keep stories, tasks, and bug lists in the backlog, the delivery flow in a `process` Doco, and the dated shipped history in a changelog of Logs. Reference those siblings from a roadmap item rather than absorbing them — the roadmap stays at the altitude of outcomes and bets, linking down to execution rather than becoming it.",
+          "A roadmap is not a backlog and not a release plan. Keep stories, tasks, and bug lists in the backlog, the delivery flow in a `process` Collection, and the dated shipped history in a changelog of Logs. Reference those siblings from a roadmap item rather than absorbing them — the roadmap stays at the altitude of outcomes and bets, linking down to execution rather than becoming it.",
       },
       {
         policy:
@@ -1857,20 +1857,20 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     description:
       "Document test scenarios for websites and apps and log every run — each scenario captures preconditions, steps, and the expected result; each run records the environment, outcome, and evidence. Grounded in ISTQB / IEEE 829 test documentation and session-based exploratory testing.",
     defaultNodeLifecycle: "drafting",
-    // Open a new test Doco on the list reading — a test Doco is naturally a
+    // Open a new test collection on the list reading — a test collection is naturally a
     // list of scenarios and their runs. Graph + list defaults sit behind it.
     perspectives: [{ slug: "list", isDefault: true }],
     policies: [
       // ── Membership (soft semantic gate) ──────────────────────────────
       {
         // Warn, not block: the author opted into the test template, so this only
-        // surfaces "this looks like it belongs in another Doco kind" for
+        // surfaces "this looks like it belongs in another collection kind" for
         // reconsideration. Principals (testers / systems) are exempt — they are
         // actors, not test content — by omitting them from `when_node_type`.
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in a test Doco when it documents what to verify or what happened when it was verified: a test scenario (Eval — preconditions, steps, and an expected result), a recorded run or result (Log — what happened in a given environment), the objective / charter / suite a scenario covers (Intent), or external context — a requirement, environment, evidence artifact, or defect (Reference). PASS when the candidate is one of these. FAIL when it instead belongs in another Doco kind — a business-process step, a glossary term, a generic decision record, or a free-form note that is not a test, a run, an objective, or a referenced artifact.",
+          spec: "A node belongs in a test collection when it documents what to verify or what happened when it was verified: a test scenario (Eval — preconditions, steps, and an expected result), a recorded run or result (Log — what happened in a given environment), the objective / charter / suite a scenario covers (Intent), or external context — a requirement, environment, evidence artifact, or defect (Reference). PASS when the candidate is one of these. FAIL when it instead belongs in another collection kind — a business-process step, a glossary term, a generic decision record, or a free-form note that is not a test, a run, an objective, or a referenced artifact.",
           when_node_type: ["eval", "log", "intent", "reference"],
         },
       },
@@ -1878,7 +1878,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Node-type allowlist (hard block) ─────────────────────────────
       {
         policy:
-          "Only Eval (test scenarios), Log (recorded runs and their results), Intent (the objective, charter, or suite a scenario covers), Reference (a requirement, environment, evidence artifact, or defect), and Principal (the tester, automation system, or agent that owns or runs a test) belong in a test Doco. Process steps, glossary terms, and decision records live in their own Docos and are cited here via Reference.",
+          "Only Eval (test scenarios), Log (recorded runs and their results), Intent (the objective, charter, or suite a scenario covers), Reference (a requirement, environment, evidence artifact, or defect), and Principal (the tester, automation system, or agent that owns or runs a test) belong in a test collection. Process steps, glossary terms, and decision records live in their own collections and are cited here via Reference.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["eval", "intent", "log", "principal", "reference"],
@@ -1891,7 +1891,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // evidence/validation spine; process-flow (`flows_to`) and Rule-guard
         // (`constrained_by`) edges describe how work runs and don't belong here.
         policy:
-          "Only these relationship edge types belong in a test Doco: `supports` (the evidence/validation spine — an Eval supports the objective or requirement it verifies, a Log supports the Eval it ran, and an evidence Reference supports a Log), `attributed_to` (the Principal who owns a scenario or ran a test), `has_parent` (nest an objective or suite under a broader test plan), `relates_to` (a see-also between scenarios, or a link from a failing run or scenario to a defect), `replaces` (a new scenario supersedes a retired one), and `derived_from` (provenance — a scenario derived from an imported spec or forked from another). Process-flow (`flows_to`) and Rule-guard (`constrained_by`) edges do not belong here.",
+          "Only these relationship edge types belong in a test collection: `supports` (the evidence/validation spine — an Eval supports the objective or requirement it verifies, a Log supports the Eval it ran, and an evidence Reference supports a Log), `attributed_to` (the Principal who owns a scenario or ran a test), `has_parent` (nest an objective or suite under a broader test plan), `relates_to` (a see-also between scenarios, or a link from a failing run or scenario to a defect), `replaces` (a new scenario supersedes a retired one), and `derived_from` (provenance — a scenario derived from an imported spec or forked from another). Process-flow (`flows_to`) and Rule-guard (`constrained_by`) edges do not belong here.",
         predicate: {
           kind: "requires_edge_type",
           edge_types: [
@@ -1974,7 +1974,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       // ── Guidance (prose-only suggestions) ────────────────────────────
       {
         policy:
-          "A test Doco has two halves. A scenario (an Eval) is the durable spec — what should be true and how to check it — and each run (a Log) is one execution of it. Don't overwrite a scenario with its latest result: record every run as a new Log so the history of passes, failures, and the environments they happened in is preserved.",
+          "A test collection has two halves. A scenario (an Eval) is the durable spec — what should be true and how to check it — and each run (a Log) is one execution of it. Don't overwrite a scenario with its latest result: record every run as a new Log so the history of passes, failures, and the environments they happened in is preserved.",
       },
       {
         policy:
@@ -1998,7 +1998,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "On a failure, capture what actually happened and attach the evidence — screenshots, a screen recording, console and network logs, or a stack trace — as Reference nodes linked with `supports`, and link the defect you filed (a GitHub issue, a Jira ticket) as a Reference with `relates_to`. This Doco is the test record, not the bug tracker: reference the external defect rather than re-litigating it here. When triaging, separate severity (how bad the failure is) from priority (how urgently it must be fixed).",
+          "On a failure, capture what actually happened and attach the evidence — screenshots, a screen recording, console and network logs, or a stack trace — as Reference nodes linked with `supports`, and link the defect you filed (a GitHub issue, a Jira ticket) as a Reference with `relates_to`. This collection is the test record, not the bug tracker: reference the external defect rather than re-litigating it here. When triaging, separate severity (how bad the failure is) from priority (how urgently it must be fixed).",
       },
       {
         policy:
@@ -2018,7 +2018,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "The same Eval-plus-Log shape stretches to specialized tests without new node types — choose the Eval's `criterion` (an exact match, a response / shape match, or an llm-judge for fuzzy output) and put the specifics in the expected result and `how_to_run`: a performance test states a latency or throughput threshold as the expected result and logs the measured number; an accessibility test names the WCAG criterion and attaches the audit (e.g. an axe report) as evidence; a security test references the advisory or CVE; an API or contract test pins the expected response shape; a visual-regression test attaches the baseline and the diff. Reach for a different Doco only when what you are documenting stops being “a scenario and its runs”.",
+          "The same Eval-plus-Log shape stretches to specialized tests without new node types — choose the Eval's `criterion` (an exact match, a response / shape match, or an llm-judge for fuzzy output) and put the specifics in the expected result and `how_to_run`: a performance test states a latency or throughput threshold as the expected result and logs the measured number; an accessibility test names the WCAG criterion and attaches the audit (e.g. an axe report) as evidence; a security test references the advisory or CVE; an API or contract test pins the expected response shape; a visual-regression test attaches the baseline and the diff. Reach for a different collection only when what you are documenting stops being “a scenario and its runs”.",
       },
       {
         policy:
@@ -2084,10 +2084,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // team's evaluation criteria (ICE, RICE, effort/impact — the framework is
     // the team's choice, not the template's) linked via `constrained_by`.
     //
-    // Out of scope, kept in sibling Docos: the roadmap bet an idea becomes
+    // Out of scope, kept in sibling collections: the roadmap bet an idea becomes
     // (product-roadmap), the decision record behind a big call
     // (product-decisions), and delivery work (process). `promoted_to` is a
-    // soft cross-Doco pointer, so promotion links the sibling without
+    // soft cross-collection pointer, so promotion links the sibling without
     // absorbing it.
     name: "ideas",
     label: "Ideas",
@@ -2106,7 +2106,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Warn, not block: the author opted into the idea tracker, so this only
         // surfaces "this isn't really an idea / an opportunity" for
         // reconsideration. It steers defects to the bug tracker, scheduled work
-        // to the backlog or a process Doco, and raw complaints into the
+        // to the backlog or a process collection, and raw complaints into the
         // evidence stream (a Reference or Log) rather than the idea list. The
         // supporting cast — owners (Principal), criteria (Rule), evidence
         // (Reference), demand (Log), assessments (Eval) — is exempt by
@@ -2114,7 +2114,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in an idea tracker when it is an Idea — a candidate solution someone proposes (a feature, an improvement, an experiment, a new offering: something a team could choose to pursue) — or an Intent naming the opportunity ideas serve: a problem, unmet need, or desired outcome worth solving. PASS when the candidate is one of these. FAIL when it is instead a defect report (expected-vs-actual broken behavior — that belongs in a bug tracker), a committed task or scheduled work item (that is a backlog or process Doco), a raw complaint or feedback quote with no proposal in it (record it as evidence supporting an idea, not as the idea), or — for an Intent — a feature dressed up as an opportunity: an opportunity names a problem or outcome, never a solution.",
+          spec: "A node belongs in an idea tracker when it is an Idea — a candidate solution someone proposes (a feature, an improvement, an experiment, a new offering: something a team could choose to pursue) — or an Intent naming the opportunity ideas serve: a problem, unmet need, or desired outcome worth solving. PASS when the candidate is one of these. FAIL when it is instead a defect report (expected-vs-actual broken behavior — that belongs in a bug tracker), a committed task or scheduled work item (that is a backlog or process collection), a raw complaint or feedback quote with no proposal in it (record it as evidence supporting an idea, not as the idea), or — for an Intent — a feature dressed up as an opportunity: an opportunity names a problem or outcome, never a solution.",
           when_node_type: ["idea", "intent"],
         },
       },
@@ -2122,10 +2122,10 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
         // Deterministic node-type allowlist. An idea tracker is the ideas
         // themselves plus the cast that gives each one meaning. Delivery steps
         // (Action), milestones (State), and decision records (Decision) belong
-        // in their own Docos — an idea that graduates into any of them is
+        // in their own collections — an idea that graduates into any of them is
         // promoted there and linked via `promoted_to`, not modeled here.
         policy:
-          "Only Idea, Intent, Eval, Log, Reference, Rule, and Principal belong in an idea tracker. An Idea is a candidate solution awaiting a verdict — its prose is the proposal, its `problem` the need behind it, and `promoted_to` / `rejection_reason` how it ended. An Intent is an opportunity (a problem, need, or outcome worth solving) that ideas cluster under; an Eval is an assessment — a scoring pass or validation experiment; a Log is one demand event (someone asked for this again); a Reference carries evidence (feedback, research, data, competitor moves); a Rule states the evaluation criteria; a Principal is the shepherd accountable for moving an idea. Delivery steps, milestones, and decision records belong in their own Docos — promote an idea there instead.",
+          "Only Idea, Intent, Eval, Log, Reference, Rule, and Principal belong in an idea tracker. An Idea is a candidate solution awaiting a verdict — its prose is the proposal, its `problem` the need behind it, and `promoted_to` / `rejection_reason` how it ended. An Intent is an opportunity (a problem, need, or outcome worth solving) that ideas cluster under; an Eval is an assessment — a scoring pass or validation experiment; a Log is one demand event (someone asked for this again); a Reference carries evidence (feedback, research, data, competitor moves); a Rule states the evaluation criteria; a Principal is the shepherd accountable for moving an idea. Delivery steps, milestones, and decision records belong in their own collections — promote an idea there instead.",
         predicate: {
           kind: "requires_node_type",
           node_types: ["idea", "intent", "eval", "log", "reference", "rule", "principal"],
@@ -2290,7 +2290,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Record demand as a stream, not a tally. Every time someone asks for an idea again — a support ticket, a sales call, a forum thread — capture it as a Log (who asked, when, in what context, how acute) with a `supports` edge to the idea. A demand event is a fact that already happened, so record it as `active` (the Doco-wide `drafting` default is for ideas, not facts); the same goes for evidence References. Frequency, recency, and who's asking are then read off the stream, which is the evidence a prioritization call needs; a vote count on the node tells you none of that. When a request arrives that no tracked idea covers, the orphan Log is the signal to write one — link the new idea `derived_from` the Log that sparked it.",
+          "Record demand as a stream, not a tally. Every time someone asks for an idea again — a support ticket, a sales call, a forum thread — capture it as a Log (who asked, when, in what context, how acute) with a `supports` edge to the idea. A demand event is a fact that already happened, so record it as `active` (the collection-wide `drafting` default is for ideas, not facts); the same goes for evidence References. Frequency, recency, and who's asking are then read off the stream, which is the evidence a prioritization call needs; a vote count on the node tells you none of that. When a request arrives that no tracked idea covers, the orphan Log is the signal to write one — link the new idea `derived_from` the Log that sparked it.",
       },
       {
         policy:
@@ -2314,7 +2314,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          "Close every idea with an honest disposition, and close the loop with the proposer. Promote: record what the idea became in `promoted_to` — the roadmap bet (Intent), decision record, or delivery work it turned into, usually in a sibling Doco — then retire it. Reject: retire with a written `rejection_reason` that is kind, specific, and durable (future proposers of the same idea will find it; offer the alternative when one exists). Park: keep it `drafting` with a dated `rejection_reason` note saying what would revive it (a demand threshold, a dependency landing). In every case, tell the proposer what happened and why — an idea that dies of silence costs you every idea that person never files again.",
+          "Close every idea with an honest disposition, and close the loop with the proposer. Promote: record what the idea became in `promoted_to` — the roadmap bet (Intent), decision record, or delivery work it turned into, usually in a sibling collection — then retire it. Reject: retire with a written `rejection_reason` that is kind, specific, and durable (future proposers of the same idea will find it; offer the alternative when one exists). Park: keep it `drafting` with a dated `rejection_reason` note saying what would revive it (a demand threshold, a dependency landing). In every case, tell the proposer what happened and why — an idea that dies of silence costs you every idea that person never files again.",
       },
       {
         policy:
@@ -2330,8 +2330,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     // Agents chats — the record of every chat an agent has with a user. The
     // baseline duties have each agent capture one Log per chat here before the
     // chat ends. Only Logs belong: what a chat produced (a Decision, an Idea, a
-    // bug) goes in the Doco that holds that kind of knowledge, and edges don't
-    // cross Docos, so the Log lists those nodes' ids in its `outputs`.
+    // bug) goes in the collection that holds that kind of knowledge, and edges don't
+    // cross collections, so the Log lists those nodes' ids in its `outputs`.
     name: "agents-chats",
     label: "Agents chats",
     icon: "🤖",
@@ -2342,7 +2342,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
     policies: [
       {
         policy:
-          "Only Logs belong here: one per chat. What a chat produced goes in the Doco that holds that kind of knowledge — a Decision in the Product decisions, Design decisions or Architectural decisions Doco (and, when it is about a business process, in Processes too), an idea in Ideas, a bug in the Bug tracker — and the chat's Log points to it.",
+          "Only Logs belong here: one per chat. What a chat produced goes in the collection that holds that kind of knowledge — a Decision in the Product decisions, Design decisions or Architectural decisions collection (and, when it is about a business process, in Processes too), an idea in Ideas, a bug in the Bug tracker — and the chat's Log points to it.",
         predicate: { kind: "requires_node_type", node_types: ["log"] },
       },
       {
@@ -2359,7 +2359,7 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
       },
       {
         policy:
-          'List what the chat produced in the Log\'s `outputs`: the ids of the nodes it captured in other Docos (decisions, ideas, bugs, actions) and the pull requests, issues or documents it touched. A chat that produced nothing says so, for example `{ "produced": "nothing" }`.',
+          'List what the chat produced in the Log\'s `outputs`: the ids of the nodes it captured in other collections (decisions, ideas, bugs, actions) and the pull requests, issues or documents it touched. A chat that produced nothing says so, for example `{ "produced": "nothing" }`.',
       },
       {
         policy:
@@ -2378,8 +2378,8 @@ export const DEFAULT_DOCO_TEMPLATES: DocoTemplate[] = [
  * Templates are stored under plain handles (`process`,
  * `github-pull-requests`).
  */
-export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
-  return DEFAULT_DOCO_TEMPLATES.find((t) => t.name === name);
+export function findCollectionTemplateByName(name: string): CollectionTemplate | undefined {
+  return DEFAULT_COLLECTION_TEMPLATES.find((t) => t.name === name);
 }
 
 /**
@@ -2387,7 +2387,7 @@ export function findDocoTemplateByName(name: string): DocoTemplate | undefined {
  * predicate the evaluator dispatches on. This is the pure translation
  * from the (still old-shape) `TemplatePolicy` into the unified policies
  * table introduced in #909; `host.ts` wraps it with the DB-row metadata
- * (ids, timestamps, `template_seeded`) at Doco-creation time.
+ * (ids, timestamps, `template_seeded`) at collection-creation time.
  */
 export interface SeededPolicyRow {
   kind: "suggestion" | "deterministic" | "probabilistic";

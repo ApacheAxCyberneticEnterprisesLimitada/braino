@@ -36,7 +36,7 @@ async function main(): Promise<void> {
     await c.query("BEGIN");
     const workspaceId = makeEntityId("workspace", generateUlid());
     const userId = makeEntityId("user", generateUlid());
-    const docoId = makeEntityId("doco", generateUlid());
+    const collectionId = makeEntityId("collection", generateUlid());
     const decisionId = makeEntityId("decision", generateUlid());
     const refId = makeEntityId("reference", generateUlid());
 
@@ -47,24 +47,29 @@ async function main(): Promise<void> {
     ]);
     await c.query(`INSERT INTO users (id, data) VALUES ($1,'{}')`, [userId]);
     await c.query(
-      `INSERT INTO docos (id, handle, owner_id, workspace_id, visibility, goal, data)
+      `INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
        VALUES ($1,$2,$3,$4,'private','smoke','{}')`,
-      [docoId, `doco-${generateUlid().slice(0, 8).toLowerCase()}`, workspaceId, workspaceId],
+      [
+        collectionId,
+        `collection-${generateUlid().slice(0, 8).toLowerCase()}`,
+        workspaceId,
+        workspaceId,
+      ],
     );
     await c.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, created_by)
+      `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, created_by)
        VALUES ($1,$2,'decision','active','Use first-class edges',$3)`,
-      [decisionId, docoId, userId],
+      [decisionId, collectionId, userId],
     );
     await c.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, created_by)
+      `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, created_by)
        VALUES ($1,$2,'reference','active','PR #634',$3)`,
-      [refId, docoId, userId],
+      [refId, collectionId, userId],
     );
 
     // --- Node version on create (proves node history) ---
     const tx0 = await createChangeset(c, {
-      docoId,
+      collectionId,
       actor: userId,
       source: "system",
       reason: "seed: create decision",
@@ -80,13 +85,13 @@ async function main(): Promise<void> {
 
     // --- Edge create (supports/implemented_by: decision -> reference) ---
     const tx1 = await createChangeset(c, {
-      docoId,
+      collectionId,
       actor: userId,
       source: "api",
       reason: "link decision to the PR that ships it",
     });
     const edge = await createEdge(c, tx1, {
-      docoId,
+      collectionId,
       edgeType: "supports",
       fromId: decisionId,
       fromNodeType: "decision",
@@ -101,7 +106,7 @@ async function main(): Promise<void> {
 
     // --- Edge update (props mutation) ---
     const tx2 = await createChangeset(c, {
-      docoId,
+      collectionId,
       actor: userId,
       source: "api",
       reason: "annotate",
@@ -122,7 +127,7 @@ async function main(): Promise<void> {
     try {
       await c.query("SAVEPOINT dup");
       await createEdge(c, tx2, {
-        docoId,
+        collectionId,
         edgeType: "supports",
         fromId: decisionId,
         fromNodeType: "decision",
@@ -139,7 +144,7 @@ async function main(): Promise<void> {
 
     // --- Retire (the only "delete") ---
     const tx3 = await createChangeset(c, {
-      docoId,
+      collectionId,
       actor: userId,
       source: "api",
       reason: "superseded",
@@ -154,13 +159,13 @@ async function main(): Promise<void> {
 
     // --- After retire, the live slot is free: recreate succeeds ---
     const tx4 = await createChangeset(c, {
-      docoId,
+      collectionId,
       actor: userId,
       source: "api",
       reason: "re-link",
     });
     const recreated = await createEdge(c, tx4, {
-      docoId,
+      collectionId,
       edgeType: "supports",
       fromId: decisionId,
       fromNodeType: "decision",
@@ -186,8 +191,8 @@ async function main(): Promise<void> {
 
     // --- Commit log: monotonic tx_ids carrying the "why" ---
     const cs = await c.query<{ tx_id: string; reason: string }>(
-      "SELECT tx_id, reason FROM changesets WHERE doco_id = $1 ORDER BY tx_id ASC",
-      [docoId],
+      "SELECT tx_id, reason FROM changesets WHERE collection_id = $1 ORDER BY tx_id ASC",
+      [collectionId],
     );
     check("commit log recorded all changesets", cs.rowCount === 5);
     check(

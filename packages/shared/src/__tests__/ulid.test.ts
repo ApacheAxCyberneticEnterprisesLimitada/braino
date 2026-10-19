@@ -46,7 +46,7 @@ describe("ULID generation", () => {
     expect([...values].sort()).toEqual(values);
   });
 
-  it("matches the format of the bootstrap ULIDs (e.g. doco_id)", () => {
+  it("matches the format of the bootstrap ULIDs (e.g. collection_id)", () => {
     // Sanity: a known good bootstrap ULID validates.
     expect(isUlid("01KR441EA0ZDMF0N5DY38GSVS3")).toBe(true);
   });

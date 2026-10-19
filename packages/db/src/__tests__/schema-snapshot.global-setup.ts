@@ -17,7 +17,7 @@ export default async function setup({ provide }: GlobalSetupContext) {
   const dump = await seed.dumpDataDir("none"); // uncompressed = fastest restore
   await seed.close();
 
-  const dir = await mkdtemp(join(tmpdir(), "doco-schema-"));
+  const dir = await mkdtemp(join(tmpdir(), "collection-schema-"));
   const file = join(dir, "schema.tar");
   await writeFile(file, Buffer.from(await dump.arrayBuffer()));
   provide("docoSchemaSnapshot", file);

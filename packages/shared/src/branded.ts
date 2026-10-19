@@ -6,9 +6,9 @@ import { CATALOG_NODE_TYPES } from "./entity-catalog.js";
  *
  * Entities are split across five categories.
  *   - Nodes (10):       graph-knowledge entities
- *   - Policies (1):       Doco-level authoring metadata
+ *   - Policies (1):       Collection-level authoring metadata
  *   - User (1):   OAuth identity layer
- *   - Doco (1):           workspace container
+ *   - Collection (1):           workspace container
  *   - Workspace (1):   workspace container
  *
  * `EntityType` is the union of all 13 discriminator strings; `NodeType`
@@ -22,12 +22,12 @@ type Brand<T, B> = T & { readonly [__brand]: B };
 export type Ulid = Brand<string, "Ulid">;
 
 /**
- * URL handle for a Doco — the value at the start of `/<handle>/...`.
- * Callers should accept `DocoHandle` over plain `string` at API
+ * URL handle for a collection — the value at the start of `/<handle>/...`.
+ * Callers should accept `CollectionHandle` over plain `string` at API
  * boundaries to prevent passing arbitrary strings where a handle is
  * expected.
  */
-export type DocoHandle = Brand<string, "DocoHandle">;
+export type CollectionHandle = Brand<string, "CollectionHandle">;
 
 /** URL handle for an Workspace — the segment after `/workspaces/`. */
 export type WorkspaceHandle = Brand<string, "WorkspaceHandle">;
@@ -37,14 +37,14 @@ export const NODE_TYPES = CATALOG_NODE_TYPES;
 
 export type NodeType = (typeof NODE_TYPES)[number];
 
-/** The policy type — Doco-level authoring metadata, not on the graph. */
+/** The policy type — collection-level authoring metadata, not on the graph. */
 export const POLICY_TYPES = ["policy"] as const;
 
 /** The user type — human OAuth identity. */
 export const USER_TYPE = "user" as const;
 
-/** The container types — docos and workspaces. */
-export const CONTAINER_TYPES = ["doco", "workspace"] as const;
+/** The container types — collections and workspaces. */
+export const CONTAINER_TYPES = ["collection", "workspace"] as const;
 
 /**
  * The edge entity type. Edges are first-class peers of nodes: their id is
@@ -80,8 +80,8 @@ export function isUlid(value: unknown): value is Ulid {
 
 const HANDLE_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
-/** Validate the shape of a handle (Doco or Workspace). Does not check uniqueness. */
-export function isHandle(value: unknown): value is DocoHandle | WorkspaceHandle {
+/** Validate the shape of a handle (Collection or Workspace). Does not check uniqueness. */
+export function isHandle(value: unknown): value is CollectionHandle | WorkspaceHandle {
   return typeof value === "string" && HANDLE_REGEX.test(value);
 }
 
@@ -117,8 +117,8 @@ const NODE_TYPE_URL_ALIASES: Readonly<Record<string, NodeType>> = {
 
 /**
  * Canonicalize a node type URL segment. Entity URLs are singular
- * (`/<doco>/intent/<id>`), but humans and agents naturally paste plural
- * API/list segments (`/<doco>/intents/<id>`). Accept both at the boundary.
+ * (`/<collection>/intent/<id>`), but humans and agents naturally paste plural
+ * API/list segments (`/<collection>/intents/<id>`). Accept both at the boundary.
  */
 export function normalizeNodeType(value: unknown): NodeType | null {
   if (isNodeType(value)) return value;

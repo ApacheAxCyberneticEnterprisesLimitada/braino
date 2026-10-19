@@ -1,11 +1,11 @@
 /**
  * Authoring policies evaluator — pure module.
  *
- * Walks the doco's `policies` directly. Policies apply to the whole doco.
+ * Walks the collection's `policies` directly. Policies apply to the whole collection.
  *
  * Inputs in, violations out. No IO, no LLM. The caller (web layer) is
  * responsible for:
- *   - loading the doco's policies, principals, edges, and population
+ *   - loading the collection's policies, principals, edges, and population
  *   - passing the candidate's active outgoing edges
  *   - resolving probabilistic violations via an LLM judge (the engine
  *     just emits them as `pending` violations with the agent instruction
@@ -46,7 +46,7 @@ export type CandidateFields = Record<string, unknown> & {
   lifecycle?: Lifecycle;
 };
 
-/** One edge in the doco. */
+/** One edge in the collection. */
 export interface EngineEdge {
   from_id: string;
   to_id: string;
@@ -54,7 +54,7 @@ export interface EngineEdge {
 }
 
 /**
- * A policy loaded from the doco, with the bits the engine consults.
+ * A policy loaded from the collection, with the bits the engine consults.
  */
 export interface LoadedPolicy {
   /** Id of the originating policy — back-pointer for the UI. */
@@ -94,21 +94,21 @@ export type PrincipalIndex = Set<string>;
 export interface EvaluateOpts {
   /** The candidate's fields (NOT yet persisted). */
   candidate: CandidateFields;
-  /** All predicate-bearing policies loaded from the doco. */
+  /** All predicate-bearing policies loaded from the collection. */
   policies: LoadedPolicy[];
   /**
    * Active outgoing edges for the candidate, loaded from the edge table.
    */
   candidateEdges: EngineEdge[];
   /**
-   * Existing edges in the doco (other nodes' edges). Used by
+   * Existing edges in the collection (other nodes' edges). Used by
    * `graph-completeness` to look up incoming edges.
    */
   edges: EngineEdge[];
   /** Principals known to the host. */
   principals: PrincipalIndex;
   /**
-   * Fields of OTHER nodes in the doco (i.e., everything that isn't
+   * Fields of OTHER nodes in the collection (i.e., everything that isn't
    * the candidate). Used by `graph-completeness` to look up
    * `incoming_field_must_match` values on the producing nodes.
    */
@@ -189,7 +189,7 @@ export function edgePolicyAppliesToEdge(
  * Evaluate edge-scoped policies against a newly-created edge. Two kinds fire
  * here:
  *
- *   - `requires_edge_type` (deterministic): the Doco-wide edge-type allowlist.
+ *   - `requires_edge_type` (deterministic): the collection-wide edge-type allowlist.
  *     An edge whose `edge_type` is not permitted yields a resolved deterministic
  *     violation. It is a structural membership gate, so it always applies —
  *     even when `includeProbabilistic` is false (a `drafting` edge).

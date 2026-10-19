@@ -5,7 +5,7 @@
  * blurs. Across the retrieval literature — and Anthropic's own Contextual
  * Retrieval work — a reranker over the hybrid top-K is the single largest
  * precision@k lever for natural-language queries, which is exactly the
- * shape of agent traffic against a Doco.
+ * shape of agent traffic against a collection.
  *
  * This module is the building block: a `Reranker` interface plus Cohere and
  * Voyage implementations, mirroring embedding-provider.ts. Reranking is
@@ -189,11 +189,11 @@ export function getDefaultReranker(): Reranker | undefined {
     if (selector === "voyage")
       return rerankerForKey("VOYAGE_API_KEY", (k) => new VoyageReranker(k));
     console.error(
-      `[doco/reranker] Unknown DOCO_RERANK_PROVIDER="${selector}"; reranking disabled.`,
+      `[collection/reranker] Unknown DOCO_RERANK_PROVIDER="${selector}"; reranking disabled.`,
     );
     return undefined;
   } catch (e) {
-    console.error(`[doco/reranker] ${(e as Error).message}`);
+    console.error(`[collection/reranker] ${(e as Error).message}`);
     return undefined;
   }
 }
@@ -202,7 +202,7 @@ function rerankerForKey(envName: string, make: (key: string) => Reranker): Reran
   const key = process.env[envName];
   if (!key) {
     console.error(
-      `[doco/reranker] DOCO_RERANK_PROVIDER selects ${envName} but it is not set; reranking disabled.`,
+      `[collection/reranker] DOCO_RERANK_PROVIDER selects ${envName} but it is not set; reranking disabled.`,
     );
     return undefined;
   }

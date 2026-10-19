@@ -9,13 +9,13 @@ import {
   type EmbeddingsReport,
   chunkText,
   nodeIndexText as indexTextOf,
-  rebuildDocoDerivedData,
+  rebuildCollectionDerivedData,
   upsertEmbeddings,
   withClient,
 } from "@doco/db";
-import type { LoadedDoco, LoadedEntity } from "@doco/shared";
+import type { LoadedCollection, LoadedEntity } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
-import { loadDocoFromPostgres } from "./loadDoco.js";
+import { loadCollectionFromPostgres } from "./loadCollection.js";
 
 /**
  * The text to index for a loaded node — its FTS body and its embedding
@@ -30,9 +30,9 @@ export interface BuildReport {
   inserted: number;
   durationMs: number;
   /**
-   * Wall-clock time spent inside `loadDocoFromPostgres` (PG read +
+   * Wall-clock time spent inside `loadCollectionFromPostgres` (PG read +
    * row hydration). Surfaced so the capture-path telemetry can detect
-   * a regression that pulls the loader back to a full-Doco read.
+   * a regression that pulls the loader back to a full-collection read.
    */
   loadMs: number;
   /**
@@ -54,14 +54,14 @@ export interface IndexOptions {
    */
   embeddingProvider?: EmbeddingProviderLike;
   /**
-   * Internal Doco id. Required for every reindex; Postgres is the source
+   * Internal collection id. Required for every reindex; Postgres is the source
    * of truth and no filesystem metadata lookup is performed.
    */
-  docoId?: string;
+  collectionId?: string;
   /**
    * When set, restrict the derived-data rebuild to these entity ids
    * only — wipe and re-insert just their FTS rows,
-   * leave the rest of the Doco's derived data alone. Embeddings are
+   * leave the rest of the collection's derived data alone. Embeddings are
    * recomputed only for the named entities (content-hash gated as
    * usual, so unchanged content is still skipped).
    *
@@ -89,18 +89,21 @@ export interface IndexOptions {
 }
 
 /**
- * Rebuild derived data (FTS, embeddings) for one Doco. Caller
- * supplies the pre-loaded LoadedDoco; this function does the PG writes.
+ * Rebuild derived data (FTS, embeddings) for one collection. Caller
+ * supplies the pre-loaded LoadedCollection; this function does the PG writes.
  *
  * When `opts.changedEntityIds` is set, only those entities' derived
- * rows are touched — the rest of the Doco is left as-is. This is the
+ * rows are touched — the rest of the collection is left as-is. This is the
  * O(neighborhood) capture path. Without it, the full Doco is rebuilt
  * — the O(N+M) path used for cold starts and bulk operations.
  */
-export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Promise<BuildReport> {
+export async function indexCollection(
+  loaded: LoadedCollection,
+  opts: IndexOptions = {},
+): Promise<BuildReport> {
   const start = performance.now();
 
-  const docoId = (loaded.doco as { id: string }).id;
+  const collectionId = (loaded.collection as { id: string }).id;
   const incrementalIds =
     opts.changedEntityIds && opts.changedEntityIds.length > 0
       ? new Set(opts.changedEntityIds)
@@ -142,8 +145,8 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
         body,
       });
     }
-    await rebuildDocoDerivedData(
-      docoId,
+    await rebuildCollectionDerivedData(
+      collectionId,
       pgFts,
       incrementalIds ? { onlyEntityIds: [...incrementalIds] } : {},
     );
@@ -170,14 +173,14 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       texts.push({
         source: "node",
         entity_id: (le.entity as { id: string }).id,
-        doco_id: docoId,
+        collection_id: collectionId,
         chunks: chunkText(text),
       });
     }
     try {
       // Prune-stale wipes embeddings for entities NOT in `texts`. On
       // an incremental pass we're only passing one entity, so pruning
-      // would nuke every other embedding in the Doco — disable.
+      // would nuke every other embedding in the collection — disable.
       const provider = opts.embeddingProvider;
       embeddings = await withClient((c) =>
         upsertEmbeddings(c, texts, provider, { pruneStale: !incrementalIds }),
@@ -187,7 +190,7 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
       // blip) must not break the user-visible PATCH that triggered the
       // reindex.
       console.error(
-        "indexDoco: embedding pass failed (continuing without):",
+        "indexCollection: embedding pass failed (continuing without):",
         (err as Error).message,
       );
     }
@@ -210,21 +213,21 @@ export async function indexDoco(loaded: LoadedDoco, opts: IndexOptions = {}): Pr
  * full rebuild — first build, bulk import.
  */
 export async function reindex(opts: IndexOptions = {}): Promise<BuildReport> {
-  const docoId = opts.docoId;
-  if (!docoId) {
-    throw new Error("reindex requires opts.docoId.");
+  const collectionId = opts.collectionId;
+  if (!collectionId) {
+    throw new Error("reindex requires opts.collectionId.");
   }
   const loadStart = performance.now();
   // Pass changedEntityIds to the loader so the incremental capture path
   // only reads the rows it actually indexes (and skips host-wide
   // principal/workspace rows entirely). Full rebuilds omit the
   // option and get the original "load everything" behaviour.
-  const loaded = await loadDocoFromPostgres(docoId, {
+  const loaded = await loadCollectionFromPostgres(collectionId, {
     ...(opts.changedEntityIds && opts.changedEntityIds.length > 0
       ? { entityIds: opts.changedEntityIds }
       : {}),
   });
   const loadMs = Math.round(performance.now() - loadStart);
-  const report = await indexDoco(loaded, opts);
+  const report = await indexCollection(loaded, opts);
   return { ...report, loadMs };
 }

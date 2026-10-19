@@ -2,24 +2,104 @@
 --
 -- Source-of-truth + read-side index in one database per host.
 --
--- Single-database, multi-tenant: every entity carries its `doco_id`
--- which scopes it to the owning Doco. Hosts can hold thousands of
--- Doco instances in one database.
+-- Single-database, multi-tenant: every entity carries its `collection_id`
+-- which scopes it to the owning collection. Hosts can hold thousands of
+-- collection instances in one database.
 --
 -- Schema rules:
 --   - `nodes` stores every graph entity, discriminated by `node_type`.
---   - Policies, users, workspaces, and Docos live in dedicated tables.
+--   - Policies, users, workspaces, and collections live in dedicated tables.
 --   - `edges` stores relationships between nodes for graph queries.
 --   - `audit_events` stores structured mutation history.
 --
 -- Vocabulary:
 --   nodes   — graph entities (10 types: intent/idea/rule/decision/action/
 --               log/eval/reference/state/principal)
---   policies — Doco-level authoring metadata (one `policies` table; each
+--   policies — collection-level authoring metadata (one `policies` table; each
 --               row's `kind` is suggestion / deterministic / probabilistic)
 --   edges   — relationships between nodes
 --   users      — human OAuth identities, separate from principals
 --                (which are role-personas linked by graph edges).
+
+-- Docos became collections (decision_01M5AC2S46F9B3A5MHW9255CP3). On the first
+-- boot that still has the docos table, this renames in place every table,
+-- column, constraint, index and trigger named for them (a Slack team's
+-- doco_workspace_id names Doco's workspace, so it stays), and drops the functions
+-- whose names or parameters changed (this file recreates them, and their
+-- triggers, below). Two stored values named the level and are live: a Slack
+-- channel's connection to one collection, and the grants of pending invites.
+-- Ids keep the prefix they were minted with, and embeddings partitions their
+-- names. Removed once production has applied it.
+DO $$
+DECLARE r record;
+BEGIN
+  IF to_regclass('public.docos') IS NULL OR to_regclass('public.collections') IS NOT NULL THEN
+    RETURN;
+  END IF;
+  DROP FUNCTION IF EXISTS docos_embeddings_partitions() CASCADE;
+  DROP FUNCTION IF EXISTS doco_mirror_stays_private() CASCADE;
+  DROP FUNCTION IF EXISTS doco_allow_history_delete_for_doco() CASCADE;
+  DROP FUNCTION IF EXISTS catch_up_docos_activity() CASCADE;
+  DROP FUNCTION IF EXISTS doco_catch_up_activity(text);
+  DROP FUNCTION IF EXISTS embeddings_partition(regclass, text);
+  DROP FUNCTION IF EXISTS embeddings_nearest(vector, text[], text, text, int);
+  DROP VIEW IF EXISTS imported_items;
+  FOR r IN SELECT relname FROM pg_class
+            WHERE relnamespace = 'public'::regnamespace AND relkind IN ('r', 'p', 'S')
+              AND NOT relispartition AND relname LIKE '%doco%' LOOP
+    EXECUTE format('ALTER TABLE %I RENAME TO %I', r.relname, replace(r.relname, 'doco', 'collection'));
+  END LOOP;
+  FOR r IN SELECT c.relname, a.attname FROM pg_attribute a JOIN pg_class c ON c.oid = a.attrelid
+            WHERE c.relnamespace = 'public'::regnamespace AND c.relkind IN ('r', 'p')
+              AND NOT c.relispartition AND a.attnum > 0 AND NOT a.attisdropped
+              AND a.attname LIKE '%doco%' AND a.attname <> 'doco_workspace_id' LOOP
+    EXECUTE format('ALTER TABLE %I RENAME COLUMN %I TO %I',
+                   r.relname, r.attname, replace(r.attname, 'doco', 'collection'));
+  END LOOP;
+  FOR r IN SELECT c.relname, co.conname FROM pg_constraint co JOIN pg_class c ON c.oid = co.conrelid
+            WHERE c.relnamespace = 'public'::regnamespace AND NOT c.relispartition
+              AND co.conname LIKE '%doco%' LOOP
+    EXECUTE format('ALTER TABLE %I RENAME CONSTRAINT %I TO %I',
+                   r.relname, r.conname, replace(r.conname, 'doco', 'collection'));
+  END LOOP;
+  FOR r IN SELECT i.relname FROM pg_index x
+             JOIN pg_class i ON i.oid = x.indexrelid JOIN pg_class t ON t.oid = x.indrelid
+            WHERE i.relnamespace = 'public'::regnamespace AND NOT t.relispartition
+              AND i.relname LIKE '%doco%' LOOP
+    EXECUTE format('ALTER INDEX %I RENAME TO %I', r.relname, replace(r.relname, 'doco', 'collection'));
+  END LOOP;
+  FOR r IN SELECT c.relname, t.tgname FROM pg_trigger t JOIN pg_class c ON c.oid = t.tgrelid
+            WHERE c.relnamespace = 'public'::regnamespace AND NOT t.tgisinternal
+              AND t.tgparentid = 0 AND t.tgname LIKE '%doco%' LOOP
+    EXECUTE format('ALTER TRIGGER %I ON %I RENAME TO %I',
+                   r.tgname, r.relname, replace(r.tgname, 'doco', 'collection'));
+  END LOOP;
+  ALTER TABLE group_chat_channel_connections
+    DROP CONSTRAINT group_chat_channel_connections_target_level_check;
+  UPDATE group_chat_channel_connections SET target_level = 'collection' WHERE target_level = 'doco';
+  ALTER TABLE group_chat_channel_connections
+    ADD CONSTRAINT group_chat_channel_connections_target_level_check
+    CHECK (target_level IN ('workspace', 'collection'));
+  UPDATE tokens_blob
+     SET blob = jsonb_set(blob, '{tokens}', (
+           SELECT coalesce(jsonb_agg(
+                    (t - 'doco_id')
+                    || CASE WHEN t ? 'doco_id'
+                            THEN jsonb_build_object('collection_id', t -> 'doco_id')
+                            ELSE '{}'::jsonb END
+                    || CASE WHEN jsonb_typeof(t -> 'grants') = 'array'
+                            THEN jsonb_build_object('grants', coalesce((
+                                   SELECT jsonb_agg(CASE WHEN g ->> 'level' = 'doco'
+                                                         THEN jsonb_set(g, '{level}', '"collection"')
+                                                         ELSE g END ORDER BY o)
+                                     FROM jsonb_array_elements(t -> 'grants') WITH ORDINALITY AS e (g, o)),
+                                   '[]'::jsonb))
+                            ELSE '{}'::jsonb END
+                    ORDER BY n), '[]'::jsonb)
+             FROM jsonb_array_elements(blob -> 'tokens') WITH ORDINALITY AS x (t, n))),
+         updated_at = now()
+   WHERE jsonb_typeof(blob -> 'tokens') = 'array';
+END $$;
 
 -- Host config (singleton row at id='host').
 CREATE TABLE IF NOT EXISTS hosts (
@@ -41,7 +121,7 @@ ON CONFLICT (id) DO NOTHING;
 --
 -- Two distinct concerns, split into two tables:
 --   `users`      — OAuth identity for humans. Authored nodes via
---                  `created_by` / `updated_by`. Members of workspaces/docos.
+--                  `created_by` / `updated_by`. Members of workspaces/collections.
 --                  OAuth clients/tokens have names on the token rows;
 --                  they are not represented as user rows.
 --   `principals` — role-personas (the "actor" in a documented business
@@ -82,23 +162,6 @@ CREATE TABLE IF NOT EXISTS workspaces (
   personal_user_id text REFERENCES users(id) ON DELETE SET NULL
 );
 
--- Every constitution carries the three baseline agent duties (load context,
--- document every decision, record every conversation). New workspaces get
--- them from DEFAULT_WORKSPACE_CONSTITUTION (packages/shared/src/constitution.ts);
--- this appends the same paragraph to any existing constitution that lacks it,
--- so a workspace still on the old default becomes byte-identical to the new
--- one and a customized charter keeps its text. Only constitutions without the
--- paragraph match, so a reboot never rewrites one that already has it. The
--- paragraph is kept byte-for-byte in sync with constitution.ts by
--- packages/db/src/__tests__/constitution-duties-backfill.test.ts.
-UPDATE workspaces
-   SET constitution = CASE
-         WHEN constitution = '' THEN $duties$Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.$duties$
-         ELSE constitution || E'\n\n' || $duties$Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.$duties$
-       END,
-       updated_at = now()
- WHERE position($duties$Three duties are not optional. Load context at the start of every session by querying this workspace's Docos before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.$duties$ IN constitution) = 0;
-
 -- Workspace users (per-workspace role grants).
 CREATE TABLE IF NOT EXISTS workspace_users (
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -137,11 +200,11 @@ CREATE TABLE IF NOT EXISTS workspace_onboarding (
 CREATE INDEX IF NOT EXISTS workspace_onboarding_due_idx
   ON workspace_onboarding (started_at) WHERE reminded_at IS NULL;
 
--- Every Doco has a single public `handle`. It lives in the same flat
+-- Every collection has a single public `handle`. It lives in the same flat
 -- namespace as top-level host routes. The internal ULID `id` stays as
 -- the FK target for entity tables; `handle` is what URLs and public API
 -- calls use.
-CREATE TABLE IF NOT EXISTS docos (
+CREATE TABLE IF NOT EXISTS collections (
   id              text PRIMARY KEY,
   handle          text NOT NULL UNIQUE,
   owner_id        text NOT NULL,    -- workspace_<ulid>
@@ -149,17 +212,17 @@ CREATE TABLE IF NOT EXISTS docos (
   visibility      text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
   default_node_lifecycle text,
   -- Free-form sentence the project owner writes (or the creation template
-  -- seeds) to tell agents what this Doco is for. Surfaced at the top of
-  -- each Doco's policy set in the agent-bootstrap manifest, and under
-  -- the title on the Doco home page.
+  -- seeds) to tell agents what this collection is for. Surfaced at the top of
+  -- each collection's policy set in the agent-bootstrap manifest, and under
+  -- the title on the collection home page.
   goal            text NOT NULL DEFAULT '',
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
   -- Soft-delete tombstone. NULL = live; a timestamp = deleted, awaiting the
-  -- 30-day purge sweep (admin.purge-deleted-docos cron) that hard-deletes it
+  -- 30-day purge sweep (admin.purge-deleted-collections cron) that hard-deletes it
   -- via ON DELETE CASCADE. Every read path filters `deleted_at IS NULL`, so a
-  -- tombstoned Doco is invisible everywhere — unreachable by URL, gone from
+  -- tombstoned collection is invisible everywhere — unreachable by URL, gone from
   -- every listing — while its rows are retained for the grace window. On
   -- delete the handle is rewritten to `<handle>-deleted-<epoch-millis>`, which
   -- frees the original name for immediate reuse while keeping the tombstone's
@@ -167,14 +230,14 @@ CREATE TABLE IF NOT EXISTS docos (
   deleted_at      timestamptz
 );
 
--- Per-Doco policies. Every policy is an authoring policy; the standalone
+-- Per-collection policies. Every policy is an authoring policy; the standalone
 -- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and
 -- is mirrored to a column for filtering. The full structured record
 -- (predicate, on_violation, fires_when_node_lifecycle, …) lives in `data`.
 
 CREATE TABLE IF NOT EXISTS policies (
   id          text PRIMARY KEY,
-  doco_id     text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id     text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   -- 'suggestion' | 'deterministic' | 'probabilistic'.
   kind        text,
   -- Policies only ever occupy two stages: 'active' or 'retired'.
@@ -186,12 +249,12 @@ CREATE TABLE IF NOT EXISTS policies (
   updated_at  timestamptz NOT NULL DEFAULT now(),
   updated_by  text
 );
-CREATE INDEX IF NOT EXISTS policies_doco_idx
-  ON policies (doco_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS policies_collection_idx
+  ON policies (collection_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS policies_kind_idx
-  ON policies (doco_id, kind);
+  ON policies (collection_id, kind);
 CREATE INDEX IF NOT EXISTS policies_lifecycle_idx
-  ON policies (doco_id, lifecycle);
+  ON policies (collection_id, lifecycle);
 
 -- ── Unified node table ───────────────────────────────────────────────────
 -- One row per graph node of any type, discriminated by `node_type`.
@@ -207,7 +270,7 @@ CREATE INDEX IF NOT EXISTS policies_lifecycle_idx
 -- the node types below.
 CREATE TABLE IF NOT EXISTS nodes (
   id             text PRIMARY KEY,            -- <node_type>_<ulid>
-  doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id        text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   node_type      text NOT NULL,              -- intent|idea|rule|decision|action|log|eval|reference|state|principal
   -- Lifecycle is mandatory; canonical stages: drafting|queued|active|retired.
   lifecycle      text NOT NULL DEFAULT 'active',
@@ -233,17 +296,17 @@ CREATE TABLE IF NOT EXISTS nodes (
   updated_at   timestamptz NOT NULL DEFAULT now(),
   updated_by   text
 );
-CREATE INDEX IF NOT EXISTS nodes_doco_type_idx  ON nodes (doco_id, node_type, created_at DESC);
-CREATE INDEX IF NOT EXISTS nodes_doco_life_idx  ON nodes (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS nodes_collection_type_idx  ON nodes (collection_id, node_type, created_at DESC);
+CREATE INDEX IF NOT EXISTS nodes_collection_life_idx  ON nodes (collection_id, lifecycle);
 -- Dedupe key on the promoted `locator` column — the GitHub imports'
 -- idempotency lookups (a pull request's Reference, an issue's Eval) are indexed
 -- reads on it.
 DROP INDEX IF EXISTS nodes_ref_locator_idx;
-CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (doco_id, locator) WHERE locator IS NOT NULL;
--- When a Doco's GitHub import last wrote a pull request's Reference or an
+CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (collection_id, locator) WHERE locator IS NOT NULL;
+-- When a collection's GitHub import last wrote a pull request's Reference or an
 -- issue's Eval is one probe of this index; the predicate is the import's
 -- (the imported_items view).
-CREATE INDEX IF NOT EXISTS nodes_github_import_idx ON nodes (doco_id, updated_at)
+CREATE INDEX IF NOT EXISTS nodes_github_import_idx ON nodes (collection_id, updated_at)
   WHERE node_type IN ('reference', 'eval')
     AND locator ~ '^https://github\.com/[^/]+/[^/]+/(pull|issues)/[0-9]+$';
 
@@ -253,7 +316,7 @@ CREATE TABLE IF NOT EXISTS audit_events (
   event_id      text PRIMARY KEY,
   at            timestamptz NOT NULL,
   by_user       text,
-  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id       text REFERENCES collections(id) ON DELETE CASCADE,
   workspace_id  text REFERENCES workspaces(id) ON DELETE CASCADE,
   entity_type   text NOT NULL,
   entity_id     text NOT NULL,
@@ -263,8 +326,8 @@ CREATE TABLE IF NOT EXISTS audit_events (
   reason        text
 );
 CREATE INDEX IF NOT EXISTS audit_events_entity_idx ON audit_events (entity_id, at DESC);
-CREATE INDEX IF NOT EXISTS audit_events_doco_idx ON audit_events (doco_id, at DESC);
-CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (doco_id, op, at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_collection_idx ON audit_events (collection_id, at DESC);
+CREATE INDEX IF NOT EXISTS audit_events_op_idx ON audit_events (collection_id, op, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_user_idx ON audit_events (by_user, at DESC);
 CREATE INDEX IF NOT EXISTS audit_events_workspace_idx ON audit_events (workspace_id, at DESC);
 
@@ -278,7 +341,7 @@ CREATE INDEX IF NOT EXISTS audit_events_workspace_idx ON audit_events (workspace
 -- "as-of" reads. Append-only; never updated or deleted.
 CREATE TABLE IF NOT EXISTS changesets (
   tx_id        bigserial PRIMARY KEY,
-  doco_id      text REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id      text REFERENCES collections(id) ON DELETE CASCADE,
   actor        text,                          -- user_<ulid>
   source       text NOT NULL DEFAULT 'api'
                  CHECK (source IN ('api','mcp','ui','slack','import','reset','system')),
@@ -286,33 +349,33 @@ CREATE TABLE IF NOT EXISTS changesets (
   metadata     jsonb,
   recorded_at  timestamptz NOT NULL DEFAULT now()
 );
-CREATE INDEX IF NOT EXISTS changesets_doco_idx ON changesets (doco_id, tx_id DESC);
+CREATE INDEX IF NOT EXISTS changesets_collection_idx ON changesets (collection_id, tx_id DESC);
 -- Writes by an agent over the MCP server or the API (byAgentOverApiSql), which
 -- the workspace setup steps look for: a few rows beside every import's.
-CREATE INDEX IF NOT EXISTS changesets_by_agent_idx ON changesets (doco_id, actor)
+CREATE INDEX IF NOT EXISTS changesets_by_agent_idx ON changesets (collection_id, actor)
   WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
--- A Doco's writes over a period, for the days the activity rollup hasn't
+-- A collection's writes over a period, for the days the activity rollup hasn't
 -- counted yet (activity_days below).
-CREATE INDEX IF NOT EXISTS changesets_recorded_idx ON changesets (doco_id, recorded_at);
+CREATE INDEX IF NOT EXISTS changesets_recorded_idx ON changesets (collection_id, recorded_at);
 
 -- Query log — one row per query, the read-side twin of `changesets`: who
 -- (actor), how they came in (source + metadata, the same request context a
 -- changeset records, so reads and writes name the same agent), and when.
--- Every agent read of a Doco (MCP, REST API, Señor Doco) and every search on
+-- Every agent read of a collection (MCP, REST API, Señor Doco) and every search on
 -- the website is a query; opening a page on the website isn't. A search across
--- a whole workspace has no `doco_id`.
+-- a whole workspace has no `collection_id`.
 CREATE TABLE IF NOT EXISTS query_events (
   id            bigserial PRIMARY KEY,
   at            timestamptz NOT NULL DEFAULT now(),
   actor         text,                          -- user_<ulid>; null for a project token or anonymous reader
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id       text REFERENCES collections(id) ON DELETE CASCADE,
   source        text NOT NULL
                   CHECK (source IN ('api','mcp','ui','slack','import','reset','system')),
   metadata      jsonb
 );
 CREATE INDEX IF NOT EXISTS query_events_workspace_idx ON query_events (workspace_id, at DESC);
-CREATE INDEX IF NOT EXISTS query_events_doco_idx ON query_events (doco_id, at DESC);
+CREATE INDEX IF NOT EXISTS query_events_collection_idx ON query_events (collection_id, at DESC);
 CREATE INDEX IF NOT EXISTS query_events_actor_idx ON query_events (actor, at DESC);
 -- Reads by an agent over the MCP server or the API, as for changesets above.
 CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_id, actor)
@@ -320,7 +383,7 @@ CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_
 
 -- The activity logs counted per UTC day (activity-log.server.ts), so the
 -- Activity calendars and top lists read days instead of every row: one row per
--- day, log, Doco (or, for a search across a whole workspace, no Doco and the
+-- day, log, collection (or, for a search across a whole workspace, no collection and the
 -- workspace), person, and the agent they worked through (`via`, null for the
 -- website) or, for imports, the integration. An hourly cron counts each day
 -- of writes and queries once, after it ends, and every day of imports again on
@@ -329,16 +392,16 @@ CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_
 CREATE TABLE IF NOT EXISTS activity_days (
   day           date NOT NULL,
   log           text NOT NULL CHECK (log IN ('writes', 'queries', 'imports')),
-  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id       text REFERENCES collections(id) ON DELETE CASCADE,
   workspace_id  text REFERENCES workspaces(id) ON DELETE CASCADE,
   actor         text,
   via           text,
   n             integer NOT NULL,
   last_at       timestamptz NOT NULL
 );
-CREATE INDEX IF NOT EXISTS activity_days_doco_idx ON activity_days (doco_id, day);
+CREATE INDEX IF NOT EXISTS activity_days_collection_idx ON activity_days (collection_id, day);
 CREATE INDEX IF NOT EXISTS activity_days_workspace_idx ON activity_days (workspace_id, day)
-  WHERE doco_id IS NULL;
+  WHERE collection_id IS NULL;
 CREATE TABLE IF NOT EXISTS activity_rollup (
   one      boolean PRIMARY KEY DEFAULT true CHECK (one),
   through  date NOT NULL
@@ -389,7 +452,7 @@ CREATE INDEX IF NOT EXISTS edge_versions_asof_idx ON edge_versions (entity_id, t
 -- table. Removal is lifecycle='retired', never DELETE.
 CREATE TABLE IF NOT EXISTS edges (
   id              text PRIMARY KEY,           -- edge_<ulid>
-  doco_id         text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id         text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   edge_type       text NOT NULL,
   from_id         text NOT NULL CONSTRAINT edges_from_fk REFERENCES nodes(id) DEFERRABLE INITIALLY DEFERRED,
   from_node_type  text NOT NULL,
@@ -412,43 +475,43 @@ CREATE TABLE IF NOT EXISTS edges (
   updated_by      text,
   retired_at      timestamptz
 );
--- At most one LIVE edge per (doco, from, to, type); retired duplicates ok.
+-- At most one LIVE edge per (collection, from, to, type); retired duplicates ok.
 -- Edge `role` is retired, so the relation type alone is the live identity — two
 -- nodes are connected by at most one live edge of each type. (The role-removal
 -- migration near the end of this file drops the old role-bearing index, dedups
 -- any edges that collapse together, and recreates this one.)
 CREATE UNIQUE INDEX IF NOT EXISTS edges_live_uniq
   ON edges (
-    doco_id,
+    collection_id,
     from_id,
     to_id,
     edge_type
   ) WHERE lifecycle <> 'retired';
-CREATE INDEX IF NOT EXISTS edges_doco_idx           ON edges (doco_id);
-CREATE INDEX IF NOT EXISTS edges_doco_type_from_idx ON edges (doco_id, edge_type, from_id);
-CREATE INDEX IF NOT EXISTS edges_doco_type_to_idx   ON edges (doco_id, edge_type, to_id);
+CREATE INDEX IF NOT EXISTS edges_collection_idx           ON edges (collection_id);
+CREATE INDEX IF NOT EXISTS edges_collection_type_from_idx ON edges (collection_id, edge_type, from_id);
+CREATE INDEX IF NOT EXISTS edges_collection_type_to_idx   ON edges (collection_id, edge_type, to_id);
 CREATE INDEX IF NOT EXISTS edges_from_idx           ON edges (from_id);
 CREATE INDEX IF NOT EXISTS edges_to_idx             ON edges (to_id);
-CREATE INDEX IF NOT EXISTS edges_lifecycle_idx      ON edges (doco_id, lifecycle);
+CREATE INDEX IF NOT EXISTS edges_lifecycle_idx      ON edges (collection_id, lifecycle);
 
--- PageRank stored per node (decision_01M4EXESAH2XENAB3B612P8ZAR): each Doco's
+-- PageRank stored per node (decision_01M4EXESAH2XENAB3B612P8ZAR): each collection's
 -- nodes ranked over its live edges, directed, and scaled so the average node
--- of the graph ranks 1, which keeps ranks of Docos of different sizes
+-- of the graph ranks 1, which keeps ranks of collections of different sizes
 -- comparable. Briefs and search read it instead of loading every edge per
--- request. A node with no live edge has no row (rank 0). A write to a Doco's
--- edges queues the Doco in node_ranks_stale (append-only, so concurrent
+-- request. A node with no live edge has no row (rank 0). A write to a collection's
+-- edges queues the collection in node_ranks_stale (append-only, so concurrent
 -- writers never wait on each other); the minute sweep drains the queue and
--- recomputes each queued Doco once (lib/node-ranks.server.ts).
+-- recomputes each queued collection once (lib/node-ranks.server.ts).
 CREATE TABLE IF NOT EXISTS node_ranks (
   node_id  text PRIMARY KEY REFERENCES nodes(id) ON DELETE CASCADE,
   rank     double precision NOT NULL
 );
 CREATE TABLE IF NOT EXISTS node_ranks_stale (
-  doco_id  text NOT NULL
+  collection_id  text NOT NULL
 );
 CREATE OR REPLACE FUNCTION node_ranks_mark_stale() RETURNS trigger AS $$
 BEGIN
-  INSERT INTO node_ranks_stale (doco_id) SELECT DISTINCT doco_id FROM changed_edges;
+  INSERT INTO node_ranks_stale (collection_id) SELECT DISTINCT collection_id FROM changed_edges;
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS edges_ranks_stale_insert ON edges;
@@ -459,9 +522,9 @@ DROP TRIGGER IF EXISTS edges_ranks_stale_update ON edges;
 CREATE TRIGGER edges_ranks_stale_update
   AFTER UPDATE ON edges REFERENCING NEW TABLE AS changed_edges
   FOR EACH STATEMENT EXECUTE FUNCTION node_ranks_mark_stale();
--- The first time, every Doco with edges is stale.
-INSERT INTO node_ranks_stale (doco_id)
-SELECT DISTINCT doco_id FROM edges
+-- The first time, every collection with edges is stale.
+INSERT INTO node_ranks_stale (collection_id)
+SELECT DISTINCT collection_id FROM edges
  WHERE NOT EXISTS (SELECT 1 FROM node_ranks) AND NOT EXISTS (SELECT 1 FROM node_ranks_stale);
 
 -- Vector embeddings, in pgvector: one row per chunk of an entity's text, for
@@ -474,9 +537,9 @@ SELECT DISTINCT doco_id FROM edges
 -- model_id differs. Vectors shorter than 1536 dimensions (Voyage's 1024) are
 -- zero-padded, which leaves cosine similarity unchanged.
 --
--- Each Doco's chunks are a partition of their own, `embeddings_<doco id>`,
--- made with the Doco and dropped with it, so each Doco has its own HNSW index
--- and a search walks only the indexes of the Docos it reads: a Doco of 18
+-- Each collection's chunks are a partition of their own, `embeddings_<collection id>`,
+-- made with the collection and dropped with it, so each collection has its own HNSW index
+-- and a search walks only the indexes of the collections it reads: a collection of 18
 -- chunks is searched as fully as one of 250,000. The index holds each vector's
 -- first 512 dimensions in half precision (OpenAI's text-embedding-3 models are
 -- trained to be cut there), a sixth of the whole vector's size, and
@@ -494,7 +557,7 @@ DO $$ BEGIN
   END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS embeddings (
-  doco_id       text NOT NULL,
+  collection_id       text NOT NULL,
   source        text NOT NULL CHECK (source IN ('node','notion','slack')),
   entity_id     text NOT NULL,
   chunk_index   int  NOT NULL DEFAULT 0,
@@ -503,76 +566,76 @@ CREATE TABLE IF NOT EXISTS embeddings (
   chunk_text    text NOT NULL,
   embedding     vector(1536) NOT NULL,
   updated_at    timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (doco_id, entity_id, chunk_index)
-) PARTITION BY LIST (doco_id);
-CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (doco_id, source, model_id);
+  PRIMARY KEY (collection_id, entity_id, chunk_index)
+) PARTITION BY LIST (collection_id);
+CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (collection_id, source, model_id);
 CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings
   USING hnsw ((subvector(embedding, 1, 512)::halfvec(512)) halfvec_cosine_ops)
   WITH (m = 32, ef_construction = 200);
 
--- A Doco's partition. Created empty and then attached, which locks the parent
+-- A collection's partition. Created empty and then attached, which locks the parent
 -- against schema changes only (CREATE TABLE ... PARTITION OF would block every
 -- search until the transaction ends).
-CREATE OR REPLACE FUNCTION embeddings_partition(parent regclass, doco text) RETURNS void AS $$
+CREATE OR REPLACE FUNCTION embeddings_partition(parent regclass, collection text) RETURNS void AS $$
 DECLARE
-  part text := 'embeddings_' || doco;
+  part text := 'embeddings_' || collection;
 BEGIN
   IF to_regclass(quote_ident(part)) IS NULL THEN
     EXECUTE format('CREATE TABLE %I (LIKE %s INCLUDING DEFAULTS INCLUDING CONSTRAINTS)', part, parent);
-    EXECUTE format('ALTER TABLE %s ATTACH PARTITION %I FOR VALUES IN (%L)', parent, part, doco);
+    EXECUTE format('ALTER TABLE %s ATTACH PARTITION %I FOR VALUES IN (%L)', parent, part, collection);
   END IF;
 END $$ LANGUAGE plpgsql;
 
-CREATE OR REPLACE FUNCTION docos_embeddings_partitions() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION collections_embeddings_partitions() RETURNS trigger AS $$
 DECLARE
-  doco text;
+  collection text;
 BEGIN
   IF TG_OP = 'INSERT' THEN
-    PERFORM embeddings_partition('embeddings', id) FROM created_docos;
+    PERFORM embeddings_partition('embeddings', id) FROM created_collections;
   ELSE
-    FOR doco IN SELECT id FROM deleted_docos LOOP
-      EXECUTE format('DROP TABLE IF EXISTS %I', 'embeddings_' || doco);
+    FOR collection IN SELECT id FROM deleted_collections LOOP
+      EXECUTE format('DROP TABLE IF EXISTS %I', 'embeddings_' || collection);
     END LOOP;
   END IF;
   RETURN NULL;
 END $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS docos_embeddings_partition_create ON docos;
-CREATE TRIGGER docos_embeddings_partition_create
-  AFTER INSERT ON docos REFERENCING NEW TABLE AS created_docos
-  FOR EACH STATEMENT EXECUTE FUNCTION docos_embeddings_partitions();
-DROP TRIGGER IF EXISTS docos_embeddings_partition_drop ON docos;
-CREATE TRIGGER docos_embeddings_partition_drop
-  AFTER DELETE ON docos REFERENCING OLD TABLE AS deleted_docos
-  FOR EACH STATEMENT EXECUTE FUNCTION docos_embeddings_partitions();
+DROP TRIGGER IF EXISTS collections_embeddings_partition_create ON collections;
+CREATE TRIGGER collections_embeddings_partition_create
+  AFTER INSERT ON collections REFERENCING NEW TABLE AS created_collections
+  FOR EACH STATEMENT EXECUTE FUNCTION collections_embeddings_partitions();
+DROP TRIGGER IF EXISTS collections_embeddings_partition_drop ON collections;
+CREATE TRIGGER collections_embeddings_partition_drop
+  AFTER DELETE ON collections REFERENCING OLD TABLE AS deleted_collections
+  FOR EACH STATEMENT EXECUTE FUNCTION collections_embeddings_partitions();
 DO $$ BEGIN
-  PERFORM embeddings_partition('embeddings', id) FROM docos;
+  PERFORM embeddings_partition('embeddings', id) FROM collections;
 END $$;
 
 DO $$ BEGIN
   IF to_regclass('embeddings_unpartitioned') IS NOT NULL THEN
     INSERT INTO embeddings
-      (doco_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding, updated_at)
-    SELECT doco_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text,
+      (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding, updated_at)
+    SELECT collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text,
            embedding, updated_at
       FROM embeddings_unpartitioned;
     DROP TABLE embeddings_unpartitioned;
   END IF;
 END $$;
 
--- The `limit` entities nearest the query among the Docos asked, for one
+-- The `limit` entities nearest the query among the collections asked, for one
 -- source and one model: each entity's best chunk, best first. It keeps the
--- Docos that hold chunks of that source and model (a mirror Doco's index holds
+-- collections that hold chunks of that source and model (a mirror collection's index holds
 -- no nodes, and walking it for some would scan it in vain), walks their
 -- 512-dimension indexes for four candidate chunks per entity asked (at least
 -- 200), then scores those on the whole vector. The walk keeps twice as many
 -- candidates in view as it returns: Slack's thousands of near-identical bot
 -- alerts trap a narrower one, which is also why the index links each chunk to
 -- 32 neighbours. The query runs through EXECUTE so it is planned with the
--- Docos known and touches only their partitions; the iterative scan keeps the
+-- collections known and touches only their partitions; the iterative scan keeps the
 -- walk going until the candidates are found.
 CREATE OR REPLACE FUNCTION embeddings_nearest(
-  query vector, doco_ids text[], chunk_source text, chunk_model text, entity_limit int
-) RETURNS TABLE (doco_id text, entity_id text, chunk_text text, score double precision)
+  query vector, collection_ids text[], chunk_source text, chunk_model text, entity_limit int
+) RETURNS TABLE (collection_id text, entity_id text, chunk_text text, score double precision)
 LANGUAGE plpgsql STABLE
 SET hnsw.iterative_scan = strict_order
 SET hnsw.ef_search = 400
@@ -581,24 +644,24 @@ DECLARE
   holding text[];
   candidates int := greatest(entity_limit * 4, 200);
 BEGIN
-  SELECT array_agg(d) INTO holding FROM unnest(doco_ids) AS d
+  SELECT array_agg(d) INTO holding FROM unnest(collection_ids) AS d
    WHERE EXISTS (SELECT 1 FROM embeddings e
-                  WHERE e.doco_id = d AND e.source = chunk_source AND e.model_id = chunk_model);
+                  WHERE e.collection_id = d AND e.source = chunk_source AND e.model_id = chunk_model);
   IF holding IS NULL THEN
     RETURN;
   END IF;
   PERFORM set_config('hnsw.ef_search', least(candidates * 2, 1000)::text, true);
   RETURN QUERY EXECUTE $q$
-    SELECT doco_id, entity_id, chunk_text, score FROM (
-      SELECT DISTINCT ON (doco_id, entity_id)
-             doco_id, entity_id, chunk_text, 1 - (embedding <=> $1) AS score
-        FROM (SELECT doco_id, entity_id, chunk_text, embedding
+    SELECT collection_id, entity_id, chunk_text, score FROM (
+      SELECT DISTINCT ON (collection_id, entity_id)
+             collection_id, entity_id, chunk_text, 1 - (embedding <=> $1) AS score
+        FROM (SELECT collection_id, entity_id, chunk_text, embedding
                 FROM embeddings
-               WHERE doco_id = ANY($2) AND source = $3 AND model_id = $4
+               WHERE collection_id = ANY($2) AND source = $3 AND model_id = $4
                ORDER BY subvector(embedding, 1, 512)::halfvec(512) <=> $5
                LIMIT $7) candidates
-       ORDER BY doco_id, entity_id, embedding <=> $1) best
-     ORDER BY score DESC, doco_id, entity_id
+       ORDER BY collection_id, entity_id, embedding <=> $1) best
+     ORDER BY score DESC, collection_id, entity_id
      LIMIT $6
   $q$ USING query, holding, chunk_source, chunk_model,
             subvector(query, 1, 512)::halfvec(512), entity_limit, candidates;
@@ -611,7 +674,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS entity_fts_nodes (
   entity_id    text PRIMARY KEY,
-  doco_id      text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id      text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   node_type  text NOT NULL,
   summary      text,
   body         text,
@@ -620,7 +683,7 @@ CREATE TABLE IF NOT EXISTS entity_fts_nodes (
     setweight(to_tsvector('english', coalesce(body, '')), 'B')
   ) STORED
 );
-CREATE INDEX IF NOT EXISTS entity_fts_nodes_doco_idx ON entity_fts_nodes (doco_id);
+CREATE INDEX IF NOT EXISTS entity_fts_nodes_collection_idx ON entity_fts_nodes (collection_id);
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING gin (search_tsv);
 
 -- ── Touches ──────────────────────────────────────────────────────────────
@@ -634,12 +697,12 @@ CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING g
 -- link; URLs lose trailing punctuation.
 CREATE TABLE IF NOT EXISTS node_touches (
   node_id  text NOT NULL REFERENCES nodes(id) ON DELETE CASCADE,
-  doco_id  text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id  text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   kind     text NOT NULL CHECK (kind IN ('path', 'url', 'node', 'pr')),
   value    text NOT NULL,
   PRIMARY KEY (node_id, kind, value)
 );
-CREATE INDEX IF NOT EXISTS node_touches_value_idx ON node_touches (doco_id, kind, value);
+CREATE INDEX IF NOT EXISTS node_touches_value_idx ON node_touches (collection_id, kind, value);
 
 CREATE OR REPLACE FUNCTION node_touches_of(prose text, locator text)
   RETURNS TABLE (kind text, value text) AS $$
@@ -673,8 +736,8 @@ $$ LANGUAGE sql IMMUTABLE;
 CREATE OR REPLACE FUNCTION node_touches_refresh() RETURNS trigger AS $$
 BEGIN
   DELETE FROM node_touches WHERE node_id = NEW.id;
-  INSERT INTO node_touches (node_id, doco_id, kind, value)
-    SELECT NEW.id, NEW.doco_id, t.kind, t.value
+  INSERT INTO node_touches (node_id, collection_id, kind, value)
+    SELECT NEW.id, NEW.collection_id, t.kind, t.value
       FROM node_touches_of(NEW.prose, NEW.locator) AS t
     ON CONFLICT DO NOTHING;
   RETURN NEW;
@@ -682,13 +745,13 @@ END;
 $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS nodes_touches_refresh ON nodes;
 CREATE TRIGGER nodes_touches_refresh
-  AFTER INSERT OR UPDATE OF prose, locator, doco_id ON nodes
+  AFTER INSERT OR UPDATE OF prose, locator, collection_id ON nodes
   FOR EACH ROW EXECUTE FUNCTION node_touches_refresh();
 
 -- Nodes written before the trigger existed get their rows once: only an
 -- empty table is backfilled, so a later boot scans nothing.
-INSERT INTO node_touches (node_id, doco_id, kind, value)
-SELECT n.id, n.doco_id, t.kind, t.value
+INSERT INTO node_touches (node_id, collection_id, kind, value)
+SELECT n.id, n.collection_id, t.kind, t.value
   FROM nodes n, node_touches_of(n.prose, n.locator) AS t
  WHERE NOT EXISTS (SELECT 1 FROM node_touches LIMIT 1)
 ON CONFLICT DO NOTHING;
@@ -697,26 +760,26 @@ ON CONFLICT DO NOTHING;
 -- Multi-level access (decision_01KS0JBJ5X0AZ4XJJFKEWE1R62).
 --
 -- Three roles (owner / writer / reader) granted at two levels
--- (workspace / doco). Effective role = max across levels (highest-wins
+-- (workspace / collection). Effective role = max across levels (highest-wins
 -- additive composition). Writers may add, edit, retire, and transition
 -- the lifecycle of any node or edge; what they may or may not do
--- is governed by the Doco's own policies, not a built-in role ladder.
--- Owners additionally administer the Doco (users, tokens, policies).
+-- is governed by the collection's own policies, not a built-in role ladder.
+-- Owners additionally administer the collection (users, tokens, policies).
 
--- Per-doco user grants. Invite redemption and owner/admin surfaces write
+-- Per-collection user grants. Invite redemption and owner/admin surfaces write
 -- these rows directly; OAuth tokens authenticate callers but do not store
 -- membership.
-CREATE TABLE IF NOT EXISTS doco_users (
-  doco_id       text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS collection_users (
+  collection_id       text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   role          text NOT NULL CHECK (role IN ('owner', 'writer', 'reader')),
   -- Per-type write grants. '*' = write every type; owners ignore this and
   -- write everything.
   write_types   text[] NOT NULL DEFAULT ARRAY[]::text[],
   joined_at     timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (doco_id, user_id)
+  PRIMARY KEY (collection_id, user_id)
 );
-CREATE INDEX IF NOT EXISTS doco_users_user_idx ON doco_users (user_id);
+CREATE INDEX IF NOT EXISTS collection_users_user_idx ON collection_users (user_id);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Invite store backing blob.
@@ -765,9 +828,9 @@ CREATE TABLE IF NOT EXISTS oauth_clients (
 -- verifier the runtime stored locally; /oauth/token rejects the
 -- exchange unless the verifier matches.
 --
--- `granted_doco_ids` is the set of Docos the user approved this
--- client to access. Empty array means doco-level approval is pending
--- (rare path; we always require at least one Doco today).
+-- `granted_collection_ids` is the set of collections the user approved this
+-- client to access. Empty array means collection-level approval is pending
+-- (rare path; we always require at least one collection today).
 CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   code                  text PRIMARY KEY,
   client_id             text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
@@ -775,22 +838,22 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   redirect_uri          text NOT NULL,
   code_challenge        text NOT NULL,
   code_challenge_method text NOT NULL DEFAULT 'S256' CHECK (code_challenge_method = 'S256'),
-  granted_doco_ids      text[] NOT NULL,
-  -- Per-Doco role scope-down. Map of doco_id → DocoRole capping the
-  -- token's effective role on that Doco. The user can lower the role
-  -- below what they themselves hold (give the agent "reader" on a Doco
+  granted_collection_ids      text[] NOT NULL,
+  -- Per-collection role scope-down. Map of collection_id → CollectionRole capping the
+  -- token's effective role on that collection. The user can lower the role
+  -- below what they themselves hold (give the agent "reader" on a collection
   -- where they're owner) but never raise it. Missing entries mean
   -- "inherit the principal's actual role" — i.e. no scope-down.
-  granted_doco_roles    jsonb NOT NULL DEFAULT '{}'::jsonb,
-  -- Per-type write scope-down, keyed by doco_id to a list of writable-type
-  -- tokens ('*' = all). Parallels granted_doco_roles.
-  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_roles    jsonb NOT NULL DEFAULT '{}'::jsonb,
+  -- Per-type write scope-down, keyed by collection_id to a list of writable-type
+  -- tokens ('*' = all). Parallels granted_collection_roles.
+  granted_collection_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- Workspace-level grants. When the user approves access to a workspace, every
-  -- Doco owned by that workspace becomes reachable through this token —
-  -- including Docos created under the workspace after the token was minted
+  -- collection owned by that workspace becomes reachable through this token —
+  -- including collections created under the workspace after the token was minted
   -- ("live" grant, not a snapshot). `granted_workspace_roles[workspace_id]` caps
-  -- the effective role on Docos under that workspace, same semantics as
-  -- granted_doco_roles.
+  -- the effective role on collections under that workspace, same semantics as
+  -- granted_collection_roles.
   granted_workspace_ids       text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles     jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -821,9 +884,9 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_name        text,
-  granted_doco_ids  text[] NOT NULL,
-  granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_ids  text[] NOT NULL,
+  granted_collection_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -856,17 +919,17 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_name        text,
-  granted_doco_ids  text[] NOT NULL,
-  granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_ids  text[] NOT NULL,
+  granted_collection_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_ids   text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   -- 'actor' = a user-level credential whose breadth is the user's LIVE
   -- workspace membership, resolved on every request. 'regular' (default) = a
-  -- refresh whose explicit grants (any set of workspaces and Docos) copy
+  -- refresh whose explicit grants (any set of workspaces and collections) copy
   -- through to the access token verbatim. An actor refresh carries NO
-  -- explicit workspace/doco grants.
+  -- explicit workspace/collection grants.
   grant_type        text NOT NULL DEFAULT 'regular'
                     CHECK (grant_type IN ('regular', 'actor')),
   -- Role CEILING for an actor refresh, applied to every workspace: at refresh
@@ -890,7 +953,7 @@ CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
 -- in their browser at GET /device.
 --
 -- `status` transitions: pending → approved (user_id +
--- granted_doco_ids set) or denied or expired. The polling endpoint
+-- granted_collection_ids set) or denied or expired. The polling endpoint
 -- mints + returns access/refresh tokens iff `status = approved`,
 -- then deletes the row.
 CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
@@ -901,9 +964,9 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   status           text NOT NULL DEFAULT 'pending'
                      CHECK (status IN ('pending','approved','denied')),
   user_id             text REFERENCES users(id) ON DELETE CASCADE,
-  granted_doco_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
-  granted_doco_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
-  granted_doco_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_ids text[] NOT NULL DEFAULT ARRAY[]::text[],
+  granted_collection_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
+  granted_collection_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_ids  text[] NOT NULL DEFAULT ARRAY[]::text[],
   granted_workspace_roles jsonb NOT NULL DEFAULT '{}'::jsonb,
   granted_workspace_write_types jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -914,7 +977,7 @@ CREATE TABLE IF NOT EXISTS oauth_device_authorizations (
   -- See oauth_authorization_codes.actor_role — the role ceiling carried onto the
   -- minted refresh token. NULL = owner (full live role).
   actor_role       text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
-  target_doco_handle text,
+  target_collection_handle text,
   requested_role text CHECK (requested_role IS NULL OR requested_role IN ('reader','writer','owner')),
   expires_at       timestamptz NOT NULL,
   last_polled_at   timestamptz,
@@ -925,16 +988,16 @@ CREATE INDEX IF NOT EXISTS oauth_device_authorizations_user_code_idx
 CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
   ON oauth_device_authorizations (expires_at);
 
--- Access requests. Someone who can't (fully) use a Doco asks its owners
--- for a role; an owner approves (writing a doco_users grant — see the
+-- Access requests. Someone who can't (fully) use a collection asks its owners
+-- for a role; an owner approves (writing a collection_users grant — see the
 -- access engine) or denies. The PUSH counterpart to invites (which are
 -- PULL: an owner mints a link). The partial unique index keeps at most
--- one live (pending) request per (doco, requester); deciding it frees a
+-- one live (pending) request per (collection, requester); deciding it frees a
 -- new one. Connector tokens defer to the matrix, so an approved grant
 -- takes effect on the requester's next call with no re-auth.
 CREATE TABLE IF NOT EXISTS access_requests (
   id             text PRIMARY KEY,                  -- accreq_<opaque>
-  doco_id        text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id        text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   requester_id   text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   requested_role text NOT NULL CHECK (requested_role IN ('reader','writer','owner')),
   reason         text,
@@ -944,10 +1007,10 @@ CREATE TABLE IF NOT EXISTS access_requests (
   decided_at     timestamptz,
   decided_by     text REFERENCES users(id) ON DELETE SET NULL
 );
-CREATE INDEX IF NOT EXISTS access_requests_doco_status_idx
-  ON access_requests (doco_id, status);
+CREATE INDEX IF NOT EXISTS access_requests_collection_status_idx
+  ON access_requests (collection_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_idx
-  ON access_requests (doco_id, requester_id) WHERE status = 'pending';
+  ON access_requests (collection_id, requester_id) WHERE status = 'pending';
 
 -- Hook tokens: a person's read-only credential for one workspace, reading
 -- what its maker can read there (decision_01M4C2J610DPD028P55Q8X6VG2), with
@@ -979,7 +1042,7 @@ CREATE INDEX IF NOT EXISTS hook_tokens_workspace_idx
   ON hook_tokens (workspace_id) WHERE NOT revoked;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Visualization perspectives and the per-Doco attachment join. Ownership is
+-- Visualization perspectives and the per-collection attachment join. Ownership is
 -- tracked by `owner_handle`.
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
@@ -998,29 +1061,29 @@ CREATE INDEX IF NOT EXISTS perspectives_owner_handle_idx ON perspectives (owner_
 CREATE INDEX IF NOT EXISTS perspectives_kind_idx         ON perspectives (kind);
 
 -- Built-in perspectives. host.ts attaches graph/list to every new
--- Doco, so these rows must exist for doco creation to succeed.
+-- collection, so these rows must exist for collection creation to succeed.
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
   ('perspective_graph','graph','graph','Graph','Force-directed overview of nodes and edges — the original view.','🕸️',NULL,true,'{}'::jsonb),
   ('perspective_list','list','list','List','Sortable list of nodes, with type-aware tiebreakers.','📋',NULL,true,'{"default_sort":"recent_desc"}'::jsonb),
   ('perspective_bpmn','process','process','Process','Business process modeling — swim lanes, gateways, and events. Inspired by BPMN.','🔁','torrenegra',true,'{"lane_axis":"principal"}'::jsonb),
-  ('perspective_glossary','glossary','glossary','Glossary','A dictionary-style reading of the Doco''s terminology — canonical headwords, definitions, senses, and aliases laid out like a printed lexicon.','📖',NULL,true,'{"headword_field":"prose","primary_entity":"reference","definition_field":"definition"}'::jsonb),
+  ('perspective_glossary','glossary','glossary','Glossary','A dictionary-style reading of the collection''s terminology — canonical headwords, definitions, senses, and aliases laid out like a printed lexicon.','📖',NULL,true,'{"headword_field":"prose","primary_entity":"reference","definition_field":"definition"}'::jsonb),
   ('perspective_org_tree','org-tree','org-tree','Org Tree','Organizational chart — Principals as members, `has_parent` edges between principals as reporting lines, with person vs AI agent shown by icon.','🏢',NULL,true,'{"agent_icon":"🤖","person_icon":"👤","root_edge":"has_parent","icon_by_member_kind":true}'::jsonb),
   ('perspective_sla','sla','sla','SLAs','Service-level agreement control plane — commitments, owners, evidence links, remedies, and review gaps.','📜',NULL,true,'{"event_logs":false,"primary_entity":"rule","evidence_sources":["eval","reference"]}'::jsonb),
   ('perspective_pull_requests','pull-requests','pull-requests','Pull requests','Imported GitHub pull requests, grouped by lifecycle — merged, open, and closed.','🔀',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
-CREATE TABLE IF NOT EXISTS doco_perspectives (
-  doco_id            text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS collection_perspectives (
+  collection_id            text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   perspective_id     text NOT NULL REFERENCES perspectives(id) ON DELETE CASCADE,
   position           int  NOT NULL DEFAULT 0,
   is_default         boolean NOT NULL DEFAULT false,
   attached_at        timestamptz NOT NULL DEFAULT now(),
   attached_by_user   text REFERENCES users(id) ON DELETE SET NULL,
-  PRIMARY KEY (doco_id, perspective_id)
+  PRIMARY KEY (collection_id, perspective_id)
 );
-CREATE INDEX IF NOT EXISTS doco_perspectives_doco_idx ON doco_perspectives (doco_id, position);
-CREATE UNIQUE INDEX IF NOT EXISTS doco_perspectives_one_default
-  ON doco_perspectives (doco_id) WHERE is_default;
+CREATE INDEX IF NOT EXISTS collection_perspectives_collection_idx ON collection_perspectives (collection_id, position);
+CREATE UNIQUE INDEX IF NOT EXISTS collection_perspectives_one_default
+  ON collection_perspectives (collection_id) WHERE is_default;
 
 -- In-page assistant chat.
 CREATE TABLE IF NOT EXISTS chat_conversations (
@@ -1031,32 +1094,32 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   active_turn_events       jsonb NOT NULL DEFAULT '[]'::jsonb,
   title                    text,
   -- The Workspace this thread is scoped to. Señor Doco hard-scopes a thread's
-  -- context (docos, policies, constitution) to this Workspace — mirroring an
+  -- context (collections, policies, constitution) to this Workspace — mirroring an
   -- MCP token bound to one Workspace. Nullable: pre-existing threads (and any
   -- not yet assigned) stay workspace-less and fall back to the broad,
   -- all-reachable context. ON DELETE SET NULL so deleting a Workspace
   -- unassigns its threads rather than destroying chat history.
   workspace_id             text REFERENCES workspaces(id) ON DELETE SET NULL,
-  -- The Doco this thread is attached to. Every in-app Señor Doco chat is
-  -- bound to exactly one Doco (1:1 per user — see the unique index below):
-  -- opening Señor Doco while viewing a Doco starts/opens that Doco's chat.
-  -- workspace_id is derived from this Doco's workspace at creation. Nullable
+  -- The collection this thread is attached to. Every in-app Señor Doco chat is
+  -- bound to exactly one collection (1:1 per user — see the unique index below):
+  -- opening Señor Doco while viewing a collection starts/opens that collection's chat.
+  -- workspace_id is derived from this collection's workspace at creation. Nullable
   -- so pre-existing (workspace-only) threads keep working, and ON DELETE SET
-  -- NULL so deleting a Doco preserves the chat history rather than destroying
-  -- it (the orphaned thread just loses its Doco tag).
-  doco_id                  text REFERENCES docos(id) ON DELETE SET NULL,
+  -- NULL so deleting a collection preserves the chat history rather than destroying
+  -- it (the orphaned thread just loses its collection tag).
+  collection_id                  text REFERENCES collections(id) ON DELETE SET NULL,
   attached_workspace_handles text[] NOT NULL DEFAULT '{}',
-  attached_doco_ids        text[] NOT NULL DEFAULT '{}',
+  attached_collection_ids        text[] NOT NULL DEFAULT '{}',
   created_at               timestamptz NOT NULL DEFAULT now(),
   updated_at               timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_chat_conversations_user_active
   ON chat_conversations (user_id, updated_at DESC) WHERE archived = false;
--- One chat per (user, Doco). Enforces "a Doco can only have a chat" — the
+-- One chat per (user, collection). Enforces "a collection can only have a chat" — the
 -- get-or-create path keys on this pair and un-archives rather than minting a
--- second. Partial (doco_id IS NOT NULL) so Doco-less threads stay exempt.
-CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_conversations_user_doco
-  ON chat_conversations (user_id, doco_id) WHERE doco_id IS NOT NULL;
+-- second. Partial (collection_id IS NOT NULL) so collection-less threads stay exempt.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_conversations_user_collection
+  ON chat_conversations (user_id, collection_id) WHERE collection_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS chat_messages (
   id               text PRIMARY KEY,
@@ -1070,7 +1133,7 @@ CREATE INDEX IF NOT EXISTS idx_chat_messages_conversation_created
 
 -- An attachment belongs to the principal who uploaded it, not to a single
 -- thread: the composer uploads the bytes before the turn picks which
--- conversation to run on (rolling vs. Doco-scoped), so any lookup must key on
+-- conversation to run on (rolling vs. Collection-scoped), so any lookup must key on
 -- the owner. Reads filter by (id, user_id); the PK covers the id set.
 CREATE TABLE IF NOT EXISTS chat_attachments (
   id               text PRIMARY KEY,
@@ -1084,7 +1147,7 @@ CREATE TABLE IF NOT EXISTS chat_attachments (
 );
 CREATE INDEX IF NOT EXISTS idx_chat_attachments_expires ON chat_attachments (expires_at);
 
--- Telemetry. user_id / doco_id are plain text (no FK).
+-- Telemetry. user_id / collection_id are plain text (no FK).
 CREATE TABLE IF NOT EXISTS agent_turn_metrics (
   id                       text PRIMARY KEY,
   conversation_id          text NOT NULL REFERENCES chat_conversations(id) ON DELETE CASCADE,
@@ -1114,7 +1177,7 @@ CREATE INDEX IF NOT EXISTS agent_turn_metrics_conversation_idx
 
 CREATE TABLE IF NOT EXISTS capture_timings (
   id                          text PRIMARY KEY,
-  doco_id                     text NOT NULL,
+  collection_id                     text NOT NULL,
   entity_type                 text NOT NULL,
   http_method                 text NOT NULL,
   principal_id                text,
@@ -1156,7 +1219,7 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   installed_by_chat_user_id   text,
   installed_by_user_id        text REFERENCES users(id) ON DELETE SET NULL,
   -- The single Doco workspace this chat team is bound to. The team's
-  -- assistant reaches at most this one workspace; null = unbound = no Doco
+  -- assistant reaches at most this one workspace; null = unbound = no collection
   -- access (fail closed). This is what stops a linked user's account-wide
   -- permissions from leaking into chat.
   doco_workspace_id           text,
@@ -1171,7 +1234,7 @@ CREATE TABLE IF NOT EXISTS group_chat_channel_connections (
   workspace_id            text NOT NULL,
   channel_id              text NOT NULL,
   channel_name            text NOT NULL DEFAULT '',
-  target_level            text NOT NULL CHECK (target_level IN ('workspace','doco')),
+  target_level            text NOT NULL CHECK (target_level IN ('workspace','collection')),
   target_id               text NOT NULL,
   role                    text NOT NULL CHECK (role IN ('owner','approver','author','reader')),
   created_by_user_id      text REFERENCES users(id) ON DELETE SET NULL,
@@ -1204,19 +1267,19 @@ CREATE TABLE IF NOT EXISTS group_chat_channel_intros (
 );
 
 -- ── Slack public-channel mirror ─────────────────────────────────────────
--- A Doco can be a read-only copy of a Slack team's PUBLIC channels, kept in
+-- A collection can be a read-only copy of a Slack team's PUBLIC channels, kept in
 -- sync. Never DMs, private channels, or Slack Connect channels shared with
 -- another organization. Files are kept as links, never bytes.
 --
 -- Deliberately NOT `nodes`: a message deleted in Slack (or the whole copy, on
 -- uninstall) must really disappear, and a Slack team runs to millions of
 -- messages, while nodes are append-only, policy-checked graph knowledge. Every
--- mirror row cascades from the mirror, which cascades from BOTH its Doco and
+-- mirror row cascades from the mirror, which cascades from BOTH its collection and
 -- its Slack installation, so deleting either wipes the copy.
 
--- One row per mirroring Doco: "this Doco mirrors that Slack team".
+-- One row per mirroring collection: "this collection mirrors that Slack team".
 CREATE TABLE IF NOT EXISTS group_chat_mirrors (
-  doco_id          text PRIMARY KEY REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id          text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
   installation_id  text NOT NULL UNIQUE REFERENCES group_chat_installations(id) ON DELETE CASCADE,
   -- `<team_domain>.slack.com`, for message permalinks.
   team_domain      text NOT NULL,
@@ -1236,7 +1299,7 @@ CREATE TABLE IF NOT EXISTS group_chat_mirrors (
 );
 
 CREATE TABLE IF NOT EXISTS group_chat_channels (
-  doco_id          text NOT NULL REFERENCES group_chat_mirrors(doco_id) ON DELETE CASCADE,
+  collection_id          text NOT NULL REFERENCES group_chat_mirrors(collection_id) ON DELETE CASCADE,
   channel_id       text NOT NULL,                    -- Slack C…
   name             text NOT NULL,
   topic            text NOT NULL DEFAULT '',
@@ -1255,11 +1318,11 @@ CREATE TABLE IF NOT EXISTS group_chat_channels (
   history_oldest_ts text,
   history_done_at  timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (doco_id, channel_id)
+  PRIMARY KEY (collection_id, channel_id)
 );
 
 CREATE TABLE IF NOT EXISTS group_chat_messages (
-  doco_id      text NOT NULL,
+  collection_id      text NOT NULL,
   channel_id   text NOT NULL,
   ts           text NOT NULL,              -- Slack's message id within the channel
   thread_ts    text,                       -- the thread's root ts (set on the root too); NULL = unthreaded
@@ -1279,74 +1342,74 @@ CREATE TABLE IF NOT EXISTS group_chat_messages (
   -- 'simple' (no stemming): exact-term lookups in any language; meaning-based
   -- retrieval is the embeddings' job.
   search_tsv   tsvector GENERATED ALWAYS AS (to_tsvector('simple', text)) STORED,
-  PRIMARY KEY (doco_id, channel_id, ts),
-  FOREIGN KEY (doco_id, channel_id) REFERENCES group_chat_channels (doco_id, channel_id) ON DELETE CASCADE
+  PRIMARY KEY (collection_id, channel_id, ts),
+  FOREIGN KEY (collection_id, channel_id) REFERENCES group_chat_channels (collection_id, channel_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS group_chat_messages_thread_idx
-  ON group_chat_messages (doco_id, channel_id, thread_ts, ts) WHERE thread_ts IS NOT NULL;
+  ON group_chat_messages (collection_id, channel_id, thread_ts, ts) WHERE thread_ts IS NOT NULL;
 CREATE INDEX IF NOT EXISTS group_chat_messages_posted_idx
-  ON group_chat_messages (doco_id, posted_at DESC);
+  ON group_chat_messages (collection_id, posted_at DESC);
 CREATE INDEX IF NOT EXISTS group_chat_messages_tsv_idx
   ON group_chat_messages USING gin (search_tsv);
 ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS embedded_hash text;
 -- What the embedding sweep still has to embed.
-CREATE INDEX IF NOT EXISTS group_chat_messages_embed_pending_idx ON group_chat_messages (doco_id)
+CREATE INDEX IF NOT EXISTS group_chat_messages_embed_pending_idx ON group_chat_messages (collection_id)
   WHERE embedded_hash IS DISTINCT FROM md5(text);
 
--- A mirror Doco stays private: its channels are visible only to members of
+-- A mirror collection stays private: its channels are visible only to members of
 -- that Slack team, never to the internet. Enforced here, not per route, so no
 -- settings surface (UI, API, agent) can publish one.
--- Shared with the Notion mirror below: a Doco that mirrors either source
--- stays private, and only a private Doco can start mirroring.
-CREATE OR REPLACE FUNCTION doco_mirror_stays_private() RETURNS trigger AS $$
+-- Shared with the Notion mirror below: a collection that mirrors either source
+-- stays private, and only a private collection can start mirroring.
+CREATE OR REPLACE FUNCTION collection_mirror_stays_private() RETURNS trigger AS $$
 BEGIN
-  IF TG_TABLE_NAME = 'docos' THEN
+  IF TG_TABLE_NAME = 'collections' THEN
     IF NEW.visibility <> 'private'
-       AND (EXISTS (SELECT 1 FROM group_chat_mirrors WHERE doco_id = NEW.id)
-            OR EXISTS (SELECT 1 FROM notion_mirrors WHERE doco_id = NEW.id)
-            OR EXISTS (SELECT 1 FROM code_files WHERE doco_id = NEW.id)) THEN
-      RAISE EXCEPTION 'A mirror Doco must stay private.';
+       AND (EXISTS (SELECT 1 FROM group_chat_mirrors WHERE collection_id = NEW.id)
+            OR EXISTS (SELECT 1 FROM notion_mirrors WHERE collection_id = NEW.id)
+            OR EXISTS (SELECT 1 FROM code_files WHERE collection_id = NEW.id)) THEN
+      RAISE EXCEPTION 'A mirror collection must stay private.';
     END IF;
-  ELSIF (SELECT visibility FROM docos WHERE id = NEW.doco_id) <> 'private' THEN
-    RAISE EXCEPTION 'Only a private Doco can be a mirror.';
+  ELSIF (SELECT visibility FROM collections WHERE id = NEW.collection_id) <> 'private' THEN
+    RAISE EXCEPTION 'Only a private collection can be a mirror.';
   END IF;
   RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS docos_mirror_stays_private ON docos;
-CREATE TRIGGER docos_mirror_stays_private
-  BEFORE UPDATE OF visibility ON docos
-  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
-DROP TRIGGER IF EXISTS group_chat_mirrors_private_doco ON group_chat_mirrors;
-CREATE TRIGGER group_chat_mirrors_private_doco
-  BEFORE INSERT OR UPDATE OF doco_id ON group_chat_mirrors
-  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+DROP TRIGGER IF EXISTS collections_mirror_stays_private ON collections;
+CREATE TRIGGER collections_mirror_stays_private
+  BEFORE UPDATE OF visibility ON collections
+  FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
+DROP TRIGGER IF EXISTS group_chat_mirrors_private_collection ON group_chat_mirrors;
+CREATE TRIGGER group_chat_mirrors_private_collection
+  BEFORE INSERT OR UPDATE OF collection_id ON group_chat_mirrors
+  FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
 
 -- Slack people, so the mirror shows names without a users.info call per message.
 CREATE TABLE IF NOT EXISTS group_chat_members (
-  doco_id       text NOT NULL REFERENCES group_chat_mirrors(doco_id) ON DELETE CASCADE,
+  collection_id       text NOT NULL REFERENCES group_chat_mirrors(collection_id) ON DELETE CASCADE,
   chat_user_id  text NOT NULL,
   display_name  text NOT NULL DEFAULT '',
   real_name     text NOT NULL DEFAULT '',
   avatar_url    text,
   is_bot        boolean NOT NULL DEFAULT false,
   deactivated   boolean NOT NULL DEFAULT false,
-  PRIMARY KEY (doco_id, chat_user_id)
+  PRIMARY KEY (collection_id, chat_user_id)
 );
 
 -- ── Notion mirror ─────────────────────────────────────────────────────────
--- A Doco can be a read-only copy of the Notion pages and databases a
--- workspace owner shared with the Doco integration, kept in sync. The same
+-- A collection can be a read-only copy of the Notion pages and databases a
+-- workspace owner shared with the collection integration, kept in sync. The same
 -- rules as the Slack mirror: deliberately NOT `nodes` (a page trashed or
 -- unshared in Notion must really disappear, and a workspace runs to tens of
 -- thousands of pages), every row cascades from the mirror, which cascades
--- from the Doco, and the Doco stays private (the trigger above). Files and
+-- from the collection, and the collection stays private (the trigger above). Files and
 -- images are kept as links, never bytes.
 
--- One row per mirroring Doco: "this Doco mirrors that Notion workspace".
+-- One row per mirroring collection: "this collection mirrors that Notion workspace".
 CREATE TABLE IF NOT EXISTS notion_mirrors (
-  doco_id              text PRIMARY KEY REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id              text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
   -- One Notion workspace feeds one mirror.
   workspace_id         text NOT NULL UNIQUE,
   workspace_name       text NOT NULL DEFAULT '',
@@ -1359,7 +1422,7 @@ CREATE TABLE IF NOT EXISTS notion_mirrors (
   refresh_token        text,
   -- The Notion user who approved the authorization (name or id).
   authorized_by        text,
-  -- Who confirmed, on behalf of their organization, that Doco may keep the copy.
+  -- Who confirmed, on behalf of their organization, that collection may keep the copy.
   consented_by         text REFERENCES users(id) ON DELETE SET NULL,
   consented_at         timestamptz NOT NULL,
   -- Sync pacing (lib/notion-mirror-sync.server.ts): a discovery walk's search
@@ -1393,17 +1456,17 @@ ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS listing_capped_at timestampt
 ALTER TABLE notion_mirrors DROP COLUMN IF EXISTS children_scanned_at;
 ALTER TABLE notion_mirrors ADD COLUMN IF NOT EXISTS content_scan text;
 
-DROP TRIGGER IF EXISTS notion_mirrors_private_doco ON notion_mirrors;
-CREATE TRIGGER notion_mirrors_private_doco
-  BEFORE INSERT OR UPDATE OF doco_id ON notion_mirrors
-  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+DROP TRIGGER IF EXISTS notion_mirrors_private_collection ON notion_mirrors;
+CREATE TRIGGER notion_mirrors_private_collection
+  BEFORE INSERT OR UPDATE OF collection_id ON notion_mirrors
+  FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
 
 -- One row per mirrored object: a page (every database row is a page too) or a
 -- data source (a database's table). Discovery and webhooks insert stubs with
 -- `fetch_pending`; the sync's drain fills them. The primary key dedupes, so a
 -- burst of events for one page is one fetch.
 CREATE TABLE IF NOT EXISTS notion_pages (
-  doco_id          text NOT NULL REFERENCES notion_mirrors(doco_id) ON DELETE CASCADE,
+  collection_id          text NOT NULL REFERENCES notion_mirrors(collection_id) ON DELETE CASCADE,
   page_id          text NOT NULL,                 -- Notion uuid (dashed)
   object           text NOT NULL CHECK (object IN ('page','data_source')),
   -- Page or data source uuid; NULL at a shared root, or until the page
@@ -1436,54 +1499,54 @@ CREATE TABLE IF NOT EXISTS notion_pages (
     setweight(to_tsvector('simple', title), 'A') ||
     to_tsvector('simple', left(plain_text, 500000))
   ) STORED,
-  PRIMARY KEY (doco_id, page_id)
+  PRIMARY KEY (collection_id, page_id)
 );
-CREATE INDEX IF NOT EXISTS notion_pages_parent_idx  ON notion_pages (doco_id, parent_id);
+CREATE INDEX IF NOT EXISTS notion_pages_parent_idx  ON notion_pages (collection_id, parent_id);
 -- A block was once kept as a page's parent, which no page in the copy is, so
 -- the page sat at the top of the tree. The page holding the block places it
 -- instead (the sync's content scan reads every page again for that). Only a
 -- block-parented row matches, so a reboot changes nothing.
 UPDATE notion_pages SET parent_id = NULL, parent_type = NULL WHERE parent_type = 'block';
 CREATE INDEX IF NOT EXISTS notion_pages_pending_idx
-  ON notion_pages (doco_id, fetch_attempts, page_id) WHERE fetch_pending;
-CREATE INDEX IF NOT EXISTS notion_pages_edited_idx  ON notion_pages (doco_id, last_edited_time DESC);
+  ON notion_pages (collection_id, fetch_attempts, page_id) WHERE fetch_pending;
+CREATE INDEX IF NOT EXISTS notion_pages_edited_idx  ON notion_pages (collection_id, last_edited_time DESC);
 CREATE INDEX IF NOT EXISTS notion_pages_tsv_idx     ON notion_pages USING gin (search_tsv);
 ALTER TABLE notion_pages ADD COLUMN IF NOT EXISTS embedded_hash text;
 -- What the embedding sweep still has to embed.
-CREATE INDEX IF NOT EXISTS notion_pages_embed_pending_idx ON notion_pages (doco_id)
+CREATE INDEX IF NOT EXISTS notion_pages_embed_pending_idx ON notion_pages (collection_id)
   WHERE synced_at IS NOT NULL AND embedded_hash IS DISTINCT FROM content_hash;
 
 -- Page-to-page links found in a page's Markdown (<page>, <mention-page>,
 -- <database> tags and notion.so links).
 CREATE TABLE IF NOT EXISTS notion_links (
-  doco_id       text NOT NULL,
+  collection_id       text NOT NULL,
   from_page_id  text NOT NULL,
   to_page_id    text NOT NULL,
-  PRIMARY KEY (doco_id, from_page_id, to_page_id),
-  FOREIGN KEY (doco_id, from_page_id) REFERENCES notion_pages (doco_id, page_id) ON DELETE CASCADE
+  PRIMARY KEY (collection_id, from_page_id, to_page_id),
+  FOREIGN KEY (collection_id, from_page_id) REFERENCES notion_pages (collection_id, page_id) ON DELETE CASCADE
 );
-CREATE INDEX IF NOT EXISTS notion_links_to_idx ON notion_links (doco_id, to_page_id);
+CREATE INDEX IF NOT EXISTS notion_links_to_idx ON notion_links (collection_id, to_page_id);
 
 -- Notion people, so pages show editor names without a users call per page.
 CREATE TABLE IF NOT EXISTS notion_users (
-  doco_id      text NOT NULL REFERENCES notion_mirrors(doco_id) ON DELETE CASCADE,
+  collection_id      text NOT NULL REFERENCES notion_mirrors(collection_id) ON DELETE CASCADE,
   user_id      text NOT NULL,
   name         text NOT NULL DEFAULT '',
   avatar_url   text,
   is_bot       boolean NOT NULL DEFAULT false,
-  PRIMARY KEY (doco_id, user_id)
+  PRIMARY KEY (collection_id, user_id)
 );
 
 -- ── Codebase copy ─────────────────────────────────────────────────────────
--- A codebase Doco holds a copy of every file on the default branch of the
+-- A codebase collection holds a copy of every file on the default branch of the
 -- GitHub repositories it brings from (github-imports), kept in sync on every
 -- push and searchable. Like the mirrors: not `nodes` (a file deleted in the
--- repository must really disappear), every row cascades from the Doco, and
--- the Doco stays private (doco_mirror_stays_private). One row per file; a
+-- repository must really disappear), every row cascades from the collection, and
+-- the collection stays private (collection_mirror_stays_private). One row per file; a
 -- binary, oversized or unfetchable file keeps its row with `omitted` saying
 -- why and no content, so paths still resolve and search by name.
 CREATE TABLE IF NOT EXISTS code_files (
-  doco_id    text NOT NULL REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id    text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
   repo       text NOT NULL,                       -- "owner/name"
   path       text NOT NULL,
   sha        text NOT NULL,                       -- the git blob sha: unchanged files are skipped
@@ -1495,18 +1558,18 @@ CREATE TABLE IF NOT EXISTS code_files (
   search_tsv tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('simple', path), 'A') || to_tsvector('simple', content)
   ) STORED,
-  PRIMARY KEY (doco_id, repo, path)
+  PRIMARY KEY (collection_id, repo, path)
 );
 CREATE INDEX IF NOT EXISTS code_files_repo_idx ON code_files (repo);
 -- When a codebase last copied a file is one probe of this index.
-CREATE INDEX IF NOT EXISTS code_files_synced_idx ON code_files (doco_id, synced_at);
+CREATE INDEX IF NOT EXISTS code_files_synced_idx ON code_files (collection_id, synced_at);
 CREATE INDEX IF NOT EXISTS code_files_tsv_idx  ON code_files USING gin (search_tsv);
-DROP TRIGGER IF EXISTS code_files_private_doco ON code_files;
-CREATE TRIGGER code_files_private_doco
-  BEFORE INSERT OR UPDATE OF doco_id ON code_files
-  FOR EACH ROW EXECUTE FUNCTION doco_mirror_stays_private();
+DROP TRIGGER IF EXISTS code_files_private_collection ON code_files;
+CREATE TRIGGER code_files_private_collection
+  BEFORE INSERT OR UPDATE OF collection_id ON code_files
+  FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
 
--- The copy follows the connections: a Doco holds a repository's files only
+-- The copy follows the connections: a collection holds a repository's files only
 -- while it brings that repository, by a repo connection or by a subscription
 -- to the installation of the repository's owner. Checked on every write of
 -- files, and a change to the connections drops the files they no longer
@@ -1527,14 +1590,14 @@ $$ LANGUAGE sql IMMUTABLE;
 CREATE OR REPLACE FUNCTION code_files_follow_connections() RETURNS trigger AS $$
 BEGIN
   DELETE FROM code_files
-   WHERE doco_id = NEW.id
+   WHERE collection_id = NEW.id
      AND NOT code_repo_connected(NEW.data->'github_integration', repo);
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
-DROP TRIGGER IF EXISTS docos_code_files_follow_connections ON docos;
-CREATE TRIGGER docos_code_files_follow_connections
-  AFTER UPDATE OF data ON docos
+DROP TRIGGER IF EXISTS collections_code_files_follow_connections ON collections;
+CREATE TRIGGER collections_code_files_follow_connections
+  AFTER UPDATE OF data ON collections
   FOR EACH ROW
   WHEN (OLD.data->'github_integration'->'connections'
           IS DISTINCT FROM NEW.data->'github_integration'->'connections'
@@ -1542,33 +1605,33 @@ CREATE TRIGGER docos_code_files_follow_connections
           IS DISTINCT FROM NEW.data->'github_integration'->'installations')
   EXECUTE FUNCTION code_files_follow_connections();
 
--- Issues from GitHub fill a GitHub issues Doco of their own (template
+-- Issues from GitHub fill a GitHub issues collection of their own (template
 -- `github-issues`), never the Bug tracker people file bugs in. A Bug tracker
 -- the GitHub setup connected while bugs landed there would otherwise fall back
 -- to bringing pull requests, so it loses its GitHub connection; running the
--- setup again brings the issues into a GitHub issues Doco. Only a Bug tracker
+-- setup again brings the issues into a GitHub issues collection. Only a Bug tracker
 -- still holding a connection matches, so a reboot changes nothing.
-UPDATE docos
+UPDATE collections
    SET data = data - 'github_integration'
  WHERE data->>'template_handle' = 'bugs'
    AND data ? 'github_integration';
 
 -- GitHub brings issues, not bugs (decision_01M4GFJ3A5R9ASCBA6CWKDKSH3): a
--- GitHub bugs Doco (template `github-bugs`, which brought only the issues
--- labeled bug) becomes a GitHub issues Doco. The setup's
+-- GitHub bugs collection (template `github-bugs`, which brought only the issues
+-- labeled bug) becomes a GitHub issues collection. The setup's
 -- `<workspace>-github-bugs` handle becomes `<workspace>-github-issues` when
 -- that handle is free and fits in 64 characters; a goal still the template's
--- takes the new template's; and a Doco connected to repositories imports them
+-- takes the new template's; and a collection connected to repositories imports them
 -- again (a running marker with no queue, which the backfill sweep resumes from
--- its connections), now bringing every issue. Only a `github-bugs` Doco
+-- its connections), now bringing every issue. Only a `github-bugs` collection
 -- matches, so a reboot changes nothing.
-WITH bugs_docos AS (
+WITH bugs_collections AS (
   SELECT d.id,
          CASE
            WHEN d.handle LIKE '%-github-bugs'
             AND length(d.handle) + 2 <= 64
             AND NOT EXISTS (
-                  SELECT 1 FROM docos o
+                  SELECT 1 FROM collections o
                    WHERE o.handle = left(d.handle, -length('-github-bugs')) || '-github-issues')
            THEN left(d.handle, -length('-github-bugs')) || '-github-issues'
            ELSE d.handle
@@ -1576,10 +1639,10 @@ WITH bugs_docos AS (
          jsonb_array_length(
            COALESCE(d.data->'github_integration'->'connections', '[]'::jsonb)
          ) > 0 AS connected
-    FROM docos d
+    FROM collections d
    WHERE d.data->>'template_handle' = 'github-bugs'
 )
-UPDATE docos d
+UPDATE collections d
    SET handle = b.handle,
        data = jsonb_set(d.data, '{template_handle}', '"github-issues"')
               || jsonb_build_object('handle', b.handle)
@@ -1598,7 +1661,7 @@ UPDATE docos d
                 ELSE d.goal
               END,
        updated_at = now()
-  FROM bugs_docos b
+  FROM bugs_collections b
  WHERE d.id = b.id;
 
 -- Feedback reports.
@@ -1631,18 +1694,18 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
 -- bypass. Inserts are allowed; "removal" is a retire VERSION, never a delete.
 -- Idempotent (CREATE OR REPLACE + DROP IF EXISTS), so it re-asserts on every
 -- cold start.
-CREATE OR REPLACE FUNCTION doco_allow_history_delete_for_doco() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION doco_allow_history_delete_for_collection() RETURNS trigger AS $$
 BEGIN
   PERFORM set_config('doco.allow_history_delete', 'on', true);
   RETURN OLD;
 END;
 $$ LANGUAGE plpgsql;
 
-DROP TRIGGER IF EXISTS docos_allow_history_delete ON docos;
-CREATE TRIGGER docos_allow_history_delete
-  BEFORE DELETE ON docos
+DROP TRIGGER IF EXISTS collections_allow_history_delete ON collections;
+CREATE TRIGGER collections_allow_history_delete
+  BEFORE DELETE ON collections
   FOR EACH ROW
-  EXECUTE FUNCTION doco_allow_history_delete_for_doco();
+  EXECUTE FUNCTION doco_allow_history_delete_for_collection();
 
 CREATE OR REPLACE FUNCTION doco_block_history_mutation() RETURNS trigger AS $$
 BEGIN
@@ -1674,15 +1737,15 @@ END $$;
 -- explicitly here. Idempotent (ADD COLUMN IF NOT EXISTS), re-asserted on every
 -- cold start; a no-op once the column is present (incl. on a fresh DB, where
 -- the CREATE TABLE already made it). The CHECK matches the inline definition.
--- Soft-delete tombstone for Docos created before the column shipped. The
--- partial sweeper index lives HERE, after the ADD COLUMN — not in the docos
+-- Soft-delete tombstone for collections created before the column shipped. The
+-- partial sweeper index lives HERE, after the ADD COLUMN — not in the collections
 -- table block above — because schema.sql re-applies top-to-bottom after every
--- change: on a pre-existing docos table the inline CREATE TABLE is a no-op, so an
+-- change: on a pre-existing collections table the inline CREATE TABLE is a no-op, so an
 -- index that referenced `deleted_at` earlier in the file would hit a column
 -- that this migration hasn't added yet and abort the entire schema-apply.
-ALTER TABLE docos
+ALTER TABLE collections
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
-CREATE INDEX IF NOT EXISTS docos_deleted_at_idx ON docos (deleted_at) WHERE deleted_at IS NOT NULL;
+CREATE INDEX IF NOT EXISTS collections_deleted_at_idx ON collections (deleted_at) WHERE deleted_at IS NOT NULL;
 
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS digest_sent_at timestamptz;
 -- Mark the personal workspaces people already have with whose they are: the
@@ -1744,7 +1807,7 @@ SELECT wu.workspace_id, wu.user_id, 'creator', now(), now()
    AND wu.joined_at < '2026-10-17T12:30:00Z'
    AND (EXISTS (
           SELECT 1 FROM changesets cs
-            JOIN docos d ON d.id = cs.doco_id
+            JOIN collections d ON d.id = cs.collection_id
            WHERE d.workspace_id = wu.workspace_id
              AND cs.recorded_at < '2026-10-17T12:30:00Z'
              AND (cs.source = 'mcp' OR (cs.source = 'api' AND cs.metadata ? 'auth')))
@@ -1774,7 +1837,7 @@ ALTER TABLE oauth_device_authorizations DROP COLUMN IF EXISTS token_name;
 -- Untie chat_attachments from a single conversation. The composer uploads
 -- bytes before the turn knows which thread it runs on, so keying the row to a
 -- conversation dropped the file whenever the upload thread and the message
--- thread differed (a Doco page's first message). Attachments are owned by the
+-- thread differed (a collection page's first message). Attachments are owned by the
 -- principal now; reads filter on user_id. Drop the conversation index first
 -- (it depends on the column), then the column itself.
 DROP INDEX IF EXISTS idx_chat_attachments_conversation;
@@ -1788,15 +1851,15 @@ ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS history_oldest_ts text;
 ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS replies_cursor text;
 -- Thread roots whose earlier replies the backfill still has to fetch.
 CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
-  ON group_chat_messages (doco_id) WHERE reply_count > 0 AND replies_synced_at IS NULL;
+  ON group_chat_messages (collection_id) WHERE reply_count > 0 AND replies_synced_at IS NULL;
 
 -- The Slack mirror's perspective (a Slack-mirror Doco's channel reader). Its
 -- kind joins the perspectives CHECK here, before its built-in row, because on
 -- an existing database the inline CHECK above is a no-op and the old
 -- constraint would reject the row and abort the schema apply. Codebase and
--- Notion Docos open in a reader of their own (the web app's reader.ts), so
+-- Notion collections open in a reader of their own (the web app's reader.ts), so
 -- the Code and Notion perspectives they had are deleted first, taking every
--- Doco's attachment to them along (ON DELETE CASCADE).
+-- collection's attachment to them along (ON DELETE CASCADE).
 DELETE FROM perspectives WHERE id IN ('perspective_code', 'perspective_notion');
 ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
 ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
@@ -1836,8 +1899,8 @@ END $$;
 -- PERSON must name concrete, existing targets, so the table is dropped. To
 -- avoid silently revoking access, first convert every surviving grant into the
 -- memberships it currently confers — a snapshot of the grantor's owned
--- workspaces and personally-owned docos (the access cascade is now pure
--- workspace_users + doco_users). Guarded + self-removing: runs once on the
+-- workspaces and personally-owned collections (the access cascade is now pure
+-- workspace_users + collection_users). Guarded + self-removing: runs once on the
 -- first boot that still has the table, then never again.
 DO $$
 BEGIN
@@ -1849,11 +1912,11 @@ BEGIN
         ON wu.user_id = ag.grantor_user_id AND wu.role = 'owner'
     ON CONFLICT (workspace_id, user_id) DO NOTHING;
 
-    INSERT INTO doco_users (doco_id, user_id, role, write_types)
+    INSERT INTO collection_users (collection_id, user_id, role, write_types)
     SELECT d.id, ag.grantee_user_id, ag.role, ag.write_types
       FROM account_grants ag
-      JOIN docos d ON d.owner_id = ag.grantor_user_id
-    ON CONFLICT (doco_id, user_id) DO NOTHING;
+      JOIN collections d ON d.owner_id = ag.grantor_user_id
+    ON CONFLICT (collection_id, user_id) DO NOTHING;
 
     DROP TABLE account_grants;
   END IF;
@@ -1866,14 +1929,14 @@ CREATE OR REPLACE FUNCTION embeddings_drop_for_row() RETURNS trigger AS $$
 BEGIN
   IF TG_TABLE_NAME = 'notion_pages' THEN
     DELETE FROM embeddings
-     WHERE doco_id = OLD.doco_id AND source = 'notion' AND entity_id = OLD.page_id;
+     WHERE collection_id = OLD.collection_id AND source = 'notion' AND entity_id = OLD.page_id;
   ELSIF TG_TABLE_NAME = 'group_chat_messages' THEN
     DELETE FROM embeddings
-     WHERE doco_id = OLD.doco_id AND source = 'slack'
+     WHERE collection_id = OLD.collection_id AND source = 'slack'
        AND entity_id = OLD.channel_id || ':' || OLD.ts;
   ELSE
     DELETE FROM embeddings
-     WHERE doco_id = OLD.doco_id AND source = 'node' AND entity_id = OLD.id;
+     WHERE collection_id = OLD.collection_id AND source = 'node' AND entity_id = OLD.id;
   END IF;
   RETURN OLD;
 END $$ LANGUAGE plpgsql;
@@ -1891,7 +1954,7 @@ CREATE TRIGGER group_chat_messages_embeddings_drop
   AFTER DELETE ON group_chat_messages FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Silence alerts: an integration Doco that stopped receiving data, or an agent
+-- Silence alerts: an integration collection that stopped receiving data, or an agent
 -- that stopped reading and writing in a workspace, for longer than its own
 -- history makes expected (silence-alerts.server.ts decides, every hour). A row
 -- is one episode: it opens when the silence turns unexpected, its email goes
@@ -1899,13 +1962,13 @@ CREATE TRIGGER group_chat_messages_embeddings_drop
 CREATE TABLE IF NOT EXISTS silence_alerts (
   id            text PRIMARY KEY,
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  -- What went quiet: an integration Doco, or an agent (a person and the agent
+  -- What went quiet: an integration collection, or an agent (a person and the agent
   -- they read and write through, named as agentName names it).
-  doco_id       text REFERENCES docos(id) ON DELETE CASCADE,
+  collection_id       text REFERENCES collections(id) ON DELETE CASCADE,
   user_id       text REFERENCES users(id) ON DELETE CASCADE,
   agent         text,
-  -- The Docos it concerns: the integration Doco, or the ones the agent used.
-  doco_ids      text[] NOT NULL,
+  -- The collections it concerns: the integration collection, or the ones the agent used.
+  collection_ids      text[] NOT NULL,
   -- The last item or call before the silence; for an agent never used, when
   -- it was connected.
   quiet_since   timestamptz NOT NULL,
@@ -1915,13 +1978,13 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   opened_at     timestamptz NOT NULL DEFAULT now(),
   -- When the last email about it went out (up to three, on weekdays a day apart).
   emailed_at    timestamptz,
-  CHECK ((doco_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
+  CHECK ((collection_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
 );
-CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_doco_idx
-  ON silence_alerts (doco_id) WHERE doco_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
+  ON silence_alerts (collection_id) WHERE collection_id IS NOT NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
-CREATE INDEX IF NOT EXISTS silence_alerts_docos_idx ON silence_alerts USING gin (doco_ids);
+CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
 -- How many emails went out about each alert: one for those already emailed,
 -- on the boot that adds it.
 DO $$
@@ -1938,7 +2001,7 @@ BEGIN
 END $$;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Activity. A Doco's activity is a change to its content (an audit event;
+-- Activity. A collection's activity is a change to its content (an audit event;
 -- policies are settings, not activity) or an item an integration brought.
 -- imported_items is the one definition of the latter, read by the activity
 -- logs, item counts, silence alerts and integration status (lib/
@@ -1948,77 +2011,77 @@ END $$;
 -- Notion the pages fetched so far. `at` is when an item happened in the source
 -- where the source says (a message posted, a page last edited; null when
 -- Notion gave no time), else when Doco last wrote it (a code file, a pull
--- request or issue). Each branch has an index on (doco_id, at), with its WHERE
+-- request or issue). Each branch has an index on (collection_id, at), with its WHERE
 -- as a partial one's predicate where it filters.
 CREATE OR REPLACE VIEW imported_items AS
-  SELECT i.doco_id, 'github'::text AS integration, i.synced_at AS at FROM code_files i
+  SELECT i.collection_id, 'github'::text AS integration, i.synced_at AS at FROM code_files i
   UNION ALL
-  SELECT i.doco_id, 'github', i.updated_at FROM nodes i
+  SELECT i.collection_id, 'github', i.updated_at FROM nodes i
    WHERE i.node_type IN ('reference', 'eval')
      AND i.locator ~ '^https://github\.com/[^/]+/[^/]+/(pull|issues)/[0-9]+$'
   UNION ALL
-  SELECT i.doco_id, 'slack', i.posted_at FROM group_chat_messages i
+  SELECT i.collection_id, 'slack', i.posted_at FROM group_chat_messages i
    WHERE NOT EXISTS (SELECT 1 FROM group_chat_channels ch
-                      WHERE ch.doco_id = i.doco_id AND ch.channel_id = i.channel_id
+                      WHERE ch.collection_id = i.collection_id AND ch.channel_id = i.channel_id
                         AND ch.excluded)
   UNION ALL
-  SELECT i.doco_id, 'notion', i.last_edited_time FROM notion_pages i
+  SELECT i.collection_id, 'notion', i.last_edited_time FROM notion_pages i
    WHERE i.synced_at IS NOT NULL;
 
--- When each Doco last saw activity, kept on its row so pages read it with the
--- Docos they load instead of probing every source on every view
+-- When each collection last saw activity, kept on its row so pages read it with the
+-- collections they load instead of probing every source on every view
 -- (decision_01M4GZ5ZJ30TM35CV77ZYREAA9). After each statement that writes a
--- source, every Doco it touched catches up to its newest activity after the
--- stored time: a ranged read of each source's (doco_id, at) index, so old
+-- source, every collection it touched catches up to its newest activity after the
+-- stored time: a ranged read of each source's (collection_id, at) index, so old
 -- history (an import of last year's messages) reads nothing and moves
 -- nothing. It only moves forward. Custom plans, because the range decides
 -- whether an index or a scan is right.
-CREATE OR REPLACE FUNCTION doco_catch_up_activity(doco text) RETURNS void AS $$
+CREATE OR REPLACE FUNCTION collection_catch_up_activity(collection text) RETURNS void AS $$
 DECLARE
   since timestamptz := coalesce(
-    (SELECT latest_activity_at FROM docos WHERE id = doco), '-infinity');
+    (SELECT latest_activity_at FROM collections WHERE id = collection), '-infinity');
   newest timestamptz;
 BEGIN
   newest := GREATEST(
     (SELECT max(a.at) FROM audit_events a
-      WHERE a.doco_id = doco AND a.at > since AND a.entity_type <> 'policy'),
-    (SELECT max(i.at) FROM imported_items i WHERE i.doco_id = doco AND i.at > since));
+      WHERE a.collection_id = collection AND a.at > since AND a.entity_type <> 'policy'),
+    (SELECT max(i.at) FROM imported_items i WHERE i.collection_id = collection AND i.at > since));
   IF newest IS NOT NULL THEN
-    UPDATE docos SET latest_activity_at = GREATEST(latest_activity_at, newest) WHERE id = doco;
+    UPDATE collections SET latest_activity_at = GREATEST(latest_activity_at, newest) WHERE id = collection;
   END IF;
 END;
 $$ LANGUAGE plpgsql SET plan_cache_mode = force_custom_plan;
 
--- The trigger on each source, given the source's time column: only the Docos
+-- The trigger on each source, given the source's time column: only the collections
 -- the statement wrote something newer than their stored time to catch up, so
 -- an import of old history costs one cheap look at the rows it wrote.
-CREATE OR REPLACE FUNCTION catch_up_docos_activity() RETURNS trigger AS $$
+CREATE OR REPLACE FUNCTION catch_up_collections_activity() RETURNS trigger AS $$
 BEGIN
   EXECUTE format(
-    'SELECT doco_catch_up_activity(w.doco_id)
-       FROM (SELECT doco_id, max(%I) AS at FROM changed_rows GROUP BY doco_id) w
-       JOIN docos d ON d.id = w.doco_id
+    'SELECT collection_catch_up_activity(w.collection_id)
+       FROM (SELECT collection_id, max(%I) AS at FROM changed_rows GROUP BY collection_id) w
+       JOIN collections d ON d.id = w.collection_id
       WHERE w.at > coalesce(d.latest_activity_at, ''-infinity'')',
     TG_ARGV[0]);
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
--- Filled once, from each Doco's whole history, on the boot that adds it.
+-- Filled once, from each collection's whole history, on the boot that adds it.
 DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM information_schema.columns
      WHERE table_schema = current_schema()
-       AND table_name = 'docos'
+       AND table_name = 'collections'
        AND column_name = 'latest_activity_at'
   ) THEN
-    ALTER TABLE docos ADD COLUMN latest_activity_at timestamptz;
-    PERFORM doco_catch_up_activity(id) FROM docos;
+    ALTER TABLE collections ADD COLUMN latest_activity_at timestamptz;
+    PERFORM collection_catch_up_activity(id) FROM collections;
   END IF;
 END $$;
 
--- Every write to a source catches its Docos up. Slack messages and audit
+-- Every write to a source catches its collections up. Slack messages and audit
 -- events are only ever inserted with their time; the rest change it when
 -- rewritten (a file resynced, a pull request updated, a Notion page fetched).
 DO $$
@@ -2034,7 +2097,7 @@ BEGIN
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t.tbl || '_activity_' || lower(t.ev), t.tbl);
     EXECUTE format(
       'CREATE TRIGGER %I AFTER %s ON %I REFERENCING NEW TABLE AS changed_rows '
-      'FOR EACH STATEMENT EXECUTE FUNCTION catch_up_docos_activity(%L)',
+      'FOR EACH STATEMENT EXECUTE FUNCTION catch_up_collections_activity(%L)',
       t.tbl || '_activity_' || lower(t.ev), t.ev, t.tbl, t.at);
   END LOOP;
 END $$;

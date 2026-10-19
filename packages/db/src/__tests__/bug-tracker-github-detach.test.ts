@@ -1,9 +1,9 @@
-// Alexander, 2026-09-30: every integration fills a standalone Doco of its own,
+// Alexander, 2026-09-30: every integration fills a standalone collection of its own,
 // so bugs from GitHub moved out of the workspace's Bug tracker into a GitHub
-// bugs Doco (now a GitHub issues Doco). A Bug tracker the GitHub setup had already connected would
+// bugs collection (now a GitHub issues collection). A Bug tracker the GitHub setup had already connected would
 // otherwise fall back to bringing pull requests, so schema.sql, which
 // re-applies after every change to it, drops the GitHub connection of every
-// Bug tracker. Every other Doco keeps its connection, and applying it again
+// Bug tracker. Every other collection keeps its connection, and applying it again
 // changes nothing.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -19,7 +19,7 @@ let db: PGlite;
 
 async function seed(id: string, data: Record<string, unknown>): Promise<void> {
   await db.query(
-    `INSERT INTO docos (id, handle, owner_id, workspace_id, data)
+    `INSERT INTO collections (id, handle, owner_id, workspace_id, data)
      VALUES ($1, $1, 'workspace_acme', 'workspace_acme', $2)`,
     [id, JSON.stringify(data)],
   );
@@ -27,7 +27,7 @@ async function seed(id: string, data: Record<string, unknown>): Promise<void> {
 
 async function dataOf(id: string): Promise<Record<string, unknown>> {
   const r = await db.query<{ data: Record<string, unknown> }>(
-    "SELECT data FROM docos WHERE id = $1",
+    "SELECT data FROM collections WHERE id = $1",
     [id],
   );
   return r.rows[0]?.data ?? {};
@@ -47,7 +47,7 @@ describe("a Bug tracker no longer brings anything from GitHub", () => {
     expect(await dataOf("acme-bugs")).toEqual({ template_handle: "bugs", pinned: true });
   });
 
-  it("leaves every other Doco's GitHub connection alone", async () => {
+  it("leaves every other collection's GitHub connection alone", async () => {
     await seed("acme-github-issues", {
       template_handle: "github-issues",
       github_integration: GITHUB,

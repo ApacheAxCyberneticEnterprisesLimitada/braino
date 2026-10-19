@@ -1,31 +1,36 @@
 // Read-side loader from Postgres (Phase 2 of decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
 //
-// Returns the `LoadedDoco` shape expected by the index pipeline.
+// Returns the `LoadedCollection` shape expected by the index pipeline.
 //
 // Two modes:
-//   - Full load (no `opts.entityIds`): every node in the Doco (all 10 node
+//   - Full load (no `opts.entityIds`): every node in the collection (all 10 node
 //     types). Used for first-build and bulk rebuilds.
 //   - Scoped load (`opts.entityIds` set): only the named ids are read. The
 //     incremental reindex path only consumes the entities whose ids it passed
 //     in; loading the rest was pure waste.
 
-import { type NodeRow, listNodesByDoco, listNodesByDocoAndIds, withClient } from "@doco/db";
+import {
+  type NodeRow,
+  listNodesByCollection,
+  listNodesByCollectionAndIds,
+  withClient,
+} from "@doco/db";
 import type {
-  Doco,
+  Collection,
   Entity,
   EntityId,
   EntityType,
   LoadFailure,
-  LoadedDoco,
+  LoadedCollection,
   LoadedEntity,
 } from "@doco/shared";
 import { ENTITY_TYPES, NODE_TYPES, isEntityId } from "@doco/shared";
 import { entityTypeFromId } from "./entity-id.js";
 
-// All node types are Doco-scoped.
-const DOCO_SCOPED_NODE_TYPES: EntityType[] = [...NODE_TYPES] as EntityType[];
+// All node types are collection-scoped.
+const COLLECTION_SCOPED_NODE_TYPES: EntityType[] = [...NODE_TYPES] as EntityType[];
 
-export interface LoadDocoOptions {
+export interface LoadCollectionOptions {
   /**
    * When set, load only these specific entity ids. Grouped by id prefix so each
    * entity type only does one targeted SQL. Used by the incremental reindex
@@ -39,27 +44,27 @@ function typeFromId(id: string): string {
 }
 
 /**
- * Build a `LoadedDoco` from Postgres rows for the given doco_id.
- * Mirrors the old loader shape so the downstream `indexDoco(db, loaded)`
+ * Build a `LoadedCollection` from Postgres rows for the given collection_id.
+ * Mirrors the old loader shape so the downstream `indexCollection(db, loaded)`
  * pass works without filesystem context. Postgres is the only source of
  * entity content.
  */
-export async function loadDocoFromPostgres(
-  docoId: string,
-  opts: LoadDocoOptions = {},
-): Promise<LoadedDoco> {
-  // 1. Doco metadata.
-  const docoRows = await withClient(async (c) => {
+export async function loadCollectionFromPostgres(
+  collectionId: string,
+  opts: LoadCollectionOptions = {},
+): Promise<LoadedCollection> {
+  // 1. Collection metadata.
+  const collectionRows = await withClient(async (c) => {
     const r = await c.query<{ data: Record<string, unknown> | null }>(
-      "SELECT data FROM docos WHERE id = $1",
-      [docoId],
+      "SELECT data FROM collections WHERE id = $1",
+      [collectionId],
     );
     return r.rows;
   });
-  if (docoRows.length === 0) {
-    throw new Error(`Doco ${docoId} not found in Postgres.`);
+  if (collectionRows.length === 0) {
+    throw new Error(`Collection ${collectionId} not found in Postgres.`);
   }
-  const docoData = (docoRows[0].data ?? {}) as unknown as Doco;
+  const collectionData = (collectionRows[0].data ?? {}) as unknown as Collection;
 
   // 2. Entity tables (per-type rows -> LoadedEntity records).
   const entities = new Map<EntityId, LoadedEntity>();
@@ -82,21 +87,21 @@ export async function loadDocoFromPostgres(
     }
   }
 
-  for (const t of DOCO_SCOPED_NODE_TYPES) {
+  for (const t of COLLECTION_SCOPED_NODE_TYPES) {
     let rows: NodeRow[] = [];
     try {
       if (scoped) {
         const ids = idsByType.get(t);
         if (!ids || ids.length === 0) continue;
-        rows = await listNodesByDocoAndIds(t, docoId, ids);
+        rows = await listNodesByCollectionAndIds(t, collectionId, ids);
       } else {
-        rows = await listNodesByDoco(t, docoId);
+        rows = await listNodesByCollection(t, collectionId);
       }
     } catch (err) {
       // Table may not exist yet; skip with a failure note rather than crashing.
       failures.push({
         filePath: `<postgres>:${t}`,
-        reason: `listNodesByDoco(${t}) failed: ${(err as Error).message}`,
+        reason: `listNodesByCollection(${t}) failed: ${(err as Error).message}`,
       });
       continue;
     }
@@ -118,7 +123,7 @@ export async function loadDocoFromPostgres(
       };
       const entity = {
         id: rec.id,
-        doco_id: rec.doco_id,
+        collection_id: rec.collection_id,
         node_type: rec.node_type,
         prose: rec.prose,
         ...data,
@@ -137,5 +142,5 @@ export async function loadDocoFromPostgres(
     }
   }
 
-  return { doco: docoData, entities, byType, failures };
+  return { collection: collectionData, entities, byType, failures };
 }

@@ -19,7 +19,7 @@ vi.mock("../client.js", () => ({
 import { getEntity, nodeRowFromFields, upsertNode } from "../repo.js";
 
 const ORG = "workspace_prose000000000000000";
-const DOCO = "doco_prose0000000000000000000000";
+const COLLECTION = "collection_prose0000000000000000000000";
 
 beforeAll(async () => {
   mocks.db = await freshDb();
@@ -29,8 +29,8 @@ beforeAll(async () => {
     "Workspace Prose",
   ]);
   await mocks.db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
-    [DOCO, "doco-prose", ORG, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    [COLLECTION, "collection-prose", ORG, ORG],
   );
 });
 
@@ -40,7 +40,7 @@ describe("canonical node prose (slice 1)", () => {
     await upsertNode(
       nodeRowFromFields("intent", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "intent",
         prose: "Find candidates",
         lifecycle: "drafting",
@@ -61,7 +61,7 @@ describe("canonical node prose (slice 1)", () => {
     await upsertNode(
       nodeRowFromFields("intent", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "intent",
         prose: "Approve a loan",
         lifecycle: "active",

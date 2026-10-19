@@ -1,7 +1,7 @@
-// Alexander, 2026-10-01: codebase and Notion Docos open in a reader of their
+// Alexander, 2026-10-01: codebase and Notion collections open in a reader of their
 // own, so the Code and Notion perspectives are gone. schema.sql, which
 // re-applies after every change to it, deletes their built-in rows and every
-// Doco's attachment to them, and the kinds leave the perspectives CHECK. Slack
+// collection's attachment to them, and the kinds leave the perspectives CHECK. Slack
 // keeps its perspective.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -27,25 +27,25 @@ describe("the Code and Notion perspectives are retired", () => {
     expect(ids).toContain("perspective_slack");
   });
 
-  it("leave a database that had them, with every Doco's attachment to them", async () => {
+  it("leave a database that had them, with every collection's attachment to them", async () => {
     await db.exec(`
       ALTER TABLE perspectives DROP CONSTRAINT perspectives_kind_check;
       INSERT INTO perspectives (id, slug, kind, name, is_builtin) VALUES
         ('perspective_code', 'code', 'code', 'Code', true),
         ('perspective_notion', 'notion', 'notion', 'Notion', true);
       INSERT INTO workspaces (id, handle, name) VALUES ('workspace_acme', 'acme', 'Acme');
-      INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES
-        ('doco_code', 'acme-codebase', 'workspace_acme', 'workspace_acme', '{}'::jsonb);
-      INSERT INTO doco_perspectives (doco_id, perspective_id, position, is_default) VALUES
-        ('doco_code', 'perspective_graph', 0, false),
-        ('doco_code', 'perspective_code', 2, true);
+      INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES
+        ('collection_code', 'acme-codebase', 'workspace_acme', 'workspace_acme', '{}'::jsonb);
+      INSERT INTO collection_perspectives (collection_id, perspective_id, position, is_default) VALUES
+        ('collection_code', 'perspective_graph', 0, false),
+        ('collection_code', 'perspective_code', 2, true);
     `);
 
     await db.exec(schemaSql);
 
     expect(await perspectiveIds()).not.toContain("perspective_code");
     const attached = await db.query<{ perspective_id: string }>(
-      "SELECT perspective_id FROM doco_perspectives WHERE doco_id = 'doco_code'",
+      "SELECT perspective_id FROM collection_perspectives WHERE collection_id = 'collection_code'",
     );
     expect(attached.rows).toEqual([{ perspective_id: "perspective_graph" }]);
     await expect(

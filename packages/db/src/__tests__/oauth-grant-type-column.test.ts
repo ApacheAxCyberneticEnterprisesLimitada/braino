@@ -21,12 +21,12 @@ describe("oauth grant_type column (regular | actor)", () => {
   it("defaults authorization codes to 'regular' and accepts 'actor'", async () => {
     await db.query(
       `INSERT INTO oauth_authorization_codes
-         (code, client_id, user_id, redirect_uri, code_challenge, granted_doco_ids, expires_at)
-       VALUES ('c_reg', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['doco_1'], now() + interval '5 min')`,
+         (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, expires_at)
+       VALUES ('c_reg', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['collection_1'], now() + interval '5 min')`,
     );
     await db.query(
       `INSERT INTO oauth_authorization_codes
-         (code, client_id, user_id, redirect_uri, code_challenge, granted_doco_ids, grant_type, expires_at)
+         (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, grant_type, expires_at)
        VALUES ('c_act', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY[]::text[], 'actor', now() + interval '5 min')`,
     );
 
@@ -64,8 +64,8 @@ describe("oauth grant_type column (regular | actor)", () => {
     await expect(
       db.query(
         `INSERT INTO oauth_authorization_codes
-           (code, client_id, user_id, redirect_uri, code_challenge, granted_doco_ids, grant_type, expires_at)
-         VALUES ('c_bad', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['doco_1'], 'superuser', now() + interval '5 min')`,
+           (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, grant_type, expires_at)
+         VALUES ('c_bad', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['collection_1'], 'superuser', now() + interval '5 min')`,
       ),
     ).rejects.toThrow();
   });
@@ -73,13 +73,13 @@ describe("oauth grant_type column (regular | actor)", () => {
   it("stores the actor_role ceiling (reader|writer|owner|null) on refresh tokens", async () => {
     await db.query(
       `INSERT INTO oauth_refresh_tokens
-         (token, client_id, user_id, granted_doco_ids, grant_type, actor_role, expires_at)
+         (token, client_id, user_id, granted_collection_ids, grant_type, actor_role, expires_at)
        VALUES ('rt_cap', 'doco_client_x', 'user_alice', ARRAY[]::text[], 'actor', 'reader', now() + interval '60 days')`,
     );
     // Default is NULL (no ceiling = full live role).
     await db.query(
       `INSERT INTO oauth_refresh_tokens
-         (token, client_id, user_id, granted_doco_ids, grant_type, expires_at)
+         (token, client_id, user_id, granted_collection_ids, grant_type, expires_at)
        VALUES ('rt_full', 'doco_client_x', 'user_alice', ARRAY[]::text[], 'actor', now() + interval '60 days')`,
     );
 
@@ -96,7 +96,7 @@ describe("oauth grant_type column (regular | actor)", () => {
     await expect(
       db.query(
         `INSERT INTO oauth_refresh_tokens
-           (token, client_id, user_id, granted_doco_ids, grant_type, actor_role, expires_at)
+           (token, client_id, user_id, granted_collection_ids, grant_type, actor_role, expires_at)
          VALUES ('rt_bad', 'doco_client_x', 'user_alice', ARRAY[]::text[], 'actor', 'superuser', now() + interval '60 days')`,
       ),
     ).rejects.toThrow();

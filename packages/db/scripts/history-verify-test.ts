@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   try {
     const workspaceId = makeEntityId("workspace", generateUlid());
     const userId = makeEntityId("user", generateUlid());
-    const docoId = makeEntityId("doco", generateUlid());
+    const collectionId = makeEntityId("collection", generateUlid());
     const dId = makeEntityId("decision", generateUlid());
     const rId = makeEntityId("reference", generateUlid());
     await c.query(`INSERT INTO workspaces (id, handle, name) VALUES ($1, $2, 'O')`, [
@@ -29,27 +29,27 @@ async function main(): Promise<void> {
     ]);
     await c.query(`INSERT INTO users (id,data) VALUES ($1,'{}')`, [userId]);
     await c.query(
-      `INSERT INTO docos (id,handle,owner_id,workspace_id,visibility,goal,data) VALUES ($1,$2,$3,$4,'private','g','{}')`,
-      [docoId, `d-${generateUlid().slice(0, 8).toLowerCase()}`, workspaceId, workspaceId],
+      `INSERT INTO collections (id,handle,owner_id,workspace_id,visibility,goal,data) VALUES ($1,$2,$3,$4,'private','g','{}')`,
+      [collectionId, `d-${generateUlid().slice(0, 8).toLowerCase()}`, workspaceId, workspaceId],
     );
     await c.query(
-      `INSERT INTO nodes (id,doco_id,node_type,lifecycle,prose) VALUES ($1,$2,'decision','active','D')`,
-      [dId, docoId],
+      `INSERT INTO nodes (id,collection_id,node_type,lifecycle,prose) VALUES ($1,$2,'decision','active','D')`,
+      [dId, collectionId],
     );
     await c.query(
-      `INSERT INTO nodes (id,doco_id,node_type,lifecycle,prose) VALUES ($1,$2,'reference','active','R')`,
-      [rId, docoId],
+      `INSERT INTO nodes (id,collection_id,node_type,lifecycle,prose) VALUES ($1,$2,'reference','active','R')`,
+      [rId, collectionId],
     );
 
     const edge = await (async () => {
       const tx = await createChangeset(c, {
-        docoId,
+        collectionId,
         actor: userId,
         source: "api",
         reason: "create",
       });
       const e = await createEdge(c, tx, {
-        docoId,
+        collectionId,
         edgeType: "supports",
         fromId: dId,
         fromNodeType: "decision",
@@ -58,7 +58,7 @@ async function main(): Promise<void> {
         actor: userId,
       });
       const tx2 = await createChangeset(c, {
-        docoId,
+        collectionId,
         actor: userId,
         source: "api",
         reason: "annotate",

@@ -19,17 +19,17 @@ describe("readAuditEventRows", () => {
 
   it("applies before as an exclusive pagination cursor", async () => {
     await readAuditEventRows({
-      doco_id: "doco_bpms",
+      collection_id: "collection_bpms",
       before: "2026-05-27T13:33:27.000Z",
       limit: 50,
     });
 
     expect(mocks.query).toHaveBeenCalledTimes(1);
     const [sql, values] = mocks.query.mock.calls[0] ?? [];
-    expect(sql).toContain("doco_id = $1");
+    expect(sql).toContain("collection_id = $1");
     expect(sql).toContain("at < $2");
     expect(sql).toContain("ORDER BY at DESC");
     expect(sql).toContain("LIMIT $3");
-    expect(values).toEqual(["doco_bpms", "2026-05-27T13:33:27.000Z", 50]);
+    expect(values).toEqual(["collection_bpms", "2026-05-27T13:33:27.000Z", 50]);
   });
 });

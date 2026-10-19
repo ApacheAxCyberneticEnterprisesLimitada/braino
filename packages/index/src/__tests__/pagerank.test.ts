@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { globalPageRank } from "../pagerank.js";
 
 // A graph where edge *direction* flips the ranking, mirroring the real
-// Doco shape: many events "serve" one intent (edge from=event → to=intent),
+// collection shape: many events "serve" one intent (edge from=event → to=intent),
 // while a decision fans *out* to several actions (from=decision → to=action).
 //
 //   e1 ─┐

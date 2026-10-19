@@ -20,15 +20,15 @@ beforeEach(async () => {
   db = await freshDb();
   await db.exec(`
     INSERT INTO workspaces (id, handle, name) VALUES ('ws', 'ws', 'WS');
-    INSERT INTO docos (id, handle, owner_id, workspace_id, data)
-      VALUES ('doco_1', 'd', 'ws', 'ws', '{}'::jsonb);
+    INSERT INTO collections (id, handle, owner_id, workspace_id, data)
+      VALUES ('collection_1', 'd', 'ws', 'ws', '{}'::jsonb);
   `);
 });
 
 describe("node_touches", () => {
   it("extracts paths, URLs, node ids and pull request numbers from the prose", async () => {
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose) VALUES ($1, 'doco_1', 'decision', 'active', $2)`,
+      `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose) VALUES ($1, 'collection_1', 'decision', 'active', $2)`,
       [
         "decision_01M3YXBFVNKEN703EAMWCW26QH",
         [
@@ -54,8 +54,8 @@ describe("node_touches", () => {
 
   it("takes the locator too, and replaces the rows when the text changes", async () => {
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose, locator)
-       VALUES ('reference_1', 'doco_1', 'reference', 'active', 'Fix the login bug', 'https://github.com/o/r/pull/7')`,
+      `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, locator)
+       VALUES ('reference_1', 'collection_1', 'reference', 'active', 'Fix the login bug', 'https://github.com/o/r/pull/7')`,
     );
     expect(await touchesOf("reference_1")).toEqual([
       ["pr", "#7"],
@@ -77,8 +77,8 @@ describe("node_touches", () => {
 
   it("drops the rows with the node", async () => {
     await db.query(
-      `INSERT INTO nodes (id, doco_id, node_type, lifecycle, prose)
-       VALUES ('log_1', 'doco_1', 'log', 'active', 'Touched app/x.ts')`,
+      `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose)
+       VALUES ('log_1', 'collection_1', 'log', 'active', 'Touched app/x.ts')`,
     );
     expect(await touchesOf("log_1")).toEqual([["path", "app/x.ts"]]);
     await db.query("DELETE FROM nodes WHERE id = 'log_1'");

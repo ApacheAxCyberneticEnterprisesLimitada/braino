@@ -8,7 +8,7 @@ import { freshDb } from "./fresh-db.js";
 // idempotent production backfill, the read-path surfacing, and the contract
 // drop of the action/log/rule scalar columns (verb / severity / …).
 
-const DOCO = "doco_attrs0000000000000000000000";
+const COLLECTION = "collection_attrs0000000000000000000000";
 const ORG = "workspace_attrs00000000000000";
 
 let db: PGlite;
@@ -21,8 +21,8 @@ beforeAll(async () => {
     "Workspace Attrs",
   ]);
   await db.query(
-    "INSERT INTO docos (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
-    [DOCO, "doco-attrs", ORG, ORG],
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    [COLLECTION, "collection-attrs", ORG, ORG],
   );
 });
 
@@ -32,7 +32,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     await upsertNode(
       nodeRowFromFields("reference", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "reference",
         reference: "ACME PR #1",
         ref_type: "url",
@@ -76,7 +76,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     await upsertNode(
       nodeRowFromFields("action", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "action",
         action: "Deployed the build",
         verb: "deploy",
@@ -127,7 +127,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     await upsertNode(
       nodeRowFromFields("action", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "action",
         action: "Deployed the build",
         verb: "deploy",
@@ -146,7 +146,7 @@ describe("node extra column (Stage 1 — expand)", () => {
   it("surfaces the extra column onto the record on read (Stage 2 — raw schema)", () => {
     const rec = rowToNode({
       id: "reference_read000000000000000000",
-      doco_id: DOCO,
+      collection_id: COLLECTION,
       node_type: "reference",
       prose: "ACME PR #1",
       extra: { ref_type: "url", locator: "https://x", pr_body: "the body" },
@@ -166,7 +166,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     await upsertNode(
       nodeRowFromFields("decision", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "decision",
         decision: "Adopt the plan",
         chosen: "Route A",
@@ -190,7 +190,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     await upsertNode(
       nodeRowFromFields("idea", {
         id,
-        doco_id: DOCO,
+        collection_id: COLLECTION,
         node_type: "idea",
         idea: "Try the widget",
         proposer_id: proposer,
@@ -215,7 +215,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     const rec = rowToNode(fullRow);
     // System keys from real columns…
     expect(rec.id).toBe(id);
-    expect(rec.doco_id).toBe(DOCO);
+    expect(rec.collection_id).toBe(COLLECTION);
     expect(rec.node_type).toBe("idea");
     expect(rec.lifecycle).toBe("active");
     expect(rec.created_by).toBe(proposer);
@@ -228,7 +228,7 @@ describe("node extra column (Stage 1 — expand)", () => {
   it("rowToNode reads system keys straight off the columns", () => {
     const rec = rowToNode({
       id: "decision_sys000000000000000000000",
-      doco_id: DOCO,
+      collection_id: COLLECTION,
       node_type: "decision",
       lifecycle: "queued",
       prose: "Pick the path",
@@ -238,7 +238,7 @@ describe("node extra column (Stage 1 — expand)", () => {
     });
     expect(rec).toMatchObject({
       id: "decision_sys000000000000000000000",
-      doco_id: DOCO,
+      collection_id: COLLECTION,
       node_type: "decision",
       lifecycle: "queued",
       prose: "Pick the path",
