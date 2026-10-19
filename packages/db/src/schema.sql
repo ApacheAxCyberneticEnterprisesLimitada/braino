@@ -1875,10 +1875,11 @@ CREATE TRIGGER group_chat_messages_embeddings_drop
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Silence alerts: an integration collection that stopped receiving data, or an agent
--- that stopped reading and writing in a workspace, for longer than its own
--- history makes expected (silence-alerts.server.ts decides, every hour). A row
--- is one episode: it opens when the silence turns unexpected, its email goes
--- out once (emailed_at), and it is deleted when data or calls resume.
+-- that stopped reading and writing in a workspace for longer than its own
+-- history makes expected, or that keeps reading but stopped writing
+-- (silence-alerts.server.ts decides, every hour). A row is one episode: it
+-- opens when the silence turns unexpected, its emails go out along the
+-- schedule (email_step), and it is deleted when data or calls resume.
 CREATE TABLE IF NOT EXISTS silence_alerts (
   id            text PRIMARY KEY,
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1889,15 +1890,19 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   agent         text,
   -- The collections it concerns: the integration collection, or the ones the agent used.
   collection_ids      text[] NOT NULL,
-  -- The last item or call before the silence; for an agent never used, when
-  -- it was connected.
+  -- The last item or call before the silence; for an agent that still reads,
+  -- its last write; for an agent never used, or that never wrote, when it
+  -- was connected.
   quiet_since   timestamptz NOT NULL,
+  -- An agent that still reads, though it has written nothing since quiet_since.
+  reading       boolean NOT NULL DEFAULT false,
   -- How many the same hours of past weeks (up to four) brought, on average;
-  -- 0 for an agent with less than a week of history.
+  -- 0 for an agent with less than a week of history, or that still reads.
   usual         int NOT NULL,
   opened_at     timestamptz NOT NULL DEFAULT now(),
-  -- When the last email about it went out (up to three, on weekdays a day apart).
-  emailed_at    timestamptz,
+  -- The last step of the email schedule that went out: 0 none yet, 1 after a
+  -- workday of silence, 2 a week, 3 two weeks, 4 a month.
+  email_step    int NOT NULL DEFAULT 0,
   CHECK ((collection_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
@@ -1905,18 +1910,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
--- How many emails went out about each alert: one for those already emailed,
--- on the boot that adds it.
+ALTER TABLE silence_alerts ADD COLUMN IF NOT EXISTS reading boolean NOT NULL DEFAULT false;
+ALTER TABLE silence_alerts ADD COLUMN IF NOT EXISTS email_step int NOT NULL DEFAULT 0;
+-- Emails follow a schedule now instead of going out up to three times a day
+-- apart: an alert already emailed has had its first step.
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM information_schema.columns
      WHERE table_schema = current_schema()
        AND table_name = 'silence_alerts'
-       AND column_name = 'emails'
+       AND column_name = 'emailed_at'
   ) THEN
-    ALTER TABLE silence_alerts ADD COLUMN emails int NOT NULL DEFAULT 0;
-    UPDATE silence_alerts SET emails = 1 WHERE emailed_at IS NOT NULL;
+    UPDATE silence_alerts SET email_step = 1 WHERE emailed_at IS NOT NULL;
+    ALTER TABLE silence_alerts DROP COLUMN emailed_at, DROP COLUMN IF EXISTS emails;
   END IF;
 END $$;
 
