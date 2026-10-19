@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": "."
+  },
+  "include": [
+    "scripts/retrieval-snapshot.ts",
+    "src/embeddings.ts",
+    "src/retrieval-snapshot.ts",
+    "src/schema-embedded.ts"
+  ]
+}

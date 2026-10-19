@@ -109,6 +109,19 @@ export {
 export { CHUNK_CHARS, CHUNK_OVERLAP_CHARS, chunkText, nodeIndexText } from "./chunks.js";
 
 export {
+  exportRetrievalSnapshot,
+  restoreRetrievalSnapshot,
+  retrievalSnapshotDigest,
+  type ExportRetrievalSnapshotOptions,
+  type RestoreRetrievalSnapshotResult,
+  type RetrievalSnapshot,
+  type RetrievalSnapshotManifest,
+  type RetrievalSnapshotTables,
+  type SnapshotRow,
+  type SnapshotTableName,
+} from "./retrieval-snapshot.js";
+
+export {
   rebuildDocoDerivedData,
   type FtsRowInput,
 } from "./indexer.js";

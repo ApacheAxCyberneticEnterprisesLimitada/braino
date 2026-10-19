@@ -17,7 +17,8 @@
   "files": ["dist", "src/schema.sql"],
   "scripts": {
     "build": "node scripts/embed-schema.mjs && tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
-    "typecheck": "node scripts/embed-schema.mjs && tsc -p tsconfig.json --noEmit",
+    "snapshot:retrieval": "tsx scripts/retrieval-snapshot.ts",
+    "typecheck": "node scripts/embed-schema.mjs && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json",
     "test": "node scripts/embed-schema.mjs && vitest run --passWithNoTests"
   },
   "dependencies": {
