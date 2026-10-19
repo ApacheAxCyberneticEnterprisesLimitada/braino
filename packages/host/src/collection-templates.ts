@@ -87,7 +87,7 @@ export interface CollectionTemplate {
   /** Atomic policies seeded at install time. */
   policies: TemplatePolicy[];
   /**
-   * Optional perspectives to attach on Doco creation. The built-in
+   * Optional perspectives to attach on collection creation. The built-in
    * perspectives (graph, list) are always attached even
    * if this list is empty; entries here append after them. The
    * process template ships `[{slug:"process"}]` so a collection
@@ -1780,7 +1780,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
       },
       {
         policy:
-          "Bucket every item into a Now / Next / Later `horizon`, and let commitment and detail fall off with distance: Now is in progress and fully specified, Next is coming up with less detail, Later is a direction — a problem worth solving with no committed solution yet. Resist putting precise far-future dates on the roadmap; they get read as promises and assume the estimate holds and the first solution works. Reserve real dates for high-integrity commitments made AFTER discovery (an extension: add a target date to a Now item, or coordinate the launch in a delivery Doco).",
+          "Bucket every item into a Now / Next / Later `horizon`, and let commitment and detail fall off with distance: Now is in progress and fully specified, Next is coming up with less detail, Later is a direction — a problem worth solving with no committed solution yet. Resist putting precise far-future dates on the roadmap; they get read as promises and assume the estimate holds and the first solution works. Reserve real dates for high-integrity commitments made AFTER discovery (an extension: add a target date to a Now item, or coordinate the launch in a delivery collection).",
       },
       {
         policy:

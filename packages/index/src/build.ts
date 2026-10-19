@@ -94,7 +94,7 @@ export interface IndexOptions {
  *
  * When `opts.changedEntityIds` is set, only those entities' derived
  * rows are touched — the rest of the collection is left as-is. This is the
- * O(neighborhood) capture path. Without it, the full Doco is rebuilt
+ * O(neighborhood) capture path. Without it, the full collection is rebuilt
  * — the O(N+M) path used for cold starts and bulk operations.
  */
 export async function indexCollection(
