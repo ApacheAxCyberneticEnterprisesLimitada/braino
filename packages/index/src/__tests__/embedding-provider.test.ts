@@ -84,7 +84,7 @@ describe("VoyageEmbeddingProvider", () => {
     expect(Array.from(out[0])).toEqual([1, 1]);
     expect(Array.from(out[1])).toEqual([9, 9]);
     const body = lastBody(calls);
-    expect(body.model).toBe("voyage-3.5");
+    expect(body.model).toBe("voyage-4");
     expect(body.input_type).toBe("document");
     expect(calls[0].url).toBe("https://api.voyageai.com/v1/embeddings");
   });
@@ -136,6 +136,13 @@ describe("getDefaultEmbeddingProvider", () => {
     vi.stubEnv("VOYAGE_API_KEY", "va-test");
     vi.stubEnv("DOCO_EMBEDDING_PROVIDER", "voyage");
     expect(getDefaultEmbeddingProvider()).toBeInstanceOf(VoyageEmbeddingProvider);
+  });
+
+  it("honors an explicit Voyage model selector", () => {
+    vi.stubEnv("VOYAGE_API_KEY", "va-test");
+    vi.stubEnv("DOCO_EMBEDDING_PROVIDER", "voyage");
+    vi.stubEnv("DOCO_VOYAGE_EMBEDDING_MODEL", "voyage-4-lite");
+    expect(getDefaultEmbeddingProvider().modelId).toBe("voyage:voyage-4-lite");
   });
 
   it("forces Cohere when selected", () => {
