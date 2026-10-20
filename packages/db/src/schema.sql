@@ -1898,8 +1898,9 @@ CREATE TRIGGER group_chat_messages_embeddings_drop
 -- that stopped reading and writing in a workspace for longer than its own
 -- history makes expected, or that keeps reading but stopped writing
 -- (silence-alerts.server.ts decides, every hour). A row is one episode: it
--- opens when the silence turns unexpected, its emails go out along the
--- schedule (email_step), and it is deleted when data or calls resume.
+-- opens when the silence turns unexpected, its emails, and Señor Doco's
+-- Slack messages with them, go out along the schedule (email_step), and it is
+-- deleted when data or calls resume.
 CREATE TABLE IF NOT EXISTS silence_alerts (
   id            text PRIMARY KEY,
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
