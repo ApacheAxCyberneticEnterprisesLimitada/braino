@@ -1143,11 +1143,18 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   -- access (fail closed). This is what stops a linked user's account-wide
   -- permissions from leaking into chat.
   doco_workspace_id           text,
+  -- The channel Señor Doco speaks in unasked (lib/slack-conversations.server.ts):
+  -- where he introduces himself, picked by the owner at install, #general
+  -- unless they pick another. Its name only labels it.
+  default_channel_id          text,
+  default_channel_name        text,
   data                        jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider, workspace_id)
 );
+ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS default_channel_id text;
+ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS default_channel_name text;
 CREATE TABLE IF NOT EXISTS group_chat_channel_connections (
   id                      text PRIMARY KEY,
   provider                text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
@@ -1174,17 +1181,30 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider, workspace_id, chat_user_id, user_id)
 );
--- One row per group-chat channel the assistant has already spoken in. The
--- presence of a row means "already introduced", so Señor Doco leads only its
--- FIRST message in a channel with the Sonnet/MCP intro and never repeats it.
--- A bare insert with ON CONFLICT DO NOTHING makes the first-time check atomic.
-CREATE TABLE IF NOT EXISTS group_chat_channel_intros (
-  provider      text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
-  workspace_id  text NOT NULL,
-  channel_id    text NOT NULL,
-  introduced_at timestamptz NOT NULL DEFAULT now(),
-  PRIMARY KEY (provider, workspace_id, channel_id)
+-- What Señor Doco keeps about each conversation he speaks in unasked
+-- (lib/slack-conversations.server.ts): a channel, or a person, by their chat
+-- user id, whose direct messages with him are where he speaks to them. He
+-- introduces himself once in each (a channel's introduction, a person's
+-- welcome), and says nothing unasked in one someone quieted.
+CREATE TABLE IF NOT EXISTS group_chat_conversations (
+  provider        text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
+  workspace_id    text NOT NULL,
+  conversation_id text NOT NULL,
+  introduced_at   timestamptz,
+  quiet_at        timestamptz,
+  PRIMARY KEY (provider, workspace_id, conversation_id)
 );
+-- group_chat_channel_intros held the channels Señor Doco had spoken in, each
+-- of which had his first-reply introduction: they count as introduced.
+DO $$
+BEGIN
+  IF to_regclass('public.group_chat_channel_intros') IS NOT NULL THEN
+    INSERT INTO group_chat_conversations (provider, workspace_id, conversation_id, introduced_at)
+    SELECT provider, workspace_id, channel_id, introduced_at FROM group_chat_channel_intros
+    ON CONFLICT DO NOTHING;
+    DROP TABLE group_chat_channel_intros;
+  END IF;
+END $$;
 
 -- ── Slack public-channel mirror ─────────────────────────────────────────
 -- A collection can be a read-only copy of a Slack team's PUBLIC channels, kept in
