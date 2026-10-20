@@ -1252,6 +1252,9 @@ CREATE TABLE IF NOT EXISTS group_chat_channels (
   -- The owner opted this channel out: nothing from it is copied. Kept as a row
   -- so channel discovery doesn't add it back.
   excluded         boolean NOT NULL DEFAULT false,
+  -- An owner turned on decision offers here: when a thread settles something,
+  -- Señor Doco offers once to record it (lib/slack-decisions.server.ts).
+  decision_offers  boolean NOT NULL DEFAULT false,
   -- NULL until the bot has joined (it only receives a channel's events, and
   -- can only read its history, as a member).
   joined_at        timestamptz,
@@ -1792,6 +1795,7 @@ ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS channels_synced_at times
 ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS history_next_at timestamptz;
 ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS replies_next_at timestamptz;
 ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS history_oldest_ts text;
+ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS decision_offers boolean NOT NULL DEFAULT false;
 ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS replies_cursor text;
 -- Thread roots whose earlier replies the backfill still has to fetch.
 CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
