@@ -1185,15 +1185,19 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
 -- (lib/slack-conversations.server.ts): a channel, or a person, by their chat
 -- user id, whose direct messages with him are where he speaks to them. He
 -- introduces himself once in each (a channel's introduction, a person's
--- welcome), and says nothing unasked in one someone quieted.
+-- welcome), and says nothing unasked in one someone quieted. A person's row
+-- also holds when they last opened his Home tab, which shows what was
+-- decided since (lib/slack-home.server.ts).
 CREATE TABLE IF NOT EXISTS group_chat_conversations (
   provider        text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
   workspace_id    text NOT NULL,
   conversation_id text NOT NULL,
   introduced_at   timestamptz,
   quiet_at        timestamptz,
+  home_opened_at  timestamptz,
   PRIMARY KEY (provider, workspace_id, conversation_id)
 );
+ALTER TABLE group_chat_conversations ADD COLUMN IF NOT EXISTS home_opened_at timestamptz;
 -- group_chat_channel_intros held the channels Señor Doco had spoken in, each
 -- of which had his first-reply introduction: they count as introduced.
 DO $$
