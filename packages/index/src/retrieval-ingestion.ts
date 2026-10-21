@@ -117,6 +117,12 @@ export function chunkRetrievalSource(
   }
   flush();
 
+  // A title-only page or a document containing headings without body text is
+  // still useful evidence. Index its structural path instead of dropping it.
+  if (chunks.length === 0) {
+    const breadcrumb = [document.title?.trim(), ...headings].filter(Boolean).join(" > ");
+    if (breadcrumb) chunks.push({ text: breadcrumb, breadcrumb: null });
+  }
   if (chunks.length === 0) throw new Error("Retrieval source document has no indexable text");
   return chunks;
 }

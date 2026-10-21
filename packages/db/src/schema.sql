@@ -1840,6 +1840,78 @@ ALTER TABLE collections
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 CREATE INDEX IF NOT EXISTS collections_deleted_at_idx ON collections (deleted_at) WHERE deleted_at IS NOT NULL;
 
+-- ── Unified retrieval sources ─────────────────────────────────────────────
+-- Every durable knowledge source exposes one connector-neutral document
+-- shape. The retrieval index consumes this view; connector fetchers remain
+-- responsible only for keeping their source tables current. A new connector
+-- joins retrieval by adding one branch here, not by growing another indexing
+-- pipeline. This belongs after the column backfills because old databases do
+-- not have collections.deleted_at until the statement immediately above.
+CREATE OR REPLACE VIEW retrieval_source_documents AS
+SELECT n.collection_id,
+       'node'::text AS source,
+       n.id AS external_id,
+       n.locator,
+       n.node_type AS title,
+       CASE WHEN btrim(n.prose) <> '' THEN n.prose
+            ELSE concat_ws(' — ', nullif(n.locator, ''), nullif(n.extra->>'name', ''),
+                                  nullif(n.extra->>'verb', '')) END AS content,
+       ARRAY['workspace']::text[] AS access_scopes,
+       n.updated_at AS source_updated_at
+  FROM nodes n
+  JOIN collections c ON c.id = n.collection_id AND c.deleted_at IS NULL
+ WHERE n.lifecycle <> 'retired'
+   AND btrim(CASE WHEN btrim(n.prose) <> '' THEN n.prose
+                  ELSE concat_ws(' — ', nullif(n.locator, ''), nullif(n.extra->>'name', ''),
+                                        nullif(n.extra->>'verb', '')) END) <> ''
+UNION ALL
+SELECT p.collection_id,
+       'notion'::text,
+       p.page_id,
+       p.url,
+       nullif(p.title, ''),
+       CASE WHEN btrim(p.markdown) <> '' THEN p.markdown ELSE p.title END,
+       ARRAY['workspace']::text[],
+       p.synced_at
+  FROM notion_pages p
+  JOIN collections c ON c.id = p.collection_id AND c.deleted_at IS NULL
+ WHERE p.synced_at IS NOT NULL
+   AND btrim(concat_ws(E'\n\n', nullif(p.title, ''), nullif(p.markdown, ''))) <> ''
+UNION ALL
+SELECT m.collection_id,
+       'slack'::text,
+       m.channel_id || ':' || m.ts,
+       'https://' || mirror.team_domain || '.slack.com/archives/' || m.channel_id || '/p' ||
+         replace(m.ts, '.', ''),
+       '#' || ch.name,
+       coalesce(nullif(member.display_name, ''), nullif(member.real_name, ''), m.author_id, 'unknown') ||
+         ': ' || concat_ws(' ', nullif(m.text, ''), files.names),
+       ARRAY['workspace']::text[],
+       coalesce(to_timestamp(nullif(m.edited_ts, '')::numeric), m.posted_at)
+  FROM group_chat_messages m
+  JOIN group_chat_channels ch
+    ON ch.collection_id = m.collection_id AND ch.channel_id = m.channel_id AND NOT ch.excluded
+  JOIN group_chat_mirrors mirror ON mirror.collection_id = m.collection_id
+  JOIN collections c ON c.id = m.collection_id AND c.deleted_at IS NULL
+  LEFT JOIN group_chat_members member
+    ON member.collection_id = m.collection_id AND member.chat_user_id = m.author_id
+  LEFT JOIN LATERAL (
+    SELECT string_agg(nullif(file->>'name', ''), ' ') AS names
+      FROM jsonb_array_elements(m.files) AS file
+  ) files ON true
+ WHERE btrim(concat_ws(' ', nullif(m.text, ''), files.names)) <> ''
+UNION ALL
+SELECT f.collection_id,
+       'code'::text,
+       f.repo || ':' || f.path,
+       'https://github.com/' || f.repo || '/blob/HEAD/' || f.path,
+       f.repo || '/' || f.path,
+       CASE WHEN btrim(f.content) <> '' THEN f.content ELSE f.path END,
+       ARRAY['workspace']::text[],
+       f.synced_at
+  FROM code_files f
+  JOIN collections c ON c.id = f.collection_id AND c.deleted_at IS NULL;
+
 ALTER TABLE workspaces ADD COLUMN IF NOT EXISTS digest_sent_at timestamptz;
 -- Mark the personal workspaces people already have with whose they are: the
 -- ones named after a person's GitHub login, which is how they were recognized

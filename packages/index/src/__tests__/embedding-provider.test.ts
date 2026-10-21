@@ -138,6 +138,13 @@ describe("getDefaultEmbeddingProvider", () => {
     expect(getDefaultEmbeddingProvider()).toBeInstanceOf(VoyageEmbeddingProvider);
   });
 
+  it("lets an operator select Voyage 4 without changing the safe default", () => {
+    vi.stubEnv("VOYAGE_API_KEY", "va-test");
+    vi.stubEnv("DOCO_EMBEDDING_PROVIDER", "voyage");
+    vi.stubEnv("DOCO_VOYAGE_EMBEDDING_MODEL", "voyage-4");
+    expect(getDefaultEmbeddingProvider().modelId).toBe("voyage:voyage-4");
+  });
+
   it("forces Cohere when selected", () => {
     vi.stubEnv("COHERE_API_KEY", "co-test");
     vi.stubEnv("DOCO_EMBEDDING_PROVIDER", "cohere");

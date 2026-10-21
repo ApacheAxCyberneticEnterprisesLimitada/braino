@@ -105,6 +105,12 @@ function digest(value: string): string {
   return createHash("sha1").update(value).digest("hex");
 }
 
+/** Matches PostgreSQL's built-in md5(text), used by the unified source view
+ * to find documents whose derived retrieval copy is stale. */
+function contentHash(value: string): string {
+  return createHash("md5").update(value).digest("hex");
+}
+
 function stableId(prefix: string, value: string): string {
   return `${prefix}_${digest(value).slice(0, 26)}`;
 }
@@ -170,7 +176,7 @@ export async function ingestRetrievalDocument(
       input.externalId,
       input.locator ?? null,
       input.title ?? null,
-      digest(input.content),
+      contentHash(input.content),
       accessScopes,
     ],
   );

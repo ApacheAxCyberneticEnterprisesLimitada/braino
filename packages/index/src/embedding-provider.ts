@@ -9,6 +9,8 @@
  * `VOYAGE_API_KEY`, `COHERE_API_KEY`). No collection-prefixed variant. To pick a
  * provider explicitly when more than one key is present, set
  * `DOCO_EMBEDDING_PROVIDER` to `openai` | `voyage` | `cohere` | `none`.
+ * `DOCO_VOYAGE_EMBEDDING_MODEL` can opt a deployment into another Voyage
+ * model; the established production default remains `voyage-3.5`.
  *
  * Asymmetric retrieval. Agent queries are short natural-language questions;
  * the corpus is dense typed prose (decisions, rules, intents). That's an
@@ -229,7 +231,7 @@ export function getDefaultEmbeddingProvider(): EmbeddingProvider {
       case "openai":
         return providerForKey("OPENAI_API_KEY", (k) => new OpenAIEmbeddingProvider(k));
       case "voyage":
-        return providerForKey("VOYAGE_API_KEY", (k) => new VoyageEmbeddingProvider(k));
+        return providerForKey("VOYAGE_API_KEY", voyageProvider);
       case "cohere":
         return providerForKey("COHERE_API_KEY", (k) => new CohereEmbeddingProvider(k));
       case "":
@@ -240,7 +242,7 @@ export function getDefaultEmbeddingProvider(): EmbeddingProvider {
         );
     }
     if (process.env.OPENAI_API_KEY) return new OpenAIEmbeddingProvider(process.env.OPENAI_API_KEY);
-    if (process.env.VOYAGE_API_KEY) return new VoyageEmbeddingProvider(process.env.VOYAGE_API_KEY);
+    if (process.env.VOYAGE_API_KEY) return voyageProvider(process.env.VOYAGE_API_KEY);
     if (process.env.COHERE_API_KEY) return new CohereEmbeddingProvider(process.env.COHERE_API_KEY);
     return new NoopEmbeddingProvider();
   } catch (e) {
@@ -251,6 +253,13 @@ export function getDefaultEmbeddingProvider(): EmbeddingProvider {
     console.error(`[collection/embedding-provider] ${(e as Error).message}`);
     return new NoopEmbeddingProvider();
   }
+}
+
+function voyageProvider(apiKey: string): VoyageEmbeddingProvider {
+  return new VoyageEmbeddingProvider(
+    apiKey,
+    process.env.DOCO_VOYAGE_EMBEDDING_MODEL?.trim() || "voyage-3.5",
+  );
 }
 
 /**
