@@ -2112,11 +2112,10 @@ ALTER TABLE users
   DROP COLUMN IF EXISTS github_id,
   DROP COLUMN IF EXISTS avatar_url,
   DROP COLUMN IF EXISTS kind;
--- When the one email telling GitHub-era people to choose a password went to
--- them (lib/password-email.server.ts, decision_01M5EA9JYTP68Y3EDX11805BXV):
--- claimed before the send, so two runs never both send it. Dropped with the
--- job once everyone has it.
-ALTER TABLE users ADD COLUMN IF NOT EXISTS password_email_sent_at timestamptz;
+-- password_email_sent_at claimed each GitHub-era person for the one email
+-- asking them to choose a password (decision_01M5EA9JYTP68Y3EDX11805BXV),
+-- which went out on 2026-10-21; it went with the job.
+ALTER TABLE users DROP COLUMN IF EXISTS password_email_sent_at;
 
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change

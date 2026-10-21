@@ -74,7 +74,7 @@ describe("users move from GitHub logins to Doco usernames", () => {
     ).rejects.toThrow(/users_username_key/);
   });
 
-  it("drops the columns only GitHub sign-in used, so inserts need no kind", async () => {
+  it("drops the columns only GitHub sign-in and its one-time email used, so inserts need no kind", async () => {
     await db.exec(schemaSql);
     expect(await columns()).toEqual(
       [
@@ -84,7 +84,6 @@ describe("users move from GitHub logins to Doco usernames", () => {
         "email",
         "github_login",
         "id",
-        "password_email_sent_at",
         "password_hash",
         "updated_at",
         "username",
