@@ -24,9 +24,11 @@ export {
   type AuditEventRow,
   // Host + identity helpers
   getHostConfig,
-  // Users (human OAuth identity layer)
+  // Users (the people who sign in)
   getUserById,
+  getUserByUsername,
   getUserByGithubLogin,
+  getUserByEmail,
   listUsers,
   patchUserData,
   type UserRow,

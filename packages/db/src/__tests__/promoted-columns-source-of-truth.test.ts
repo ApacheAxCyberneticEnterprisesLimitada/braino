@@ -30,7 +30,7 @@ beforeAll(async () => {
     "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
     [COLLECTION, "collection-promoted", ORG, ORG],
   );
-  await db.query("INSERT INTO users (id, github_login, data) VALUES ($1,$2,'{}'::jsonb)", [
+  await db.query("INSERT INTO users (id, username, data) VALUES ($1,$2,'{}'::jsonb)", [
     "user_promoted0000000000000000000",
     "promoted-user",
   ]);

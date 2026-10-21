@@ -40,19 +40,27 @@ ON CONFLICT (id) DO NOTHING;
 -- Identity layer.
 --
 -- Two distinct concerns, split into two tables:
---   `users`      — OAuth identity for humans. Authored nodes via
---                  `created_by` / `updated_by`. Members of workspaces/collections.
---                  OAuth clients/tokens have names on the token rows;
---                  they are not represented as user rows.
+--   `users`      — the humans who sign in, with an email address and a
+--                  password (decision_01M5EA9HVPXG0SF7FVZWCGXSQ1). Authored
+--                  nodes via `created_by` / `updated_by`. Members of
+--                  workspaces/collections. OAuth clients/tokens have names on
+--                  the token rows; they are not represented as user rows.
 --   `principals` — role-personas (the "actor" in a documented business
 --                  process). Linked from work through first-class edges.
 
 CREATE TABLE IF NOT EXISTS users (
   id              text PRIMARY KEY,            -- user_<ulid>
-  github_id       text,                        -- GitHub numeric id (immutable)
-  github_login    text,                        -- current GitHub login (mutable)
+  -- The person's name in Doco, unique regardless of case
+  -- (decision_01M5EAAX2VT2MMRG0ZGKDJGMJZ).
+  username        text,
+  -- The GitHub account the person is, for matching GitHub's events (a pull
+  -- request's author) to them; nothing signs in with it.
+  github_login    text,
+  -- Where Doco emails them, and what they sign in with; unique regardless of
+  -- case.
   email           text,
-  avatar_url      text,
+  -- scrypt, as lib/password.server.ts writes it; null until they choose one.
+  password_hash   text,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -2058,6 +2066,57 @@ BEGIN
       t.tbl || '_activity_' || lower(t.ev), t.ev, t.tbl, t.at);
   END LOOP;
 END $$;
+
+-- Email sign-in replaced GitHub sign-in (decision_01M5EA9HVPXG0SF7FVZWCGXSQ1).
+-- A person's name moves from their GitHub login to users.username, filled
+-- once, on the boot that adds the column: a second login that differs from an
+-- earlier one only by case is numbered, since names are unique regardless of
+-- case (decision_01M5EAAX2VT2MMRG0ZGKDJGMJZ).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'users'
+       AND column_name = 'username'
+  ) THEN
+    ALTER TABLE users ADD COLUMN username text;
+    UPDATE users u
+       SET username = CASE WHEN n.rank = 1 THEN u.github_login
+                           ELSE u.github_login || '-' || n.rank END
+      FROM (SELECT id, row_number() OVER (PARTITION BY lower(github_login)
+                                          ORDER BY created_at, id) AS rank
+              FROM users WHERE github_login IS NOT NULL) n
+     WHERE n.id = u.id;
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users (lower(username));
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;
+-- An address signs in one person: made unique once, a blank one counting as
+-- none and a later account sharing an address losing it to the first.
+DO $$
+BEGIN
+  IF to_regclass('users_email_key') IS NULL THEN
+    UPDATE users SET email = NULL WHERE btrim(email) = '';
+    UPDATE users u SET email = NULL
+      FROM (SELECT id, row_number() OVER (PARTITION BY lower(email)
+                                          ORDER BY created_at, id) AS rank
+              FROM users WHERE email IS NOT NULL) n
+     WHERE n.id = u.id AND n.rank > 1;
+    CREATE UNIQUE INDEX users_email_key ON users (lower(email));
+  END IF;
+END $$;
+-- Only GitHub sign-in read github_id; nothing ever wrote avatar_url; and the
+-- kind column production still carried was written and never read.
+ALTER TABLE users
+  DROP COLUMN IF EXISTS github_id,
+  DROP COLUMN IF EXISTS avatar_url,
+  DROP COLUMN IF EXISTS kind;
+-- When the one email telling GitHub-era people to choose a password went to
+-- them (lib/password-email.server.ts, decision_01M5EA9JYTP68Y3EDX11805BXV):
+-- claimed before the send, so two runs never both send it. Dropped with the
+-- job once everyone has it.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_email_sent_at timestamptz;
 
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change

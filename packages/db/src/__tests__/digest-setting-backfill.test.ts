@@ -24,7 +24,7 @@ describe("the digest setting replaces the unsubscribe timestamp", () => {
     await db.exec(`
       ALTER TABLE workspace_users DROP COLUMN digest;
       ALTER TABLE workspace_users ADD COLUMN digest_unsubscribed_at timestamptz;
-      INSERT INTO users (id, github_login, data) VALUES
+      INSERT INTO users (id, username, data) VALUES
         ('user_ana', 'ana', '{}'), ('user_bo', 'bo', '{}');
       INSERT INTO workspaces (id, handle, name) VALUES ('workspace_acme', 'acme', 'acme');
       INSERT INTO workspace_users (workspace_id, user_id, role, digest_unsubscribed_at) VALUES

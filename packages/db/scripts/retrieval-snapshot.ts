@@ -16,7 +16,7 @@ const gunzipAsync = promisify(gunzip);
 function usage(): never {
   throw new Error(`Usage:
   pnpm eval:corpus export --collection <id-or-handle> [--out .doco/snapshots/name.json.gz] [--app-revision <sha>]
-  pnpm eval:corpus restore --in <snapshot.json.gz> [--grant-user <local-github-login>]
+  pnpm eval:corpus restore --in <snapshot.json.gz> [--grant-user <local-username>]
 
 Environment:
   export reads DOCO_SNAPSHOT_SOURCE_DATABASE_URL
@@ -110,13 +110,13 @@ async function exportCommand(args: string[]): Promise<void> {
   }
 }
 
-async function localUserId(client: pg.PoolClient, githubLogin: string): Promise<string> {
+async function localUserId(client: pg.PoolClient, username: string): Promise<string> {
   const user = await client.query<{ id: string }>(
-    "SELECT id FROM users WHERE lower(github_login) = lower($1) LIMIT 1",
-    [githubLogin],
+    "SELECT id FROM users WHERE lower(username) = lower($1) LIMIT 1",
+    [username],
   );
   const userId = user.rows[0]?.id;
-  if (!userId) throw new Error(`local user ${githubLogin} was not found; sign in locally first`);
+  if (!userId) throw new Error(`local user ${username} was not found; sign up locally first`);
   return userId;
 }
 

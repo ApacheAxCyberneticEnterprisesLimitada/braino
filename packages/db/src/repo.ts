@@ -314,50 +314,57 @@ export async function getHostConfig(): Promise<HostConfigRow | null> {
   });
 }
 
-// ─── Users (human OAuth identity layer) ───────────────────────────
+// ─── Users (the people who sign in) ───────────────────────────────
 
 export interface UserRow {
   id: string;
-  github_id: string | null;
+  username: string | null;
   github_login: string | null;
   email: string | null;
-  avatar_url: string | null;
   data: Record<string, unknown>;
+}
+
+const USER_COLUMNS = "id, username, github_login, email, data";
+
+function nullableString(value: unknown): string | null {
+  return value === null || value === undefined ? null : String(value);
 }
 
 function mapUserRow(row: Record<string, unknown>): UserRow {
   return {
     id: String(row.id),
-    github_id: row.github_id === null || row.github_id === undefined ? null : String(row.github_id),
-    github_login:
-      row.github_login === null || row.github_login === undefined ? null : String(row.github_login),
-    email: row.email === null || row.email === undefined ? null : String(row.email),
-    avatar_url:
-      row.avatar_url === null || row.avatar_url === undefined ? null : String(row.avatar_url),
+    username: nullableString(row.username),
+    github_login: nullableString(row.github_login),
+    email: nullableString(row.email),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
 }
 
-export async function getUserById(id: string): Promise<UserRow | null> {
+async function findUser(where: string, value: string): Promise<UserRow | null> {
   return withClient(async (c) => {
-    const r = await c.query(
-      "SELECT id, github_id, github_login, email, avatar_url, data FROM users WHERE id = $1",
-      [id],
-    );
-    if (r.rowCount === 0) return null;
+    const r = await c.query(`SELECT ${USER_COLUMNS} FROM users WHERE ${where} LIMIT 1`, [value]);
+    if (r.rows.length === 0) return null;
     return mapUserRow(r.rows[0]);
   });
 }
 
+export async function getUserById(id: string): Promise<UserRow | null> {
+  return findUser("id = $1", id);
+}
+
+/** The person with this Doco name, in any case. */
+export async function getUserByUsername(username: string): Promise<UserRow | null> {
+  return findUser("lower(username) = lower($1)", username);
+}
+
+/** The person who is this GitHub account, for matching GitHub's events. */
 export async function getUserByGithubLogin(login: string): Promise<UserRow | null> {
-  return withClient(async (c) => {
-    const r = await c.query(
-      "SELECT id, github_id, github_login, email, avatar_url, data FROM users WHERE github_login = $1",
-      [login],
-    );
-    if (r.rowCount === 0) return null;
-    return mapUserRow(r.rows[0]);
-  });
+  return findUser("lower(github_login) = lower($1)", login);
+}
+
+/** The person who signs in with this address, in any case. */
+export async function getUserByEmail(email: string): Promise<UserRow | null> {
+  return findUser("lower(email) = lower($1)", email.trim());
 }
 
 /**
@@ -376,10 +383,10 @@ export async function patchUserData(
           SET data = data || $2::jsonb,
               updated_at = now()
         WHERE id = $1
-      RETURNING id, github_id, github_login, email, avatar_url, data`,
+      RETURNING ${USER_COLUMNS}`,
       [id, JSON.stringify(patch)],
     );
-    if (r.rowCount === 0) return null;
+    if (r.rows.length === 0) return null;
     return mapUserRow(r.rows[0]);
   });
 }
@@ -387,8 +394,7 @@ export async function patchUserData(
 export async function listUsers(): Promise<UserRow[]> {
   return withClient(async (c) => {
     const r = await c.query(
-      `SELECT id, github_id, github_login, email, avatar_url, data
-       FROM users ORDER BY github_login NULLS LAST, id`,
+      `SELECT ${USER_COLUMNS} FROM users ORDER BY lower(username) NULLS LAST, id`,
     );
     return r.rows.map(mapUserRow);
   });
@@ -852,7 +858,7 @@ export interface CollectionRow {
   id: string;
   handle: string;
   /**
-   * Owner label — User.github_login for human/agent owners,
+   * Owner label — User.username for human/agent owners,
    * Workspace.handle for workspace owners. Derived via JOIN in `mapCollectionRow`
    * from `owner_id`. NOT a collection identifier.
    */
@@ -887,13 +893,13 @@ function mapCollectionRow(row: Record<string, unknown>): CollectionRow {
 }
 
 /**
- * Resolves `owner_slug` from `users.github_login` /
+ * Resolves `owner_slug` from `users.username` /
  * `workspaces.handle` keyed by `collections.owner_id`.
  */
 const COLLECTION_SELECT = `
   SELECT d.id, d.handle, d.owner_id, d.workspace_id, d.visibility, d.goal, d.data,
          d.default_node_lifecycle,
-         COALESCE(c.github_login, o.handle, '') AS owner_slug
+         COALESCE(c.username, o.handle, '') AS owner_slug
     FROM collections d
     LEFT JOIN users c ON c.id = d.owner_id
     LEFT JOIN workspaces o ON o.id = d.owner_id`;

@@ -34,7 +34,7 @@ async function seedCollectionWithHistory(
     [ORG, "workspace-test", "Workspace Test"],
   );
   await db.query(
-    "INSERT INTO users (id, github_login, data) VALUES ($1, $2, '{}') ON CONFLICT DO NOTHING",
+    "INSERT INTO users (id, username, data) VALUES ($1, $2, '{}') ON CONFLICT DO NOTHING",
     [USER, "tester"],
   );
   await db.query(

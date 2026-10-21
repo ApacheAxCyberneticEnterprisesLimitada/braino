@@ -39,7 +39,7 @@ describe("ending the invite step for owners it read as done for", () => {
   beforeEach(async () => {
     db = await freshDb();
     await db.exec(`
-      INSERT INTO users (id, github_login, data) VALUES
+      INSERT INTO users (id, username, data) VALUES
         ('user_ana', 'ana', '{}'), ('user_bo', 'bo', '{}'), ('user_cy', 'cy', '{}'),
         ('user_dee', 'dee', '{}'), ('user_eve', 'eve', '{}');
       INSERT INTO workspaces (id, handle, name) VALUES
