@@ -2328,15 +2328,17 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
   },
   {
     // Agents chats — the record of every chat an agent has with a user. The
-    // baseline duties have each agent capture one Log per chat here before the
-    // chat ends. Only Logs belong: what a chat produced (a Decision, an Idea, a
-    // bug) goes in the collection that holds that kind of knowledge, and edges don't
-    // cross collections, so the Log lists those nodes' ids in its `outputs`.
+    // baseline duties have each agent capture one Log per chat here, one short
+    // line (Alexander, 2026-10-21: "one-line comments, rather than a long log
+    // of everything they do"). Only Logs belong: what a chat produced (a
+    // Decision, an Idea, a bug) goes in the collection that holds that kind of
+    // knowledge, and edges don't cross collections, so the Log lists those
+    // nodes' ids in its `outputs`.
     name: "agents-chats",
     label: "Agents chats",
     icon: "🤖",
     description:
-      "Record every chat an agent has with a user — who took part, what was asked, what was worked on, what came of it, and what was left open — one Log per chat, pointing to the decisions and work it produced.",
+      "Record every chat an agent has with a user in one short line — who asked for what and what came of it — one Log per chat, pointing to the decisions and work it produced.",
     // A chat record is read newest first, as a list.
     perspectives: [{ slug: "list", isDefault: true }],
     policies: [
@@ -2349,13 +2351,13 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A chat Log names who took part (the user by name, the agent by its credential label), what the user asked for, what was worked on, what came of it, and what was left open. Pass when all five are clear from the Log; fail when any is missing or vague.",
+          spec: "A chat Log is one short line naming who asked for what (the user by name, the agent by its credential label) and what came of it. Pass when one line says both; fail when it runs past one line, recounts the steps taken, or leaves either out.",
           when_node_type: ["log"],
         },
       },
       {
         policy:
-          'Capture the Log before the chat ends, with `verb` "chatted", `happened_at` when the chat began, and `prose` that summarizes the chat in the third person. Summarize rather than transcribe; quote the user only where the exact words matter, such as a requirement, a correction or an approval.',
+          'Capture the Log with `verb` "chatted", `happened_at` when the chat began, and `prose` of one short line in the third person, such as "Ana asked Claude Code to fix the sign-in redirect; it opened PR #42." Leave out the steps along the way: what the chat produced carries the detail. Supersede the Log only when what came of the chat changes.',
       },
       {
         policy:

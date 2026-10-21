@@ -14,4 +14,4 @@ Follow the policies of every collection in this workspace. They are binding, not
 
 Document anything a future collaborator, whether a person or an agent, would need to gain context later: the reasoning behind decisions, the constraints that ruled out alternatives, and the rules that emerged along the way. If it would be hard to reconstruct later, write it down now.
 
-Three duties are not optional. Load context at the start of every session by querying this workspace's collections before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation before it ends: what was worked on, what was decided, and what was left open.`;
+Three duties are not optional. Load context at the start of every session by querying this workspace's collections before the first substantive reply. Document every decision as it is made, with the alternatives that lost and why. Record every conversation in one short line: who asked for what and what came of it.`;

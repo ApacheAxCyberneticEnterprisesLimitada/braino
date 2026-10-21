@@ -2335,4 +2335,22 @@ describe("agents chats template", () => {
       expect(prose).toContain(collection);
     }
   });
+
+  // Alexander, 2026-10-21: "Agents should be taught to make one-line
+  // comments, rather than a long log of everything they do."
+  it("asks for each chat's Log in one short line, not an account of every step", () => {
+    expect(template.description).toBe(
+      "Record every chat an agent has with a user in one short line — who asked for what and what came of it — one Log per chat, pointing to the decisions and work it produced.",
+    );
+    const prose = template.policies.map((p) => p.policy ?? "").join("\n");
+    expect(prose).toContain(
+      '`prose` of one short line in the third person, such as "Ana asked Claude Code to fix the sign-in redirect; it opened PR #42."',
+    );
+    expect(prose).toContain("Supersede the Log only when what came of the chat changes.");
+    const judge = template.policies.find((p) => p.predicate?.kind === "probabilistic")?.predicate;
+    expect(judge).toMatchObject({
+      spec: expect.stringContaining("A chat Log is one short line naming who asked for what"),
+    });
+    expect(JSON.stringify(template)).not.toContain("left open");
+  });
 });

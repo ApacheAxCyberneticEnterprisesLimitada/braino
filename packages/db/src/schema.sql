@@ -2116,6 +2116,40 @@ ALTER TABLE users
 -- which went out on 2026-10-21; it went with the job.
 ALTER TABLE users DROP COLUMN IF EXISTS password_email_sent_at;
 
+-- A chat's Log is one short line: who asked for what and what came of it
+-- (Alexander, 2026-10-21: "Agents should be taught to make one-line comments,
+-- rather than a long log of everything they do"). An Agents chats collection's
+-- goal and active policies that still read as its template first wrote them
+-- take the template's new wording, and a constitution still carrying the old
+-- default's sentence on recording conversations takes the new one; whatever
+-- an owner rewrote keeps its own. Only the old wording matches, so a reboot
+-- changes nothing. The block goes once production has applied it.
+UPDATE collections
+   SET goal = 'Record every chat an agent has with a user in one short line — who asked for what and what came of it — one Log per chat, pointing to the decisions and work it produced.',
+       updated_at = now()
+ WHERE data->>'template_handle' = 'agents-chats'
+   AND goal = 'Record every chat an agent has with a user — who took part, what was asked, what was worked on, what came of it, and what was left open — one Log per chat, pointing to the decisions and work it produced.';
+UPDATE policies p
+   SET data = jsonb_set(p.data, '{predicate,agent_instruction}', to_jsonb(w.new)),
+       updated_at = now()
+  FROM collections d,
+       (VALUES
+         ('A chat Log names who took part (the user by name, the agent by its credential label), what the user asked for, what was worked on, what came of it, and what was left open. Pass when all five are clear from the Log; fail when any is missing or vague.',
+          'A chat Log is one short line naming who asked for what (the user by name, the agent by its credential label) and what came of it. Pass when one line says both; fail when it runs past one line, recounts the steps taken, or leaves either out.'),
+         ('Capture the Log before the chat ends, with `verb` "chatted", `happened_at` when the chat began, and `prose` that summarizes the chat in the third person. Summarize rather than transcribe; quote the user only where the exact words matter, such as a requirement, a correction or an approval.',
+          'Capture the Log with `verb` "chatted", `happened_at` when the chat began, and `prose` of one short line in the third person, such as "Ana asked Claude Code to fix the sign-in redirect; it opened PR #42." Leave out the steps along the way: what the chat produced carries the detail. Supersede the Log only when what came of the chat changes.')
+       ) AS w(old, new)
+ WHERE d.id = p.collection_id
+   AND d.data->>'template_handle' = 'agents-chats'
+   AND p.lifecycle = 'active'
+   AND p.data->'predicate'->>'agent_instruction' = w.old;
+UPDATE workspaces
+   SET constitution = replace(constitution,
+         'Record every conversation before it ends: what was worked on, what was decided, and what was left open.',
+         'Record every conversation in one short line: who asked for what and what came of it.'),
+       updated_at = now()
+ WHERE strpos(constitution, 'Record every conversation before it ends: what was worked on, what was decided, and what was left open.') > 0;
+
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change
 -- still reaches the database on the first boot after it deploys and its
