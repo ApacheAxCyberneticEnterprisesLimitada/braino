@@ -486,7 +486,9 @@ DO $$ BEGIN
 END $$;
 CREATE TABLE IF NOT EXISTS embeddings (
   collection_id       text NOT NULL,
-  source        text NOT NULL CHECK (source IN ('node','notion','slack')),
+  source        text NOT NULL CHECK (source IN (
+    'node','notion','slack','retrieval_chunk','retrieval_entity','retrieval_relation'
+  )),
   entity_id     text NOT NULL,
   chunk_index   int  NOT NULL DEFAULT 0,
   model_id      text NOT NULL,
@@ -500,6 +502,13 @@ CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (collection_id, s
 CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings
   USING hnsw ((subvector(embedding, 1, 512)::halfvec(512)) halfvec_cosine_ops)
   WITH (m = 32, ef_construction = 200);
+
+-- Keep existing databases' source constraint in sync with the definition
+-- above. Retrieval graph rows are derived and may be rebuilt at any time.
+ALTER TABLE embeddings DROP CONSTRAINT IF EXISTS embeddings_source_check;
+ALTER TABLE embeddings ADD CONSTRAINT embeddings_source_check CHECK (source IN (
+  'node','notion','slack','retrieval_chunk','retrieval_entity','retrieval_relation'
+));
 
 -- A collection's partition. Created empty and then attached, which locks the parent
 -- against schema changes only (CREATE TABLE ... PARTITION OF would block every
@@ -613,6 +622,134 @@ CREATE TABLE IF NOT EXISTS entity_fts_nodes (
 );
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_collection_idx ON entity_fts_nodes (collection_id);
 CREATE INDEX IF NOT EXISTS entity_fts_nodes_tsv_idx  ON entity_fts_nodes USING gin (search_tsv);
+
+-- ── Retrieval graph ──────────────────────────────────────────────────────
+-- Derived evidence index. Connector documents are split into chunks;
+-- extracted entities are resolved across documents; mentions retain
+-- provenance; relationship facts connect entities. These rows never turn
+-- extracted claims into authored governance nodes or edges.
+CREATE TABLE IF NOT EXISTS retrieval_documents (
+  id             text PRIMARY KEY,
+  collection_id  text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  source         text NOT NULL,
+  external_id    text NOT NULL,
+  locator        text,
+  title          text,
+  content_hash   text NOT NULL,
+  access_scopes  text[] NOT NULL DEFAULT ARRAY['workspace']::text[],
+  created_at     timestamptz NOT NULL DEFAULT now(),
+  updated_at     timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (collection_id, source, external_id)
+);
+CREATE INDEX IF NOT EXISTS retrieval_documents_collection_idx
+  ON retrieval_documents (collection_id);
+
+CREATE TABLE IF NOT EXISTS retrieval_chunks (
+  id             text PRIMARY KEY,
+  collection_id  text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  document_id    text NOT NULL REFERENCES retrieval_documents(id) ON DELETE CASCADE,
+  chunk_index    integer NOT NULL,
+  text           text NOT NULL,
+  breadcrumb     text,
+  content_hash   text NOT NULL,
+  access_scopes  text[] NOT NULL DEFAULT ARRAY['workspace']::text[],
+  search_tsv     tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(breadcrumb, '')), 'A') ||
+    setweight(to_tsvector('english', text), 'B')
+  ) STORED,
+  UNIQUE (document_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS retrieval_chunks_collection_idx
+  ON retrieval_chunks (collection_id, document_id, chunk_index);
+CREATE INDEX IF NOT EXISTS retrieval_chunks_access_idx
+  ON retrieval_chunks USING gin (access_scopes);
+CREATE INDEX IF NOT EXISTS retrieval_chunks_tsv_idx
+  ON retrieval_chunks USING gin (search_tsv);
+
+CREATE TABLE IF NOT EXISTS retrieval_entities (
+  id                  text PRIMARY KEY,
+  collection_id       text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  entity_type         text NOT NULL,
+  name                text NOT NULL,
+  normalized_name     text NOT NULL,
+  aliases             text[] NOT NULL DEFAULT '{}'::text[],
+  normalized_aliases  text[] NOT NULL DEFAULT '{}'::text[],
+  description         text,
+  search_tsv          tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', name), 'A') ||
+    setweight(to_tsvector('english', coalesce(description, '')), 'B')
+  ) STORED,
+  UNIQUE (collection_id, entity_type, normalized_name)
+);
+CREATE INDEX IF NOT EXISTS retrieval_entities_collection_idx
+  ON retrieval_entities (collection_id, entity_type, normalized_name);
+CREATE INDEX IF NOT EXISTS retrieval_entities_aliases_idx
+  ON retrieval_entities USING gin (normalized_aliases);
+CREATE INDEX IF NOT EXISTS retrieval_entities_tsv_idx
+  ON retrieval_entities USING gin (search_tsv);
+
+CREATE TABLE IF NOT EXISTS retrieval_mentions (
+  collection_id  text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  entity_id      text NOT NULL REFERENCES retrieval_entities(id) ON DELETE CASCADE,
+  chunk_id       text NOT NULL REFERENCES retrieval_chunks(id) ON DELETE CASCADE,
+  start_offset   integer NOT NULL DEFAULT -1,
+  end_offset     integer,
+  confidence     double precision NOT NULL DEFAULT 1,
+  PRIMARY KEY (entity_id, chunk_id, start_offset)
+);
+CREATE INDEX IF NOT EXISTS retrieval_mentions_collection_entity_idx
+  ON retrieval_mentions (collection_id, entity_id);
+CREATE INDEX IF NOT EXISTS retrieval_mentions_chunk_idx
+  ON retrieval_mentions (chunk_id);
+
+CREATE TABLE IF NOT EXISTS retrieval_relations (
+  id               text PRIMARY KEY,
+  collection_id    text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  from_entity_id   text NOT NULL REFERENCES retrieval_entities(id) ON DELETE CASCADE,
+  to_entity_id     text NOT NULL REFERENCES retrieval_entities(id) ON DELETE CASCADE,
+  relation_type    text NOT NULL,
+  fact             text NOT NULL,
+  source_chunk_id  text NOT NULL REFERENCES retrieval_chunks(id) ON DELETE CASCADE,
+  confidence       double precision NOT NULL DEFAULT 1,
+  search_tsv       tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', relation_type), 'A') ||
+    setweight(to_tsvector('english', fact), 'B')
+  ) STORED,
+  UNIQUE (source_chunk_id, from_entity_id, to_entity_id, relation_type, fact)
+);
+CREATE INDEX IF NOT EXISTS retrieval_relations_collection_from_idx
+  ON retrieval_relations (collection_id, from_entity_id);
+CREATE INDEX IF NOT EXISTS retrieval_relations_collection_to_idx
+  ON retrieval_relations (collection_id, to_entity_id);
+CREATE INDEX IF NOT EXISTS retrieval_relations_tsv_idx
+  ON retrieval_relations USING gin (search_tsv);
+
+-- Derived vectors follow the retrieval row that owns them. Collection
+-- deletion drops the collection's embedding partition; these triggers cover
+-- incremental document replacement and orphan cleanup.
+CREATE OR REPLACE FUNCTION retrieval_embeddings_drop_for_row() RETURNS trigger AS $$
+DECLARE embedding_source text;
+BEGIN
+  embedding_source := CASE TG_TABLE_NAME
+    WHEN 'retrieval_chunks' THEN 'retrieval_chunk'
+    WHEN 'retrieval_entities' THEN 'retrieval_entity'
+    WHEN 'retrieval_relations' THEN 'retrieval_relation'
+  END;
+  DELETE FROM embeddings
+   WHERE collection_id = OLD.collection_id
+     AND source = embedding_source
+     AND entity_id = OLD.id;
+  RETURN OLD;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS retrieval_chunks_embeddings_drop ON retrieval_chunks;
+CREATE TRIGGER retrieval_chunks_embeddings_drop
+  AFTER DELETE ON retrieval_chunks FOR EACH ROW EXECUTE FUNCTION retrieval_embeddings_drop_for_row();
+DROP TRIGGER IF EXISTS retrieval_entities_embeddings_drop ON retrieval_entities;
+CREATE TRIGGER retrieval_entities_embeddings_drop
+  AFTER DELETE ON retrieval_entities FOR EACH ROW EXECUTE FUNCTION retrieval_embeddings_drop_for_row();
+DROP TRIGGER IF EXISTS retrieval_relations_embeddings_drop ON retrieval_relations;
+CREATE TRIGGER retrieval_relations_embeddings_drop
+  AFTER DELETE ON retrieval_relations FOR EACH ROW EXECUTE FUNCTION retrieval_embeddings_drop_for_row();
 
 -- ── Touches ──────────────────────────────────────────────────────────────
 -- What a node names: the file paths, URLs, node ids and pull request numbers

@@ -6,7 +6,13 @@
 // same code runs inside a request, a cron tick, or a test's in-process
 // Postgres.
 
-export type EmbeddingSource = "node" | "notion" | "slack";
+export type EmbeddingSource =
+  | "node"
+  | "notion"
+  | "slack"
+  | "retrieval_chunk"
+  | "retrieval_entity"
+  | "retrieval_relation";
 
 /** The column's dimensions; shorter vectors are zero-padded on the way in,
  *  which leaves cosine similarity unchanged. */

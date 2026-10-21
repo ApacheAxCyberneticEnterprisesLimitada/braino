@@ -3,4 +3,7 @@ export * from "./pagerank.js";
 export * from "./embedding-provider.js";
 export * from "./reranker.js";
 export * from "./retrieval-metrics.js";
+export * from "./retrieval-ingestion.js";
+export * from "./retrieval-ontology.js";
+export * from "./multipath-retrieval.js";
 export { loadCollectionFromPostgres } from "./loadCollection.js";

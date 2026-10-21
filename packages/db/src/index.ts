@@ -128,6 +128,31 @@ export {
   type FtsRowInput,
 } from "./indexer.js";
 
+export {
+  ingestRetrievalDocument,
+  normalizeRetrievalEntityName,
+  searchRetrievalChunksFts,
+  searchRetrievalEntitiesFts,
+  searchRetrievalRelationsFts,
+  listAccessibleRetrievalIds,
+  rankRetrievalVectors,
+  loadRetrievalRelations,
+  expandRetrievalRelations,
+  loadChunksMentioningEntities,
+  loadRetrievalChunks,
+  loadRetrievalChunkContext,
+  type RetrievalChunkInput,
+  type RetrievalMentionInput,
+  type RetrievalEntityInput,
+  type RetrievalRelationshipInput,
+  type RetrievalDocumentInput,
+  type RetrievalIngestReport,
+  type RetrievalChunkRow,
+  type RetrievalEntityHit,
+  type RetrievalRelationRow,
+  type RetrievalRelationExpansion,
+} from "./retrieval-graph.js";
+
 // Append-only write runtime: commit boundary + first-class edge CRUD +
 // immutable version snapshots + as-of reads.
 export {
