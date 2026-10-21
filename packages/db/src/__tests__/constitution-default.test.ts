@@ -37,16 +37,45 @@ describe("default workspace constitution text stays in sync", () => {
     expect(collectionBlock).not.toMatch(/\bconstitution\s+text\b/);
   });
 
-  it("the default text carries the three intended themes", () => {
-    expect(text).toMatch(/spec-driven/i);
+  it("asks agents to follow every collection's policies and document for a future collaborator", () => {
     expect(text).toMatch(/policies of every collection/i);
     expect(text).toMatch(/future collaborator/i);
   });
 
-  it("names the baseline duties: load context, document decisions, record conversations", () => {
-    expect(text).toMatch(/start of every (session|conversation)/i);
-    expect(text).toMatch(/every decision/i);
-    expect(text).toMatch(/record (every|each) conversation/i);
+  // Alexander, 2026-10-21: "the instructions shouldn't make reference to it.
+  // The Constitutions should." Doco's agent instructions name no collection,
+  // so the constitution says what to record and in which of the collections
+  // a new workspace starts with.
+  it("says what to record and where: each chat, each decision by its kind, each process change", () => {
+    expect(text).toContain(
+      "Record each chat as a Log in Agents chats, in one short line: who asked for what and what came of it.",
+    );
+    expect(text).toContain("Record each decision as it is made");
+    expect(text).toContain(
+      "When a decision changes a business process, change that process in Processes too",
+    );
+  });
+
+  // An agent filed a change to what non-USD Pros are paid in Architectural
+  // decisions because it shipped as code (decision_01M5AXEZ2JHCPGTP3NNY2C16QV).
+  // A decision goes where what was chosen belongs, and a choice with a product
+  // side and a technical side is two Decisions.
+  it("files a decision by what was chosen, not by the code it took", () => {
+    expect(text).toContain(
+      "- Product decisions when it sets what users or the business get (what to build, fix, charge or pay), even when it ships as code;",
+    );
+    expect(text).toContain("- Design decisions when it sets how something looks or behaves");
+    expect(text).toContain(
+      "- Architectural decisions when it sets how the system does it: structure, technology, data.",
+    );
+    expect(text).toContain(
+      "A choice with both sides is two Decisions, each citing the other's id.",
+    );
+  });
+
+  it("schema.sql gives every workspace the default text byte for byte", () => {
+    const fresh = schemaSql.match(/\$constitution\$([\s\S]*?)\$constitution\$/)?.[1];
+    expect(fresh, "the $constitution$ text in schema.sql").toBe(text);
   });
 });
 

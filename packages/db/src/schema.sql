@@ -2120,10 +2120,9 @@ ALTER TABLE users DROP COLUMN IF EXISTS password_email_sent_at;
 -- (Alexander, 2026-10-21: "Agents should be taught to make one-line comments,
 -- rather than a long log of everything they do"). An Agents chats collection's
 -- goal and active policies that still read as its template first wrote them
--- take the template's new wording, and a constitution still carrying the old
--- default's sentence on recording conversations takes the new one; whatever
--- an owner rewrote keeps its own. Only the old wording matches, so a reboot
--- changes nothing. The block goes once production has applied it.
+-- take the template's new wording; whatever an owner rewrote keeps its own.
+-- Only the old wording matches, so a reboot changes nothing. The block goes
+-- once production has applied it.
 UPDATE collections
    SET goal = 'Record every chat an agent has with a user in one short line — who asked for what and what came of it — one Log per chat, pointing to the decisions and work it produced.',
        updated_at = now()
@@ -2143,12 +2142,42 @@ UPDATE policies p
    AND d.data->>'template_handle' = 'agents-chats'
    AND p.lifecycle = 'active'
    AND p.data->'predicate'->>'agent_instruction' = w.old;
-UPDATE workspaces
-   SET constitution = replace(constitution,
-         'Record every conversation before it ends: what was worked on, what was decided, and what was left open.',
-         'Record every conversation in one short line: who asked for what and what came of it.'),
+
+-- Every workspace's constitution says what to record and where, since Doco's
+-- agent instructions no longer name a collection (Alexander, 2026-10-21: "the
+-- instructions shouldn't make reference to it. The Constitutions should.";
+-- "Update all constitutions"). Each constitution loses the paragraphs a stock
+-- default gave it, in either wording, and ends with the new default, so a
+-- stock one becomes the default and one an owner added to keeps the owner's
+-- paragraphs above it. One that already carries the new text is left alone,
+-- so a reboot changes nothing. The block goes once production has applied it.
+UPDATE workspaces w
+   SET constitution = CASE WHEN s.kept = '' THEN s.fresh ELSE s.kept || E'\n\n' || s.fresh END,
        updated_at = now()
- WHERE strpos(constitution, 'Record every conversation before it ends: what was worked on, what was decided, and what was left open.') > 0;
+  FROM (SELECT id,
+               btrim(regexp_replace(
+                 regexp_replace(constitution,
+                   '(This is a spec-driven development project\.|Follow the policies of every (Doco|collection) in this workspace\. They are binding|Document anything a future collaborator,|Three duties are not optional\.).*',
+                   '', 'gn'),
+                 '\n{3,}', E'\n\n', 'g'), E' \n') AS kept,
+               $constitution$Follow the policies of every collection in this workspace. They bind: when two seem to conflict, say so rather than picking one.
+
+Document what a future collaborator, person or agent, would need for context: the reasoning behind decisions, the constraints that ruled out alternatives, and the rules that emerged. If it would be hard to reconstruct later, write it down now.
+
+Record each chat as a Log in Agents chats, in one short line: who asked for what and what came of it.
+
+Record each decision as it is made, as a Decision with the question, the choice, and the alternatives that lost and why. Put it in:
+
+- Product decisions when it sets what users or the business get (what to build, fix, charge or pay), even when it ships as code;
+- Design decisions when it sets how something looks or behaves for the people using it;
+- Architectural decisions when it sets how the system does it: structure, technology, data.
+
+A choice with both sides is two Decisions, each citing the other's id.
+
+When a decision changes a business process, change that process in Processes too, citing the decision's id.$constitution$ AS fresh
+          FROM workspaces) s
+ WHERE w.id = s.id
+   AND strpos(w.constitution, 'A choice with both sides is two Decisions') = 0;
 
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change
