@@ -1939,8 +1939,8 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   usual         int NOT NULL,
   opened_at     timestamptz NOT NULL DEFAULT now(),
   -- The last step of the email schedule that went out: 0 none yet, 1 after a
-  -- workday of silence, 2 a week, 3 two weeks, 4 a month.
-  email_step    int NOT NULL DEFAULT 0,
+  -- week of silence, 2 two weeks, 3 a month.
+  email_step    int NOT NULL DEFAULT 0 CHECK (email_step BETWEEN 0 AND 3),
   CHECK ((collection_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
 );
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
@@ -1948,20 +1948,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
-ALTER TABLE silence_alerts ADD COLUMN IF NOT EXISTS reading boolean NOT NULL DEFAULT false;
-ALTER TABLE silence_alerts ADD COLUMN IF NOT EXISTS email_step int NOT NULL DEFAULT 0;
--- Emails follow a schedule now instead of going out up to three times a day
--- apart: an alert already emailed has had its first step.
+-- The schedule opened with an email after a workday of silence until it
+-- started at a week: each alert's step moves down one, the workday's to none,
+-- once, as the step's range check arrives.
 DO $$
 BEGIN
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = current_schema()
-       AND table_name = 'silence_alerts'
-       AND column_name = 'emailed_at'
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+     WHERE conrelid = 'silence_alerts'::regclass
+       AND conname = 'silence_alerts_email_step_check'
   ) THEN
-    UPDATE silence_alerts SET email_step = 1 WHERE emailed_at IS NOT NULL;
-    ALTER TABLE silence_alerts DROP COLUMN emailed_at, DROP COLUMN IF EXISTS emails;
+    UPDATE silence_alerts SET email_step = greatest(email_step - 1, 0);
+    ALTER TABLE silence_alerts ADD CONSTRAINT silence_alerts_email_step_check
+      CHECK (email_step BETWEEN 0 AND 3);
   END IF;
 END $$;
 
