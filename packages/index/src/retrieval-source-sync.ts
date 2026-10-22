@@ -46,20 +46,12 @@ export const EMPTY_RETRIEVAL_EXTRACTOR: RetrievalExtractor = {
   },
 };
 
-async function pruneMissingSources(
-  c: QueryClient,
-  collectionId: string | null,
-  partition: RetrievalSourcePartition | null,
-): Promise<number> {
+async function pruneMissingSources(c: QueryClient, collectionId: string | null): Promise<number> {
   return (
     await c.query<{ id: string }>(
       `DELETE FROM retrieval_documents d
         WHERE d.source = ANY($1::text[])
           AND ($2::text IS NULL OR d.collection_id = $2)
-          AND (
-            $3::int IS NULL
-            OR mod(mod(hashtext(d.collection_id || E'\\n' || d.source || E'\\n' || d.external_id), $3) + $3, $3) = $4
-          )
           AND NOT EXISTS (
             SELECT 1 FROM retrieval_source_documents s
              WHERE s.collection_id = d.collection_id
@@ -67,7 +59,7 @@ async function pruneMissingSources(
                AND s.external_id = d.external_id
           )
       RETURNING d.id`,
-      [RETRIEVAL_SOURCE_KINDS, collectionId, partition?.count ?? null, partition?.index ?? null],
+      [RETRIEVAL_SOURCE_KINDS, collectionId],
     )
   ).rows.length;
 }
@@ -158,7 +150,10 @@ export async function syncRetrievalSourceBatch(
   ) {
     throw new Error("Retrieval source partition must have 0 <= index < count");
   }
-  const deleted = await pruneMissingSources(c, collectionId, partition);
+  // Pruning is global rather than partitionable. The coordinator partition
+  // performs it once so parallel workers do not repeat the same full scan.
+  const deleted =
+    !partition || partition.index === 0 ? await pruneMissingSources(c, collectionId) : 0;
   const rows = await pendingSources(c, {
     collectionId,
     modelId: args.embeddingProvider.modelId,

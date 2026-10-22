@@ -248,11 +248,18 @@ describe("unified retrieval source sync", () => {
     `);
     const provider = new FixtureProvider();
     const workers = 4;
+    let pruneQueries = 0;
+    const countingClient: QueryClient = {
+      async query<T>(sql: string, params?: unknown[]) {
+        if (sql.includes("DELETE FROM retrieval_documents d")) pruneQueries += 1;
+        return db.query<T>(sql, params);
+      },
+    };
 
     const results = [];
     for (let index = 0; index < workers; index++) {
       results.push(
-        await syncRetrievalSourceBatch(db as unknown as QueryClient, {
+        await syncRetrievalSourceBatch(countingClient, {
           embeddingProvider: provider,
           collectionId: COLLECTION_ID,
           partition: { index, count: workers },
@@ -264,5 +271,6 @@ describe("unified retrieval source sync", () => {
     expect(results.every((result) => result.indexed > 0)).toBe(true);
     expect(await documents()).toHaveLength(100);
     expect(new Set(provider.calls.flat()).size).toBe(100);
+    expect(pruneQueries).toBe(1);
   });
 });
