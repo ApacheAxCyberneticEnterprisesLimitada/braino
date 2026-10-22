@@ -130,6 +130,7 @@ export {
 
 export {
   ingestRetrievalDocument,
+  upsertRetrievalEmbeddings,
   normalizeRetrievalEntityName,
   searchRetrievalChunksFts,
   searchRetrievalEntitiesFts,
@@ -147,6 +148,7 @@ export {
   type RetrievalRelationshipInput,
   type RetrievalDocumentInput,
   type RetrievalIngestReport,
+  type RetrievalEmbeddingTargets,
   type RetrievalChunkRow,
   type RetrievalEntityHit,
   type RetrievalRelationRow,

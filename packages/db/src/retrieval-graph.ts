@@ -67,6 +67,12 @@ export interface RetrievalIngestReport {
   embeddings?: EmbeddingsReport;
 }
 
+export interface RetrievalEmbeddingTargets {
+  chunkIds: string[];
+  entityIds: string[];
+  relationIds: string[];
+}
+
 export interface RetrievalChunkRow {
   id: string;
   document_id: string;
@@ -128,6 +134,110 @@ function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [
     ...new Set(values.map((value) => value?.trim()).filter((value): value is string => !!value)),
   ];
+}
+
+/**
+ * Embed retrieval rows in corpus-sized provider batches. A source backfill can
+ * persist many documents first and call this once, so the provider receives
+ * up to EMBEDDING_BATCH texts per request instead of one request per source
+ * document. The ordinary one-document ingestion path uses the same function.
+ */
+export async function upsertRetrievalEmbeddings(
+  c: QueryClient,
+  targets: RetrievalEmbeddingTargets,
+  provider: EmbeddingProviderLike,
+): Promise<EmbeddingsReport> {
+  const reports: EmbeddingsReport[] = [];
+  const chunkIds = uniqueStrings(targets.chunkIds);
+  const entityIds = uniqueStrings(targets.entityIds);
+  const relationIds = uniqueStrings(targets.relationIds);
+
+  if (chunkIds.length > 0) {
+    const rows = (
+      await c.query<{
+        id: string;
+        collection_id: string;
+        text: string;
+        breadcrumb: string | null;
+      }>(
+        `SELECT id, collection_id, text, breadcrumb
+           FROM retrieval_chunks
+          WHERE id = ANY($1::text[])`,
+        [chunkIds],
+      )
+    ).rows;
+    reports.push(
+      await upsertEmbeddings(
+        c,
+        rows.map((chunk) => ({
+          collection_id: chunk.collection_id,
+          source: "retrieval_chunk" as const,
+          entity_id: chunk.id,
+          chunks: [[chunk.breadcrumb, chunk.text].filter(Boolean).join("\n")],
+        })),
+        provider,
+      ),
+    );
+  }
+
+  if (entityIds.length > 0) {
+    const rows = (
+      await c.query<{
+        id: string;
+        collection_id: string;
+        name: string;
+        aliases: string[];
+        description: string | null;
+      }>(
+        `SELECT id, collection_id, name, aliases, description
+           FROM retrieval_entities
+          WHERE id = ANY($1::text[])`,
+        [entityIds],
+      )
+    ).rows;
+    reports.push(
+      await upsertEmbeddings(
+        c,
+        rows.map((entity) => ({
+          collection_id: entity.collection_id,
+          source: "retrieval_entity" as const,
+          entity_id: entity.id,
+          chunks: [[entity.name, ...entity.aliases, entity.description].filter(Boolean).join("\n")],
+        })),
+        provider,
+      ),
+    );
+  }
+
+  if (relationIds.length > 0) {
+    const rows = (
+      await c.query<{ id: string; collection_id: string; fact: string }>(
+        `SELECT id, collection_id, fact
+           FROM retrieval_relations
+          WHERE id = ANY($1::text[])`,
+        [relationIds],
+      )
+    ).rows;
+    reports.push(
+      await upsertEmbeddings(
+        c,
+        rows.map((relation) => ({
+          collection_id: relation.collection_id,
+          source: "retrieval_relation" as const,
+          entity_id: relation.id,
+          chunks: [relation.fact],
+        })),
+        provider,
+      ),
+    );
+  }
+
+  return {
+    computed: reports.reduce((sum, report) => sum + report.computed, 0),
+    skipped: reports.reduce((sum, report) => sum + report.skipped, 0),
+    pruned: reports.reduce((sum, report) => sum + report.pruned, 0),
+    modelId: provider.modelId,
+  };
 }
 
 function canonicalNormalizedName(entity: RetrievalEntityInput): string {
@@ -341,56 +451,11 @@ export async function ingestRetrievalDocument(
 
   let embeddings: EmbeddingsReport | undefined;
   if (opts.embeddingProvider) {
-    const entityRows = (
-      await c.query<{
-        id: string;
-        name: string;
-        aliases: string[];
-        description: string | null;
-      }>(
-        `SELECT id, name, aliases, description FROM retrieval_entities
-          WHERE collection_id = $1 AND id = ANY($2::text[])`,
-        [input.collectionId, [...entityIds]],
-      )
-    ).rows;
-    const reports = await Promise.all([
-      upsertEmbeddings(
-        c,
-        input.chunks.map((chunk, index) => ({
-          collection_id: input.collectionId,
-          source: "retrieval_chunk" as const,
-          entity_id: chunkIds[index],
-          chunks: [[chunk.breadcrumb, chunk.text].filter(Boolean).join("\n")],
-        })),
-        opts.embeddingProvider,
-      ),
-      upsertEmbeddings(
-        c,
-        entityRows.map((entity) => ({
-          collection_id: input.collectionId,
-          source: "retrieval_entity" as const,
-          entity_id: entity.id,
-          chunks: [[entity.name, ...entity.aliases, entity.description].filter(Boolean).join("\n")],
-        })),
-        opts.embeddingProvider,
-      ),
-      upsertEmbeddings(
-        c,
-        input.extraction.relationships.map((relation, index) => ({
-          collection_id: input.collectionId,
-          source: "retrieval_relation" as const,
-          entity_id: relationIds[index],
-          chunks: [relation.fact],
-        })),
-        opts.embeddingProvider,
-      ),
-    ]);
-    embeddings = {
-      computed: reports.reduce((sum, report) => sum + report.computed, 0),
-      skipped: reports.reduce((sum, report) => sum + report.skipped, 0),
-      pruned: reports.reduce((sum, report) => sum + report.pruned, 0),
-      modelId: opts.embeddingProvider.modelId,
-    };
+    embeddings = await upsertRetrievalEmbeddings(
+      c,
+      { chunkIds, entityIds: [...entityIds], relationIds },
+      opts.embeddingProvider,
+    );
   }
 
   return {

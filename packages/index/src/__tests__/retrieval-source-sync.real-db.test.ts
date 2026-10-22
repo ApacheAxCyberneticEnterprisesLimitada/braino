@@ -123,6 +123,8 @@ describe("unified retrieval source sync", () => {
         )
       ).rows,
     ).toEqual([{ source: "retrieval_chunk", model_id: provider.modelId }]);
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]).toHaveLength(4);
     expect(
       (
         await db.query<{ text: string }>(
@@ -215,5 +217,25 @@ describe("unified retrieval source sync", () => {
         )
       ).rows,
     ).toEqual([{ model_id: replacement.modelId }]);
+  });
+
+  it("indexes one hundred source documents in one provider batch by default", async () => {
+    await db.exec(`
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose)
+      SELECT 'decision_bulk_' || n, '${COLLECTION_ID}', 'decision', 'active',
+             'Bulk retrieval source ' || n
+        FROM generate_series(1, 96) AS n;
+    `);
+    const provider = new FixtureProvider();
+
+    const result = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
+      embeddingProvider: provider,
+      collectionId: COLLECTION_ID,
+    });
+
+    expect(result.indexed).toBe(100);
+    expect(result.exhausted).toBe(false);
+    expect(provider.calls).toHaveLength(1);
+    expect(provider.calls[0]).toHaveLength(100);
   });
 });

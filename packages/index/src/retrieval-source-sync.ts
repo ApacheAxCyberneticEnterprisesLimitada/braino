@@ -1,4 +1,4 @@
-import type { EmbeddingProviderLike, QueryClient } from "@doco/db";
+import { type EmbeddingProviderLike, type QueryClient, upsertRetrievalEmbeddings } from "@doco/db";
 import {
   type GraphEnrichmentMode,
   type RetrievalExtractor,
@@ -115,7 +115,7 @@ export async function syncRetrievalSourceBatch(
   },
 ): Promise<RetrievalSourceSyncResult> {
   const collectionId = args.collectionId ?? null;
-  const limit = Math.max(1, args.limit ?? 25);
+  const limit = Math.max(1, args.limit ?? 100);
   const deleted = await pruneMissingSources(c, collectionId);
   const rows = await pendingSources(c, {
     collectionId,
@@ -123,6 +123,11 @@ export async function syncRetrievalSourceBatch(
     limit,
   });
   const bySource: Partial<Record<RetrievalSourceKind, number>> = {};
+  const embeddingTargets = {
+    chunkIds: [] as string[],
+    entityIds: [] as string[],
+    relationIds: [] as string[],
+  };
   for (const row of rows) {
     const document: RetrievalSourceDocument = {
       collectionId: row.collection_id,
@@ -133,13 +138,18 @@ export async function syncRetrievalSourceBatch(
       content: row.content,
       accessScopes: row.access_scopes,
     };
-    await ingestRetrievalSource(c, document, {
+    const report = await ingestRetrievalSource(c, document, {
       extractor: args.extractor ?? EMPTY_RETRIEVAL_EXTRACTOR,
-      embeddingProvider: args.embeddingProvider,
       ...(args.llmValidator ? { llmValidator: args.llmValidator } : {}),
       ...(args.graphEnrichmentMode ? { graphEnrichmentMode: args.graphEnrichmentMode } : {}),
     });
+    embeddingTargets.chunkIds.push(...report.chunkIds);
+    embeddingTargets.entityIds.push(...report.entityIds);
+    embeddingTargets.relationIds.push(...report.relationIds);
     bySource[row.source] = (bySource[row.source] ?? 0) + 1;
+  }
+  if (rows.length > 0) {
+    await upsertRetrievalEmbeddings(c, embeddingTargets, args.embeddingProvider);
   }
   return {
     indexed: rows.length,
