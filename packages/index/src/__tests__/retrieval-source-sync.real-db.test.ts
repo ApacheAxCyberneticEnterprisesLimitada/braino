@@ -238,4 +238,31 @@ describe("unified retrieval source sync", () => {
     expect(provider.calls).toHaveLength(1);
     expect(provider.calls[0]).toHaveLength(100);
   });
+
+  it("partitions a backfill into disjoint workers that cover every source", async () => {
+    await db.exec(`
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose)
+      SELECT 'decision_partition_' || n, '${COLLECTION_ID}', 'decision', 'active',
+             'Partitioned retrieval source ' || n
+        FROM generate_series(1, 96) AS n;
+    `);
+    const provider = new FixtureProvider();
+    const workers = 4;
+
+    const results = [];
+    for (let index = 0; index < workers; index++) {
+      results.push(
+        await syncRetrievalSourceBatch(db as unknown as QueryClient, {
+          embeddingProvider: provider,
+          collectionId: COLLECTION_ID,
+          partition: { index, count: workers },
+        }),
+      );
+    }
+
+    expect(results.reduce((total, result) => total + result.indexed, 0)).toBe(100);
+    expect(results.every((result) => result.indexed > 0)).toBe(true);
+    expect(await documents()).toHaveLength(100);
+    expect(new Set(provider.calls.flat()).size).toBe(100);
+  });
 });

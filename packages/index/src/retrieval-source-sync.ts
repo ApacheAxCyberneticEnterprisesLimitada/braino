@@ -27,6 +27,13 @@ export interface RetrievalSourceSyncResult {
   bySource: Partial<Record<RetrievalSourceKind, number>>;
 }
 
+export interface RetrievalSourcePartition {
+  /** Zero-based worker number. */
+  index: number;
+  /** Total number of workers sharing the source corpus. */
+  count: number;
+}
+
 /**
  * Chunk and embed every source even when graph extraction is unavailable.
  * The retrieval graph then contains documents/chunks with exact provenance;
@@ -39,12 +46,20 @@ export const EMPTY_RETRIEVAL_EXTRACTOR: RetrievalExtractor = {
   },
 };
 
-async function pruneMissingSources(c: QueryClient, collectionId: string | null): Promise<number> {
+async function pruneMissingSources(
+  c: QueryClient,
+  collectionId: string | null,
+  partition: RetrievalSourcePartition | null,
+): Promise<number> {
   return (
     await c.query<{ id: string }>(
       `DELETE FROM retrieval_documents d
         WHERE d.source = ANY($1::text[])
           AND ($2::text IS NULL OR d.collection_id = $2)
+          AND (
+            $3::int IS NULL
+            OR mod(mod(hashtext(d.collection_id || E'\\n' || d.source || E'\\n' || d.external_id), $3) + $3, $3) = $4
+          )
           AND NOT EXISTS (
             SELECT 1 FROM retrieval_source_documents s
              WHERE s.collection_id = d.collection_id
@@ -52,14 +67,19 @@ async function pruneMissingSources(c: QueryClient, collectionId: string | null):
                AND s.external_id = d.external_id
           )
       RETURNING d.id`,
-      [RETRIEVAL_SOURCE_KINDS, collectionId],
+      [RETRIEVAL_SOURCE_KINDS, collectionId, partition?.count ?? null, partition?.index ?? null],
     )
   ).rows.length;
 }
 
 async function pendingSources(
   c: QueryClient,
-  args: { collectionId: string | null; modelId: string; limit: number },
+  args: {
+    collectionId: string | null;
+    modelId: string;
+    limit: number;
+    partition: RetrievalSourcePartition | null;
+  },
 ): Promise<RetrievalSourceRow[]> {
   return (
     await c.query<RetrievalSourceRow>(
@@ -71,6 +91,10 @@ async function pendingSources(
           AND d.source = s.source
           AND d.external_id = s.external_id
         WHERE ($1::text IS NULL OR s.collection_id = $1)
+          AND (
+            $4::int IS NULL
+            OR mod(mod(hashtext(s.collection_id || E'\\n' || s.source || E'\\n' || s.external_id), $4) + $4, $4) = $5
+          )
           AND (
             d.id IS NULL
             OR d.content_hash IS DISTINCT FROM md5(s.content)
@@ -92,7 +116,13 @@ async function pendingSources(
           )
         ORDER BY s.source_updated_at DESC, s.collection_id, s.source, s.external_id
         LIMIT $3`,
-      [args.collectionId, args.modelId, args.limit],
+      [
+        args.collectionId,
+        args.modelId,
+        args.limit,
+        args.partition?.count ?? null,
+        args.partition?.index ?? null,
+      ],
     )
   ).rows;
 }
@@ -112,15 +142,28 @@ export async function syncRetrievalSourceBatch(
     extractor?: RetrievalExtractor;
     llmValidator?: RetrievalLlmValidator;
     graphEnrichmentMode?: GraphEnrichmentMode;
+    partition?: RetrievalSourcePartition;
   },
 ): Promise<RetrievalSourceSyncResult> {
   const collectionId = args.collectionId ?? null;
   const limit = Math.max(1, args.limit ?? 100);
-  const deleted = await pruneMissingSources(c, collectionId);
+  const partition = args.partition ?? null;
+  if (
+    partition &&
+    (!Number.isInteger(partition.index) ||
+      !Number.isInteger(partition.count) ||
+      partition.count < 1 ||
+      partition.index < 0 ||
+      partition.index >= partition.count)
+  ) {
+    throw new Error("Retrieval source partition must have 0 <= index < count");
+  }
+  const deleted = await pruneMissingSources(c, collectionId, partition);
   const rows = await pendingSources(c, {
     collectionId,
     modelId: args.embeddingProvider.modelId,
     limit,
+    partition,
   });
   const bySource: Partial<Record<RetrievalSourceKind, number>> = {};
   const embeddingTargets = {
