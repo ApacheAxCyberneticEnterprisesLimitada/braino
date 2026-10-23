@@ -19,10 +19,14 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
-    "eval:retrieval": "node scripts/eval-retrieval.mjs"
+    "eval:retrieval": "node scripts/eval-retrieval.mjs",
+    "benchmark:vector-stores": "node scripts/benchmark-vector-stores.mjs"
   },
   "dependencies": {
     "@doco/db": "workspace:*",
     "@doco/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "pg": "^8.20.0"
   }
 }

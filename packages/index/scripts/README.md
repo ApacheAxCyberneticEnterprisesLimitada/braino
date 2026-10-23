@@ -56,3 +56,37 @@ The committed fixture is built from this repository's real Doco-domain content
 handle in `.doco/connections.md` resolves, export real nodes into the same
 shape (id, type, prose) and point `--fixture` at them to evaluate on live
 content.
+
+## pgvector versus Qdrant
+
+`benchmark-vector-stores.mjs` isolates the vector database. It generates one
+deterministic corpus, inserts the exact same normalized vectors into both
+engines, applies the same collection filter, and compares each ANN result with
+an exact in-memory cosine ranking. It reports ANN recall, labeled-query MRR,
+warm-query p50/p75/p95, and ingest/index time.
+
+Start disposable local databases:
+
+```sh
+docker run --rm -d --name doco-bench-pgvector \
+  -e POSTGRES_PASSWORD=benchmark -p 127.0.0.1:55432:5432 \
+  pgvector/pgvector:pg16
+docker run --rm -d --name doco-bench-qdrant \
+  -p 127.0.0.1:56333:6333 qdrant/qdrant:v1.20.0
+```
+
+Then build and run:
+
+```sh
+pnpm --filter @doco/index build
+pnpm --filter @doco/index benchmark:vector-stores
+```
+
+The defaults are 10,000 points, 512 dimensions, 10 labeled queries, two warmup
+passes, and ten measured passes. Change them with `--size`, `--dimensions`,
+`--queries`, `--k`, `--warmup`, and `--repetitions`; add `--json` for machine-
+readable output. Stop the disposable databases when finished:
+
+```sh
+docker stop doco-bench-pgvector doco-bench-qdrant
+```
