@@ -25,6 +25,7 @@
     "test:watch": "vitest",
     "eval:retrieval": "node scripts/eval-retrieval.mjs",
     "benchmark:vector-stores": "node scripts/benchmark-vector-stores.mjs",
+    "backfill:qdrant": "node scripts/backfill-qdrant.mjs",
     "smoke:qdrant": "node scripts/smoke-qdrant-vector-store.mjs"
   },
   "dependencies": {

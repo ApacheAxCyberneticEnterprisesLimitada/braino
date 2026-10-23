@@ -14,6 +14,7 @@
 //   node scripts/eval-retrieval.mjs                       # fake provider, fixture
 //   node scripts/eval-retrieval.mjs --provider fake,openai,voyage,cohere
 //   node scripts/eval-retrieval.mjs --store qdrant
+//   node scripts/eval-retrieval.mjs --store qdrant-backfill
 //   node scripts/eval-retrieval.mjs --provider voyage --rerank voyage
 //   node scripts/eval-retrieval.mjs --fixture path/to.json --ks 1,3,10 --verbose
 //
@@ -34,6 +35,9 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = join(HERE, "..", "dist", "index.js");
 const QDRANT_DIST = join(HERE, "..", "dist", "qdrant-vector-store.js");
+const QDRANT_BACKFILL_DIST = join(HERE, "..", "dist", "qdrant-backfill.js");
+const EVAL_WORKSPACE = "workspace_retrieval_eval";
+const EVAL_COLLECTION = "collection_retrieval_eval";
 
 let mod;
 try {
@@ -57,6 +61,7 @@ const {
   evaluateRetrieval,
 } = mod;
 const { QdrantVectorStore } = await import(QDRANT_DIST);
+const { backfillEmbeddingsToVectorStore } = await import(QDRANT_BACKFILL_DIST);
 
 // ---- CLI ------------------------------------------------------------------
 
@@ -205,7 +210,7 @@ async function rankWithVectorStore(store, provider, documents, queries) {
   );
   await store.upsert(
     documents.map((document, index) => ({
-      collection_id: "retrieval-eval",
+      collection_id: EVAL_COLLECTION,
       source: "node",
       entity_id: document.id,
       chunk_index: 0,
@@ -220,7 +225,7 @@ async function rankWithVectorStore(store, provider, documents, queries) {
   for (const q of queries) {
     const [queryEmbedding] = await provider.embed([q.query], "query");
     const hits = await store.rank({
-      collectionIds: ["retrieval-eval"],
+      collectionIds: [EVAL_COLLECTION],
       source: "node",
       modelId: provider.modelId,
       queryEmbedding,
@@ -233,6 +238,83 @@ async function rankWithVectorStore(store, provider, documents, queries) {
     });
   }
   return evals;
+}
+
+function requireLocalDatabase() {
+  const databaseUrl =
+    process.env.DOCO_DATABASE_URL ??
+    process.env.DATABASE_URL ??
+    "postgresql://doco:doco-local@127.0.0.1:55432/doco";
+  const host = new URL(databaseUrl).hostname;
+  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(host)) {
+    throw new Error("Database-backed retrieval evals accept only a localhost DATABASE_URL.");
+  }
+  process.env.DOCO_DATABASE_URL = databaseUrl;
+}
+
+async function rankThroughPostgres(provider, documents, queries, qdrantStore) {
+  requireLocalDatabase();
+  const { closePool, ensureSchema, rankEmbeddings, upsertEmbeddings, withClient } = await import(
+    "@doco/db"
+  );
+  await ensureSchema();
+  try {
+    return await withClient(async (client) => {
+      await client.query(
+        `INSERT INTO workspaces (id, handle, name)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (id) DO NOTHING`,
+        [EVAL_WORKSPACE, "retrieval-eval", "Retrieval eval"],
+      );
+      await client.query("DELETE FROM collections WHERE id = $1", [EVAL_COLLECTION]);
+      await client.query(
+        `INSERT INTO collections (id, handle, owner_id, workspace_id, data)
+         VALUES ($1, $2, $3, $3, '{}'::jsonb)`,
+        [EVAL_COLLECTION, "retrieval-eval-corpus", EVAL_WORKSPACE],
+      );
+      await upsertEmbeddings(
+        client,
+        documents.map((document) => ({
+          collection_id: EVAL_COLLECTION,
+          source: "node",
+          entity_id: document.id,
+          chunks: [document.text],
+        })),
+        provider,
+        { pruneStale: true },
+      );
+      if (qdrantStore) {
+        await qdrantStore.delete({ collectionIds: [EVAL_COLLECTION] });
+        await backfillEmbeddingsToVectorStore(client, qdrantStore, {
+          collectionIds: [EVAL_COLLECTION],
+        });
+      }
+
+      const evals = [];
+      for (const q of queries) {
+        const [queryEmbedding] = await provider.embed([q.query], "query");
+        const rankArgs = {
+          collectionIds: [EVAL_COLLECTION],
+          source: "node",
+          modelId: provider.modelId,
+          queryEmbedding,
+          limit: documents.length,
+        };
+        const hits = qdrantStore
+          ? await qdrantStore.rank(rankArgs)
+          : await rankEmbeddings(client, rankArgs);
+        evals.push({
+          query: q.query,
+          ranked: hits.map((hit) => hit.entity_id),
+          relevance: toRelevance(q.relevant),
+        });
+      }
+      await client.query("DELETE FROM collections WHERE id = $1", [EVAL_COLLECTION]);
+      return evals;
+    });
+  } finally {
+    await closePool();
+  }
 }
 
 async function applyRerank(reranker, provider, documents, queries, depth) {
@@ -283,16 +365,14 @@ async function main() {
   const fixture = JSON.parse(readFileSync(opts.fixture, "utf8"));
   const { documents, queries } = fixture;
   const reranker = makeReranker(opts.rerank);
-  if (!new Set(["memory", "qdrant"]).has(opts.store)) {
-    throw new Error(`Unknown store: ${opts.store} (use memory|qdrant)`);
+  if (!new Set(["memory", "pgvector", "qdrant", "qdrant-backfill"]).has(opts.store)) {
+    throw new Error(`Unknown store: ${opts.store} (use memory|pgvector|qdrant|qdrant-backfill)`);
   }
-  if (opts.store === "qdrant" && reranker) {
-    throw new Error(
-      "The Qdrant storage eval isolates retrieval; run reranker evals with --store memory.",
-    );
+  if (opts.store !== "memory" && reranker) {
+    throw new Error("Storage evals isolate retrieval; run reranker evals with --store memory.");
   }
   const vectorStore =
-    opts.store === "qdrant"
+    opts.store === "qdrant" || opts.store === "qdrant-backfill"
       ? new QdrantVectorStore({
           url: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
           apiKey: process.env.QDRANT_API_KEY,
@@ -315,9 +395,14 @@ async function main() {
 
   for (const name of opts.providers) {
     const provider = makeProvider(name);
-    const evals = vectorStore
-      ? await rankWithVectorStore(vectorStore, provider, documents, queries)
-      : await rankWithProvider(provider, documents, queries);
+    const evals =
+      opts.store === "pgvector"
+        ? await rankThroughPostgres(provider, documents, queries)
+        : opts.store === "qdrant-backfill"
+          ? await rankThroughPostgres(provider, documents, queries, vectorStore)
+          : vectorStore
+            ? await rankWithVectorStore(vectorStore, provider, documents, queries)
+            : await rankWithProvider(provider, documents, queries);
     const report = evaluateRetrieval(evals, opts.ks);
     printReportRow(provider.modelId, report, opts.ks);
     if (opts.verbose) {
@@ -333,7 +418,7 @@ async function main() {
     }
   }
   if (vectorStore) {
-    await vectorStore.delete({ collectionIds: ["retrieval-eval"], source: "node" });
+    await vectorStore.delete({ collectionIds: [EVAL_COLLECTION], source: "node" });
   }
   console.log("");
 }

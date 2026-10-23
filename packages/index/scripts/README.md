@@ -22,6 +22,9 @@ pnpm --filter @doco/index eval:retrieval
 # Run the same labeled fixture through the local Qdrant adapter:
 pnpm --filter @doco/index eval:retrieval -- --store qdrant
 
+# Seed local PostgreSQL, backfill those rows, then retrieve from Qdrant:
+pnpm --filter @doco/index eval:retrieval -- --store qdrant-backfill
+
 # Compare real models (needs the matching API keys in the env):
 OPENAI_API_KEY=… VOYAGE_API_KEY=… COHERE_API_KEY=… \
   pnpm --filter @doco/index eval:retrieval -- --provider openai,voyage,cohere
@@ -40,7 +43,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 | `--fixture path` | `eval-fixtures/collection-retrieval.json` | Labeled query/document set. |
 | `--ks 1,5,10` | `1,5,10` | Recall cutoffs; nDCG/`+rerank` use the largest. |
 | `--rerank-depth N` | `20` | Top-K passed to the reranker. |
-| `--store name` | `memory` | `memory` isolates models; `qdrant` runs the same fixture through the local Qdrant adapter. |
+| `--store name` | `memory` | `memory`, `pgvector`, `qdrant`, or `qdrant-backfill`; the last mode proves the PostgreSQL-to-Qdrant transition end to end. |
 | `--verbose` | off | Print the top-3 retrieved ids per query. |
 
 ## Fixture shape
@@ -94,3 +97,18 @@ readable output. Stop the disposable databases when finished:
 ```sh
 docker stop doco-bench-pgvector doco-bench-qdrant
 ```
+
+## Local application cutover
+
+With `compose.local.yml` running, copy the authoritative local PostgreSQL
+embedding rows into Qdrant:
+
+```sh
+pnpm --filter @doco/index build
+pnpm --filter @doco/index backfill:qdrant
+```
+
+Use `--collection collection_…` (repeatable) to limit the copy and
+`--batch-size 500` to tune it. The command accepts only localhost URLs. Start
+the local web app with `DOCO_VECTOR_STORE=qdrant`; omit that variable to keep
+the existing pgvector read path.
