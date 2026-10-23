@@ -1289,10 +1289,14 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   -- permissions from leaking into chat.
   doco_workspace_id           text,
   -- The channel Señor Doco speaks in unasked (lib/slack-conversations.server.ts):
-  -- where he introduces himself, picked by the owner at install, #general
-  -- unless they pick another. Its name only labels it.
+  -- where he introduces himself and posts the workspace's Times, picked by the
+  -- owner at install, #general unless they pick another, and changed in the
+  -- team's Slack settings. Its name only labels it.
   default_channel_id          text,
   default_channel_name        text,
+  -- How often the Times goes to that channel (lib/activity-digest.ts), as
+  -- workspace_users.digest is for each member's email.
+  digest                      text NOT NULL DEFAULT 'daily' CHECK (digest IN ('daily', 'weekly', 'off')),
   data                        jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
@@ -1300,6 +1304,9 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
 );
 ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS default_channel_id text;
 ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS default_channel_name text;
+ALTER TABLE group_chat_installations
+  ADD COLUMN IF NOT EXISTS digest text NOT NULL DEFAULT 'daily'
+  CHECK (digest IN ('daily', 'weekly', 'off'));
 CREATE TABLE IF NOT EXISTS group_chat_channel_connections (
   id                      text PRIMARY KEY,
   provider                text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
