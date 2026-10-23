@@ -11,6 +11,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./qdrant-vector-store": {
+      "types": "./dist/qdrant-vector-store.d.ts",
+      "import": "./dist/qdrant-vector-store.js"
     }
   },
   "files": ["dist"],
@@ -20,7 +24,8 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "eval:retrieval": "node scripts/eval-retrieval.mjs",
-    "benchmark:vector-stores": "node scripts/benchmark-vector-stores.mjs"
+    "benchmark:vector-stores": "node scripts/benchmark-vector-stores.mjs",
+    "smoke:qdrant": "node scripts/smoke-qdrant-vector-store.mjs"
   },
   "dependencies": {
     "@doco/db": "workspace:*",

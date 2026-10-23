@@ -19,6 +19,9 @@ pnpm --filter @doco/index build
 # Offline smoke test — deterministic fake provider, no API key, no network:
 pnpm --filter @doco/index eval:retrieval
 
+# Run the same labeled fixture through the local Qdrant adapter:
+pnpm --filter @doco/index eval:retrieval -- --store qdrant
+
 # Compare real models (needs the matching API keys in the env):
 OPENAI_API_KEY=… VOYAGE_API_KEY=… COHERE_API_KEY=… \
   pnpm --filter @doco/index eval:retrieval -- --provider openai,voyage,cohere
@@ -37,6 +40,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 | `--fixture path` | `eval-fixtures/collection-retrieval.json` | Labeled query/document set. |
 | `--ks 1,5,10` | `1,5,10` | Recall cutoffs; nDCG/`+rerank` use the largest. |
 | `--rerank-depth N` | `20` | Top-K passed to the reranker. |
+| `--store name` | `memory` | `memory` isolates models; `qdrant` runs the same fixture through the local Qdrant adapter. |
 | `--verbose` | off | Print the top-3 retrieved ids per query. |
 
 ## Fixture shape

@@ -13,6 +13,7 @@
 // Usage:
 //   node scripts/eval-retrieval.mjs                       # fake provider, fixture
 //   node scripts/eval-retrieval.mjs --provider fake,openai,voyage,cohere
+//   node scripts/eval-retrieval.mjs --store qdrant
 //   node scripts/eval-retrieval.mjs --provider voyage --rerank voyage
 //   node scripts/eval-retrieval.mjs --fixture path/to.json --ks 1,3,10 --verbose
 //
@@ -32,6 +33,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const DIST = join(HERE, "..", "dist", "index.js");
+const QDRANT_DIST = join(HERE, "..", "dist", "qdrant-vector-store.js");
 
 let mod;
 try {
@@ -54,6 +56,7 @@ const {
   rerankItems,
   evaluateRetrieval,
 } = mod;
+const { QdrantVectorStore } = await import(QDRANT_DIST);
 
 // ---- CLI ------------------------------------------------------------------
 
@@ -64,16 +67,19 @@ function parseArgs(argv) {
     fixture: join(HERE, "eval-fixtures", "collection-retrieval.json"),
     ks: [1, 5, 10],
     rerankDepth: 20,
+    store: "memory",
     verbose: false,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const next = () => argv[++i];
+    if (a === "--") continue;
     if (a === "--provider" || a === "--providers") opts.providers = next().split(",");
     else if (a === "--rerank") opts.rerank = next();
     else if (a === "--fixture") opts.fixture = resolve(next());
     else if (a === "--ks") opts.ks = next().split(",").map(Number);
     else if (a === "--rerank-depth") opts.rerankDepth = Number(next());
+    else if (a === "--store") opts.store = next();
     else if (a === "--verbose") opts.verbose = true;
     else {
       console.error(`Unknown argument: ${a}`);
@@ -192,6 +198,43 @@ async function rankWithProvider(provider, documents, queries) {
   return evals;
 }
 
+async function rankWithVectorStore(store, provider, documents, queries) {
+  const docVecs = await provider.embed(
+    documents.map((d) => d.text),
+    "document",
+  );
+  await store.upsert(
+    documents.map((document, index) => ({
+      collection_id: "retrieval-eval",
+      source: "node",
+      entity_id: document.id,
+      chunk_index: 0,
+      model_id: provider.modelId,
+      content_hash: `${provider.modelId}:${document.id}`,
+      chunk_text: document.text,
+      embedding: docVecs[index],
+    })),
+  );
+
+  const evals = [];
+  for (const q of queries) {
+    const [queryEmbedding] = await provider.embed([q.query], "query");
+    const hits = await store.rank({
+      collectionIds: ["retrieval-eval"],
+      source: "node",
+      modelId: provider.modelId,
+      queryEmbedding,
+      limit: documents.length,
+    });
+    evals.push({
+      query: q.query,
+      ranked: hits.map((hit) => hit.entity_id),
+      relevance: toRelevance(q.relevant),
+    });
+  }
+  return evals;
+}
+
 async function applyRerank(reranker, provider, documents, queries, depth) {
   const docById = new Map(documents.map((d) => [d.id, d]));
   const docVecs = await provider.embed(
@@ -240,10 +283,25 @@ async function main() {
   const fixture = JSON.parse(readFileSync(opts.fixture, "utf8"));
   const { documents, queries } = fixture;
   const reranker = makeReranker(opts.rerank);
+  if (!new Set(["memory", "qdrant"]).has(opts.store)) {
+    throw new Error(`Unknown store: ${opts.store} (use memory|qdrant)`);
+  }
+  if (opts.store === "qdrant" && reranker) {
+    throw new Error(
+      "The Qdrant storage eval isolates retrieval; run reranker evals with --store memory.",
+    );
+  }
+  const vectorStore =
+    opts.store === "qdrant"
+      ? new QdrantVectorStore({
+          url: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
+          apiKey: process.env.QDRANT_API_KEY,
+        })
+      : undefined;
 
   const rerankLine = reranker ? `\nReranker: ${reranker.modelId} (depth ${opts.rerankDepth})` : "";
   console.log(
-    `\nFixture: ${opts.fixture}\n${documents.length} documents, ${queries.length} queries, cutoffs k=${opts.ks.join("/")}${rerankLine}`,
+    `\nFixture: ${opts.fixture}\nStore: ${opts.store}\n${documents.length} documents, ${queries.length} queries, cutoffs k=${opts.ks.join("/")}${rerankLine}`,
   );
   console.log("");
   const header = [
@@ -257,7 +315,9 @@ async function main() {
 
   for (const name of opts.providers) {
     const provider = makeProvider(name);
-    const evals = await rankWithProvider(provider, documents, queries);
+    const evals = vectorStore
+      ? await rankWithVectorStore(vectorStore, provider, documents, queries)
+      : await rankWithProvider(provider, documents, queries);
     const report = evaluateRetrieval(evals, opts.ks);
     printReportRow(provider.modelId, report, opts.ks);
     if (opts.verbose) {
@@ -271,6 +331,9 @@ async function main() {
       const rrReport = evaluateRetrieval(rr, opts.ks);
       printReportRow(`${provider.modelId}  +rerank`, rrReport, opts.ks);
     }
+  }
+  if (vectorStore) {
+    await vectorStore.delete({ collectionIds: ["retrieval-eval"], source: "node" });
   }
   console.log("");
 }
