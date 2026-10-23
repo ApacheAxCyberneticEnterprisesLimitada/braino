@@ -31,6 +31,7 @@ export {
   getUserByEmail,
   listUsers,
   patchUserData,
+  setUserName,
   type UserRow,
   // Principals (role-personas — node type)
   getPrincipalById,

@@ -84,6 +84,7 @@ describe("users move from GitHub logins to Doco usernames", () => {
         "email",
         "github_login",
         "id",
+        "name",
         "password_hash",
         "updated_at",
         "username",

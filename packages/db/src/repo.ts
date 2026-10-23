@@ -319,12 +319,14 @@ export async function getHostConfig(): Promise<HostConfigRow | null> {
 export interface UserRow {
   id: string;
   username: string | null;
+  /** What they are called ("Alex Torrenegra"), or null until they write it. */
+  name: string | null;
   github_login: string | null;
   email: string | null;
   data: Record<string, unknown>;
 }
 
-const USER_COLUMNS = "id, username, github_login, email, data";
+const USER_COLUMNS = "id, username, name, github_login, email, data";
 
 function nullableString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
@@ -334,6 +336,7 @@ function mapUserRow(row: Record<string, unknown>): UserRow {
   return {
     id: String(row.id),
     username: nullableString(row.username),
+    name: nullableString(row.name),
     github_login: nullableString(row.github_login),
     email: nullableString(row.email),
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
@@ -365,6 +368,16 @@ export async function getUserByGithubLogin(login: string): Promise<UserRow | nul
 /** The person who signs in with this address, in any case. */
 export async function getUserByEmail(email: string): Promise<UserRow | null> {
   return findUser("lower(email) = lower($1)", email.trim());
+}
+
+/** Sets what a person is called; blank clears it, and their username stands in. */
+export async function setUserName(id: string, name: string): Promise<void> {
+  await withClient((c) =>
+    c.query("UPDATE users SET name = NULLIF(btrim($2), ''), updated_at = now() WHERE id = $1", [
+      id,
+      name,
+    ]),
+  );
 }
 
 /**

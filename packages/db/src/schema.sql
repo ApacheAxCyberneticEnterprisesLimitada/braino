@@ -53,6 +53,9 @@ CREATE TABLE IF NOT EXISTS users (
   -- The person's name in Doco, unique regardless of case
   -- (decision_01M5EAAX2VT2MMRG0ZGKDJGMJZ).
   username        text,
+  -- What they are called, as their profile (/users/<username>) says it:
+  -- "Alex Torrenegra". Null until they write it, and their username stands in.
+  name            text,
   -- The GitHub account the person is, for matching GitHub's events (a pull
   -- request's author) to them; nothing signs in with it.
   github_login    text,
@@ -2331,6 +2334,32 @@ ALTER TABLE users
 -- asking them to choose a password (decision_01M5EA9JYTP68Y3EDX11805BXV),
 -- which went out on 2026-10-21; it went with the job.
 ALTER TABLE users DROP COLUMN IF EXISTS password_email_sent_at;
+-- A person's name, filled once, on the boot that adds the column, from the
+-- real name of the Slack account they linked where a Slack copy of its team
+-- lists them; everyone else writes theirs on their profile.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'users'
+       AND column_name = 'name'
+  ) THEN
+    ALTER TABLE users ADD COLUMN name text;
+    UPDATE users u
+       SET name = s.real_name
+      FROM (SELECT DISTINCT ON (l.user_id) l.user_id, btrim(m.real_name) AS real_name
+              FROM group_chat_user_links l
+              JOIN group_chat_installations i
+                ON i.provider = l.provider AND i.workspace_id = l.workspace_id
+              JOIN group_chat_mirrors gm ON gm.installation_id = i.id
+              JOIN group_chat_members m
+                ON m.collection_id = gm.collection_id AND m.chat_user_id = l.chat_user_id
+             WHERE btrim(m.real_name) <> '' AND NOT m.is_bot
+             ORDER BY l.user_id, l.updated_at DESC) s
+     WHERE s.user_id = u.id;
+  END IF;
+END $$;
 
 -- A chat's Log is one short line: who asked for what and what came of it
 -- (Alexander, 2026-10-21: "Agents should be taught to make one-line comments,
