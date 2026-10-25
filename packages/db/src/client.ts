@@ -48,6 +48,13 @@ export async function withClient<T>(fn: (c: pg.PoolClient) => Promise<T>): Promi
       if (enabled || configured) {
         await c.query("SELECT set_config('doco.vector_sync', $1, false)", [enabled ? "on" : "off"]);
       }
+      if (enabled) {
+        await c.query(
+          `UPDATE hosts
+              SET external_vector_index_enabled = true
+            WHERE id = 'host' AND NOT external_vector_index_enabled`,
+        );
+      }
       vectorSyncConfigured.set(c, enabled);
     }
     return await fn(c);

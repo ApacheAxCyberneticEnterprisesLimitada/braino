@@ -40,6 +40,24 @@ describe("embedding vector sync queue", () => {
     expect(await queue()).toEqual([]);
   });
 
+  it("collects work from every database writer once the host enables its external index", async () => {
+    await db.exec("UPDATE hosts SET external_vector_index_enabled = true WHERE id = 'host'");
+    await db.query(
+      `INSERT INTO embeddings
+         (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
+       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'One', $1::vector)`,
+      [vectorLiteral([1, 0])],
+    );
+    expect(await queue()).toEqual([
+      {
+        collection_id: "collection_1",
+        entity_id: "decision_1",
+        chunk_index: 0,
+        operation: "upsert",
+      },
+    ]);
+  });
+
   it("collapses each chunk to its latest upsert or delete", async () => {
     await db.exec("SET doco.vector_sync = 'on'");
     await db.query(

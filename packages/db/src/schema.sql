@@ -26,9 +26,13 @@ CREATE TABLE IF NOT EXISTS hosts (
   id          text PRIMARY KEY,
   name        text NOT NULL,
   visibility  text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
+  -- Once a host has a Qdrant mirror, every database writer feeds its durable
+  -- outbox — including importers that do not run through the web process.
+  external_vector_index_enabled boolean NOT NULL DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE hosts ADD COLUMN IF NOT EXISTS external_vector_index_enabled boolean NOT NULL DEFAULT false;
 
 -- Bootstrap host row. The seed below keeps /home from 500'ing on a
 -- fresh install (every layout reads host config). Idempotent — the
@@ -580,7 +584,9 @@ CREATE INDEX IF NOT EXISTS embedding_vector_queue_order_idx
 
 CREATE OR REPLACE FUNCTION embeddings_queue_vector_sync() RETURNS trigger AS $$
 BEGIN
-  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on' THEN
+  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on'
+     AND NOT coalesce((SELECT external_vector_index_enabled FROM hosts WHERE id = 'host'), false)
+  THEN
     RETURN coalesce(NEW, OLD);
   END IF;
   INSERT INTO embedding_vector_queue
@@ -606,7 +612,9 @@ CREATE TRIGGER embeddings_vector_queue_sync
 -- delete before the partition disappears.
 CREATE OR REPLACE FUNCTION collections_queue_vector_delete() RETURNS trigger AS $$
 BEGIN
-  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on' THEN
+  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on'
+     AND NOT coalesce((SELECT external_vector_index_enabled FROM hosts WHERE id = 'host'), false)
+  THEN
     RETURN OLD;
   END IF;
   DELETE FROM embedding_vector_queue WHERE collection_id = OLD.id;
