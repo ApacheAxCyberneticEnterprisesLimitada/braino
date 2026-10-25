@@ -562,6 +562,67 @@ DO $$ BEGIN
   END IF;
 END $$;
 
+-- PostgreSQL is the durable embedding store; an external vector engine is a
+-- rebuildable read index. This compact outbox records only the latest work for
+-- each chunk, so a Qdrant outage cannot lose a write and repeated edits do not
+-- grow an unbounded queue. The mirror worker deletes a row only after Qdrant
+-- acknowledges it, making retries idempotent.
+CREATE TABLE IF NOT EXISTS embedding_vector_queue (
+  collection_id text NOT NULL,
+  entity_id      text NOT NULL,
+  chunk_index    int  NOT NULL,
+  operation      text NOT NULL CHECK (operation IN ('upsert','delete','delete_collection')),
+  queued_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (collection_id, entity_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS embedding_vector_queue_order_idx
+  ON embedding_vector_queue (queued_at, collection_id, entity_id, chunk_index);
+
+CREATE OR REPLACE FUNCTION embeddings_queue_vector_sync() RETURNS trigger AS $$
+BEGIN
+  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on' THEN
+    RETURN coalesce(NEW, OLD);
+  END IF;
+  INSERT INTO embedding_vector_queue
+    (collection_id, entity_id, chunk_index, operation, queued_at)
+  VALUES
+    (coalesce(NEW.collection_id, OLD.collection_id),
+     coalesce(NEW.entity_id, OLD.entity_id),
+     coalesce(NEW.chunk_index, OLD.chunk_index),
+     CASE WHEN TG_OP = 'DELETE' THEN 'delete' ELSE 'upsert' END,
+     now())
+  ON CONFLICT (collection_id, entity_id, chunk_index) DO UPDATE SET
+    operation = EXCLUDED.operation,
+    queued_at = EXCLUDED.queued_at;
+  RETURN coalesce(NEW, OLD);
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS embeddings_vector_queue_sync ON embeddings;
+CREATE TRIGGER embeddings_vector_queue_sync
+  AFTER INSERT OR UPDATE OR DELETE ON embeddings
+  FOR EACH ROW EXECUTE FUNCTION embeddings_queue_vector_sync();
+
+-- Dropping a collection drops its embedding partition as a table, so no row
+-- DELETE triggers fire. Replace any pending chunk work with one scoped Qdrant
+-- delete before the partition disappears.
+CREATE OR REPLACE FUNCTION collections_queue_vector_delete() RETURNS trigger AS $$
+BEGIN
+  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on' THEN
+    RETURN OLD;
+  END IF;
+  DELETE FROM embedding_vector_queue WHERE collection_id = OLD.id;
+  INSERT INTO embedding_vector_queue
+    (collection_id, entity_id, chunk_index, operation, queued_at)
+  VALUES (OLD.id, '', -1, 'delete_collection', now())
+  ON CONFLICT (collection_id, entity_id, chunk_index) DO UPDATE SET
+    operation = EXCLUDED.operation,
+    queued_at = EXCLUDED.queued_at;
+  RETURN OLD;
+END $$ LANGUAGE plpgsql;
+DROP TRIGGER IF EXISTS collections_vector_queue_delete ON collections;
+CREATE TRIGGER collections_vector_queue_delete
+  BEFORE DELETE ON collections
+  FOR EACH ROW EXECUTE FUNCTION collections_queue_vector_delete();
+
 -- The `limit` entities nearest the query among the collections asked, for one
 -- source and one model: each entity's best chunk, best first. It keeps the
 -- collections that hold chunks of that source and model (a mirror collection's index holds

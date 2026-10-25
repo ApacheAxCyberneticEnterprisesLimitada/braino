@@ -32,10 +32,17 @@ export interface VectorDeleteArgs {
   entityIds?: string[];
 }
 
+export interface VectorPointKey {
+  collection_id: string;
+  entity_id: string;
+  chunk_index: number;
+}
+
 /** Derived vector-index boundary. PostgreSQL remains the source of truth. */
 export interface VectorStore {
   upsert(records: VectorRecord[]): Promise<void>;
   delete(args: VectorDeleteArgs): Promise<void>;
+  deletePoints(points: VectorPointKey[]): Promise<void>;
   rank(args: VectorRankArgs): Promise<EmbeddingHit[]>;
 }
 
@@ -160,8 +167,8 @@ export class QdrantVectorStore implements VectorStore {
       await this.request(path, {
         method: "PUT",
         body: JSON.stringify({
-          vectors: { size: this.dimensions, distance: "Cosine" },
-          hnsw_config: { m: 32, ef_construct: 200 },
+          vectors: { size: this.dimensions, distance: "Cosine", on_disk: true },
+          hnsw_config: { m: 32, ef_construct: 200, on_disk: true },
           on_disk_payload: true,
         }),
       });
@@ -232,6 +239,18 @@ export class QdrantVectorStore implements VectorStore {
       {
         method: "POST",
         body: JSON.stringify({ filter: qdrantFilter(args) }),
+      },
+    );
+  }
+
+  async deletePoints(points: VectorPointKey[]): Promise<void> {
+    if (points.length === 0) return;
+    await this.ensureReady();
+    await this.request(
+      `/collections/${encodeURIComponent(this.collection)}/points/delete?wait=true`,
+      {
+        method: "POST",
+        body: JSON.stringify({ points: points.map((point) => qdrantPointId(point)) }),
       },
     );
   }

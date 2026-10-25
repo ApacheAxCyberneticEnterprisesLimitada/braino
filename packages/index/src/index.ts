@@ -7,4 +7,5 @@ export * from "./retrieval-ingestion.js";
 export * from "./retrieval-ontology.js";
 export * from "./retrieval-source-sync.js";
 export * from "./multipath-retrieval.js";
+export * from "./qdrant-sync.js";
 export { loadCollectionFromPostgres } from "./loadCollection.js";

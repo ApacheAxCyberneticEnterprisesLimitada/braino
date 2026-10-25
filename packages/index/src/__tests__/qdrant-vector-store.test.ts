@@ -51,7 +51,8 @@ describe("QdrantVectorStore", () => {
         request.url.endsWith("/collections/doco_embeddings") && request.init?.method === "PUT",
     );
     expect(JSON.parse(String(create?.init?.body))).toMatchObject({
-      vectors: { size: 4, distance: "Cosine" },
+      vectors: { size: 4, distance: "Cosine", on_disk: true },
+      hnsw_config: { on_disk: true },
     });
     const upsert = requests.find((request) => request.url.includes("/points?wait=true"));
     expect(JSON.parse(String(upsert?.init?.body))).toEqual({
@@ -176,5 +177,42 @@ describe("QdrantVectorStore", () => {
     ).toEqual([]);
     await store.delete({ collectionIds: [], source: "node" });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("deletes exact chunk points without widening their scope", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      if (!init?.method || init.method === "GET") {
+        return json({
+          result: {
+            config: { params: { vectors: { size: 4, distance: "Cosine" } } },
+            payload_schema: {
+              collection_id: {},
+              source: {},
+              entity_id: {},
+              entity_key: {},
+              model_id: {},
+            },
+          },
+        });
+      }
+      return json({ result: true, status: "ok" });
+    });
+    const store = new QdrantVectorStore({
+      url: "http://qdrant:6333",
+      dimensions: 4,
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await store.deletePoints([
+      { collection_id: "collection_alpha", entity_id: "decision_alpha", chunk_index: 0 },
+      { collection_id: "collection_alpha", entity_id: "decision_alpha", chunk_index: 2 },
+    ]);
+
+    const request = requests.find((candidate) => candidate.url.includes("/points/delete"));
+    expect(JSON.parse(String(request?.init?.body))).toEqual({
+      points: [qdrantPointId(record()), qdrantPointId(record({ chunk_index: 2 }))],
+    });
   });
 });
