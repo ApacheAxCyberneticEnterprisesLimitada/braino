@@ -1,5 +1,40 @@
 # Retrieval eval harness
 
+## EnterpriseRAG-Bench
+
+`enterprise-rag-bench.mjs` runs Doco's production chunking, embedding, and
+multi-path retrieval over the pinned EnterpriseRAG-Bench v1.0.0 exports. It
+streams documents directly from the release zip files, preserves each
+`dsid_…` identifier for official scoring, resumes an interrupted index, and
+writes the benchmark's answer JSONL shape. Use a dedicated database: the
+runner refuses ordinary database names.
+
+A complete v1.0.0 run needs the release's `all_documents.zip` and
+`questions.jsonl`, a dedicated Postgres database with roughly 40 GB of free
+space, `VOYAGE_API_KEY` for Doco's production embeddings, and
+`ANTHROPIC_API_KEY` when generating answers. The benchmark's separate official
+evaluator also needs its configured judge-model API key.
+
+```sh
+DOCO_BENCHMARK_DATABASE_URL='postgresql://localhost/doco_enterpriserag_bench' \
+VOYAGE_API_KEY='…' DOCO_EMBEDDING_PROVIDER=voyage \
+pnpm --filter @doco/index eval:enterprise-rag -- \
+  --archive /path/to/all_documents.zip \
+  --questions /path/to/questions.jsonl \
+  --output /path/to/doco-enterprise-rag-answers.jsonl \
+  --answers
+```
+
+`--answers` uses `ANTHROPIC_API_KEY` and Doco's configured assistant model
+(`SENOR_DOCO_ANTHROPIC_MODEL`, default `claude-sonnet-4-6`). Omit it for a
+retrieval-only run. `--eligible-only` is only for partial-corpus calibration:
+it runs questions whose complete gold document set exists in the supplied
+archives and must never be reported as the official benchmark score.
+
+The answer file can be passed unchanged to the benchmark's official
+`metrics_based_eval` command. A sibling `<output>.summary.json` records the
+dataset version, model, corpus counts, retrieval metrics, and latency.
+
 `eval-retrieval.mjs` compares candidate embedding models — and measures the
 lift from **asymmetric** query/document hints and from a **reranker** — over a
 labeled fixture, so a model choice can be made on measured recall/nDCG rather

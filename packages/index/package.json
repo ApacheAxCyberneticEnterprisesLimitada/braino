@@ -24,15 +24,18 @@
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "eval:retrieval": "node scripts/eval-retrieval.mjs",
+    "eval:enterprise-rag": "node scripts/enterprise-rag-bench.mjs",
     "benchmark:vector-stores": "node scripts/benchmark-vector-stores.mjs",
     "backfill:qdrant": "node scripts/backfill-qdrant.mjs",
     "smoke:qdrant": "node scripts/smoke-qdrant-vector-store.mjs"
   },
   "dependencies": {
     "@doco/db": "workspace:*",
-    "@doco/shared": "workspace:*"
+    "@doco/shared": "workspace:*",
+    "yauzl": "^3.4.0"
   },
   "devDependencies": {
+    "@types/yauzl": "^3.4.0",
     "pg": "^8.20.0"
   }
 }
