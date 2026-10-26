@@ -74,6 +74,19 @@ try {
     throw new Error("Collection filtering leaked a result from another workspace.");
   }
 
+  const lexicalHits = await store.rankLexical({
+    collectionIds: ["workspace-alpha"],
+    source: "node",
+    queryText: "Which service uses Java?",
+    limit: 2,
+  });
+  if (lexicalHits[0]?.entity_id !== "decision-java") {
+    throw new Error(`Unexpected lexical ranking: ${JSON.stringify(lexicalHits)}`);
+  }
+  if (lexicalHits.some((hit) => hit.entity_id === "decision-private")) {
+    throw new Error("Lexical collection filtering leaked a result from another workspace.");
+  }
+
   await store.delete({ collectionIds: ["workspace-alpha"], source: "node" });
   const afterDelete = await store.rank({
     collectionIds: ["workspace-alpha"],
@@ -85,7 +98,9 @@ try {
   if (afterDelete.length !== 0)
     throw new Error("Filtered delete did not remove the workspace rows.");
 
-  console.log("Qdrant vector-store smoke test passed: upsert, rank, tenant filter, and delete.");
+  console.log(
+    "Qdrant retrieval smoke test passed: upsert, vector rank, BM25 rank, tenant filter, and delete.",
+  );
 } finally {
   await removeSmokeCollection();
 }

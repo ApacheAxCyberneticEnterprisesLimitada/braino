@@ -158,6 +158,101 @@ describe("QdrantVectorStore", () => {
     });
   });
 
+  it("indexes chunk text for BM25 and ranks one lexical match per entity", async () => {
+    const requests: { url: string; init?: RequestInit }[] = [];
+    const fetchMock = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      requests.push({ url: String(input), init });
+      if (!init?.method || init.method === "GET") {
+        return json({
+          result: {
+            config: { params: { vectors: { size: 4, distance: "Cosine" } } },
+            payload_schema: {
+              collection_id: {},
+              source: {},
+              entity_id: {},
+              entity_key: {},
+              model_id: {},
+            },
+          },
+        });
+      }
+      if (String(input).includes("/points/query/groups")) {
+        return json({
+          result: {
+            groups: [
+              {
+                hits: [
+                  {
+                    score: 4.2,
+                    payload: {
+                      collection_id: "collection_alpha",
+                      entity_id: "decision_alpha",
+                      chunk_text: "Alpha uses Java 21.",
+                    },
+                  },
+                ],
+              },
+            ],
+          },
+        });
+      }
+      return json({ result: true, status: "ok" });
+    });
+    const store = new QdrantVectorStore({
+      url: "http://qdrant:6333",
+      dimensions: 4,
+      fetch: fetchMock as typeof fetch,
+    });
+
+    const hits = await store.rankLexical({
+      collectionIds: ["collection_alpha"],
+      source: "node",
+      queryText: "Which Java version does Alpha use?",
+      entityIds: ["decision_alpha"],
+      limit: 5,
+    });
+
+    const textIndex = requests.find((request) => {
+      if (!request.url.endsWith("/collections/doco_embeddings/index?wait=true")) return false;
+      return JSON.parse(String(request.init?.body)).field_name === "chunk_text";
+    });
+    expect(JSON.parse(String(textIndex?.init?.body))).toEqual({
+      field_name: "chunk_text",
+      field_schema: {
+        type: "text",
+        tokenizer: "word",
+        lowercase: true,
+        stemmer: { type: "snowball", language: "english" },
+        stopwords: "english",
+        scoring: { type: "bm25" },
+      },
+    });
+    const query = requests.find((request) => request.url.includes("/points/query/groups"));
+    expect(JSON.parse(String(query?.init?.body))).toMatchObject({
+      query: { text: "Which Java version does Alpha use?" },
+      using: "chunk_text",
+      filter: {
+        must: [
+          { key: "collection_id", match: { any: ["collection_alpha"] } },
+          { key: "source", match: { value: "node" } },
+          { key: "entity_id", match: { any: ["decision_alpha"] } },
+        ],
+      },
+      group_by: "entity_key",
+      group_size: 1,
+      limit: 5,
+      with_payload: true,
+    });
+    expect(hits).toEqual([
+      {
+        collection_id: "collection_alpha",
+        entity_id: "decision_alpha",
+        chunk_text: "Alpha uses Java 21.",
+        score: 4.2,
+      },
+    ]);
+  });
+
   it("does not issue broad searches or deletes for empty scopes", async () => {
     const fetchMock = vi.fn();
     const store = new QdrantVectorStore({

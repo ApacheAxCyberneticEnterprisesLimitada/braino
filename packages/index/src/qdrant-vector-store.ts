@@ -26,6 +26,14 @@ export interface VectorRankArgs {
   entityIds?: string[] | null;
 }
 
+export interface LexicalRankArgs {
+  collectionIds: string[];
+  source: EmbeddingSource;
+  queryText: string;
+  limit: number;
+  entityIds?: string[] | null;
+}
+
 export interface VectorDeleteArgs {
   collectionIds: string[];
   source?: EmbeddingSource;
@@ -45,6 +53,12 @@ export interface VectorStore {
   deletePoints(points: VectorPointKey[]): Promise<void>;
   rank(args: VectorRankArgs): Promise<EmbeddingHit[]>;
 }
+
+export interface LexicalStore {
+  rankLexical(args: LexicalRankArgs): Promise<EmbeddingHit[]>;
+}
+
+export type RetrievalStore = VectorStore & LexicalStore;
 
 export interface QdrantVectorStoreOptions {
   url: string;
@@ -104,7 +118,9 @@ export function qdrantPointId(
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function qdrantFilter(args: VectorDeleteArgs | VectorRankArgs): Record<string, unknown> {
+function qdrantFilter(
+  args: VectorDeleteArgs | VectorRankArgs | LexicalRankArgs,
+): Record<string, unknown> {
   const must: Record<string, unknown>[] = [
     { key: "collection_id", match: { any: args.collectionIds } },
   ];
@@ -114,7 +130,30 @@ function qdrantFilter(args: VectorDeleteArgs | VectorRankArgs): Record<string, u
   return { must };
 }
 
-export class QdrantVectorStore implements VectorStore {
+function embeddingHits(result: { groups?: QdrantGroup[] }): EmbeddingHit[] {
+  const hits: EmbeddingHit[] = [];
+  for (const group of result.groups ?? []) {
+    const hit = group.hits?.[0];
+    const payload = hit?.payload;
+    if (
+      !hit ||
+      typeof payload?.collection_id !== "string" ||
+      typeof payload.entity_id !== "string" ||
+      typeof payload.chunk_text !== "string"
+    ) {
+      continue;
+    }
+    hits.push({
+      collection_id: payload.collection_id,
+      entity_id: payload.entity_id,
+      chunk_text: payload.chunk_text,
+      score: Number(hit.score),
+    });
+  }
+  return hits;
+}
+
+export class QdrantVectorStore implements RetrievalStore {
   private readonly url: string;
   private readonly apiKey: string | undefined;
   private readonly collection: string;
@@ -192,6 +231,14 @@ export class QdrantVectorStore implements VectorStore {
       entity_id: "keyword",
       entity_key: "keyword",
       model_id: "keyword",
+      chunk_text: {
+        type: "text",
+        tokenizer: "word",
+        lowercase: true,
+        stemmer: { type: "snowball", language: "english" },
+        stopwords: "english",
+        scoring: { type: "bm25" },
+      },
     };
     const existing = info.payload_schema ?? {};
     for (const [fieldName, fieldSchema] of Object.entries(schemas)) {
@@ -278,25 +325,35 @@ export class QdrantVectorStore implements VectorStore {
         }),
       },
     );
-    const hits: EmbeddingHit[] = [];
-    for (const group of result.groups ?? []) {
-      const hit = group.hits?.[0];
-      const payload = hit?.payload;
-      if (
-        !hit ||
-        typeof payload?.collection_id !== "string" ||
-        typeof payload.entity_id !== "string" ||
-        typeof payload.chunk_text !== "string"
-      ) {
-        continue;
-      }
-      hits.push({
-        collection_id: payload.collection_id,
-        entity_id: payload.entity_id,
-        chunk_text: payload.chunk_text,
-        score: Number(hit.score),
-      });
+    return embeddingHits(result);
+  }
+
+  async rankLexical(args: LexicalRankArgs): Promise<EmbeddingHit[]> {
+    const queryText = args.queryText.trim();
+    if (
+      !queryText ||
+      args.collectionIds.length === 0 ||
+      args.limit <= 0 ||
+      (args.entityIds && args.entityIds.length === 0)
+    ) {
+      return [];
     }
-    return hits;
+    await this.ensureReady();
+    const result = await this.request<{ groups?: QdrantGroup[] }>(
+      `/collections/${encodeURIComponent(this.collection)}/points/query/groups`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          query: { text: queryText },
+          using: "chunk_text",
+          filter: qdrantFilter(args),
+          group_by: "entity_key",
+          group_size: 1,
+          limit: args.limit,
+          with_payload: true,
+        }),
+      },
+    );
+    return embeddingHits(result);
   }
 }
