@@ -15,6 +15,9 @@
 //   node scripts/eval-retrieval.mjs --provider fake,openai,voyage,cohere
 //   node scripts/eval-retrieval.mjs --store qdrant
 //   node scripts/eval-retrieval.mjs --store qdrant-backfill
+//   node scripts/eval-retrieval.mjs --store postgres-fts
+//   node scripts/eval-retrieval.mjs --store qdrant-bm25
+//   node scripts/eval-retrieval.mjs --store qdrant-hybrid
 //   node scripts/eval-retrieval.mjs --provider voyage --rerank voyage
 //   node scripts/eval-retrieval.mjs --fixture path/to.json --ks 1,3,10 --verbose
 //
@@ -38,6 +41,7 @@ const QDRANT_DIST = join(HERE, "..", "dist", "qdrant-vector-store.js");
 const QDRANT_BACKFILL_DIST = join(HERE, "..", "dist", "qdrant-backfill.js");
 const EVAL_WORKSPACE = "workspace_retrieval_eval";
 const EVAL_COLLECTION = "collection_retrieval_eval";
+const EVAL_QDRANT_COLLECTION = "doco_retrieval_eval";
 
 let mod;
 try {
@@ -155,7 +159,10 @@ function makeProvider(name) {
     case "openai":
       return new OpenAIEmbeddingProvider(reqEnv("OPENAI_API_KEY"));
     case "voyage":
-      return new VoyageEmbeddingProvider(reqEnv("VOYAGE_API_KEY"));
+      return new VoyageEmbeddingProvider(
+        reqEnv("VOYAGE_API_KEY"),
+        process.env.DOCO_VOYAGE_EMBEDDING_MODEL?.trim() || undefined,
+      );
     case "cohere":
       return new CohereEmbeddingProvider(reqEnv("COHERE_API_KEY"));
     case "auto":
@@ -203,7 +210,7 @@ async function rankWithProvider(provider, documents, queries) {
   return evals;
 }
 
-async function rankWithVectorStore(store, provider, documents, queries) {
+async function rankWithVectorStore(store, provider, documents, queries, mode = "dense") {
   const docVecs = await provider.embed(
     documents.map((d) => d.text),
     "document",
@@ -223,14 +230,30 @@ async function rankWithVectorStore(store, provider, documents, queries) {
 
   const evals = [];
   for (const q of queries) {
-    const [queryEmbedding] = await provider.embed([q.query], "query");
-    const hits = await store.rank({
+    const common = {
       collectionIds: [EVAL_COLLECTION],
       source: "node",
-      modelId: provider.modelId,
-      queryEmbedding,
       limit: documents.length,
-    });
+    };
+    let hits;
+    if (mode === "bm25") {
+      hits = await store.rankLexical({ ...common, queryText: q.query });
+    } else {
+      const [queryEmbedding] = await provider.embed([q.query], "query");
+      const dense = {
+        ...common,
+        modelId: provider.modelId,
+        queryEmbedding,
+      };
+      hits =
+        mode === "hybrid"
+          ? await store.rankHybrid({
+              ...dense,
+              queryText: q.query,
+              prefetchLimit: documents.length,
+            })
+          : await store.rank(dense);
+    }
     evals.push({
       query: q.query,
       ranked: hits.map((hit) => hit.entity_id),
@@ -238,6 +261,60 @@ async function rankWithVectorStore(store, provider, documents, queries) {
     });
   }
   return evals;
+}
+
+async function rankWithPostgresFts(documents, queries) {
+  requireLocalDatabase();
+  const { closePool, ensureSchema, ingestRetrievalDocument, searchRetrievalChunksFts, withClient } =
+    await import("@doco/db");
+  await ensureSchema();
+  try {
+    return await withClient(async (client) => {
+      await client.query(
+        `INSERT INTO workspaces (id, handle, name)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (id) DO NOTHING`,
+        [EVAL_WORKSPACE, "retrieval-eval", "Retrieval eval"],
+      );
+      await client.query("DELETE FROM collections WHERE id = $1", [EVAL_COLLECTION]);
+      await client.query(
+        `INSERT INTO collections (id, handle, owner_id, workspace_id, data)
+         VALUES ($1, $2, $3, $3, '{}'::jsonb)`,
+        [EVAL_COLLECTION, "retrieval-eval-corpus", EVAL_WORKSPACE],
+      );
+      for (const document of documents) {
+        await ingestRetrievalDocument(client, {
+          collectionId: EVAL_COLLECTION,
+          source: "eval",
+          externalId: document.id,
+          title: document.id,
+          content: document.text,
+          accessScopes: ["workspace"],
+          chunks: [{ text: document.text }],
+          extraction: { entities: [], relationships: [] },
+        });
+      }
+
+      const evals = [];
+      for (const query of queries) {
+        const hits = await searchRetrievalChunksFts(client, {
+          collectionId: EVAL_COLLECTION,
+          queryText: query.query,
+          accessScopes: ["workspace"],
+          limit: documents.length,
+        });
+        evals.push({
+          query: query.query,
+          ranked: hits.map((hit) => hit.external_id),
+          relevance: toRelevance(query.relevant),
+        });
+      }
+      await client.query("DELETE FROM collections WHERE id = $1", [EVAL_COLLECTION]);
+      return evals;
+    });
+  } finally {
+    await closePool();
+  }
 }
 
 function requireLocalDatabase() {
@@ -250,6 +327,15 @@ function requireLocalDatabase() {
     throw new Error("Database-backed retrieval evals accept only a localhost DATABASE_URL.");
   }
   process.env.DOCO_DATABASE_URL = databaseUrl;
+}
+
+function localQdrantUrl() {
+  const qdrantUrl = process.env.QDRANT_URL ?? "http://127.0.0.1:6333";
+  const host = new URL(qdrantUrl).hostname;
+  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(host)) {
+    throw new Error("BM25 and hybrid retrieval evals accept only a localhost QDRANT_URL.");
+  }
+  return qdrantUrl;
 }
 
 async function rankThroughPostgresThenQdrant(provider, documents, queries, qdrantStore) {
@@ -359,19 +445,30 @@ async function main() {
   const fixture = JSON.parse(readFileSync(opts.fixture, "utf8"));
   const { documents, queries } = fixture;
   const reranker = makeReranker(opts.rerank);
-  if (!new Set(["memory", "qdrant", "qdrant-backfill"]).has(opts.store)) {
-    throw new Error(`Unknown store: ${opts.store} (use memory|qdrant|qdrant-backfill)`);
+  const stores = new Set([
+    "memory",
+    "postgres-fts",
+    "qdrant",
+    "qdrant-backfill",
+    "qdrant-bm25",
+    "qdrant-hybrid",
+  ]);
+  if (!stores.has(opts.store)) {
+    throw new Error(`Unknown store: ${opts.store} (use ${[...stores].join("|")})`);
   }
   if (opts.store !== "memory" && reranker) {
     throw new Error("Storage evals isolate retrieval; run reranker evals with --store memory.");
   }
-  const vectorStore =
-    opts.store === "qdrant" || opts.store === "qdrant-backfill"
-      ? new QdrantVectorStore({
-          url: process.env.QDRANT_URL ?? "http://127.0.0.1:6333",
-          apiKey: process.env.QDRANT_API_KEY,
-        })
-      : undefined;
+  const qdrantTextSearch = opts.store === "qdrant-bm25" || opts.store === "qdrant-hybrid";
+  const vectorStore = opts.store.startsWith("qdrant")
+    ? new QdrantVectorStore({
+        url: qdrantTextSearch
+          ? localQdrantUrl()
+          : (process.env.QDRANT_URL ?? "http://127.0.0.1:6333"),
+        apiKey: process.env.QDRANT_API_KEY,
+        ...(qdrantTextSearch ? { collection: EVAL_QDRANT_COLLECTION, enableTextSearch: true } : {}),
+      })
+    : undefined;
 
   const rerankLine = reranker ? `\nReranker: ${reranker.modelId} (depth ${opts.rerankDepth})` : "";
   console.log(
@@ -387,16 +484,44 @@ async function main() {
   console.log(header);
   console.log("-".repeat(header.length));
 
+  if (opts.store === "postgres-fts") {
+    const evals = await rankWithPostgresFts(documents, queries);
+    printReportRow("postgres:fts", evaluateRetrieval(evals, opts.ks), opts.ks);
+    if (opts.verbose) {
+      for (const e of evals) {
+        console.log(`    "${e.query}" → ${e.ranked.slice(0, 3).join(", ")}`);
+      }
+    }
+    console.log("");
+    return;
+  }
+
   for (const name of opts.providers) {
     const provider = makeProvider(name);
     const evals =
       opts.store === "qdrant-backfill"
         ? await rankThroughPostgresThenQdrant(provider, documents, queries, vectorStore)
         : vectorStore
-          ? await rankWithVectorStore(vectorStore, provider, documents, queries)
+          ? await rankWithVectorStore(
+              vectorStore,
+              provider,
+              documents,
+              queries,
+              opts.store === "qdrant-bm25"
+                ? "bm25"
+                : opts.store === "qdrant-hybrid"
+                  ? "hybrid"
+                  : "dense",
+            )
           : await rankWithProvider(provider, documents, queries);
     const report = evaluateRetrieval(evals, opts.ks);
-    printReportRow(provider.modelId, report, opts.ks);
+    const label =
+      opts.store === "qdrant-bm25"
+        ? "qdrant:bm25"
+        : opts.store === "qdrant-hybrid"
+          ? `qdrant:rrf(${provider.modelId}+bm25)`
+          : provider.modelId;
+    printReportRow(label, report, opts.ks);
     if (opts.verbose) {
       for (const e of evals) {
         const top = e.ranked.slice(0, 3).join(", ");

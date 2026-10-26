@@ -60,6 +60,11 @@ pnpm --filter @doco/index eval:retrieval -- --store qdrant
 # Seed local PostgreSQL, backfill those rows, then retrieve from Qdrant:
 pnpm --filter @doco/index eval:retrieval -- --store qdrant-backfill
 
+# Compare the lexical and hybrid paths on the same labeled fixture:
+pnpm --filter @doco/index eval:retrieval -- --store postgres-fts
+pnpm --filter @doco/index eval:retrieval -- --store qdrant-bm25
+pnpm --filter @doco/index eval:retrieval -- --store qdrant-hybrid --provider voyage
+
 # Compare real models (needs the matching API keys in the env):
 OPENAI_API_KEY=… VOYAGE_API_KEY=… COHERE_API_KEY=… \
   pnpm --filter @doco/index eval:retrieval -- --provider openai,voyage,cohere
@@ -78,7 +83,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 | `--fixture path` | `eval-fixtures/collection-retrieval.json` | Labeled query/document set. |
 | `--ks 1,5,10` | `1,5,10` | Recall cutoffs; nDCG/`+rerank` use the largest. |
 | `--rerank-depth N` | `20` | Top-K passed to the reranker. |
-| `--store name` | `memory` | `memory`, `qdrant`, or `qdrant-backfill`; the last mode proves the PostgreSQL-outbox-to-Qdrant path end to end. |
+| `--store name` | `memory` | `memory`, `postgres-fts`, `qdrant`, `qdrant-backfill`, `qdrant-bm25`, or `qdrant-hybrid`. BM25/hybrid runs are localhost-only and use a separate Qdrant eval collection, so they cannot alter production search. |
 | `--verbose` | off | Print the top-3 retrieved ids per query. |
 
 ## Fixture shape
