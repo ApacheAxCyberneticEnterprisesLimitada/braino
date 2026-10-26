@@ -1,4 +1,4 @@
-// Chunk embeddings against the real schema and pgvector in PGlite: per-chunk
+// Chunk embeddings against the real schema in PGlite: per-chunk
 // hash gating, trimming, pruning by source, model isolation, and ranking by
 // the nearest chunk of each entity.
 import type { PGlite } from "@electric-sql/pglite";
@@ -110,6 +110,20 @@ describe("upsertEmbeddings", () => {
     );
     expect(report).toMatchObject({ computed: 1, skipped: 0 });
     expect((await rows()).map((r) => r.model_id)).toEqual(["new:model"]);
+  });
+
+  it("re-embeds a legacy row whose PostgreSQL vector was discarded at the Qdrant cutover", async () => {
+    const provider = fakeProvider();
+    await upsertEmbeddings(client(), [input("decision_1", ["apple"])], provider);
+    await db.query("UPDATE embeddings SET embedding = NULL WHERE entity_id = 'decision_1'");
+
+    const report = await upsertEmbeddings(client(), [input("decision_1", ["apple"])], provider);
+
+    expect(report).toMatchObject({ computed: 1, skipped: 0 });
+    const stored = await db.query<{ embedding: number[] | null }>(
+      "SELECT embedding FROM embeddings WHERE entity_id = 'decision_1'",
+    );
+    expect(stored.rows[0]?.embedding).not.toBeNull();
   });
 
   it("prunes stale entities of the inputs' source only", async () => {

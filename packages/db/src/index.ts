@@ -99,7 +99,7 @@ export {
   deleteEmbeddings,
   rankEmbeddings,
   upsertEmbeddings,
-  vectorLiteral,
+  embeddingLiteral,
   type EmbeddingHit,
   type EmbeddingInput,
   type EmbeddingProviderLike,

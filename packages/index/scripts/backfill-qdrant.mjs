@@ -55,6 +55,19 @@ try {
               "SELECT DISTINCT collection_id FROM embeddings ORDER BY collection_id",
             )
           ).rows.map((row) => row.collection_id);
+    const missingVectors = (
+      await client.query(
+        `SELECT count(*)::int AS count
+           FROM embeddings
+          WHERE collection_id = ANY($1::text[]) AND embedding IS NULL`,
+        [selectedCollections],
+      )
+    ).rows[0]?.count;
+    if (Number(missingVectors) > 0) {
+      throw new Error(
+        `${missingVectors} embedding rows predate plain-array storage. Re-embed them before rebuilding Qdrant.`,
+      );
+    }
     if (selectedCollections.length > 0) {
       await store.delete({ collectionIds: selectedCollections });
     }

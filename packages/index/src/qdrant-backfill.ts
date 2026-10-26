@@ -9,7 +9,7 @@ interface EmbeddingRow {
   model_id: string;
   content_hash: string;
   chunk_text: string;
-  embedding: string;
+  embedding: number[];
 }
 
 export interface QdrantBackfillOptions {
@@ -23,19 +23,14 @@ export interface QdrantBackfillReport {
   batches: number;
 }
 
-export function parsePgVector(value: string): number[] {
-  try {
-    const parsed: unknown = JSON.parse(value);
-    if (
-      !Array.isArray(parsed) ||
-      parsed.some((item) => typeof item !== "number" || !Number.isFinite(item))
-    ) {
-      throw new Error("not a finite number array");
-    }
-    return parsed;
-  } catch (error) {
-    throw new Error(`Invalid pgvector value: ${value}`, { cause: error });
+export function embeddingValues(value: unknown): number[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== "number" || !Number.isFinite(item))
+  ) {
+    throw new Error("Embedding must be an array of finite numbers.");
   }
+  return value;
 }
 
 /** Copy the authoritative PostgreSQL embedding rows into the rebuildable
@@ -57,9 +52,10 @@ export async function backfillEmbeddingsToVectorStore(
     const rows: EmbeddingRow[] = (
       await c.query<EmbeddingRow>(
         `SELECT collection_id, source, entity_id, chunk_index, model_id,
-                content_hash, chunk_text, embedding::text AS embedding
+                content_hash, chunk_text, embedding
            FROM embeddings
           WHERE ($1::text[] IS NULL OR collection_id = ANY($1::text[]))
+            AND embedding IS NOT NULL
             AND ($2::text IS NULL OR
                  (collection_id, entity_id, chunk_index) > ($2, $3, $4))
           ORDER BY collection_id, entity_id, chunk_index
@@ -77,7 +73,7 @@ export async function backfillEmbeddingsToVectorStore(
 
     const records: VectorRecord[] = rows.map((row: EmbeddingRow) => ({
       ...row,
-      embedding: parsePgVector(row.embedding),
+      embedding: embeddingValues(row.embedding),
     }));
     await store.upsert(records);
     report.rows += rows.length;

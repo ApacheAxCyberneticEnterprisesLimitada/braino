@@ -1,7 +1,7 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
-import { vectorLiteral } from "../../../db/src/embeddings.js";
+import { embeddingLiteral } from "../../../db/src/embeddings.js";
 import { syncQueuedEmbeddings } from "../qdrant-sync.js";
 import type { VectorStore } from "../qdrant-vector-store.js";
 
@@ -18,7 +18,6 @@ function store() {
 
 beforeEach(async () => {
   db = await freshDb();
-  await db.exec("SET doco.vector_sync = 'on'");
   await db.exec(`
     INSERT INTO workspaces (id, handle, name) VALUES ('ws', 'ws', 'WS');
     INSERT INTO collections (id, handle, owner_id, workspace_id, data)
@@ -31,8 +30,8 @@ describe("Qdrant embedding queue sync", () => {
     await db.query(
       `INSERT INTO embeddings
          (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'Ship it', $1::vector)`,
-      [vectorLiteral([1, 0])],
+       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'Ship it', $1::real[])`,
+      [embeddingLiteral([1, 0])],
     );
     const target = store();
 
@@ -64,8 +63,8 @@ describe("Qdrant embedding queue sync", () => {
     await db.query(
       `INSERT INTO embeddings
          (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'Ship it', $1::vector)`,
-      [vectorLiteral([1, 0])],
+       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'Ship it', $1::real[])`,
+      [embeddingLiteral([1, 0])],
     );
     await db.query("DELETE FROM embedding_vector_queue");
     await db.query(

@@ -252,11 +252,9 @@ function requireLocalDatabase() {
   process.env.DOCO_DATABASE_URL = databaseUrl;
 }
 
-async function rankThroughPostgres(provider, documents, queries, qdrantStore) {
+async function rankThroughPostgresThenQdrant(provider, documents, queries, qdrantStore) {
   requireLocalDatabase();
-  const { closePool, ensureSchema, rankEmbeddings, upsertEmbeddings, withClient } = await import(
-    "@doco/db"
-  );
+  const { closePool, ensureSchema, upsertEmbeddings, withClient } = await import("@doco/db");
   await ensureSchema();
   try {
     return await withClient(async (client) => {
@@ -283,12 +281,10 @@ async function rankThroughPostgres(provider, documents, queries, qdrantStore) {
         provider,
         { pruneStale: true },
       );
-      if (qdrantStore) {
-        await qdrantStore.delete({ collectionIds: [EVAL_COLLECTION] });
-        await backfillEmbeddingsToVectorStore(client, qdrantStore, {
-          collectionIds: [EVAL_COLLECTION],
-        });
-      }
+      await qdrantStore.delete({ collectionIds: [EVAL_COLLECTION] });
+      await backfillEmbeddingsToVectorStore(client, qdrantStore, {
+        collectionIds: [EVAL_COLLECTION],
+      });
 
       const evals = [];
       for (const q of queries) {
@@ -300,9 +296,7 @@ async function rankThroughPostgres(provider, documents, queries, qdrantStore) {
           queryEmbedding,
           limit: documents.length,
         };
-        const hits = qdrantStore
-          ? await qdrantStore.rank(rankArgs)
-          : await rankEmbeddings(client, rankArgs);
+        const hits = await qdrantStore.rank(rankArgs);
         evals.push({
           query: q.query,
           ranked: hits.map((hit) => hit.entity_id),
@@ -365,8 +359,8 @@ async function main() {
   const fixture = JSON.parse(readFileSync(opts.fixture, "utf8"));
   const { documents, queries } = fixture;
   const reranker = makeReranker(opts.rerank);
-  if (!new Set(["memory", "pgvector", "qdrant", "qdrant-backfill"]).has(opts.store)) {
-    throw new Error(`Unknown store: ${opts.store} (use memory|pgvector|qdrant|qdrant-backfill)`);
+  if (!new Set(["memory", "qdrant", "qdrant-backfill"]).has(opts.store)) {
+    throw new Error(`Unknown store: ${opts.store} (use memory|qdrant|qdrant-backfill)`);
   }
   if (opts.store !== "memory" && reranker) {
     throw new Error("Storage evals isolate retrieval; run reranker evals with --store memory.");
@@ -396,13 +390,11 @@ async function main() {
   for (const name of opts.providers) {
     const provider = makeProvider(name);
     const evals =
-      opts.store === "pgvector"
-        ? await rankThroughPostgres(provider, documents, queries)
-        : opts.store === "qdrant-backfill"
-          ? await rankThroughPostgres(provider, documents, queries, vectorStore)
-          : vectorStore
-            ? await rankWithVectorStore(vectorStore, provider, documents, queries)
-            : await rankWithProvider(provider, documents, queries);
+      opts.store === "qdrant-backfill"
+        ? await rankThroughPostgresThenQdrant(provider, documents, queries, vectorStore)
+        : vectorStore
+          ? await rankWithVectorStore(vectorStore, provider, documents, queries)
+          : await rankWithProvider(provider, documents, queries);
     const report = evaluateRetrieval(evals, opts.ks);
     printReportRow(provider.modelId, report, opts.ks);
     if (opts.verbose) {

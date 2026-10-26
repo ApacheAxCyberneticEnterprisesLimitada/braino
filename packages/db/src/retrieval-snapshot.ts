@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { QueryClient } from "./embeddings.js";
 
 const SNAPSHOT_FORMAT = "doco-retrieval-snapshot" as const;
-const SNAPSHOT_VERSION = 1 as const;
+const SNAPSHOT_VERSION = 2 as const;
 const INERT_NOTION_TOKEN = "snapshot:no-credential";
 
 type Scalar = string | number | boolean | null;
@@ -40,7 +40,7 @@ export interface RetrievalSnapshotManifest {
   exportedAt: string;
   appRevision: string | null;
   postgresVersion: string;
-  vectorExtensionVersion: string | null;
+  embeddingStorage: "real[]";
   collectionId: string;
   collectionHandle: string;
   workspaceId: string;
@@ -551,10 +551,10 @@ const TABLE_SPECS: readonly TableSpec[] = [
       "embedding",
       "updated_at",
     ],
-    casts: { embedding: "vector" },
+    casts: { embedding: "real[]" },
     select: (collectionId) => ({
       sql: `SELECT collection_id, source, entity_id, chunk_index, model_id, content_hash,
-                   chunk_text, embedding::text AS embedding, updated_at
+                   chunk_text, embedding, updated_at
               FROM embeddings WHERE collection_id = $1
              ORDER BY source, entity_id, chunk_index`,
       params: [collectionId],
@@ -664,9 +664,6 @@ async function readRetrievalSnapshot(
   const postgresVersionResult = await c.query<{ version: string }>(
     "SELECT current_setting('server_version') AS version",
   );
-  const vectorVersionResult = await c.query<{ extversion: string }>(
-    "SELECT extversion FROM pg_extension WHERE extname = 'vector'",
-  );
   const modelIds = [...new Set(tables.embeddings.map((row) => String(row.model_id)))].sort();
   const rowCounts = Object.fromEntries(
     TABLE_NAMES.map((name) => [name, tables[name].length]),
@@ -679,7 +676,7 @@ async function readRetrievalSnapshot(
       exportedAt: options.exportedAt ?? new Date().toISOString(),
       appRevision: options.appRevision ?? null,
       postgresVersion: postgresVersionResult.rows[0]?.version ?? "unknown",
-      vectorExtensionVersion: vectorVersionResult.rows[0]?.extversion ?? null,
+      embeddingStorage: "real[]",
       collectionId: collection.id,
       collectionHandle: collection.handle,
       workspaceId: collection.workspace_id,

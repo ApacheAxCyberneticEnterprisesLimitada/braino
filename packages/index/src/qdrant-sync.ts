@@ -1,5 +1,5 @@
 import type { EmbeddingSource, QueryClient } from "@doco/db";
-import { parsePgVector } from "./qdrant-backfill.js";
+import { embeddingValues } from "./qdrant-backfill.js";
 import type { VectorPointKey, VectorRecord, VectorStore } from "./qdrant-vector-store.js";
 
 interface QueueRow {
@@ -11,7 +11,7 @@ interface QueueRow {
   model_id: string | null;
   content_hash: string | null;
   chunk_text: string | null;
-  embedding: string | null;
+  embedding: number[] | null;
 }
 
 export interface QdrantSyncReport {
@@ -40,13 +40,8 @@ export async function syncQueuedEmbeddings(
     const rows = (
       await c.query<QueueRow>(
         `SELECT q.collection_id, q.entity_id, q.chunk_index, q.operation,
-                e.source, e.model_id, e.content_hash, e.chunk_text,
-                e.embedding::text AS embedding
+                q.source, q.model_id, q.content_hash, q.chunk_text, q.embedding
            FROM embedding_vector_queue q
-           LEFT JOIN embeddings e
-             ON e.collection_id = q.collection_id
-            AND e.entity_id = q.entity_id
-            AND e.chunk_index = q.chunk_index
           ORDER BY q.queued_at, q.collection_id, q.entity_id, q.chunk_index
           FOR UPDATE OF q SKIP LOCKED
           LIMIT $1`,
@@ -77,11 +72,11 @@ export async function syncQueuedEmbeddings(
           model_id: row.model_id,
           content_hash: row.content_hash,
           chunk_text: row.chunk_text,
-          embedding: parsePgVector(row.embedding),
+          embedding: embeddingValues(row.embedding),
         });
       } else {
-        // The authoritative row may have disappeared after an upsert was
-        // queued; deleting the exact point reflects its current state.
+        // An incomplete legacy upsert is not a usable vector. Delete the
+        // exact point; a normal ingestion pass will regenerate the row.
         deletes.push({
           collection_id: row.collection_id,
           entity_id: row.entity_id,

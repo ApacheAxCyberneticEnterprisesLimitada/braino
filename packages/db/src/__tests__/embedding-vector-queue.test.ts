@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { vectorLiteral } from "../embeddings.js";
+import { embeddingLiteral } from "../embeddings.js";
 import { freshDb } from "./fresh-db.js";
 
 let db: PGlite;
@@ -30,23 +30,12 @@ async function queue() {
 }
 
 describe("embedding vector sync queue", () => {
-  it("does not collect work when no external vector index is enabled", async () => {
+  it("collects work from every database writer", async () => {
     await db.query(
       `INSERT INTO embeddings
          (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'One', $1::vector)`,
-      [vectorLiteral([1, 0])],
-    );
-    expect(await queue()).toEqual([]);
-  });
-
-  it("collects work from every database writer once the host enables its external index", async () => {
-    await db.exec("UPDATE hosts SET external_vector_index_enabled = true WHERE id = 'host'");
-    await db.query(
-      `INSERT INTO embeddings
-         (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'One', $1::vector)`,
-      [vectorLiteral([1, 0])],
+       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'One', $1::real[])`,
+      [embeddingLiteral([1, 0])],
     );
     expect(await queue()).toEqual([
       {
@@ -59,12 +48,11 @@ describe("embedding vector sync queue", () => {
   });
 
   it("collapses each chunk to its latest upsert or delete", async () => {
-    await db.exec("SET doco.vector_sync = 'on'");
     await db.query(
       `INSERT INTO embeddings
          (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h1', 'One', $1::vector)`,
-      [vectorLiteral([1, 0])],
+       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h1', 'One', $1::real[])`,
+      [embeddingLiteral([1, 0])],
     );
     await db.query(
       `UPDATE embeddings SET content_hash = 'h2', chunk_text = 'Two'
@@ -94,7 +82,6 @@ describe("embedding vector sync queue", () => {
   });
 
   it("replaces pending chunk work with one collection delete", async () => {
-    await db.exec("SET doco.vector_sync = 'on'");
     await db.query(
       `INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose)
        VALUES ('decision_1', 'collection_1', 'decision', 'active', 'One')`,
@@ -102,8 +89,8 @@ describe("embedding vector sync queue", () => {
     await db.query(
       `INSERT INTO embeddings
          (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
-       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'One', $1::vector)`,
-      [vectorLiteral([1, 0])],
+       VALUES ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'One', $1::real[])`,
+      [embeddingLiteral([1, 0])],
     );
     await db.query("DELETE FROM collections WHERE id = 'collection_1'");
     expect(await queue()).toEqual([

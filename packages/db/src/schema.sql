@@ -26,13 +26,10 @@ CREATE TABLE IF NOT EXISTS hosts (
   id          text PRIMARY KEY,
   name        text NOT NULL,
   visibility  text NOT NULL DEFAULT 'private' CHECK (visibility IN ('public', 'private')),
-  -- Once a host has a Qdrant mirror, every database writer feeds its durable
-  -- outbox — including importers that do not run through the web process.
-  external_vector_index_enabled boolean NOT NULL DEFAULT false,
   created_at  timestamptz NOT NULL DEFAULT now(),
   updated_at  timestamptz NOT NULL DEFAULT now()
 );
-ALTER TABLE hosts ADD COLUMN IF NOT EXISTS external_vector_index_enabled boolean NOT NULL DEFAULT false;
+ALTER TABLE hosts DROP COLUMN IF EXISTS external_vector_index_enabled;
 
 -- Bootstrap host row. The seed below keeps /home from 500'ing on a
 -- fresh install (every layout reads host config). Idempotent — the
@@ -462,25 +459,56 @@ INSERT INTO node_ranks_stale (collection_id)
 SELECT DISTINCT collection_id FROM edges
  WHERE NOT EXISTS (SELECT 1 FROM node_ranks) AND NOT EXISTS (SELECT 1 FROM node_ranks_stale);
 
--- Vector embeddings, in pgvector: one row per chunk of an entity's text, for
+-- Embedding metadata: one row per chunk of an entity's text, for
 -- graph entities and mirror rows alike. `source` says which table the
 -- `entity_id` names (a node or policy id; a Notion page id; a Slack
 -- message's "<channel>:<ts>"), so search filters by it and stopping a mirror
 -- deletes its chunks in one statement. `chunk_text` is exactly what was
 -- embedded and doubles as the search snippet. model_id + content_hash let the
 -- embedding pass skip unchanged chunks; a model swap re-embeds rows whose
--- model_id differs. Vectors shorter than 1536 dimensions (Voyage's 1024) are
--- zero-padded, which leaves cosine similarity unchanged.
+-- model_id differs. Qdrant is the one similarity engine. PostgreSQL keeps the
+-- plain real array that was last written so its durable outbox can retry a
+-- failed Qdrant write; it has no vector extension or similarity index.
 --
 -- Each collection's chunks are a partition of their own, `embeddings_<collection id>`,
--- made with the collection and dropped with it, so each collection has its own HNSW index
--- and a search walks only the indexes of the collections it reads: a collection of 18
--- chunks is searched as fully as one of 250,000. The index holds each vector's
--- first 512 dimensions in half precision (OpenAI's text-embedding-3 models are
--- trained to be cut there), a sixth of the whole vector's size, and
--- embeddings_nearest rescores what it finds with all 1,536, so the order it
--- returns is the exact one (decision_01M4EZEPDBVGDGSPW6TJN3RG8B).
-CREATE EXTENSION IF NOT EXISTS vector;
+-- made with the collection and dropped with it. Existing pgvector databases
+-- already have their complete read index in Qdrant: preserve any pending
+-- outbox vectors, discard the redundant PostgreSQL vector values, and remove
+-- the extension without rewriting millions of rows.
+DO $$ BEGIN
+  IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector') THEN
+    EXECUTE 'DROP FUNCTION IF EXISTS embeddings_nearest(vector, text[], text, text, integer)';
+    IF to_regclass('embedding_vector_queue') IS NOT NULL THEN
+      ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS source text;
+      ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS model_id text;
+      ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS content_hash text;
+      ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS chunk_text text;
+      ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS embedding real[];
+      IF to_regclass('embeddings') IS NOT NULL THEN
+        EXECUTE $migration$
+          UPDATE embedding_vector_queue q
+             SET source = e.source, model_id = e.model_id,
+                 content_hash = e.content_hash, chunk_text = e.chunk_text,
+                 embedding = e.embedding::real[]
+            FROM embeddings e
+           WHERE q.operation = 'upsert'
+             AND e.collection_id = q.collection_id
+             AND e.entity_id = q.entity_id
+             AND e.chunk_index = q.chunk_index
+        $migration$;
+      END IF;
+    END IF;
+    IF to_regclass('embeddings') IS NOT NULL THEN
+      ALTER TABLE embeddings DROP COLUMN embedding;
+      ALTER TABLE embeddings ADD COLUMN embedding real[];
+    END IF;
+    IF to_regclass('embeddings_unpartitioned') IS NOT NULL THEN
+      ALTER TABLE embeddings_unpartitioned DROP COLUMN embedding;
+      ALTER TABLE embeddings_unpartitioned ADD COLUMN embedding real[];
+    END IF;
+    DROP EXTENSION vector;
+  END IF;
+END $$;
 -- A database that kept every chunk in one table moves to the partitions: the
 -- table steps aside here, and its rows move once the partitions exist (below).
 DO $$ BEGIN
@@ -488,7 +516,6 @@ DO $$ BEGIN
     ALTER TABLE embeddings RENAME TO embeddings_unpartitioned;
     ALTER TABLE embeddings_unpartitioned RENAME CONSTRAINT embeddings_pkey TO embeddings_unpartitioned_pkey;
     DROP INDEX IF EXISTS embeddings_source_idx;
-    DROP INDEX IF EXISTS embeddings_hnsw_idx;
   END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS embeddings (
@@ -501,14 +528,13 @@ CREATE TABLE IF NOT EXISTS embeddings (
   model_id      text NOT NULL,
   content_hash  text NOT NULL,
   chunk_text    text NOT NULL,
-  embedding     vector(1536) NOT NULL,
+  -- Null only on rows that predate the Qdrant cutover; their vectors already
+  -- live in Qdrant and are regenerated from chunk_text if the index is rebuilt.
+  embedding     real[],
   updated_at    timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (collection_id, entity_id, chunk_index)
 ) PARTITION BY LIST (collection_id);
 CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (collection_id, source, model_id);
-CREATE INDEX IF NOT EXISTS embeddings_hnsw_idx ON embeddings
-  USING hnsw ((subvector(embedding, 1, 512)::halfvec(512)) halfvec_cosine_ops)
-  WITH (m = 32, ef_construction = 200);
 
 -- Keep existing databases' source constraint in sync with the definition
 -- above. Retrieval graph rows are derived and may be rebuilt at any time.
@@ -576,29 +602,45 @@ CREATE TABLE IF NOT EXISTS embedding_vector_queue (
   entity_id      text NOT NULL,
   chunk_index    int  NOT NULL,
   operation      text NOT NULL CHECK (operation IN ('upsert','delete','delete_collection')),
+  source         text,
+  model_id       text,
+  content_hash   text,
+  chunk_text     text,
+  embedding      real[],
   queued_at      timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (collection_id, entity_id, chunk_index)
 );
+ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS source text;
+ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS model_id text;
+ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS content_hash text;
+ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS chunk_text text;
+ALTER TABLE embedding_vector_queue ADD COLUMN IF NOT EXISTS embedding real[];
 CREATE INDEX IF NOT EXISTS embedding_vector_queue_order_idx
   ON embedding_vector_queue (queued_at, collection_id, entity_id, chunk_index);
 
 CREATE OR REPLACE FUNCTION embeddings_queue_vector_sync() RETURNS trigger AS $$
 BEGIN
-  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on'
-     AND NOT coalesce((SELECT external_vector_index_enabled FROM hosts WHERE id = 'host'), false)
-  THEN
-    RETURN coalesce(NEW, OLD);
-  END IF;
   INSERT INTO embedding_vector_queue
-    (collection_id, entity_id, chunk_index, operation, queued_at)
+    (collection_id, entity_id, chunk_index, operation, source, model_id,
+     content_hash, chunk_text, embedding, queued_at)
   VALUES
     (coalesce(NEW.collection_id, OLD.collection_id),
      coalesce(NEW.entity_id, OLD.entity_id),
      coalesce(NEW.chunk_index, OLD.chunk_index),
      CASE WHEN TG_OP = 'DELETE' THEN 'delete' ELSE 'upsert' END,
+     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.source END,
+     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.model_id END,
+     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.content_hash END,
+     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.chunk_text END,
+     CASE WHEN TG_OP = 'DELETE' THEN NULL ELSE NEW.embedding END,
      now())
   ON CONFLICT (collection_id, entity_id, chunk_index) DO UPDATE SET
     operation = EXCLUDED.operation,
+    source = EXCLUDED.source,
+    model_id = EXCLUDED.model_id,
+    content_hash = EXCLUDED.content_hash,
+    chunk_text = EXCLUDED.chunk_text,
+    embedding = EXCLUDED.embedding,
     queued_at = EXCLUDED.queued_at;
   RETURN coalesce(NEW, OLD);
 END $$ LANGUAGE plpgsql;
@@ -612,11 +654,6 @@ CREATE TRIGGER embeddings_vector_queue_sync
 -- delete before the partition disappears.
 CREATE OR REPLACE FUNCTION collections_queue_vector_delete() RETURNS trigger AS $$
 BEGIN
-  IF current_setting('doco.vector_sync', true) IS DISTINCT FROM 'on'
-     AND NOT coalesce((SELECT external_vector_index_enabled FROM hosts WHERE id = 'host'), false)
-  THEN
-    RETURN OLD;
-  END IF;
   DELETE FROM embedding_vector_queue WHERE collection_id = OLD.id;
   INSERT INTO embedding_vector_queue
     (collection_id, entity_id, chunk_index, operation, queued_at)
@@ -630,51 +667,6 @@ DROP TRIGGER IF EXISTS collections_vector_queue_delete ON collections;
 CREATE TRIGGER collections_vector_queue_delete
   BEFORE DELETE ON collections
   FOR EACH ROW EXECUTE FUNCTION collections_queue_vector_delete();
-
--- The `limit` entities nearest the query among the collections asked, for one
--- source and one model: each entity's best chunk, best first. It keeps the
--- collections that hold chunks of that source and model (a mirror collection's index holds
--- no nodes, and walking it for some would scan it in vain), walks their
--- 512-dimension indexes for four candidate chunks per entity asked (at least
--- 200), then scores those on the whole vector. The walk keeps twice as many
--- candidates in view as it returns: Slack's thousands of near-identical bot
--- alerts trap a narrower one, which is also why the index links each chunk to
--- 32 neighbours. The query runs through EXECUTE so it is planned with the
--- collections known and touches only their partitions; the iterative scan keeps the
--- walk going until the candidates are found.
-CREATE OR REPLACE FUNCTION embeddings_nearest(
-  query vector, collection_ids text[], chunk_source text, chunk_model text, entity_limit int
-) RETURNS TABLE (collection_id text, entity_id text, chunk_text text, score double precision)
-LANGUAGE plpgsql STABLE
-SET hnsw.iterative_scan = strict_order
-SET hnsw.ef_search = 400
-AS $$
-DECLARE
-  holding text[];
-  candidates int := greatest(entity_limit * 4, 200);
-BEGIN
-  SELECT array_agg(d) INTO holding FROM unnest(collection_ids) AS d
-   WHERE EXISTS (SELECT 1 FROM embeddings e
-                  WHERE e.collection_id = d AND e.source = chunk_source AND e.model_id = chunk_model);
-  IF holding IS NULL THEN
-    RETURN;
-  END IF;
-  PERFORM set_config('hnsw.ef_search', least(candidates * 2, 1000)::text, true);
-  RETURN QUERY EXECUTE $q$
-    SELECT collection_id, entity_id, chunk_text, score FROM (
-      SELECT DISTINCT ON (collection_id, entity_id)
-             collection_id, entity_id, chunk_text, 1 - (embedding <=> $1) AS score
-        FROM (SELECT collection_id, entity_id, chunk_text, embedding
-                FROM embeddings
-               WHERE collection_id = ANY($2) AND source = $3 AND model_id = $4
-               ORDER BY subvector(embedding, 1, 512)::halfvec(512) <=> $5
-               LIMIT $7) candidates
-       ORDER BY collection_id, entity_id, embedding <=> $1) best
-     ORDER BY score DESC, collection_id, entity_id
-     LIMIT $6
-  $q$ USING query, holding, chunk_source, chunk_model,
-            subvector(query, 1, 512)::halfvec(512), entity_limit, candidates;
-END $$;
 
 -- Full-text search. Only nodes are indexed (entity_fts_nodes): the indexer
 -- populates summary + body, and Slack search — the lone reader — queries the

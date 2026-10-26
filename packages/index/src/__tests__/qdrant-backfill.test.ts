@@ -1,12 +1,12 @@
 import type { QueryClient } from "@doco/db";
 import { describe, expect, it, vi } from "vitest";
-import { backfillEmbeddingsToVectorStore, parsePgVector } from "../qdrant-backfill.js";
+import { backfillEmbeddingsToVectorStore, embeddingValues } from "../qdrant-backfill.js";
 import type { VectorStore } from "../qdrant-vector-store.js";
 
 describe("Qdrant embedding backfill", () => {
-  it("parses pgvector's text representation", () => {
-    expect(parsePgVector("[1,-0.25,3e-2]")).toEqual([1, -0.25, 0.03]);
-    expect(() => parsePgVector("not-a-vector")).toThrow("Invalid pgvector value");
+  it("accepts only finite numeric arrays", () => {
+    expect(embeddingValues([1, -0.25, 3e-2])).toEqual([1, -0.25, 0.03]);
+    expect(() => embeddingValues("not-an-array")).toThrow("array of finite numbers");
   });
 
   it("copies every PostgreSQL row in bounded batches", async () => {
@@ -22,7 +22,7 @@ describe("Qdrant embedding backfill", () => {
             model_id: "test:model",
             content_hash: "hash-a",
             chunk_text: "Alpha",
-            embedding: "[1,0]",
+            embedding: [1, 0],
           },
           {
             collection_id: "collection_alpha",
@@ -32,7 +32,7 @@ describe("Qdrant embedding backfill", () => {
             model_id: "test:model",
             content_hash: "hash-b",
             chunk_text: "Beta",
-            embedding: "[0,1]",
+            embedding: [0, 1],
           },
         ],
       })

@@ -17,7 +17,6 @@ const { Pool } = pg;
 
 let _pool: pg.Pool | null = null;
 let _schemaReady: Promise<void> | null = null;
-const vectorSyncConfigured = new WeakMap<pg.PoolClient, boolean>();
 
 export function getPool(): pg.Pool {
   if (_pool) return _pool;
@@ -42,21 +41,6 @@ export async function withClient<T>(fn: (c: pg.PoolClient) => Promise<T>): Promi
   await ensureSchema();
   const c = await getPool().connect();
   try {
-    const enabled = Boolean(process.env.QDRANT_URL?.trim());
-    const configured = vectorSyncConfigured.get(c);
-    if (configured !== enabled) {
-      if (enabled || configured) {
-        await c.query("SELECT set_config('doco.vector_sync', $1, false)", [enabled ? "on" : "off"]);
-      }
-      if (enabled) {
-        await c.query(
-          `UPDATE hosts
-              SET external_vector_index_enabled = true
-            WHERE id = 'host' AND NOT external_vector_index_enabled`,
-        );
-      }
-      vectorSyncConfigured.set(c, enabled);
-    }
     return await fn(c);
   } finally {
     c.release();

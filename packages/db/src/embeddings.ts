@@ -1,10 +1,10 @@
-// pgvector-backed embedding storage: one row per chunk of an entity's text,
+// Embedding metadata and durable Qdrant-sync storage: one row per chunk of an entity's text,
 // for graph entities and mirror rows alike (schema.sql, `embeddings`, one
 // partition per collection). Each chunk is gated by its own content hash, so an edit
 // to one paragraph re-embeds one chunk, and ranking is one SQL statement: the
 // nearest chunk of each entity to the query. Callers pass the client, so the
 // same code runs inside a request, a cron tick, or a test's in-process
-// Postgres.
+// Postgres. Qdrant is the production similarity engine.
 
 export type EmbeddingSource =
   | "node"
@@ -72,15 +72,15 @@ export interface EmbeddingHit {
   score: number;
 }
 
-/** The pgvector literal for a vector, zero-padded (or cut) to the column's
- *  dimensions. */
-export function vectorLiteral(
+/** A PostgreSQL real-array literal, zero-padded (or cut) to Qdrant's
+ * dimensions. */
+export function embeddingLiteral(
   vector: ArrayLike<number>,
   dimensions = EMBEDDING_DIMENSIONS,
 ): string {
   const parts: string[] = new Array(dimensions);
   for (let i = 0; i < dimensions; i++) parts[i] = i < vector.length ? String(vector[i]) : "0";
-  return `[${parts.join(",")}]`;
+  return `{${parts.join(",")}}`;
 }
 
 /**
@@ -132,8 +132,10 @@ export async function upsertEmbeddings(
       chunk_index: number;
       model_id: string;
       content_hash: string;
+      has_embedding: boolean;
     }>(
-      `SELECT collection_id, entity_id, chunk_index, model_id, content_hash
+      `SELECT collection_id, entity_id, chunk_index, model_id, content_hash,
+              embedding IS NOT NULL AS has_embedding
          FROM embeddings
         WHERE collection_id = ANY($1::text[]) AND entity_id = ANY($2::text[])`,
       [collectionIds, entityIds],
@@ -158,7 +160,7 @@ export async function upsertEmbeddings(
       const text = entity.chunks[index];
       const hash = createHash("sha1").update(text).digest("hex");
       const prev = have.get(`${entity.collection_id}\n${entity.entity_id}\n${index}`);
-      if (prev && prev.model_id === modelId && prev.content_hash === hash) {
+      if (prev?.has_embedding && prev.model_id === modelId && prev.content_hash === hash) {
         skipped++;
         continue;
       }
@@ -184,7 +186,7 @@ export async function upsertEmbeddings(
       `INSERT INTO embeddings
          (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
        SELECT r.collection_id, r.source, r.entity_id, r.chunk_index, $1, r.content_hash, r.chunk_text,
-              r.embedding::vector
+              r.embedding::real[]
          FROM unnest($2::text[], $3::text[], $4::text[], $5::int[], $6::text[], $7::text[], $8::text[])
            AS r(collection_id, source, entity_id, chunk_index, content_hash, chunk_text, embedding)
        ON CONFLICT (collection_id, entity_id, chunk_index) DO UPDATE SET
@@ -202,7 +204,7 @@ export async function upsertEmbeddings(
         batch.map((p) => p.index),
         batch.map((p) => p.hash),
         batch.map((p) => p.text),
-        vectors.map((v) => vectorLiteral(v)),
+        vectors.map((v) => embeddingLiteral(v)),
       ],
     );
     computed += batch.length;
@@ -234,9 +236,10 @@ export async function deleteEmbeddings(
 /**
  * The entities nearest the query: each entity's best chunk, best first,
  * among the collections asked, for one source and the query's model (vectors from
- * another model are not comparable). It walks the collections' indexes and rescores
- * on the whole vector (schema.sql, embeddings_nearest). `entityIds` narrows to
- * a candidate set, which is scored exactly.
+ * another model are not comparable). Production callers use Qdrant. This
+ * exact array scan remains for deterministic local evaluation of small
+ * fixtures; it has no database vector extension or index. `entityIds` narrows
+ * to a candidate set.
  */
 export async function rankEmbeddings(
   c: QueryClient,
@@ -252,11 +255,12 @@ export async function rankEmbeddings(
   if (args.collectionIds.length === 0 || args.limit <= 0) return [];
   if (args.entityIds && args.entityIds.length === 0) return [];
   const params = [
-    vectorLiteral(args.queryEmbedding),
+    embeddingLiteral(args.queryEmbedding),
     args.collectionIds,
     args.source,
     args.modelId,
     args.limit,
+    args.entityIds ?? null,
   ];
   const rows = (
     await c.query<{
@@ -265,19 +269,34 @@ export async function rankEmbeddings(
       chunk_text: string;
       score: number | string;
     }>(
-      args.entityIds
-        ? `SELECT collection_id, entity_id, chunk_text, score FROM (
-             SELECT DISTINCT ON (collection_id, entity_id)
-                    collection_id, entity_id, chunk_text, 1 - (embedding <=> $1::vector) AS score
-               FROM embeddings
-              WHERE collection_id = ANY($2::text[]) AND source = $3 AND model_id = $4
-                AND entity_id = ANY($6::text[])
-              ORDER BY collection_id, entity_id, embedding <=> $1::vector
-           ) best
-           ORDER BY score DESC, collection_id, entity_id
-           LIMIT $5`
-        : "SELECT collection_id, entity_id, chunk_text, score FROM embeddings_nearest($1::vector, $2::text[], $3, $4, $5)",
-      args.entityIds ? [...params, args.entityIds] : params,
+      `WITH scored AS (
+         SELECT e.collection_id, e.entity_id, e.chunk_text,
+                similarity.score
+           FROM embeddings e
+           CROSS JOIN LATERAL (
+             SELECT CASE WHEN sums.left_norm = 0 OR sums.right_norm = 0 THEN 0
+                         ELSE sums.dot / sqrt(sums.left_norm * sums.right_norm) END AS score
+               FROM (
+                 SELECT sum(value * query_value)::double precision AS dot,
+                        sum(value * value)::double precision AS left_norm,
+                        sum(query_value * query_value)::double precision AS right_norm
+                   FROM unnest(e.embedding, $1::real[]) AS pair(value, query_value)
+               ) sums
+           ) similarity
+          WHERE e.collection_id = ANY($2::text[]) AND e.source = $3 AND e.model_id = $4
+            AND e.embedding IS NOT NULL
+            AND ($6::text[] IS NULL OR e.entity_id = ANY($6::text[]))
+       ), best AS (
+         SELECT DISTINCT ON (collection_id, entity_id)
+                collection_id, entity_id, chunk_text, score
+           FROM scored
+          ORDER BY collection_id, entity_id, score DESC, chunk_text
+       )
+       SELECT collection_id, entity_id, chunk_text, score
+         FROM best
+        ORDER BY score DESC, collection_id, entity_id
+        LIMIT $5`,
+      params,
     )
   ).rows;
   return rows.map((row) => ({ ...row, score: Number(row.score) }));

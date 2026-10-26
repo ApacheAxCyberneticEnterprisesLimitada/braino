@@ -3,7 +3,7 @@
 // goes, whether deleted directly or through a cascade.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
-import { vectorLiteral } from "../embeddings.js";
+import { embeddingLiteral } from "../embeddings.js";
 import { freshDb } from "./fresh-db.js";
 
 let db: PGlite;
@@ -42,12 +42,12 @@ beforeEach(async () => {
     `INSERT INTO embeddings
        (collection_id, source, entity_id, chunk_index, model_id, content_hash, chunk_text, embedding)
      VALUES
-       ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'Ship', $1::vector),
-       ('collection_1', 'node', 'decision_1', 1, 'm', 'h', 'it', $1::vector),
-       ('collection_1', 'node', 'policy_1', 0, 'm', 'h', 'Policy', $1::vector),
-       ('collection_1', 'notion', 'page_1', 0, 'm', 'h', 'Page', $1::vector),
-       ('collection_1', 'slack', 'C1:1700000000.000100', 0, 'm', 'h', 'hi', $1::vector)`,
-    [vectorLiteral([1, 0, 0])],
+       ('collection_1', 'node', 'decision_1', 0, 'm', 'h', 'Ship', $1::real[]),
+       ('collection_1', 'node', 'decision_1', 1, 'm', 'h', 'it', $1::real[]),
+       ('collection_1', 'node', 'policy_1', 0, 'm', 'h', 'Policy', $1::real[]),
+       ('collection_1', 'notion', 'page_1', 0, 'm', 'h', 'Page', $1::real[]),
+       ('collection_1', 'slack', 'C1:1700000000.000100', 0, 'm', 'h', 'hi', $1::real[])`,
+    [embeddingLiteral([1, 0, 0])],
   );
 });
 

@@ -1,6 +1,6 @@
 import type { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
-import { vectorLiteral } from "../embeddings.js";
+import { embeddingLiteral, rankEmbeddings } from "../embeddings.js";
 import {
   exportRetrievalSnapshot,
   restoreRetrievalSnapshot,
@@ -77,12 +77,12 @@ async function seedSource(db: PGlite): Promise<void> {
         updated_at)
      VALUES
        ($1, 'node', 'decision_jdk', 0, 'text-embedding-3-small', 'node-hash',
-        'Solar uses JDK 8.', $2::vector, '2025-02-01T00:00:00Z'),
+        'Solar uses JDK 8.', $2::real[], '2025-02-01T00:00:00Z'),
        ($1, 'slack', 'C-SOLAR:1700000000.000100', 0, 'text-embedding-3-small',
-        'slack-hash', 'Solar still runs JDK 8.', $2::vector, '2025-02-01T00:00:00Z'),
+        'slack-hash', 'Solar still runs JDK 8.', $2::real[], '2025-02-01T00:00:00Z'),
        ($1, 'notion', 'page-jdk', 0, 'text-embedding-3-small', 'notion-hash',
-        'The production runtime is JDK 8.', $2::vector, '2025-02-01T00:00:00Z')`,
-    [COLLECTION_ID, vectorLiteral([1, 0, 0])],
+        'The production runtime is JDK 8.', $2::real[], '2025-02-01T00:00:00Z')`,
+    [COLLECTION_ID, embeddingLiteral([1, 0, 0])],
   );
 }
 
@@ -113,13 +113,13 @@ async function retrievalSignature(db: PGlite): Promise<Record<string, unknown>> 
         ORDER BY repo, path`,
       [COLLECTION_ID],
     ),
-    db.query<{ id: string }>(
-      `SELECT entity_id AS id
-         FROM embeddings_nearest(
-           $1::vector, ARRAY[$2]::text[], 'node', 'text-embedding-3-small', 10
-         )`,
-      [vectorLiteral([1, 0, 0]), COLLECTION_ID],
-    ),
+    rankEmbeddings(db, {
+      collectionIds: [COLLECTION_ID],
+      source: "node",
+      modelId: "text-embedding-3-small",
+      queryEmbedding: [1, 0, 0],
+      limit: 10,
+    }).then((hits) => ({ rows: hits.map((hit) => ({ id: hit.entity_id })) })),
     db.query<{ id: string; rank: number }>(
       `SELECT r.node_id AS id, r.rank FROM node_ranks r
         JOIN nodes n ON n.id = r.node_id
