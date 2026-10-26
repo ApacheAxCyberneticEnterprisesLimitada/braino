@@ -2485,6 +2485,27 @@ When a decision changes a business process, change that process in Processes too
  WHERE w.id = s.id
    AND strpos(w.constitution, 'A choice with both sides is two Decisions') = 0;
 
+-- A Log or an Action was saved retired, meaning it was done, until
+-- 2026-10-26; everywhere else retired means replaced or withdrawn, so feeds
+-- struck every chat Log through and the graph, search and briefs hid them.
+-- They are saved active now, and those saved before that nothing replaced
+-- and nobody retired become active too. Only nodes saved before the change
+-- qualify, so one saved retired on purpose since stays retired. updated_at
+-- stays as it was: nothing about them changed but the word for their state,
+-- and a fresh one would put every old Log in this week's briefs.
+UPDATE nodes n
+   SET lifecycle = 'active'
+ WHERE n.node_type IN ('log', 'action')
+   AND n.lifecycle = 'retired'
+   AND n.created_at < '2026-10-27T00:00:00Z'
+   AND NOT EXISTS (
+         SELECT 1 FROM edges e
+          WHERE e.to_id = n.id AND e.edge_type = 'replaces')
+   AND NOT EXISTS (
+         SELECT 1 FROM audit_events a
+          WHERE a.entity_id = n.id AND a.op = 'lifecycle.transition'
+            AND a.after_json->>'lifecycle' = 'retired');
+
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change
 -- still reaches the database on the first boot after it deploys and its

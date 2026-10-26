@@ -51,7 +51,7 @@ export const CAPTURE_SCHEMAS = {
     field("prose", "required", "full prose: what someone wants, why, success criteria"),
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  action: schema("action", "Action", "actions", "retired", [
+  action: schema("action", "Action", "actions", "active", [
     field("prose", "required", "full prose: what was done plus context"),
     field("verb", "required", 'short verb such as "refactor", "migrate", "deploy"'),
     field("inputs", "optional", "verb-specific inputs, any JSON shape"),
@@ -64,7 +64,7 @@ export const CAPTURE_SCHEMAS = {
     ...BPMN_FLOW_POINT_FIELDS,
     ...COMMON_OPTIONAL_FIELDS,
   ]),
-  log: schema("log", "Log", "logs", "retired", [
+  log: schema("log", "Log", "logs", "active", [
     field("prose", "required", "full prose: what happened, when, in what state"),
     field("verb", "required", 'past-tense verb such as "pushed", "deployed", "verified"'),
     field("happened_at", "required", "ISO 8601 timestamp"),
