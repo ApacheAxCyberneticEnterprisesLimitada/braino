@@ -1,11 +1,12 @@
 /**
- * Decision-record templates — Architectural (ADR), Product, and Design.
+ * Decision-record templates — Architectural (ADR), Product, Design, and Security.
  *
- * All three document the SAME thing in three domains: a decision, its context
+ * All four document the SAME thing in four domains: a decision, its context
  * and rationale, the options weighed, who is accountable, and the forces that
  * drove it — kept as an append-only log so a future reader can tell *why* the
  * call was made and whether it still holds. Industry practice (Nygard ADRs,
- * MADR, product decision records, design decision records) converges on one
+ * MADR, product decision records, design decision records, security decision
+ * records and risk acceptances) converges on one
  * record shape:
  *
  *   question → considered options (+ why rejected) → chosen + rationale,
@@ -16,7 +17,7 @@
  * That shape already IS the `decision` node: `question`, `alternatives`
  * (`{name, rejected_because}`), `chosen` (null while drafting), `decision`
  * (the rationale prose), `decided_at`, plus the shared `lifecycle`. So the
- * three templates need NO new node type — they cultivate the existing Decision
+ * four templates need NO new node type — they cultivate the existing Decision
  * and map the universal status onto the node lifecycle:
  *
  *   drafting = draft / RFC (the choice may still be open, `chosen` may be empty)
@@ -24,12 +25,14 @@
  *   active   = accepted   (in force)
  *   retired  = deprecated / superseded (the replacement carries a `replaces` edge)
  *
- * The three share ONE core (`decisionRecordCore`) and differ only in a
+ * The four share ONE core (`decisionRecordCore`) and differ only in a
  * domain-fit gate plus a few lines of domain guidance (`FLAVORS`). Adding a
- * fourth decision flavor is one `FLAVORS` entry — there is deliberately no
- * fourth copy of the core policy list to keep in sync. Data-modeling, storage,
+ * fifth decision flavor is one `FLAVORS` entry — there is deliberately no
+ * fifth copy of the core policy list to keep in sync. Data-modeling, storage,
  * and governance decisions are recorded as ADRs — the architectural flavor
- * subsumes them rather than carrying a separate data log.
+ * subsumes them rather than carrying a separate data log. A choice made to
+ * protect the system — access, secrets, encryption, an accepted risk — is a
+ * security decision, and the ADR gate sends it there.
  */
 import type { Lifecycle } from "@doco/shared";
 import type { CollectionTemplate, TemplatePolicy } from "./collection-templates.js";
@@ -219,7 +222,7 @@ const FLAVORS: DecisionFlavor[] = [
     description:
       "Record architecturally significant decisions (ADRs) — system structure, technology choices, and how data is modeled, stored, and governed — as an append-only log of the context, the options weighed, the choice, and its consequences.",
     fitSpec:
-      "Check the Decision. PASS when it records an architecturally significant choice — one that shapes system structure or runtime topology, selects a core technology or the datastore an application runs on, affects a quality attribute (scalability, performance, security, reliability, maintainability), spans components, or is costly to reverse. This includes how data is structured and governed within the system: the data model, schema, or grain; the storage format, partitioning, or layout of a dataset; pipelines and transformations; the source of truth; data lineage; and retention, privacy, or governance rules. FAIL when it is a routine, local coding choice with no structural or cross-cutting impact, or a non-technical product or design decision — record those in their own logs.",
+      "Check the Decision. PASS when it records an architecturally significant choice — one that shapes system structure or runtime topology, selects a core technology or the datastore an application runs on, affects a quality attribute (scalability, performance, reliability, maintainability), spans components, or is costly to reverse. This includes how data is structured and governed within the system: the data model, schema, or grain; the storage format, partitioning, or layout of a dataset; pipelines and transformations; the source of truth; data lineage; and retention, privacy, or governance rules. FAIL when it is a routine, local coding choice with no structural or cross-cutting impact, a non-technical product or design decision, or a security decision — a choice made to protect the system, its data, or its users, such as access control, secrets, encryption, or an accepted security risk — record those in their own logs.",
     guidance: [
       "An ADR's decision drivers are its architecturally significant requirements — the quality attributes and constraints it must satisfy (a latency budget, a compliance rule, team skills, cost). Capture each as a Rule linked by `constrained_by`.",
       "Spell out the technical consequences in the `decision` prose, including what becomes harder: the new constraints, the operational burden, and the technical debt the choice deliberately takes on.",
@@ -253,6 +256,22 @@ const FLAVORS: DecisionFlavor[] = [
     guidance: [
       "Ground the rationale in evidence: link the user research, usability test, or experiment that informed the decision as an Eval (`supports`), and the mockups, prototypes, or design specs as References (`supports`).",
       "Capture the design principles and constraints that drove the decision — accessibility requirements, platform conventions, the design system — as Rules via `constrained_by`.",
+    ],
+  },
+  {
+    name: "security-decisions",
+    label: "Security decisions",
+    icon: "🛡️",
+    description:
+      "Record security decisions — how systems, data, and people are protected, which threats each choice answers, and which risks are accepted, by whom, and until when.",
+    fitSpec:
+      "Check the Decision. PASS when it records a choice about how systems, data, or people are protected: authentication and access control, secrets and key management, encryption, network exposure, dependency and supply-chain trust, vulnerability handling and patching, security logging, detection, or incident response, a security control adopted to meet a compliance obligation, or a security risk accepted or exception granted. FAIL when it is an architectural, product, or design choice made for some purpose other than protection — record those in their own logs.",
+    guidance: [
+      "Name the threat the decision answers and the asset it protects — what could go wrong, to what, and how likely and how bad — in the `decision` prose, or link the threat model as a Reference via `supports`. A control with no named threat can't be re-judged when the threat changes.",
+      "State the residual risk the decision leaves in place, and attribute the Decision to the Principal who owns that risk — the person accountable for accepting it, not only the one who built the control.",
+      "A risk acceptance or a security exception is temporary: give it an expiry or review date and the compensating controls that hold until then in the `decision` prose, and supersede or retire it when that date passes.",
+      "Capture the obligations that drove the decision — a compliance requirement (SOC 2, ISO 27001, GDPR, PCI DSS), a contract term, a security standard (OWASP ASVS, CIS Benchmarks) — as Rules via `constrained_by`, and the evidence that the control works — a penetration test, a scan, an audit finding, a control test — as Evals via `supports`.",
+      "Never write a secret, a credential, a private key, or a working exploit for an unfixed weakness into a record: everyone who can read the collection, and their agents, reads it. Say where the secret is kept, or link the restricted ticket, instead.",
     ],
   },
 ];
@@ -291,6 +310,6 @@ function decisionRecordTemplate(flavor: DecisionFlavor): CollectionTemplate {
 }
 
 /**
- * The three decision-record templates, spread into `DEFAULT_COLLECTION_TEMPLATES`.
+ * The four decision-record templates, spread into `DEFAULT_COLLECTION_TEMPLATES`.
  */
 export const DECISION_RECORD_TEMPLATES: CollectionTemplate[] = FLAVORS.map(decisionRecordTemplate);

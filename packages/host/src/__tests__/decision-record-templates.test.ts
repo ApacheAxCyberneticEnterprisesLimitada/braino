@@ -18,6 +18,7 @@ const FLAVOR_HANDLES = [
   "architectural-decisions",
   "product-decisions",
   "design-decisions",
+  "security-decisions",
 ] as const;
 
 /** Seed a TemplatePolicy into the LoadedPolicy the real evaluator consumes. */
@@ -55,8 +56,8 @@ function runNode(
   });
 }
 
-describe("the three decision-record templates are registered", () => {
-  it("ships exactly the three flavors from the shared core", () => {
+describe("the four decision-record templates are registered", () => {
+  it("ships exactly the four flavors from the shared core", () => {
     expect(DECISION_RECORD_TEMPLATES.map((t) => t.name).sort()).toEqual([...FLAVOR_HANDLES].sort());
   });
 
@@ -212,11 +213,46 @@ describe("the domain-fit gates differ per flavor", () => {
   it("design keys on UX / user needs / design principles", () => {
     expect(fitSpec("design-decisions")).toMatch(/UX|user needs|design principles/i);
   });
+  it("security keys on protection: access, secrets, threats, and accepted risk", () => {
+    const security = fitSpec("security-decisions");
+    expect(security).toMatch(/protected/i);
+    expect(security).toMatch(/access control/i);
+    expect(security).toMatch(/secrets/i);
+    expect(security).toMatch(/risk accepted/i);
+  });
+  // Security has its own log now, so the ADR gate no longer claims a choice
+  // made to protect the system: it sends it to Security decisions.
+  it("ADR sends a choice whose purpose is protection to the security log", () => {
+    expect(fitSpec("architectural-decisions")).toMatch(/security decision/i);
+  });
+});
+
+describe("the security log's own guidance", () => {
+  const t = findCollectionTemplateByName("security-decisions");
+  if (!t) throw new Error("security-decisions not registered");
+  const guidance = t.policies
+    .filter((r) => !r.predicate)
+    .map((r) => r.policy ?? "")
+    .join("\n");
+
+  it("names the threat answered and the residual risk left, owned by one Principal", () => {
+    expect(guidance).toMatch(/threat/i);
+    expect(guidance).toMatch(/residual risk/i);
+    expect(guidance).toMatch(/owns that risk/i);
+  });
+  it("gives a risk acceptance or exception an expiry and its compensating controls", () => {
+    expect(guidance).toMatch(/expiry/i);
+    expect(guidance).toMatch(/compensating controls/i);
+  });
+  it("keeps secrets and working exploits out of the record", () => {
+    expect(guidance).toMatch(/Never write a secret/);
+    expect(guidance).toMatch(/exploit/i);
+  });
 });
 
 // ── Behavioral: run the seeded gates through the REAL evaluator ──────────────
 describe("decision-record gates fire correctly through the real evaluator", () => {
-  // One flavor exercises the shared core; the core is identical across all three.
+  // One flavor exercises the shared core; the core is identical across all four.
   const t = findCollectionTemplateByName("architectural-decisions");
   if (!t) throw new Error("architectural-decisions not registered");
 

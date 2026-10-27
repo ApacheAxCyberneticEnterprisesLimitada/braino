@@ -12,9 +12,10 @@
 // decisions because it shipped as code).
 //
 // This is the SINGLE SOURCE OF TRUTH for the default text. New workspaces are
-// seeded with it by `addWorkspaceByHandle` (packages/host/src/host.ts), and
-// schema.sql gives it to every existing workspace once, byte for byte, as
-// packages/db/src/__tests__/constitution-default.test.ts checks.
+// seeded with it by `addWorkspaceByHandle` (packages/host/src/host.ts). The
+// Security decisions line reached the existing workspaces through a one-off
+// production backfill, not schema.sql: a schema.sql change re-applies the
+// whole file on the next request.
 
 export const DEFAULT_WORKSPACE_CONSTITUTION = `Follow the policies of every collection in this workspace. They bind: when two seem to conflict, say so rather than picking one.
 
@@ -26,7 +27,8 @@ Record each decision as it is made, as a Decision with the question, the choice,
 
 - Product decisions when it sets what users or the business get (what to build, fix, charge or pay), even when it ships as code;
 - Design decisions when it sets how something looks or behaves for the people using it;
-- Architectural decisions when it sets how the system does it: structure, technology, data.
+- Architectural decisions when it sets how the system does it: structure, technology, data;
+- Security decisions when it sets how the system and its data are protected: who gets access, secrets, threats, and the risks accepted.
 
 A choice with both sides is two Decisions, each citing the other's id.
 

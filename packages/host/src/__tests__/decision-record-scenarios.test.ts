@@ -86,7 +86,7 @@ const SCENARIOS: Record<string, Scenario[]> = {
     "Adopt event sourcing for the orders service?",
     "Service comms: synchronous REST or asynchronous events?",
     "Multi-tenancy isolation: shared schema vs schema-per-tenant?",
-    "Service-to-service auth: mTLS + short-lived JWTs?",
+    "Background jobs: a queue table in Postgres or a broker?",
     "Caching layer for the product catalog?",
     "Deployment topology: modular monolith vs microservices for v1?",
     "API versioning strategy?",
@@ -135,9 +135,27 @@ const SCENARIOS: Record<string, Scenario[]> = {
     "Icon set: outline by default, filled for active?",
     "Onboarding voice: friendly and concise or formal?",
   ].map((q) => ({ q, chosen: "the chosen option", edges: [DECIDER, EVIDENCE], wellFormed: true })),
+
+  "security-decisions": [
+    "Service-to-service auth: mTLS + short-lived JWTs?",
+    "Require phishing-resistant MFA for every admin account?",
+    "Keep application secrets in a managed vault instead of env files?",
+    "Encrypt customer backups with per-tenant keys?",
+    "Accept the risk of the unpatched PDF library until the vendor fix ships?",
+    "Patch SLA: critical CVEs within 7 days, high within 30?",
+    "Pin and verify third-party dependencies by lockfile hash?",
+    "Session lifetime: 12 hours with re-auth for sensitive actions?",
+    "Retain security audit logs for 1 year in write-once storage?",
+    "Grant support staff just-in-time access to customer data?",
+  ].map((q) => ({
+    q,
+    chosen: "the chosen option",
+    edges: [DECIDER, DRIVER, EVIDENCE],
+    wellFormed: true,
+  })),
 };
 
-describe("decision-record templates — 40 realistic scenarios produce no false blocks", () => {
+describe("decision-record templates — 50 realistic scenarios produce no false blocks", () => {
   for (const [handle, scenarios] of Object.entries(SCENARIOS)) {
     describe(handle, () => {
       scenarios.forEach((s, i) => {

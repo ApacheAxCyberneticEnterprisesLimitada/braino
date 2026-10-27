@@ -123,6 +123,7 @@ export const DEFAULT_WORKSPACE_COLLECTION_TEMPLATES = [
   "product-decisions",
   "design-decisions",
   "architectural-decisions",
+  "security-decisions",
   "process",
   "bugs",
   "agents-chats",

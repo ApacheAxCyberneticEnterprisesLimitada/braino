@@ -66,16 +66,14 @@ describe("default workspace constitution text stays in sync", () => {
     );
     expect(text).toContain("- Design decisions when it sets how something looks or behaves");
     expect(text).toContain(
-      "- Architectural decisions when it sets how the system does it: structure, technology, data.",
+      "- Architectural decisions when it sets how the system does it: structure, technology, data;",
+    );
+    expect(text).toContain(
+      "- Security decisions when it sets how the system and its data are protected: who gets access, secrets, threats, and the risks accepted.",
     );
     expect(text).toContain(
       "A choice with both sides is two Decisions, each citing the other's id.",
     );
-  });
-
-  it("schema.sql gives every workspace the default text byte for byte", () => {
-    const fresh = schemaSql.match(/\$constitution\$([\s\S]*?)\$constitution\$/)?.[1];
-    expect(fresh, "the $constitution$ text in schema.sql").toBe(text);
   });
 });
 

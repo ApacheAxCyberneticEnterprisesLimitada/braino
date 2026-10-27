@@ -37,7 +37,7 @@ describe("orphaned pre-unification templates are gone", () => {
 describe("removed templates are gone", () => {
   // Only the plural `glossaries` handle stays deleted. The glossary concept
   // returns as the singular `glossary` template (reshaped around References),
-  // the three decision-record templates return on a shared core
+  // the decision-record templates return on a shared core
   // (`decision-record-templates.ts`), and `org-chart` returns as the
   // abstraction for documenting org structure — all tested below. The
   // `data-decisions` flavor folded into `architectural-decisions`, which now
@@ -69,6 +69,7 @@ describe("removed templates are gone", () => {
       "process",
       "product-decisions",
       "product-roadmap",
+      "security-decisions",
       "slack",
       "test-scenarios",
     ]);
