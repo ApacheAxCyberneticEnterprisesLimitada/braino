@@ -1523,14 +1523,16 @@ CREATE INDEX IF NOT EXISTS group_chat_messages_embed_pending_idx ON group_chat_m
 -- A mirror collection stays private: its channels are visible only to members of
 -- that Slack team, never to the internet. Enforced here, not per route, so no
 -- settings surface (UI, API, agent) can publish one.
--- Shared with the Notion mirror below: a collection that mirrors either source
--- stays private, and only a private collection can start mirroring.
+-- Shared with the Notion and Google Drive mirrors below: a collection that
+-- mirrors any source stays private, and only a private collection can start
+-- mirroring.
 CREATE OR REPLACE FUNCTION collection_mirror_stays_private() RETURNS trigger AS $$
 BEGIN
   IF TG_TABLE_NAME = 'collections' THEN
     IF NEW.visibility <> 'private'
        AND (EXISTS (SELECT 1 FROM group_chat_mirrors WHERE collection_id = NEW.id)
             OR EXISTS (SELECT 1 FROM notion_mirrors WHERE collection_id = NEW.id)
+            OR EXISTS (SELECT 1 FROM google_drive_mirrors WHERE collection_id = NEW.id)
             OR EXISTS (SELECT 1 FROM code_files WHERE collection_id = NEW.id)) THEN
       RAISE EXCEPTION 'A mirror collection must stay private.';
     END IF;
@@ -1700,6 +1702,51 @@ CREATE TABLE IF NOT EXISTS notion_users (
   is_bot       boolean NOT NULL DEFAULT false,
   PRIMARY KEY (collection_id, user_id)
 );
+
+-- ── Google Drive mirror ───────────────────────────────────────────────────
+-- A collection can be a read-only copy of the shared drives and folders a
+-- workspace owner picks in one Google account's Drive, kept in sync. The same
+-- rules as the Slack and Notion mirrors: deliberately NOT `nodes` (a file
+-- deleted, moved out or unshared in Drive must really disappear, and a shared
+-- drive runs to hundreds of thousands of files), every row cascades from the
+-- mirror, which cascades from the collection, and the collection stays private
+-- (collection_mirror_stays_private). Only rendered text is kept, never a
+-- file's bytes.
+
+-- One row per mirroring collection: "this collection mirrors that Google
+-- account's Drive". The grant is drive.readonly
+-- (lib/google-api.server.ts): the account can read everything it sees, and
+-- the copy holds only what sits under the picked roots.
+CREATE TABLE IF NOT EXISTS google_drive_mirrors (
+  collection_id      text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
+  -- The Google account whose Drive is read: what it can see bounds the copy.
+  account_email      text NOT NULL,
+  account_name       text NOT NULL DEFAULT '',
+  -- Encrypted at rest (lib/secret-box.server.ts), as the Notion tokens are.
+  access_token       text NOT NULL,
+  refresh_token      text NOT NULL,
+  -- Who confirmed, on behalf of their organization, that the collection may
+  -- keep the copy.
+  consented_by       text REFERENCES users(id) ON DELETE SET NULL,
+  consented_at       timestamptz NOT NULL,
+  -- The account's changes feed: where the next read starts. Taken when the
+  -- grant is recorded, so nothing after it is missed; it never expires.
+  change_page_token  text NOT NULL,
+  -- Sync pacing (lib/google-drive-mirror-sync.server.ts): a rate-limit pause,
+  -- the tick heartbeat (the integration status calls the copy stalled when
+  -- files are pending and this is old), the lease a running tick holds so the
+  -- next cron tick skips the mirror, and when the grant stopped working.
+  next_at            timestamptz,
+  ticked_at          timestamptz,
+  ticking_until      timestamptz,
+  needs_reauth_at    timestamptz,
+  created_at         timestamptz NOT NULL DEFAULT now()
+);
+
+DROP TRIGGER IF EXISTS google_drive_mirrors_private_collection ON google_drive_mirrors;
+CREATE TRIGGER google_drive_mirrors_private_collection
+  BEFORE INSERT OR UPDATE OF collection_id ON google_drive_mirrors
+  FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
 
 -- ── Codebase copy ─────────────────────────────────────────────────────────
 -- A codebase collection holds a copy of every file on the default branch of the
