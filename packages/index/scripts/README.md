@@ -66,7 +66,7 @@ OPENAI_API_KEY=… VOYAGE_API_KEY=… COHERE_API_KEY=… \
 
 # Measure the reranker lift (prints a "+rerank" row under each provider):
 VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
-  --provider voyage --rerank voyage
+  --provider voyage --rerank
 ```
 
 ### Flags
@@ -74,7 +74,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 | Flag | Default | Meaning |
 |---|---|---|
 | `--provider a,b,c` | `fake` | One or more of `fake`, `openai`, `voyage`, `cohere`, `auto`. `auto` uses `getDefaultEmbeddingProvider()`. |
-| `--rerank name` | `none` | `none`, `cohere`, `voyage`, or `auto` (`getDefaultReranker()`). Adds a `+rerank` row per provider. |
+| `--rerank` | off | Rerank with Voyage. Adds a `+rerank` row per provider. |
 | `--fixture path` | `eval-fixtures/collection-retrieval.json` | Labeled query/document set. |
 | `--ks 1,5,10` | `1,5,10` | Recall cutoffs; nDCG/`+rerank` use the largest. |
 | `--rerank-depth N` | `20` | Top-K passed to the reranker. |

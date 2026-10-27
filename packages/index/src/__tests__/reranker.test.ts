@@ -1,11 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  CohereReranker,
-  NoopReranker,
-  VoyageReranker,
-  getDefaultReranker,
-  rerankItems,
-} from "../reranker.js";
+import { NoopReranker, VoyageReranker, getDefaultReranker, rerankItems } from "../reranker.js";
 
 function stubFetch(body: unknown): { calls: { url: string; init: RequestInit }[] } {
   const calls: { url: string; init: RequestInit }[] = [];
@@ -42,34 +36,6 @@ describe("NoopReranker", () => {
   });
 });
 
-describe("CohereReranker", () => {
-  it("sends top_n and normalizes relevance_score → score", async () => {
-    const { calls } = stubFetch({
-      results: [
-        { index: 2, relevance_score: 0.9 },
-        { index: 0, relevance_score: 0.4 },
-      ],
-    });
-    const out = await new CohereReranker("co-test").rerank("q", ["a", "b", "c"], 2);
-    expect(out).toEqual([
-      { index: 2, score: 0.9 },
-      { index: 0, score: 0.4 },
-    ]);
-    const body = lastBody(calls);
-    expect(body.model).toBe("rerank-v3.5");
-    expect(body.query).toBe("q");
-    expect(body.top_n).toBe(2);
-    expect(calls[0].url).toBe("https://api.cohere.com/v2/rerank");
-  });
-
-  it("short-circuits an empty document set without calling fetch", async () => {
-    const spy = vi.fn();
-    vi.stubGlobal("fetch", spy);
-    expect(await new CohereReranker("co-test").rerank("q", [])).toEqual([]);
-    expect(spy).not.toHaveBeenCalled();
-  });
-});
-
 describe("VoyageReranker", () => {
   it("sends top_k and sorts results by descending score", async () => {
     const { calls } = stubFetch({
@@ -83,14 +49,25 @@ describe("VoyageReranker", () => {
       { index: 1, score: 0.8 },
       { index: 0, score: 0.2 },
     ]);
-    expect(lastBody(calls).top_k).toBe(5);
+    const body = lastBody(calls);
+    expect(body.model).toBe("rerank-3");
+    expect(body.query).toBe("q");
+    expect(body.top_k).toBe(5);
+    expect(calls[0].url).toBe("https://api.voyageai.com/v1/rerank");
+  });
+
+  it("short-circuits an empty document set without calling fetch", async () => {
+    const spy = vi.fn();
+    vi.stubGlobal("fetch", spy);
+    expect(await new VoyageReranker("va-test").rerank("q", [])).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
   });
 });
 
 describe("rerankItems", () => {
   it("reorders the original items by rerank result and drops out-of-range", async () => {
     stubFetch({
-      results: [
+      data: [
         { index: 2, relevance_score: 0.9 },
         { index: 0, relevance_score: 0.5 },
         { index: 7, relevance_score: 0.1 }, // out of range → dropped
@@ -101,7 +78,7 @@ describe("rerankItems", () => {
       { id: "y", text: "beta" },
       { id: "z", text: "gamma" },
     ];
-    const out = await rerankItems(new CohereReranker("co-test"), "q", items, (i) => i.text);
+    const out = await rerankItems(new VoyageReranker("va-test"), "q", items, (i) => i.text);
     expect(out.map((o) => o.item.id)).toEqual(["z", "x"]);
     expect(out[0].score).toBe(0.9);
   });
@@ -114,42 +91,22 @@ describe("rerankItems", () => {
 });
 
 describe("getDefaultReranker", () => {
-  it("is OFF by default (no DOCO_RERANK_PROVIDER)", () => {
-    expect(getDefaultReranker()).toBeUndefined();
-  });
-
-  it("does NOT auto-enable just because COHERE_API_KEY is set", () => {
-    vi.stubEnv("COHERE_API_KEY", "co-test");
-    expect(getDefaultReranker()).toBeUndefined();
-  });
-
-  it("enables Cohere when explicitly selected with a key", () => {
-    vi.stubEnv("COHERE_API_KEY", "co-test");
-    vi.stubEnv("DOCO_RERANK_PROVIDER", "cohere");
-    expect(getDefaultReranker()).toBeInstanceOf(CohereReranker);
-  });
-
-  it("enables Voyage when explicitly selected with a key", () => {
+  it("uses Voyage whenever its key is configured", () => {
     vi.stubEnv("VOYAGE_API_KEY", "va-test");
-    vi.stubEnv("DOCO_RERANK_PROVIDER", "voyage");
     expect(getDefaultReranker()).toBeInstanceOf(VoyageReranker);
   });
 
-  it("stays disabled when the selected provider's key is missing", () => {
-    vi.stubEnv("DOCO_RERANK_PROVIDER", "cohere");
+  it("is off without a Voyage key", () => {
     expect(getDefaultReranker()).toBeUndefined();
   });
 });
 
 // The brief's deadline stops a rerank that is still in flight.
 describe("abort signal", () => {
-  it.each([
-    ["Cohere", () => new CohereReranker("co-test"), { results: [] }],
-    ["Voyage", () => new VoyageReranker("va-test"), { data: [] }],
-  ])("%s passes the caller's signal to its request", async (_name, make, body) => {
-    const { calls } = stubFetch(body);
+  it("passes the caller's signal to Voyage", async () => {
+    const { calls } = stubFetch({ data: [] });
     const signal = new AbortController().signal;
-    await make().rerank("q", ["a"], undefined, signal);
+    await new VoyageReranker("va-test").rerank("q", ["a"], undefined, signal);
     expect(calls[0].init.signal).toBe(signal);
   });
 

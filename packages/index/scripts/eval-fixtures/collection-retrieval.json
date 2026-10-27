@@ -24,7 +24,7 @@
     {
       "id": "idea_reranker",
       "type": "idea",
-      "text": "A cross-encoder reranker reads the query and document together and resolves distinctions a single cosine score blurs. Running a reranker such as Cohere rerank-3.5 or Voyage rerank-2.5 over the hybrid top-K is the largest precision-at-k lever for natural-language retrieval."
+      "text": "A cross-encoder reranker reads the query and document together and resolves distinctions a single cosine score blurs. Running Voyage rerank-3 over the hybrid top-K is the largest precision-at-k lever for natural-language retrieval."
     },
     {
       "id": "idea_contextual_retrieval",

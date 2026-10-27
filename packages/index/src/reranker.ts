@@ -7,13 +7,10 @@
  * precision@k lever for natural-language queries, which is exactly the
  * shape of agent traffic against a collection.
  *
- * This module is the building block: a `Reranker` interface plus Cohere and
- * Voyage implementations, mirroring embedding-provider.ts. Reranking is
- * OFF by default — `getDefaultReranker()` returns undefined unless
- * `DOCO_RERANK_PROVIDER` is set — so wiring it in is inert until an operator
- * opts in. The eval harness (scripts/eval-retrieval.mjs) exercises the full
- * embed → cosine → rerank pipeline to quantify the lift before it's wired
- * into the live /search.json path.
+ * This module is the building block: a `Reranker` interface and Doco's one
+ * Voyage implementation. `VOYAGE_API_KEY` enables it; without the key,
+ * reranking is off. The eval harness (scripts/eval-retrieval.mjs) exercises
+ * the full embed → cosine → rerank pipeline.
  */
 import { assertLatin1ApiKey } from "./embedding-provider.js";
 
@@ -52,62 +49,13 @@ export class NoopReranker implements Reranker {
   }
 }
 
-/** Cohere rerank-3.5 (v2 API). Returns `relevance_score` per result. */
-export class CohereReranker implements Reranker {
-  modelId: string;
-
-  constructor(
-    private apiKey: string,
-    model = "rerank-v3.5",
-  ) {
-    assertLatin1ApiKey(apiKey, "COHERE_API_KEY");
-    this.modelId = `cohere:${model}`;
-  }
-
-  private get model(): string {
-    return this.modelId.slice("cohere:".length);
-  }
-
-  async rerank(
-    query: string,
-    documents: string[],
-    topN?: number,
-    signal?: AbortSignal,
-  ): Promise<RerankResult[]> {
-    if (documents.length === 0) return [];
-    const res = await fetch("https://api.cohere.com/v2/rerank", {
-      method: "POST",
-      signal: signal ?? null,
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.model,
-        query,
-        documents,
-        ...(typeof topN === "number" ? { top_n: topN } : {}),
-      }),
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Cohere rerank request failed (${res.status}): ${text}`);
-    }
-    const json = (await res.json()) as {
-      results: { index: number; relevance_score: number }[];
-    };
-    // Cohere returns results already sorted by relevance; normalize the shape.
-    return json.results.map((r) => ({ index: r.index, score: r.relevance_score }));
-  }
-}
-
-/** Voyage rerank-2.5 (v1 API). Returns `relevance_score` per result. */
+/** Voyage rerank-3 (v1 API). Returns `relevance_score` per result. */
 export class VoyageReranker implements Reranker {
   modelId: string;
 
   constructor(
     private apiKey: string,
-    model = "rerank-2.5",
+    model = "rerank-3",
   ) {
     assertLatin1ApiKey(apiKey, "VOYAGE_API_KEY");
     this.modelId = `voyage:${model}`;
@@ -173,38 +121,14 @@ export async function rerankItems<T>(
     .map((r) => ({ item: items[r.index], score: r.score }));
 }
 
-/**
- * Resolve the active reranker from the environment, or undefined when
- * reranking is disabled. Unlike embedding selection this does NOT auto-enable
- * on key presence: an operator who set COHERE_API_KEY for embeddings should
- * not silently inherit rerank latency/cost. Opt in explicitly with
- * `DOCO_RERANK_PROVIDER=cohere` | `voyage`.
- */
+/** Resolve Doco's Voyage reranker, or undefined when its key is absent. */
 export function getDefaultReranker(): Reranker | undefined {
-  const selector = (process.env.DOCO_RERANK_PROVIDER ?? "").trim().toLowerCase();
-  if (!selector || selector === "none" || selector === "noop") return undefined;
+  const key = process.env.VOYAGE_API_KEY;
+  if (!key) return undefined;
   try {
-    if (selector === "cohere")
-      return rerankerForKey("COHERE_API_KEY", (k) => new CohereReranker(k));
-    if (selector === "voyage")
-      return rerankerForKey("VOYAGE_API_KEY", (k) => new VoyageReranker(k));
-    console.error(
-      `[collection/reranker] Unknown DOCO_RERANK_PROVIDER="${selector}"; reranking disabled.`,
-    );
-    return undefined;
+    return new VoyageReranker(key);
   } catch (e) {
     console.error(`[collection/reranker] ${(e as Error).message}`);
     return undefined;
   }
-}
-
-function rerankerForKey(envName: string, make: (key: string) => Reranker): Reranker | undefined {
-  const key = process.env[envName];
-  if (!key) {
-    console.error(
-      `[collection/reranker] DOCO_RERANK_PROVIDER selects ${envName} but it is not set; reranking disabled.`,
-    );
-    return undefined;
-  }
-  return make(key);
 }

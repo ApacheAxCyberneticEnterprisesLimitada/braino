@@ -15,7 +15,7 @@
 //   node scripts/eval-retrieval.mjs --provider fake,openai,voyage,cohere
 //   node scripts/eval-retrieval.mjs --store qdrant
 //   node scripts/eval-retrieval.mjs --store qdrant-backfill
-//   node scripts/eval-retrieval.mjs --provider voyage --rerank voyage
+//   node scripts/eval-retrieval.mjs --provider voyage --rerank
 //   node scripts/eval-retrieval.mjs --fixture path/to.json --ks 1,3,10 --verbose
 //
 // Providers other than `fake` require the matching API key in the env
@@ -54,9 +54,7 @@ const {
   VoyageEmbeddingProvider,
   CohereEmbeddingProvider,
   getDefaultEmbeddingProvider,
-  CohereReranker,
   VoyageReranker,
-  getDefaultReranker,
   rerankItems,
   evaluateRetrieval,
 } = mod;
@@ -68,7 +66,7 @@ const { backfillEmbeddingsToVectorStore } = await import(QDRANT_BACKFILL_DIST);
 function parseArgs(argv) {
   const opts = {
     providers: ["fake"],
-    rerank: "none",
+    rerank: false,
     fixture: join(HERE, "eval-fixtures", "collection-retrieval.json"),
     ks: [1, 5, 10],
     rerankDepth: 20,
@@ -80,7 +78,7 @@ function parseArgs(argv) {
     const next = () => argv[++i];
     if (a === "--") continue;
     if (a === "--provider" || a === "--providers") opts.providers = next().split(",");
-    else if (a === "--rerank") opts.rerank = next();
+    else if (a === "--rerank") opts.rerank = true;
     else if (a === "--fixture") opts.fixture = resolve(next());
     else if (a === "--ks") opts.ks = next().split(",").map(Number);
     else if (a === "--rerank-depth") opts.rerankDepth = Number(next());
@@ -166,13 +164,8 @@ function makeProvider(name) {
   }
 }
 
-function makeReranker(name) {
-  if (!name || name === "none") return undefined;
-  if (name === "cohere") return new CohereReranker(reqEnv("COHERE_API_KEY"));
-  if (name === "voyage") return new VoyageReranker(reqEnv("VOYAGE_API_KEY"));
-  if (name === "auto") return getDefaultReranker();
-  console.error(`Unknown reranker: ${name} (use none|cohere|voyage|auto)`);
-  process.exit(1);
+function makeReranker(enabled) {
+  return enabled ? new VoyageReranker(reqEnv("VOYAGE_API_KEY")) : undefined;
 }
 
 function toRelevance(relevant) {
