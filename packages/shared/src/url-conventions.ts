@@ -1,9 +1,12 @@
 /**
  * URL conventions and reserved ids — single source of truth.
  *
- * Collection URLs are `/<collection-handle>/...`. The handle is requested at
- * creation time; it lives in the same flat namespace as the top-level
- * host routes, so the reserved-id set below prevents collisions.
+ * A collection lives at `/<collection-handle>/...` on its workspace's host
+ * (public-url.ts). The handle is requested at creation time and is unique
+ * across Doco; one route table serves every host, so the handle shares its
+ * namespace with the top-level routes and the reserved-id set below prevents
+ * collisions. A workspace handle is a subdomain label, so it is held to the
+ * same set.
  *
  * Entity URLs are `/<collection-handle>/<type>/<id>` where `<id>` is the
  * entity's ULID (e.g. `decision_01KRHB95AVGFHG80B2EAWE20K8`).
@@ -12,13 +15,31 @@
 import type { EntityType } from "./branded.js";
 
 /**
- * Top-level path segments that exist as host routes. A collection's
- * requested handle is rejected if it matches one of these.
+ * Top-level path segments that exist as routes, and subdomain labels that are
+ * not a workspace's. A requested collection or workspace handle is rejected if
+ * it matches one of these.
  */
 export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "e",
   "host",
+  "www",
   "api",
+  "api-keys",
+  "access-requests",
+  "brief",
+  "device",
+  "docs",
+  "getting-started",
+  "hook-tokens",
+  "install",
+  "integrations",
+  "mcp",
+  "new-workspace",
+  "oauth",
+  "protocol",
+  "tokens",
+  "users",
+  "ai",
   "search",
   "find-rules",
   "sign-in",
@@ -69,22 +90,9 @@ export interface EntityUrlInput {
   id: string;
 }
 
-function collectionPrefix(input: { collectionHandle: string }): string {
-  return `/${input.collectionHandle}`;
-}
-
-/** Canonical URL for an entity — short form, no `/e/`. */
+/** An entity's path on its workspace's host — short form, no `/e/`. */
 export function entityUrl(input: EntityUrlInput): string {
-  const prefix = collectionPrefix(input);
-  return `${prefix}/${input.nodeType}/${input.id}`;
-}
-
-export interface CollectionUrlInput {
-  collectionHandle: string;
-}
-
-export function collectionUrl(input: CollectionUrlInput): string {
-  return collectionPrefix(input);
+  return `/${input.collectionHandle}/${input.nodeType}/${input.id}`;
 }
 
 /**

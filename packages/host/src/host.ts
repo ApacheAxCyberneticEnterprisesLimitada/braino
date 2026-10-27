@@ -66,6 +66,10 @@ function assertWorkspaceHandleAllowed(handle: string): void {
       `Invalid workspace handle "${handle}" — expected lowercase [a-z0-9][a-z0-9_-]*.`,
     );
   }
+  // The handle is the workspace's subdomain, and a DNS label holds 63 characters.
+  if (handle.length > 63) {
+    throw new Error(`Workspace handle "${handle}" is too long (max 63 chars).`);
+  }
   if (HOST_RESERVED_SLUGS.has(handle)) {
     throw new Error(`Handle "${handle}" is reserved by collection's URL routing.`);
   }
