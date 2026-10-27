@@ -237,6 +237,70 @@ describe("retrieval ontology", () => {
     expect(result.issues.map((issue) => issue.code)).toEqual(["unsupported_predicate"]);
   });
 
+  it("rejects cross-sentence edges that merely place unrelated entities near a predicate", () => {
+    const text = "Chore-missandei entered pilot rollout. Solar uses JDK 8.";
+    const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
+      entities: [
+        {
+          key: "missandei",
+          name: "Chore-missandei",
+          type: "effort",
+          mentions: [{ chunkIndex: 0 }],
+        },
+        {
+          key: "solar",
+          name: "Solar",
+          type: "service",
+          mentions: [{ chunkIndex: 0 }],
+        },
+      ],
+      relationships: [
+        {
+          fromKey: "missandei",
+          toKey: "solar",
+          type: "USES",
+          fact: text,
+          chunkIndex: 0,
+        },
+      ],
+    });
+
+    expect(result.extraction.relationships).toEqual([]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["ambiguous_relationship_evidence"]);
+  });
+
+  it("requires relationship evidence to name both endpoints", () => {
+    const text = "Solar uses JDK 8. Radar is also active.";
+    const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
+      entities: [
+        {
+          key: "radar",
+          name: "Radar",
+          type: "service",
+          mentions: [{ chunkIndex: 0 }],
+        },
+        {
+          key: "jdk-8",
+          name: "JDK 8",
+          type: "technology",
+          mentions: [{ chunkIndex: 0 }],
+        },
+      ],
+      relationships: [
+        {
+          fromKey: "radar",
+          toKey: "jdk-8",
+          type: "USES",
+          fact: "Solar uses JDK 8.",
+          chunkIndex: 0,
+        },
+      ],
+    });
+
+    expect(result.extraction.relationships).toEqual([]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["ambiguous_relationship_evidence"]);
+  });
+
   it("accepts passive ownership only in its canonical owner-to-subject direction", () => {
     const text = "Project Phoenix is led by Maya.";
     const valid = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {

@@ -700,11 +700,14 @@ CREATE TABLE IF NOT EXISTS retrieval_documents (
   locator        text,
   title          text,
   content_hash   text NOT NULL,
+  extraction_id  text NOT NULL DEFAULT 'none',
   access_scopes  text[] NOT NULL DEFAULT ARRAY['workspace']::text[],
   created_at     timestamptz NOT NULL DEFAULT now(),
   updated_at     timestamptz NOT NULL DEFAULT now(),
   UNIQUE (collection_id, source, external_id)
 );
+ALTER TABLE retrieval_documents
+  ADD COLUMN IF NOT EXISTS extraction_id text NOT NULL DEFAULT 'none';
 CREATE INDEX IF NOT EXISTS retrieval_documents_collection_idx
   ON retrieval_documents (collection_id);
 

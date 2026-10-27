@@ -5,6 +5,7 @@ export * from "./reranker.js";
 export * from "./retrieval-metrics.js";
 export * from "./retrieval-ingestion.js";
 export * from "./retrieval-ontology.js";
+export * from "./ollama-retrieval-extractor.js";
 export * from "./retrieval-source-sync.js";
 export * from "./multipath-retrieval.js";
 export * from "./qdrant-sync.js";

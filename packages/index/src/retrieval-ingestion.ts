@@ -33,6 +33,8 @@ export interface RetrievalExtraction {
 }
 
 export interface RetrievalExtractor {
+  /** Changes force already-indexed source documents through extraction again. */
+  readonly id: string;
   extract(input: {
     document: RetrievalSourceDocument;
     chunks: RetrievalChunkInput[];
