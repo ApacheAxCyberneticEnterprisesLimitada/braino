@@ -1,75 +1,47 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  collectionUrl,
-  publicBaseUrl,
-  workspaceHandleFromHost,
-  workspaceOrigin,
-  workspaceUrl,
-} from "../public-url.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { getPublicBaseUrl } from "../public-url.js";
 
-afterEach(() => vi.unstubAllEnvs());
+const original = process.env.DOCO_PUBLIC_HOST;
 
-describe("publicBaseUrl", () => {
-  it("is https://doco.to unless DOCO_PUBLIC_HOST says otherwise", () => {
-    vi.stubEnv("DOCO_PUBLIC_HOST", undefined);
-    expect(publicBaseUrl()).toBe("https://doco.to");
-    vi.stubEnv("DOCO_PUBLIC_HOST", "");
-    expect(publicBaseUrl()).toBe("https://doco.to");
-  });
-
-  it("honors DOCO_PUBLIC_HOST, without its trailing slash", () => {
-    vi.stubEnv("DOCO_PUBLIC_HOST", "http://doco.localhost:5173/");
-    expect(publicBaseUrl()).toBe("http://doco.localhost:5173");
-  });
+afterEach(() => {
+  if (original === undefined) process.env.DOCO_PUBLIC_HOST = undefined;
+  else process.env.DOCO_PUBLIC_HOST = original;
 });
 
-describe("workspace and collection URLs", () => {
-  it("puts the workspace on a subdomain of the base", () => {
-    expect(workspaceOrigin("https://doco.to", "meta-doco")).toBe("https://meta-doco.doco.to");
-    expect(workspaceUrl("https://doco.to", "meta-doco")).toBe("https://meta-doco.doco.to");
-    expect(workspaceUrl("https://doco.to", "meta-doco", "/settings")).toBe(
-      "https://meta-doco.doco.to/settings",
-    );
+describe("getPublicBaseUrl", () => {
+  it("returns scheme://host from the request when DOCO_PUBLIC_HOST is unset", () => {
+    process.env.DOCO_PUBLIC_HOST = undefined;
+    const req = new Request("http://127.0.0.1:5173/some/path?q=1");
+    expect(getPublicBaseUrl(req)).toBe("http://127.0.0.1:5173");
   });
 
-  it("keeps the base's scheme and port", () => {
-    expect(workspaceUrl("http://doco.localhost:5173", "acme", "/agent")).toBe(
-      "http://acme.doco.localhost:5173/agent",
-    );
+  it("honors DOCO_PUBLIC_HOST when set, ignoring the request host", () => {
+    process.env.DOCO_PUBLIC_HOST = "https://doco.dev";
+    const req = new Request("http://127.0.0.1:5173/anything");
+    expect(getPublicBaseUrl(req)).toBe("https://doco.dev");
   });
 
-  it("renders a placeholder handle, for instructions that show the URL's shape", () => {
-    expect(workspaceUrl("https://doco.to", "<handle>")).toBe("https://<handle>.doco.to");
+  it("strips a trailing slash from DOCO_PUBLIC_HOST", () => {
+    process.env.DOCO_PUBLIC_HOST = "https://doco.dev/";
+    const req = new Request("http://127.0.0.1:5173/");
+    expect(getPublicBaseUrl(req)).toBe("https://doco.dev");
   });
 
-  it("puts a collection under its workspace's host", () => {
-    expect(collectionUrl("https://doco.to", "meta-doco", "meta-doco-design-decisions")).toBe(
-      "https://meta-doco.doco.to/meta-doco-design-decisions",
-    );
-    expect(
-      collectionUrl("https://doco.to", "acme", "acme-bugs", "/api/decisions.json?limit=5"),
-    ).toBe("https://acme.doco.to/acme-bugs/api/decisions.json?limit=5");
-  });
-});
-
-describe("workspaceHandleFromHost", () => {
-  it("reads the workspace from the first label under the base host", () => {
-    expect(workspaceHandleFromHost("meta-doco.doco.to", "https://doco.to")).toBe("meta-doco");
-    expect(workspaceHandleFromHost("Acme.doco.to", "https://doco.to")).toBe("acme");
-    expect(workspaceHandleFromHost("acme.doco.localhost:5173", "http://doco.localhost:5173")).toBe(
-      "acme",
-    );
+  it("preserves a non-trailing path segment in DOCO_PUBLIC_HOST (sub-path tunneling)", () => {
+    process.env.DOCO_PUBLIC_HOST = "https://tunnel.example.com/doco";
+    const req = new Request("http://127.0.0.1:5173/");
+    expect(getPublicBaseUrl(req)).toBe("https://tunnel.example.com/doco");
   });
 
-  it("names no workspace on the base host or on another host", () => {
-    expect(workspaceHandleFromHost("doco.to", "https://doco.to")).toBeNull();
-    expect(workspaceHandleFromHost("doco-git-x.vercel.app", "https://doco.to")).toBeNull();
-    expect(workspaceHandleFromHost("localhost:5173", "https://doco.to")).toBeNull();
-    expect(workspaceHandleFromHost("doco.to", "http://doco.localhost:5173")).toBeNull();
+  it("works with https requests when DOCO_PUBLIC_HOST is unset", () => {
+    process.env.DOCO_PUBLIC_HOST = undefined;
+    const req = new Request("https://example.com:8443/x");
+    expect(getPublicBaseUrl(req)).toBe("https://example.com:8443");
   });
 
-  it("names no workspace for a label that is not a handle", () => {
-    expect(workspaceHandleFromHost("a.b.doco.to", "https://doco.to")).toBeNull();
-    expect(workspaceHandleFromHost("-x.doco.to", "https://doco.to")).toBeNull();
+  it("ignores empty DOCO_PUBLIC_HOST (treats as unset)", () => {
+    process.env.DOCO_PUBLIC_HOST = "";
+    const req = new Request("http://127.0.0.1:5173/y");
+    expect(getPublicBaseUrl(req)).toBe("http://127.0.0.1:5173");
   });
 });
