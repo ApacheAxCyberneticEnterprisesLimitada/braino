@@ -1770,6 +1770,75 @@ CREATE TABLE IF NOT EXISTS google_drive_roots (
   PRIMARY KEY (collection_id, root_id)
 );
 
+-- One row per file or folder under a picked root
+-- (lib/google-drive-mirror-sync.server.ts). A walk or the changes feed
+-- inserts it with its listing metadata and flags it for a fetch when Drive's
+-- `version` moved; the drain renders it (lib/google-drive-render.ts). A
+-- folder, or a file with no text to copy, is done at listing.
+CREATE TABLE IF NOT EXISTS google_drive_files (
+  collection_id   text NOT NULL,
+  file_id         text NOT NULL,
+  -- The root it was found under: removing the root removes it.
+  root_id         text NOT NULL,
+  kind            text NOT NULL CHECK (kind IN ('doc','sheet','slides','text','folder','other')),
+  mime_type       text NOT NULL,
+  name            text NOT NULL DEFAULT '',
+  -- The folder it sits in, or the shared drive at a drive's top level.
+  parent_id       text,
+  drive_id        text,                          -- its shared drive; NULL in My Drive
+  web_view_link   text NOT NULL DEFAULT '',
+  modified_time   timestamptz,
+  modified_by     text NOT NULL DEFAULT '',      -- the last modifying user's name
+  version         text,                          -- Drive's; it moves on every change
+  size            bigint,                        -- bytes; NULL for Google's own documents
+  markdown        text NOT NULL DEFAULT '',      -- rendered, for the reader
+  plain_text      text NOT NULL DEFAULT '',      -- what search sees
+  content_hash    text NOT NULL DEFAULT '',
+  -- A spreadsheet with more rows or columns than are copied.
+  truncated       boolean NOT NULL DEFAULT false,
+  -- Why a file that could be copied as text has none: Google's export
+  -- limit, or the text-file cap.
+  omitted         text CHECK (omitted IN ('too_large')),
+  fetch_pending   boolean NOT NULL DEFAULT false,
+  fetch_attempts  int  NOT NULL DEFAULT 0,
+  fetch_error     text,
+  seen_at         timestamptz,                   -- last listed by a walk or the changes feed
+  synced_at       timestamptz,                   -- NULL until rendered once
+  embedded_hash   text,                          -- content_hash when its chunks were last embedded
+  -- 'simple' (no stemming): exact-term lookups in any language, as for Notion.
+  search_tsv      tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('simple', name), 'A') ||
+    to_tsvector('simple', left(plain_text, 500000))
+  ) STORED,
+  PRIMARY KEY (collection_id, file_id),
+  FOREIGN KEY (collection_id, root_id)
+    REFERENCES google_drive_roots (collection_id, root_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS google_drive_files_parent_idx
+  ON google_drive_files (collection_id, parent_id);
+CREATE INDEX IF NOT EXISTS google_drive_files_root_idx
+  ON google_drive_files (collection_id, root_id);
+CREATE INDEX IF NOT EXISTS google_drive_files_pending_idx
+  ON google_drive_files (collection_id, fetch_attempts, modified_time DESC) WHERE fetch_pending;
+CREATE INDEX IF NOT EXISTS google_drive_files_modified_idx
+  ON google_drive_files (collection_id, modified_time DESC);
+CREATE INDEX IF NOT EXISTS google_drive_files_tsv_idx ON google_drive_files USING gin (search_tsv);
+-- What the embedding sweep still has to embed.
+CREATE INDEX IF NOT EXISTS google_drive_files_embed_pending_idx ON google_drive_files (collection_id)
+  WHERE synced_at IS NOT NULL AND embedded_hash IS DISTINCT FROM content_hash;
+
+-- Links from one copied file's text to another Drive file (docs.google.com
+-- and drive.google.com links), for the reader's links and backlinks.
+CREATE TABLE IF NOT EXISTS google_drive_links (
+  collection_id  text NOT NULL,
+  from_file_id   text NOT NULL,
+  to_file_id     text NOT NULL,
+  PRIMARY KEY (collection_id, from_file_id, to_file_id),
+  FOREIGN KEY (collection_id, from_file_id)
+    REFERENCES google_drive_files (collection_id, file_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS google_drive_links_to_idx ON google_drive_links (collection_id, to_file_id);
+
 -- ── Codebase copy ─────────────────────────────────────────────────────────
 -- A codebase collection holds a copy of every file on the default branch of the
 -- GitHub repositories it brings from (github-imports), kept in sync on every
