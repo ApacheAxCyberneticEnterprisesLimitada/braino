@@ -133,7 +133,6 @@ export const RETRIEVAL_RELATIONSHIPS = {
 export type RetrievalRelationshipType = keyof typeof RETRIEVAL_RELATIONSHIPS;
 
 export type RetrievalValidationIssueCode =
-  | "ambiguous_relationship_evidence"
   | "duplicate_entity_key"
   | "invalid_entity_name"
   | "invalid_mention"
@@ -247,19 +246,6 @@ function groundedRelationshipEvidence(
   return fact && normalizeText(chunk.text).includes(fact) ? relation.fact : null;
 }
 
-function evidenceNamesEntity(evidence: string, entity: RetrievalEntityInput): boolean {
-  const normalizedEvidence = ` ${normalizeText(evidence)} `;
-  return [entity.name, ...(entity.aliases ?? [])]
-    .map(normalizeText)
-    .filter(Boolean)
-    .some((label) => normalizedEvidence.includes(` ${label} `));
-}
-
-function isSingleSentence(evidence: string): boolean {
-  const withoutFinalPunctuation = evidence.trim().replace(/[.!?]+$/, "");
-  return !/[.!?]\s+(?=[\p{Lu}\p{N}])/u.test(withoutFinalPunctuation);
-}
-
 export function validateRetrievalExtraction(
   _document: RetrievalSourceDocument,
   chunks: RetrievalChunkInput[],
@@ -359,19 +345,6 @@ export function validateRetrievalExtraction(
         code: "missing_relationship_evidence",
         relationshipIndex,
         message: `Relationship ${relationshipIndex} does not quote text from its cited chunk.`,
-      });
-      continue;
-    }
-    if (
-      !isSingleSentence(evidence) ||
-      !evidenceNamesEntity(evidence, from) ||
-      !evidenceNamesEntity(evidence, to)
-    ) {
-      issues.push({
-        phase: "relationship",
-        code: "ambiguous_relationship_evidence",
-        relationshipIndex,
-        message: `Relationship ${relationshipIndex} must cite one sentence that names both endpoints.`,
       });
       continue;
     }

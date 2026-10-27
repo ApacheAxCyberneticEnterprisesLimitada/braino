@@ -55,7 +55,6 @@ describe("Falkor-style retrieval graph ingestion", () => {
       },
       {
         extractor: {
-          id: "fixture",
           async extract() {
             return {
               entities: [
@@ -99,7 +98,6 @@ describe("Falkor-style retrieval graph ingestion", () => {
       {
         graphEnrichmentMode: "llm-validated",
         extractor: {
-          id: "fixture",
           async extract() {
             return {
               entities: [
@@ -147,7 +145,6 @@ describe("Falkor-style retrieval graph ingestion", () => {
         {
           graphEnrichmentMode: "llm-validated",
           extractor: {
-            id: "fixture",
             async extract() {
               return { entities: [], relationships: [] };
             },
@@ -160,7 +157,6 @@ describe("Falkor-style retrieval graph ingestion", () => {
   it("gives every connector one source-document ingestion path", async () => {
     let extractedChunks: string[] = [];
     const extractor: RetrievalExtractor = {
-      id: "fixture",
       async extract({ chunks }) {
         extractedChunks = chunks.map((chunk) => chunk.text);
         return {
@@ -217,7 +213,6 @@ describe("Falkor-style retrieval graph ingestion", () => {
       },
       {
         extractor: {
-          id: "fixture",
           async extract() {
             return {
               entities: [

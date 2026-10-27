@@ -1,5 +1,4 @@
 import { type EmbeddingProviderLike, type QueryClient, upsertRetrievalEmbeddings } from "@doco/db";
-import { configuredRetrievalExtractor } from "./ollama-retrieval-extractor.js";
 import {
   type GraphEnrichmentMode,
   type RetrievalExtractor,
@@ -42,7 +41,6 @@ export interface RetrievalSourcePartition {
  * the same path without changing a connector.
  */
 export const EMPTY_RETRIEVAL_EXTRACTOR: RetrievalExtractor = {
-  id: "none",
   async extract() {
     return { entities: [], relationships: [] };
   },
@@ -71,7 +69,6 @@ async function pendingSources(
   args: {
     collectionId: string | null;
     modelId: string;
-    extractionId: string;
     limit: number;
     partition: RetrievalSourcePartition | null;
   },
@@ -93,7 +90,6 @@ async function pendingSources(
           AND (
             d.id IS NULL
             OR d.content_hash IS DISTINCT FROM md5(s.content)
-            OR d.extraction_id IS DISTINCT FROM $6
             OR NOT EXISTS (
               SELECT 1 FROM retrieval_chunks ch
                WHERE ch.document_id = d.id
@@ -118,7 +114,6 @@ async function pendingSources(
         args.limit,
         args.partition?.count ?? null,
         args.partition?.index ?? null,
-        args.extractionId,
       ],
     )
   ).rows;
@@ -145,7 +140,6 @@ export async function syncRetrievalSourceBatch(
   const collectionId = args.collectionId ?? null;
   const limit = Math.max(1, args.limit ?? 100);
   const partition = args.partition ?? null;
-  const extractor = args.extractor ?? configuredRetrievalExtractor() ?? EMPTY_RETRIEVAL_EXTRACTOR;
   if (
     partition &&
     (!Number.isInteger(partition.index) ||
@@ -163,7 +157,6 @@ export async function syncRetrievalSourceBatch(
   const rows = await pendingSources(c, {
     collectionId,
     modelId: args.embeddingProvider.modelId,
-    extractionId: extractor.id,
     limit,
     partition,
   });
@@ -184,14 +177,10 @@ export async function syncRetrievalSourceBatch(
       accessScopes: row.access_scopes,
     };
     const report = await ingestRetrievalSource(c, document, {
-      extractor,
+      extractor: args.extractor ?? EMPTY_RETRIEVAL_EXTRACTOR,
       ...(args.llmValidator ? { llmValidator: args.llmValidator } : {}),
       ...(args.graphEnrichmentMode ? { graphEnrichmentMode: args.graphEnrichmentMode } : {}),
     });
-    await c.query("UPDATE retrieval_documents SET extraction_id = $1 WHERE id = $2", [
-      extractor.id,
-      report.documentId,
-    ]);
     embeddingTargets.chunkIds.push(...report.chunkIds);
     embeddingTargets.entityIds.push(...report.entityIds);
     embeddingTargets.relationIds.push(...report.relationIds);

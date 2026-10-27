@@ -1,6 +1,6 @@
 import type { EmbeddingProviderLike, QueryClient } from "@doco/db";
 import type { PGlite } from "@electric-sql/pglite";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
 import { syncRetrievalSourceBatch } from "../retrieval-source-sync.js";
 
@@ -17,11 +17,6 @@ class FixtureProvider implements EmbeddingProviderLike {
 
 const COLLECTION_ID = "collection_retrieval_sources";
 let db: PGlite;
-
-afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.unstubAllGlobals();
-});
 
 beforeEach(async () => {
   db = await freshDb();
@@ -81,87 +76,6 @@ async function documents() {
 }
 
 describe("unified retrieval source sync", () => {
-  it("uses the configured local graph extractor during ordinary source sync", async () => {
-    const provider = new FixtureProvider();
-    await syncRetrievalSourceBatch(db as unknown as QueryClient, {
-      embeddingProvider: provider,
-      collectionId: COLLECTION_ID,
-      limit: 20,
-    });
-    vi.stubEnv("DOCO_GRAPH_EXTRACTOR", "ollama");
-    vi.stubEnv("DOCO_GRAPH_EXTRACTION_MODEL", "qwen3:8b");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
-        const request = JSON.parse(String(init?.body));
-        const chunk = String(request.messages[1].content);
-        const extraction = chunk.includes("Solar uses JDK 8.")
-          ? {
-              entities: [
-                {
-                  name: "Solar",
-                  type: "service",
-                  aliases: [],
-                  confidence: 0.98,
-                },
-                {
-                  name: "JDK 8",
-                  type: "technology",
-                  aliases: [],
-                  confidence: 0.96,
-                },
-              ],
-              relationships: [
-                {
-                  from: "Solar",
-                  to: "JDK 8",
-                  type: "USES",
-                  evidence: "Solar uses JDK 8.",
-                  confidence: 0.95,
-                },
-              ],
-            }
-          : { entities: [], relationships: [] };
-        return new Response(
-          JSON.stringify({ message: { content: JSON.stringify(extraction) }, done: true }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }),
-    );
-
-    const result = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
-      embeddingProvider: provider,
-      collectionId: COLLECTION_ID,
-      limit: 20,
-    });
-
-    expect(result.indexed).toBe(4);
-    expect(
-      (
-        await db.query<{ name: string; entity_type: string }>(
-          `SELECT name, entity_type
-             FROM retrieval_entities
-            WHERE collection_id = $1
-            ORDER BY name`,
-          [COLLECTION_ID],
-        )
-      ).rows,
-    ).toEqual([
-      { name: "JDK 8", entity_type: "technology" },
-      { name: "Solar", entity_type: "service" },
-    ]);
-    expect(
-      (
-        await db.query<{ relation_type: string; fact: string }>(
-          `SELECT relation_type, fact
-             FROM retrieval_relations
-            WHERE collection_id = $1`,
-          [COLLECTION_ID],
-        )
-      ).rows,
-    ).toEqual([{ relation_type: "USES", fact: "Solar uses JDK 8." }]);
-  });
-
   it("normalizes every current source into one idempotent ingestion path", async () => {
     const provider = new FixtureProvider();
     const first = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
