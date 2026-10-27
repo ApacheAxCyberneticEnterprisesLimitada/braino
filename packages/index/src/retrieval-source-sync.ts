@@ -7,7 +7,7 @@ import {
   ingestRetrievalSource,
 } from "./retrieval-ingestion.js";
 
-export const RETRIEVAL_SOURCE_KINDS = ["code", "node", "notion", "slack"] as const;
+export const RETRIEVAL_SOURCE_KINDS = ["code", "google_drive", "node", "notion", "slack"] as const;
 export type RetrievalSourceKind = (typeof RETRIEVAL_SOURCE_KINDS)[number];
 
 interface RetrievalSourceRow {

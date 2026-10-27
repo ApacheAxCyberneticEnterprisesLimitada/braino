@@ -40,6 +40,11 @@ beforeEach(async () => {
       ('collection_notes', 'C_HID', 'hidden', now(), true, false);
     INSERT INTO notion_mirrors (collection_id, workspace_id, workspace_name, bot_id, access_token, consented_at)
       VALUES ('collection_notes', 'ws-1', 'Acme', 'bot-1', 'v1:enc', now());
+    INSERT INTO google_drive_mirrors
+      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
+      VALUES ('collection_notes', 'ana@acme.test', 'v1:enc', 'v1:enc', now(), '1');
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
+      VALUES ('collection_notes', 'drive_1', 'drive', 'Engineering');
   `);
 });
 
@@ -86,6 +91,13 @@ describe("a collection's latest activity", () => {
         VALUES ('collection_notes', 'p1', 'page', 'https://www.notion.so/p1', '2026-09-04T09:00:00Z', now())`);
     expect(await latestOf("collection_notes")).toBe("2026-09-04T09:00:00.000Z");
 
+    await db.exec(`
+      INSERT INTO google_drive_files
+        (collection_id, file_id, root_id, kind, mime_type, modified_time, synced_at)
+        VALUES ('collection_notes', 'f1', 'drive_1', 'doc', 'application/vnd.google-apps.document',
+                '2026-09-04T10:00:00Z', now())`);
+    expect(await latestOf("collection_notes")).toBe("2026-09-04T10:00:00.000Z");
+
     // A resync and an updated pull request are activity too.
     await db.exec(`UPDATE code_files SET synced_at = '2026-09-05T00:00:00Z' WHERE path = 'a.ts'`);
     expect(await latestOf("collection_notes")).toBe("2026-09-05T00:00:00.000Z");
@@ -103,12 +115,21 @@ describe("a collection's latest activity", () => {
         VALUES ('collection_notes', 'p3', 'page', 'https://www.notion.so/p3', '2026-09-06T09:00:00Z', NULL);
       INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
         VALUES ('decision_1', 'collection_notes', 'decision', 'active', 'Not from GitHub', '2026-09-07T00:00:00Z');
+      INSERT INTO google_drive_files
+        (collection_id, file_id, root_id, kind, mime_type, modified_time, synced_at) VALUES
+        ('collection_notes', 'f_pending', 'drive_1', 'doc', 'application/vnd.google-apps.document',
+         '2026-09-08T00:00:00Z', NULL),
+        ('collection_notes', 'f_folder', 'drive_1', 'folder', 'application/vnd.google-apps.folder',
+         '2026-09-09T00:00:00Z', now());
     `);
     expect(await latestOf("collection_notes")).toBeNull();
 
     // Fetching the Notion page makes it part of the collection.
     await db.exec(`UPDATE notion_pages SET synced_at = now() WHERE page_id = 'p3'`);
     expect(await latestOf("collection_notes")).toBe("2026-09-06T09:00:00.000Z");
+    // So does copying the Drive file.
+    await db.exec(`UPDATE google_drive_files SET synced_at = now() WHERE file_id = 'f_pending'`);
+    expect(await latestOf("collection_notes")).toBe("2026-09-08T00:00:00.000Z");
   });
 
   it("never moves back when older history arrives", async () => {

@@ -521,7 +521,7 @@ END $$;
 CREATE TABLE IF NOT EXISTS embeddings (
   collection_id       text NOT NULL,
   source        text NOT NULL CHECK (source IN (
-    'node','notion','slack','retrieval_chunk','retrieval_entity','retrieval_relation'
+    'node','notion','slack','google_drive','retrieval_chunk','retrieval_entity','retrieval_relation'
   )),
   entity_id     text NOT NULL,
   chunk_index   int  NOT NULL DEFAULT 0,
@@ -540,7 +540,7 @@ CREATE INDEX IF NOT EXISTS embeddings_source_idx ON embeddings (collection_id, s
 -- above. Retrieval graph rows are derived and may be rebuilt at any time.
 ALTER TABLE embeddings DROP CONSTRAINT IF EXISTS embeddings_source_check;
 ALTER TABLE embeddings ADD CONSTRAINT embeddings_source_check CHECK (source IN (
-  'node','notion','slack','retrieval_chunk','retrieval_entity','retrieval_relation'
+  'node','notion','slack','google_drive','retrieval_chunk','retrieval_entity','retrieval_relation'
 ));
 
 -- A collection's partition. Created empty and then attached, which locks the parent
@@ -2111,6 +2111,19 @@ SELECT m.collection_id,
  WHERE btrim(concat_ws(' ', nullif(m.text, ''), files.names)) <> ''
 UNION ALL
 SELECT f.collection_id,
+       'google_drive'::text,
+       f.file_id,
+       f.web_view_link,
+       nullif(f.name, ''),
+       CASE WHEN btrim(f.markdown) <> '' THEN f.markdown ELSE f.name END,
+       ARRAY['workspace']::text[],
+       f.synced_at
+  FROM google_drive_files f
+  JOIN collections c ON c.id = f.collection_id AND c.deleted_at IS NULL
+ WHERE f.synced_at IS NOT NULL AND f.kind <> 'folder'
+   AND btrim(concat_ws(E'\n\n', nullif(f.name, ''), nullif(f.markdown, ''))) <> ''
+UNION ALL
+SELECT f.collection_id,
        'code'::text,
        f.repo || ':' || f.path,
        'https://github.com/' || f.repo || '/blob/HEAD/' || f.path,
@@ -2298,8 +2311,8 @@ BEGIN
 END $$;
 
 -- Embedding rows follow their entity: deleting a node, a policy, a Notion
--- page or a Slack message, directly or through a cascade, drops its chunks,
--- so no application path has to remember to.
+-- page, a Slack message or a Google Drive file, directly or through a
+-- cascade, drops its chunks, so no application path has to remember to.
 CREATE OR REPLACE FUNCTION embeddings_drop_for_row() RETURNS trigger AS $$
 BEGIN
   IF TG_TABLE_NAME = 'notion_pages' THEN
@@ -2309,6 +2322,10 @@ BEGIN
     DELETE FROM embeddings
      WHERE collection_id = OLD.collection_id AND source = 'slack'
        AND entity_id = OLD.channel_id || ':' || OLD.ts;
+  ELSIF TG_TABLE_NAME = 'google_drive_files' THEN
+    DELETE FROM embeddings
+     WHERE collection_id = OLD.collection_id AND source = 'google_drive'
+       AND entity_id = OLD.file_id;
   ELSE
     DELETE FROM embeddings
      WHERE collection_id = OLD.collection_id AND source = 'node' AND entity_id = OLD.id;
@@ -2327,6 +2344,9 @@ CREATE TRIGGER notion_pages_embeddings_drop
 DROP TRIGGER IF EXISTS group_chat_messages_embeddings_drop ON group_chat_messages;
 CREATE TRIGGER group_chat_messages_embeddings_drop
   AFTER DELETE ON group_chat_messages FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
+DROP TRIGGER IF EXISTS google_drive_files_embeddings_drop ON google_drive_files;
+CREATE TRIGGER google_drive_files_embeddings_drop
+  AFTER DELETE ON google_drive_files FOR EACH ROW EXECUTE FUNCTION embeddings_drop_for_row();
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Silence alerts: an integration collection that stopped receiving data, or an agent
@@ -2390,8 +2410,9 @@ END $$;
 -- activity-log.server.ts and its readers): from GitHub the files of a codebase
 -- and the pull requests and issues it keeps (a pull request's Reference, an
 -- issue's Eval), from Slack the messages of the channels it copies, from
--- Notion the pages fetched so far. `at` is when an item happened in the source
--- where the source says (a message posted, a page last edited; null when
+-- Notion the pages fetched so far, from Google Drive the files copied so far
+-- (folders aside). `at` is when an item happened in the source where the
+-- source says (a message posted, a page or file last changed; null when
 -- Notion gave no time), else when Doco last wrote it (a code file, a pull
 -- request or issue). Each branch has an index on (collection_id, at), with its WHERE
 -- as a partial one's predicate where it filters.
@@ -2408,7 +2429,10 @@ CREATE OR REPLACE VIEW imported_items AS
                         AND ch.excluded)
   UNION ALL
   SELECT i.collection_id, 'notion', i.last_edited_time FROM notion_pages i
-   WHERE i.synced_at IS NOT NULL;
+   WHERE i.synced_at IS NOT NULL
+  UNION ALL
+  SELECT i.collection_id, 'google-drive', i.modified_time FROM google_drive_files i
+   WHERE i.synced_at IS NOT NULL AND i.kind <> 'folder';
 
 -- When each collection last saw activity, kept on its row so pages read it with the
 -- collections they load instead of probing every source on every view
@@ -2465,7 +2489,8 @@ END $$;
 
 -- Every write to a source catches its collections up. Slack messages and audit
 -- events are only ever inserted with their time; the rest change it when
--- rewritten (a file resynced, a pull request updated, a Notion page fetched).
+-- rewritten (a file resynced, a pull request updated, a Notion page or a
+-- Drive file fetched).
 DO $$
 DECLARE t record;
 BEGIN
@@ -2474,7 +2499,8 @@ BEGIN
     ('group_chat_messages', 'INSERT', 'posted_at'),
     ('code_files', 'INSERT', 'synced_at'), ('code_files', 'UPDATE', 'synced_at'),
     ('nodes', 'INSERT', 'updated_at'), ('nodes', 'UPDATE', 'updated_at'),
-    ('notion_pages', 'INSERT', 'last_edited_time'), ('notion_pages', 'UPDATE', 'last_edited_time')
+    ('notion_pages', 'INSERT', 'last_edited_time'), ('notion_pages', 'UPDATE', 'last_edited_time'),
+    ('google_drive_files', 'INSERT', 'modified_time'), ('google_drive_files', 'UPDATE', 'modified_time')
   ) AS v(tbl, ev, at) LOOP
     EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', t.tbl || '_activity_' || lower(t.ev), t.tbl);
     EXECUTE format(

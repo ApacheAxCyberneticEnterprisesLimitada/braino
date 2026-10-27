@@ -1,6 +1,6 @@
 // Embedding rows follow their entity: schema.sql's AFTER DELETE triggers drop
-// the chunks of a node, a policy, a Notion page or a Slack message when it
-// goes, whether deleted directly or through a cascade.
+// the chunks of a node, a policy, a Notion page, a Slack message or a Google
+// Drive file when it goes, whether deleted directly or through a cascade.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { embeddingLiteral } from "../embeddings.js";
@@ -37,6 +37,13 @@ beforeEach(async () => {
       VALUES ('collection_1', 'C1', 'general', now());
     INSERT INTO group_chat_messages (collection_id, channel_id, ts, text, posted_at)
       VALUES ('collection_1', 'C1', '1700000000.000100', 'hi', now());
+    INSERT INTO google_drive_mirrors
+      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
+      VALUES ('collection_1', 'ana@acme.test', 'enc', 'enc', now(), '1');
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
+      VALUES ('collection_1', 'drive_1', 'drive', 'Engineering');
+    INSERT INTO google_drive_files (collection_id, file_id, root_id, kind, mime_type)
+      VALUES ('collection_1', 'file_1', 'drive_1', 'doc', 'application/vnd.google-apps.document');
   `);
   await db.query(
     `INSERT INTO embeddings
@@ -46,7 +53,8 @@ beforeEach(async () => {
        ('collection_1', 'node', 'decision_1', 1, 'm', 'h', 'it', $1::real[]),
        ('collection_1', 'node', 'policy_1', 0, 'm', 'h', 'Policy', $1::real[]),
        ('collection_1', 'notion', 'page_1', 0, 'm', 'h', 'Page', $1::real[]),
-       ('collection_1', 'slack', 'C1:1700000000.000100', 0, 'm', 'h', 'hi', $1::real[])`,
+       ('collection_1', 'slack', 'C1:1700000000.000100', 0, 'm', 'h', 'hi', $1::real[]),
+       ('collection_1', 'google_drive', 'file_1', 0, 'm', 'h', 'Plan', $1::real[])`,
     [embeddingLiteral([1, 0, 0])],
   );
 });
@@ -54,7 +62,7 @@ beforeEach(async () => {
 describe("embeddings follow their entity", () => {
   it("drops a deleted node's chunks, and only those", async () => {
     await db.query("DELETE FROM nodes WHERE id = 'decision_1'");
-    expect(await embedded()).toEqual(["C1:1700000000.000100", "page_1", "policy_1"]);
+    expect(await embedded()).toEqual(["C1:1700000000.000100", "file_1", "page_1", "policy_1"]);
   });
 
   it("drops a deleted policy's chunks", async () => {
@@ -64,12 +72,17 @@ describe("embeddings follow their entity", () => {
 
   it("drops a Notion page's chunks, also when the mirror is stopped", async () => {
     await db.query("DELETE FROM notion_mirrors WHERE collection_id = 'collection_1'");
-    expect(await embedded()).toEqual(["C1:1700000000.000100", "decision_1", "policy_1"]);
+    expect(await embedded()).toEqual(["C1:1700000000.000100", "decision_1", "file_1", "policy_1"]);
   });
 
   it("drops a Slack message's chunks, also when its channel goes", async () => {
     await db.query("DELETE FROM group_chat_channels WHERE channel_id = 'C1'");
-    expect(await embedded()).toEqual(["decision_1", "page_1", "policy_1"]);
+    expect(await embedded()).toEqual(["decision_1", "file_1", "page_1", "policy_1"]);
+  });
+
+  it("drops a Drive file's chunks, also when the mirror is stopped", async () => {
+    await db.query("DELETE FROM google_drive_mirrors WHERE collection_id = 'collection_1'");
+    expect(await embedded()).toEqual(["C1:1700000000.000100", "decision_1", "page_1", "policy_1"]);
   });
 
   it("drops everything with the collection", async () => {

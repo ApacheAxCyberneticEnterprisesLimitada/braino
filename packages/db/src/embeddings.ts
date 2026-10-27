@@ -10,6 +10,7 @@ export type EmbeddingSource =
   | "node"
   | "notion"
   | "slack"
+  | "google_drive"
   | "retrieval_chunk"
   | "retrieval_entity"
   | "retrieval_relation";

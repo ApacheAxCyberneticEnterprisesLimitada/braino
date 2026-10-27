@@ -55,6 +55,19 @@ beforeEach(async () => {
     INSERT INTO code_files (collection_id, repo, path, sha, size, content, synced_at)
       VALUES ('${COLLECTION_ID}', 'torre/solar', '.sdkmanrc', 'sha_1', 13,
               'java=8.0.472', now());
+
+    INSERT INTO google_drive_mirrors
+      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
+      VALUES ('${COLLECTION_ID}', 'ana@acme.test', 'sealed', 'sealed', now(), '1');
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
+      VALUES ('${COLLECTION_ID}', 'drive_eng', 'drive', 'Engineering');
+    INSERT INTO google_drive_files
+      (collection_id, file_id, root_id, kind, mime_type, name, parent_id, web_view_link,
+       markdown, plain_text, content_hash, synced_at)
+      VALUES ('${COLLECTION_ID}', 'doc_rollout', 'drive_eng', 'doc',
+              'application/vnd.google-apps.document', 'Rollout plan', 'drive_eng',
+              'https://docs.google.com/document/d/doc_rollout/edit', '# Owner\n\nAna leads.',
+              'Owner Ana leads.', 'drive-hash', now());
   `);
 });
 
@@ -85,10 +98,10 @@ describe("unified retrieval source sync", () => {
     });
 
     expect(first).toEqual({
-      indexed: 4,
+      indexed: 5,
       deleted: 0,
       exhausted: true,
-      bySource: { code: 1, node: 1, notion: 1, slack: 1 },
+      bySource: { code: 1, google_drive: 1, node: 1, notion: 1, slack: 1 },
     });
     expect(await documents()).toEqual([
       {
@@ -96,6 +109,12 @@ describe("unified retrieval source sync", () => {
         external_id: "torre/solar:.sdkmanrc",
         title: "torre/solar/.sdkmanrc",
         locator: "https://github.com/torre/solar/blob/HEAD/.sdkmanrc",
+      },
+      {
+        source: "google_drive",
+        external_id: "doc_rollout",
+        title: "Rollout plan",
+        locator: "https://docs.google.com/document/d/doc_rollout/edit",
       },
       {
         source: "node",
@@ -124,7 +143,7 @@ describe("unified retrieval source sync", () => {
       ).rows,
     ).toEqual([{ source: "retrieval_chunk", model_id: provider.modelId }]);
     expect(provider.calls).toHaveLength(1);
-    expect(provider.calls[0]).toHaveLength(4);
+    expect(provider.calls[0]).toHaveLength(5);
     expect(
       (
         await db.query<{ text: string }>(
@@ -136,6 +155,17 @@ describe("unified retrieval source sync", () => {
         )
       ).rows,
     ).toEqual([{ text: "Language tests > Status" }]);
+    expect(
+      (
+        await db.query<{ text: string }>(
+          `SELECT ch.text
+             FROM retrieval_chunks ch
+             JOIN retrieval_documents d ON d.id = ch.document_id
+            WHERE d.collection_id = $1 AND d.source = 'google_drive'`,
+          [COLLECTION_ID],
+        )
+      ).rows.map((row) => row.text),
+    ).toEqual([expect.stringContaining("Ana leads.")]);
 
     const second = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
       embeddingProvider: provider,
@@ -178,6 +208,7 @@ describe("unified retrieval source sync", () => {
     });
     expect((await documents()).map((document) => document.source)).toEqual([
       "code",
+      "google_drive",
       "node",
       "slack",
     ]);
@@ -209,7 +240,7 @@ describe("unified retrieval source sync", () => {
       limit: 20,
     });
 
-    expect(result.indexed).toBe(4);
+    expect(result.indexed).toBe(5);
     expect(
       (
         await db.query<{ model_id: string }>(
@@ -224,7 +255,7 @@ describe("unified retrieval source sync", () => {
       INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose)
       SELECT 'decision_bulk_' || n, '${COLLECTION_ID}', 'decision', 'active',
              'Bulk retrieval source ' || n
-        FROM generate_series(1, 96) AS n;
+        FROM generate_series(1, 95) AS n;
     `);
     const provider = new FixtureProvider();
 
@@ -244,7 +275,7 @@ describe("unified retrieval source sync", () => {
       INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose)
       SELECT 'decision_partition_' || n, '${COLLECTION_ID}', 'decision', 'active',
              'Partitioned retrieval source ' || n
-        FROM generate_series(1, 96) AS n;
+        FROM generate_series(1, 95) AS n;
     `);
     const provider = new FixtureProvider();
     const workers = 4;
