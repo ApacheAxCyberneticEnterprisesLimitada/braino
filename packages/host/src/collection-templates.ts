@@ -1026,6 +1026,20 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     policies: [],
   },
   {
+    // Google Drive mirror. The collection holds a read-only copy of the shared
+    // drives and folders a workspace owner picks in one Google account's Drive,
+    // kept in sync, in the google_drive_* mirror tables (not nodes: copied files
+    // must be deletable). The Google Drive page, opened right after creation,
+    // turns the mirror on and picks what it copies. It opens in the web app's
+    // drive reader (/<collection>/drive), not on a perspective.
+    name: "google-drive",
+    label: "Google Drive",
+    icon: "🗂️",
+    description:
+      "A read-only copy of the Docs, Sheets, Slides and text files in the shared drives and folders you pick, kept in sync, so they can be searched alongside your Doco knowledge.",
+    policies: [],
+  },
+  {
     // Org chart — document an organization's STRUCTURE: who holds which
     // seat, who reports to whom, how seats group into teams, and where
     // decision authority sits. It renders on the org-tree perspective, which

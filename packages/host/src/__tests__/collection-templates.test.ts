@@ -62,6 +62,7 @@ describe("removed templates are gone", () => {
       "github-issues",
       "github-pull-requests",
       "glossary",
+      "google-drive",
       "ideas",
       "notion",
       "org-chart",
@@ -2308,6 +2309,15 @@ describe("notion template", () => {
   // The copied pages open in the web app's reader, not on a perspective.
   it("has no perspective of its own", () => {
     const template = findCollectionTemplateByName("notion");
+    expect(template?.perspectives).toBeUndefined();
+  });
+});
+
+describe("google-drive template", () => {
+  // The copied files open in the web app's drive reader, not on a perspective.
+  it("has no perspective of its own", () => {
+    const template = findCollectionTemplateByName("google-drive");
+    expect(template?.label).toBe("Google Drive");
     expect(template?.perspectives).toBeUndefined();
   });
 });
