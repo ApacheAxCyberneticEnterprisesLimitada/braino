@@ -1748,6 +1748,28 @@ CREATE TRIGGER google_drive_mirrors_private_collection
   BEFORE INSERT OR UPDATE OF collection_id ON google_drive_mirrors
   FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
 
+-- What the mirror copies: the shared drives and folders an owner picked
+-- (lib/google-drive-roots.server.ts). Picked under the mirror's account, so
+-- connecting another account deletes them. A root's files go with it.
+CREATE TABLE IF NOT EXISTS google_drive_roots (
+  collection_id         text NOT NULL REFERENCES google_drive_mirrors(collection_id) ON DELETE CASCADE,
+  -- A shared drive's id, or a folder's.
+  root_id               text NOT NULL,
+  kind                  text NOT NULL CHECK (kind IN ('drive', 'folder')),
+  -- As Google named it when picked; the sync keeps it current.
+  name                  text NOT NULL,
+  -- The walk that lists everything under the root, a tick at a time: the
+  -- folders still to list, the page reached in the one being listed, when
+  -- the walk started (rows it didn't see since then are gone from Drive) and
+  -- when it last finished. A new root has neither, so the sync walks it.
+  discovery_queue       text[] NOT NULL DEFAULT '{}',
+  discovery_cursor      text,
+  discovery_started_at  timestamptz,
+  discovered_at         timestamptz,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (collection_id, root_id)
+);
+
 -- ── Codebase copy ─────────────────────────────────────────────────────────
 -- A codebase collection holds a copy of every file on the default branch of the
 -- GitHub repositories it brings from (github-imports), kept in sync on every
