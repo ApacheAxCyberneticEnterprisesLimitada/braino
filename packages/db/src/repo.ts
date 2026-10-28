@@ -235,6 +235,22 @@ export async function getEntity(nodeType: string, id: string): Promise<NodeRow |
   });
 }
 
+/** The distinct types of the active edges touching a node, in either direction. */
+export async function listActiveEdgeTypesForNode(
+  collectionId: string,
+  nodeId: string,
+): Promise<string[]> {
+  return withClient(async (c) => {
+    const r = await c.query<{ edge_type: string }>(
+      `SELECT DISTINCT edge_type FROM edges
+        WHERE collection_id = $1 AND lifecycle = 'active' AND (from_id = $2 OR to_id = $2)
+        ORDER BY edge_type`,
+      [collectionId, nodeId],
+    );
+    return r.rows.map((row) => row.edge_type);
+  });
+}
+
 export async function listNodesByCollection(
   nodeType: string,
   collectionId: string,

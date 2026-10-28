@@ -16,6 +16,7 @@ export {
   upsertPolicy,
   nodeRowFromFields,
   getEntity,
+  listActiveEdgeTypesForNode,
   listNodesByCollection,
   listNodesByCollectionAndIds,
   rowToNode,
