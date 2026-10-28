@@ -873,18 +873,23 @@ export async function listPendingAccessRequestCountsByCollection(): Promise<
  * as "nothing to do". A pure status transition; on approval the caller writes
  * the grant via `upsertCollectionUser`.
  */
+/** Decide a pending request. With `requested_role`, only while the request
+ *  still asks for that role: a re-request raises the live row in place, and
+ *  an approval binds to the role the owner read. Null when nothing was decided. */
 export async function decideAccessRequest(opts: {
   id: string;
   status: "approved" | "denied";
   decided_by: string;
+  requested_role?: CollectionRole;
 }): Promise<AccessRequestRow | null> {
   return withClient(async (c) => {
     const r = await c.query(
       `UPDATE access_requests
        SET status = $2, decided_at = now(), decided_by = $3
        WHERE id = $1 AND status = 'pending'
+         AND ($4::text IS NULL OR requested_role = $4)
        RETURNING *`,
-      [opts.id, opts.status, opts.decided_by],
+      [opts.id, opts.status, opts.decided_by, opts.requested_role ?? null],
     );
     return r.rows[0] ? mapAccessRequestRow(r.rows[0] as Record<string, unknown>) : null;
   });

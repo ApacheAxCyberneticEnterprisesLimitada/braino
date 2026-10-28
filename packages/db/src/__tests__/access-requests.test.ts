@@ -117,6 +117,39 @@ describe("access requests", () => {
     expect(again).toBeNull();
   });
 
+  it("decides a request only at the role the owner saw", async () => {
+    const asked = await createAccessRequest({
+      collection_id: COLLECTION,
+      requester_id: REQ,
+      requested_role: "reader",
+    });
+    await createAccessRequest({
+      collection_id: COLLECTION,
+      requester_id: REQ,
+      requested_role: "owner",
+    });
+    expect(
+      await decideAccessRequest({
+        id: asked.id,
+        status: "approved",
+        decided_by: OWNER,
+        requested_role: "reader",
+      }),
+    ).toBeNull();
+    expect(await getAccessRequest(asked.id)).toMatchObject({
+      status: "pending",
+      requested_role: "owner",
+    });
+    expect(
+      await decideAccessRequest({
+        id: asked.id,
+        status: "approved",
+        decided_by: OWNER,
+        requested_role: "owner",
+      }),
+    ).toMatchObject({ status: "approved", requested_role: "owner" });
+  });
+
   it("frees a new pending request after the prior one is decided", async () => {
     const a = await createAccessRequest({
       collection_id: COLLECTION,
