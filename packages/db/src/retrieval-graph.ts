@@ -249,13 +249,7 @@ function canonicalNormalizedName(entity: RetrievalEntityInput): string {
   return candidates[0];
 }
 
-/**
- * Replace one connector document's derived retrieval graph. Exact resolution
- * is by normalized name/type, including aliases; provenance remains one
- * mention/relationship row per source chunk. The caller may wrap this in its
- * wider connector transaction.
- */
-export async function ingestRetrievalDocument(
+async function replaceRetrievalDocument(
   c: QueryClient,
   input: RetrievalDocumentInput,
   opts: { embeddingProvider?: EmbeddingProviderLike } = {},
@@ -464,6 +458,30 @@ export async function ingestRetrievalDocument(
     relationIds,
     ...(embeddings ? { embeddings } : {}),
   };
+}
+
+/**
+ * Atomically replace one connector document's derived retrieval graph. Exact
+ * resolution is by normalized name/type, including aliases; provenance remains
+ * one mention/relationship row per source chunk. The collection row lock keeps
+ * concurrent source workers from deleting an entity while another document is
+ * attaching evidence to it.
+ */
+export async function ingestRetrievalDocument(
+  c: QueryClient,
+  input: RetrievalDocumentInput,
+  opts: { embeddingProvider?: EmbeddingProviderLike } = {},
+): Promise<RetrievalIngestReport> {
+  await c.query("BEGIN");
+  try {
+    await c.query("SELECT id FROM collections WHERE id = $1 FOR UPDATE", [input.collectionId]);
+    const report = await replaceRetrievalDocument(c, input, opts);
+    await c.query("COMMIT");
+    return report;
+  } catch (error) {
+    await c.query("ROLLBACK");
+    throw error;
+  }
 }
 
 const QUERY_STOP_WORDS = new Set([

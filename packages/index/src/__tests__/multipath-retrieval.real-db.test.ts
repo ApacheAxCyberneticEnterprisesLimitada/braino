@@ -43,6 +43,59 @@ beforeEach(async () => {
 });
 
 describe("Falkor-style retrieval graph ingestion", () => {
+  it("keeps the previous graph when a replacement document is invalid", async () => {
+    const document = {
+      collectionId: COLLECTION_ID,
+      source: "notion",
+      externalId: "atomic-replacement",
+      content: "Solar uses JDK 8.",
+      chunks: [{ text: "Solar uses JDK 8." }],
+      extraction: {
+        entities: [
+          { key: "solar", name: "Solar", type: "service", mentions: [{ chunkIndex: 0 }] },
+          { key: "jdk", name: "JDK 8", type: "technology", mentions: [{ chunkIndex: 0 }] },
+        ],
+        relationships: [
+          {
+            fromKey: "solar",
+            toKey: "jdk",
+            type: "USES",
+            fact: "Solar uses JDK 8.",
+            chunkIndex: 0,
+          },
+        ],
+      },
+    };
+    await ingestRetrievalDocument(db as unknown as QueryClient, document);
+
+    await expect(
+      ingestRetrievalDocument(db as unknown as QueryClient, {
+        ...document,
+        content: "Solar uses JDK 17.",
+        chunks: [{ text: "Solar uses JDK 17." }],
+        extraction: {
+          ...document.extraction,
+          relationships: [
+            {
+              ...document.extraction.relationships[0],
+              fact: "Solar uses JDK 17.",
+              chunkIndex: 1,
+            },
+          ],
+        },
+      }),
+    ).rejects.toThrow("references missing chunk 1");
+
+    const chunks = await db.query<{ text: string }>(
+      `SELECT ch.text
+         FROM retrieval_chunks ch
+         JOIN retrieval_documents d ON d.id = ch.document_id
+        WHERE d.collection_id = $1 AND d.external_id = $2`,
+      [COLLECTION_ID, document.externalId],
+    );
+    expect(chunks.rows).toEqual([{ text: "Solar uses JDK 8." }]);
+  });
+
   it("defaults graph enrichment to the fast local path", async () => {
     const llmValidate = vi.fn();
     const report = await ingestRetrievalSource(
