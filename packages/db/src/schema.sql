@@ -68,7 +68,10 @@ CREATE TABLE IF NOT EXISTS users (
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
-  deactivated_at  timestamptz
+  deactivated_at  timestamptz,
+  -- Whether anyone, signed out too, may open their profile, with what they
+  -- did in public collections and its share image. Off unless they turn it on.
+  public_profile  boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
 
@@ -1181,6 +1184,22 @@ BEGIN
 END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_workspace_idx
   ON access_requests (workspace_id, requester_id) WHERE status = 'pending';
+
+-- Who opened a workspace's imported pull requests (web lib/github-authors.server.ts):
+-- each GitHub login, how many it opened, and the repository of its latest. The
+-- invite step suggests the most active ones who aren't members yet, by the
+-- address on their commits, looked up once (email_checked_at) and kept here.
+CREATE TABLE IF NOT EXISTS github_authors (
+  workspace_id     text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  login            text NOT NULL,
+  repo             text NOT NULL,
+  pull_requests    integer NOT NULL DEFAULT 1,
+  last_at          timestamptz NOT NULL DEFAULT now(),
+  name             text,
+  email            text,
+  email_checked_at timestamptz,
+  PRIMARY KEY (workspace_id, login)
+);
 
 -- The Workspace Times as it came out: each edition's stories, ranked once by
 -- a model when the digest went out (web lib/activity-digest.server.ts), so
@@ -2616,6 +2635,7 @@ BEGIN
 END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users (lower(username));
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS public_profile boolean NOT NULL DEFAULT false;
 -- An address signs in one person: made unique once, a blank one counting as
 -- none and a later account sharing an address losing it to the first.
 DO $$

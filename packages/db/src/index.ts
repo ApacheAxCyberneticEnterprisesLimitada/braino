@@ -34,6 +34,7 @@ export {
   listUsers,
   patchUserData,
   setUserName,
+  setUserPublicProfile,
   type UserRow,
   // Principals (role-personas — node type)
   getPrincipalById,

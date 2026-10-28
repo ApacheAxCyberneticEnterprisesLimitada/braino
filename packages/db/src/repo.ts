@@ -416,6 +416,13 @@ export async function setUserName(id: string, name: string): Promise<void> {
   );
 }
 
+/** Makes a person's profile public, so anyone sees it signed out, or private again. */
+export async function setUserPublicProfile(id: string, on: boolean): Promise<void> {
+  await withClient((c) =>
+    c.query("UPDATE users SET public_profile = $2, updated_at = now() WHERE id = $1", [id, on]),
+  );
+}
+
 /**
  * Patch a user's `data` JSONB column with `patch` — top-level
  * keys in `patch` replace their counterparts in `data`, anything else
