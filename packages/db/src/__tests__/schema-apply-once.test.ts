@@ -4,7 +4,7 @@
 // trigger locks, and instances starting together after a deploy deadlocked.
 import type { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
-import { applySchemaIfChanged } from "../client.js";
+import { SCHEMA_LOCK_TIMEOUT_MS, applySchemaAtDeploy, applySchemaIfChanged } from "../client.js";
 import { SCHEMA_SQL } from "../schema-embedded.js";
 import { freshDb } from "./fresh-db.js";
 
@@ -42,5 +42,54 @@ describe("applySchemaIfChanged", () => {
     const c = client(db);
     expect(await applySchemaIfChanged(c)).toBe(true);
     expect(await applySchemaIfChanged(c)).toBe(false);
+  });
+});
+
+/** A client that refuses schema.sql's locks the first `busy` times, as Postgres
+ *  does when lock_timeout runs out behind live traffic. */
+function busyClient(db: PGlite, busy: number) {
+  const c = client(db);
+  const sent: string[] = [];
+  let refusals = busy;
+  return Object.assign(c, {
+    sent,
+    async query(sql: string, params?: unknown[]) {
+      sent.push(sql === SCHEMA_SQL ? "schema.sql" : sql);
+      if (sql === SCHEMA_SQL && refusals-- > 0) {
+        throw Object.assign(new Error("canceling statement due to lock timeout"), {
+          code: "55P03",
+        });
+      }
+      return client(db).query(sql, params);
+    },
+  });
+}
+
+describe("schema.sql behind live traffic", () => {
+  it("waits for each lock only briefly, so traffic is never queued behind it for long", async () => {
+    const db = await freshDb();
+    await db.query("UPDATE schema_applied SET hash = 'another'");
+    const c = busyClient(db, 0);
+    await applySchemaIfChanged(c);
+    const at = c.sent.indexOf("schema.sql");
+    expect(c.sent[at - 1]).toBe(`SET lock_timeout = ${SCHEMA_LOCK_TIMEOUT_MS}`);
+    expect(c.sent).toContain("RESET lock_timeout");
+  });
+
+  it("is applied at deploy, trying again while the tables are busy", async () => {
+    const db = await freshDb();
+    await db.query("UPDATE schema_applied SET hash = 'another'");
+    const c = busyClient(db, 2);
+    expect(await applySchemaAtDeploy(c, { attempts: 3, waitMs: 0 })).toBe(true);
+    expect(c.sent.filter((sql) => sql === "schema.sql")).toHaveLength(3);
+    expect(await applySchemaIfChanged(client(db))).toBe(false);
+  });
+
+  it("fails the deploy when the tables stay busy", async () => {
+    const db = await freshDb();
+    await db.query("UPDATE schema_applied SET hash = 'another'");
+    await expect(
+      applySchemaAtDeploy(busyClient(db, 5), { attempts: 3, waitMs: 0 }),
+    ).rejects.toThrow("lock timeout");
   });
 });
