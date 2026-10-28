@@ -10,6 +10,7 @@ import { freshDb } from "./fresh-db.js";
 // These pin that both land their rows correctly through a real Postgres.
 
 const COLLECTION = "collection_cw00000000000000000000000000";
+const OTHER_COLLECTION = "collection_cw00000000000000000000000002";
 const ORG = "workspace_cw0000000000000000000";
 
 let db: PGlite;
@@ -24,6 +25,10 @@ beforeAll(async () => {
   await db.query(
     "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
     [COLLECTION, "collection-cw", ORG, ORG],
+  );
+  await db.query(
+    "INSERT INTO collections (id, handle, owner_id, workspace_id, data) VALUES ($1,$2,$3,$4,'{}'::jsonb)",
+    [OTHER_COLLECTION, "collection-cw-other", ORG, ORG],
   );
 });
 
@@ -80,5 +85,36 @@ describe("per-category writers (no EntityRecord god-type)", () => {
       predicate: { sub_kind: "requires_edge", edge_type: "supports" },
       on_violation: "block",
     });
+  });
+  // 2026-10-28 security review: which collection a node belongs to is part of
+  // its identity, like its type. A conflicting upsert that names another
+  // collection updates the node where it lives; it never moves it.
+  it("upsertNode never moves an existing node to another collection", async () => {
+    const id = "idea_cw000000000000000000000000000";
+    await upsertNode(
+      nodeRowFromFields("idea", {
+        id,
+        collection_id: COLLECTION,
+        node_type: "idea",
+        prose: "Ours",
+        lifecycle: "active",
+      }),
+      db as never,
+    );
+    await upsertNode(
+      nodeRowFromFields("idea", {
+        id,
+        collection_id: OTHER_COLLECTION,
+        node_type: "idea",
+        prose: "Ours, edited",
+        lifecycle: "active",
+      }),
+      db as never,
+    );
+    const { rows } = await db.query<{ collection_id: string; prose: string }>(
+      "SELECT collection_id, prose FROM nodes WHERE id = $1",
+      [id],
+    );
+    expect(rows).toEqual([{ collection_id: COLLECTION, prose: "Ours, edited" }]);
   });
 });

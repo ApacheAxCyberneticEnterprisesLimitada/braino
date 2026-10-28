@@ -160,10 +160,13 @@ export async function upsertNode(node: NodeRow, client?: pg.PoolClient): Promise
     node.updated_by ?? null,
   );
   const placeholders = cols.map((_, i) => `$${i + 1}`).join(",");
-  // node_type is immutable (the id prefix encodes it); exclude it, id, and
-  // created_* from the UPDATE set.
+  // A node's identity never changes on conflict: its id, its type (the id
+  // prefix encodes it), the collection it belongs to, and who created it when.
+  // Excluding collection_id is what keeps a write that names another
+  // collection from moving the node there (2026-10-28 security review).
+  const IDENTITY = new Set(["id", "node_type", "collection_id", "created_at", "created_by"]);
   const updates = cols
-    .filter((c) => c !== "id" && c !== "node_type" && c !== "created_at" && c !== "created_by")
+    .filter((c) => !IDENTITY.has(c))
     .map((c) => `${c} = EXCLUDED.${c}`)
     .join(", ");
   const sql = `INSERT INTO nodes (${cols.join(",")}) VALUES (${placeholders})
