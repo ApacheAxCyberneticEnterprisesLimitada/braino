@@ -345,7 +345,8 @@ CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_
 -- Activity calendars and top lists read days instead of every row: one row per
 -- day, log, collection (or, for a search across a whole workspace, no collection and the
 -- workspace), person, and the agent they worked through (`via`, null for the
--- website) or, for imports, the integration. An hourly cron counts each day
+-- website) or, for imports, the integration, with the tokens its queries
+-- searched (`tokens`, added below). An hourly cron counts each day
 -- of writes and queries once, after it ends, and every day of imports again on
 -- every run, since imports change in place and arrive dated in the past.
 -- `activity_rollup.through` is the last day counted.
@@ -2809,6 +2810,115 @@ UPDATE nodes n
          SELECT 1 FROM audit_events a
           WHERE a.entity_id = n.id AND a.op = 'lifecycle.transition'
             AND a.after_json->>'lifecycle' = 'retired');
+
+-- How many tokens each collection holds, four characters a token as the brief
+-- counts them, by where they come from: its live records' prose and what its
+-- copies of Slack (but the channels left out of the copy), Notion, Google
+-- Drive and code hold. Every brief and search says how many it searched, and
+-- the query log keeps it (metadata.searched_tokens); the activity rollup's
+-- hourly cron recounts it (lib/collection-tokens.server.ts).
+CREATE TABLE IF NOT EXISTS collection_tokens (
+  collection_id  text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  source         text NOT NULL
+                   CHECK (source IN ('records', 'slack', 'notion', 'google_drive', 'code')),
+  tokens         bigint NOT NULL,
+  PRIMARY KEY (collection_id, source)
+);
+CREATE OR REPLACE FUNCTION refresh_collection_tokens() RETURNS void AS $$
+  DELETE FROM collection_tokens;
+  INSERT INTO collection_tokens (collection_id, source, tokens)
+  SELECT collection_id, source, sum(chars) / 4 FROM (
+    SELECT collection_id, 'records' AS source, length(prose) AS chars
+      FROM nodes WHERE lifecycle <> 'retired'
+    UNION ALL
+    SELECT m.collection_id, 'slack', length(m.text)
+      FROM group_chat_messages m
+      JOIN group_chat_channels ch
+        ON ch.collection_id = m.collection_id AND ch.channel_id = m.channel_id
+     WHERE NOT ch.excluded
+    UNION ALL
+    SELECT collection_id, 'notion', length(plain_text) FROM notion_pages
+    UNION ALL
+    SELECT collection_id, 'google_drive', length(plain_text) FROM google_drive_files
+    UNION ALL
+    SELECT collection_id, 'code', length(content) FROM code_files
+  ) r
+  GROUP BY collection_id, source;
+$$ LANGUAGE sql;
+
+-- The tokens each day's queries searched, counted into activity_days with the
+-- boot that adds the column, which first gives every brief logged before
+-- briefs said what they searched its searched_tokens: what the workspace's
+-- collections its asker could read held when the brief's UTC day began (a
+-- hook token reads as its maker, a member of its workspace), each item dated
+-- when it reached Doco (a copied one no earlier than its copy), and without
+-- code, which the brief doesn't search. Other past queries can't be told
+-- apart from reads that searched nothing, so they stay without. Then the
+-- rollup starts over, so its next run counts every day again, tokens and all.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'activity_days'
+       AND column_name = 'tokens'
+  ) THEN
+    ALTER TABLE activity_days ADD COLUMN tokens bigint NOT NULL DEFAULT 0;
+    PERFORM refresh_collection_tokens();
+    WITH added AS (
+      SELECT collection_id, (at AT TIME ZONE 'UTC')::date AS day, sum(chars) AS chars FROM (
+        SELECT collection_id, created_at AS at, length(prose) AS chars
+          FROM nodes WHERE lifecycle <> 'retired'
+        UNION ALL
+        SELECT m.collection_id, greatest(m.posted_at, g.consented_at), length(m.text)
+          FROM group_chat_messages m
+          JOIN group_chat_mirrors g ON g.collection_id = m.collection_id
+          JOIN group_chat_channels ch
+            ON ch.collection_id = m.collection_id AND ch.channel_id = m.channel_id
+         WHERE NOT ch.excluded
+        UNION ALL
+        SELECT p.collection_id, greatest(p.created_time, n.consented_at), length(p.plain_text)
+          FROM notion_pages p JOIN notion_mirrors n ON n.collection_id = p.collection_id
+        UNION ALL
+        SELECT f.collection_id, greatest(f.modified_time, g.consented_at), length(f.plain_text)
+          FROM google_drive_files f JOIN google_drive_mirrors g ON g.collection_id = f.collection_id
+      ) r
+      GROUP BY 1, 2
+    ),
+    briefs AS (
+      SELECT e.id, e.workspace_id, e.actor, e.at, (e.at AT TIME ZONE 'UTC')::date AS day,
+             (e.actor IS NULL AND e.metadata->>'auth' = 'bearer')
+               OR EXISTS (SELECT 1 FROM workspace_users wu
+                           WHERE wu.workspace_id = e.workspace_id AND wu.user_id = e.actor)
+               AS member
+        FROM query_events e
+       WHERE e.metadata ? 'brief_id'
+    ),
+    size AS (
+      SELECT a.collection_id, d.day, sum(a.chars) AS chars
+        FROM (SELECT DISTINCT day FROM briefs) d JOIN added a ON a.day < d.day
+       GROUP BY 1, 2
+    ),
+    searched AS (
+      SELECT b.id, div(coalesce(sum(s.chars), 0), 4)::bigint AS tokens
+        FROM briefs b
+        JOIN collections d
+          ON d.workspace_id = b.workspace_id AND d.created_at <= b.at
+         AND (d.deleted_at IS NULL OR d.deleted_at > b.at)
+         AND (b.member OR d.visibility = 'public'
+              OR EXISTS (SELECT 1 FROM collection_users cu
+                          WHERE cu.collection_id = d.id AND cu.user_id = b.actor))
+        LEFT JOIN size s ON s.collection_id = d.id AND s.day = b.day
+       GROUP BY b.id
+    )
+    UPDATE query_events e
+       SET metadata = e.metadata || jsonb_build_object('searched_tokens', s.tokens)
+      FROM searched s
+     WHERE s.id = e.id;
+    DELETE FROM activity_days;
+    DELETE FROM activity_rollup;
+  END IF;
+END $$;
 
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change
