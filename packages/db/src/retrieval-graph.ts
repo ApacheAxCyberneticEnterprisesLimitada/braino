@@ -334,16 +334,15 @@ export async function ingestRetrievalDocument(
       }>(
         `SELECT id, name, aliases, normalized_aliases, description
            FROM retrieval_entities
-          WHERE collection_id = $1 AND entity_type = $2
-            AND (normalized_name = ANY($3::text[]) OR normalized_aliases && $3::text[])
-          ORDER BY (normalized_name = $4) DESC, id
+          WHERE collection_id = $1
+            AND (normalized_name = ANY($2::text[]) OR normalized_aliases && $2::text[])
+          ORDER BY (normalized_name = $3) DESC, id
           LIMIT 1`,
-        [input.collectionId, entity.type, normalizedNames, normalizedName],
+        [input.collectionId, normalizedNames, normalizedName],
       )
     ).rows[0];
     const entityId =
-      existing?.id ??
-      stableId("rtentity", `${input.collectionId}\n${entity.type}\n${normalizedName}`);
+      existing?.id ?? stableId("rtentity", `${input.collectionId}\n${normalizedName}`);
     const aliases = uniqueStrings([
       ...(existing?.aliases ?? []),
       ...(existing && existing.name !== entity.name ? [entity.name] : []),

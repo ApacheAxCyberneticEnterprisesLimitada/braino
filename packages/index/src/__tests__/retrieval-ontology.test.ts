@@ -12,6 +12,40 @@ const document = {
 };
 
 describe("retrieval ontology", () => {
+  it("accepts a grounded open predicate without adding it to a central allowlist", () => {
+    const text = "Northstar acquired Radar in 2025.";
+    const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
+      entities: [
+        {
+          key: "northstar",
+          name: "Northstar",
+          type: "product",
+          mentions: [{ chunkIndex: 0 }],
+        },
+        {
+          key: "radar",
+          name: "Radar",
+          type: "service",
+          mentions: [{ chunkIndex: 0 }],
+        },
+      ],
+      relationships: [
+        {
+          fromKey: "northstar",
+          toKey: "radar",
+          type: "ACQUIRED",
+          fact: text,
+          chunkIndex: 0,
+        },
+      ],
+    });
+
+    expect(result.extraction.relationships).toEqual([
+      expect.objectContaining({ type: "ACQUIRED" }),
+    ]);
+    expect(result.issues).toEqual([]);
+  });
+
   it("accepts grounded entities and a relationship allowed by the ontology", () => {
     const result = validateRetrievalExtraction(document, [{ text: document.content }], {
       entities: [
@@ -45,7 +79,7 @@ describe("retrieval ontology", () => {
     expect(result.issues).toEqual([]);
   });
 
-  it("rejects unknown entity and relationship types", () => {
+  it("rejects an unknown entity type and a malformed relationship label", () => {
     const result = validateRetrievalExtraction(
       {
         ...document,
@@ -71,7 +105,7 @@ describe("retrieval ontology", () => {
           {
             fromKey: "platform",
             toKey: "solar",
-            type: "MAINTAINS",
+            type: "maintains",
             fact: "Solar is maintained by the platform group.",
             chunkIndex: 0,
           },
@@ -83,7 +117,7 @@ describe("retrieval ontology", () => {
     expect(result.extraction.relationships).toEqual([]);
     expect(result.issues.map((issue) => issue.code)).toEqual([
       "unknown_entity_type",
-      "unknown_relationship_type",
+      "invalid_relationship_type",
     ]);
   });
 
@@ -103,6 +137,24 @@ describe("retrieval ontology", () => {
 
     expect(result.extraction.entities).toEqual([]);
     expect(result.issues.map((issue) => issue.code)).toEqual(["invalid_entity_name"]);
+  });
+
+  it("keeps generic role words searchable as text without turning them into global graph nodes", () => {
+    const text = "The founder handbook describes how a company should choose headquarters.";
+    const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
+      entities: [
+        {
+          key: "company",
+          name: "company",
+          type: "organization",
+          mentions: [{ chunkIndex: 0 }],
+        },
+      ],
+      relationships: [],
+    });
+
+    expect(result.extraction.entities).toEqual([]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["generic_entity_name"]);
   });
 
   it("rejects invented evidence and relationships whose entities were not grounded", () => {
@@ -205,7 +257,7 @@ describe("retrieval ontology", () => {
     expect(result.issues).toEqual([]);
   });
 
-  it("rejects a relationship predicate that contradicts the evidence", () => {
+  it("preserves a specific grounded predicate instead of collapsing it into a generic one", () => {
     const text = "Atlas and Hermes share ownership of the pre-screening backend.";
     const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
       entities: [
@@ -226,7 +278,41 @@ describe("retrieval ontology", () => {
         {
           fromKey: "atlas",
           toKey: "backend",
-          type: "RESPONSIBLE_FOR",
+          type: "SHARES_OWNERSHIP_OF",
+          fact: text,
+          chunkIndex: 0,
+        },
+      ],
+    });
+
+    expect(result.extraction.relationships).toEqual([
+      expect.objectContaining({ type: "SHARES_OWNERSHIP_OF" }),
+    ]);
+    expect(result.issues).toEqual([]);
+  });
+
+  it("rejects cross-sentence edges that merely place unrelated entities near a predicate", () => {
+    const text = "Chore-missandei entered pilot rollout. Solar uses JDK 8.";
+    const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
+      entities: [
+        {
+          key: "missandei",
+          name: "Chore-missandei",
+          type: "effort",
+          mentions: [{ chunkIndex: 0 }],
+        },
+        {
+          key: "solar",
+          name: "Solar",
+          type: "service",
+          mentions: [{ chunkIndex: 0 }],
+        },
+      ],
+      relationships: [
+        {
+          fromKey: "missandei",
+          toKey: "solar",
+          type: "USES",
           fact: text,
           chunkIndex: 0,
         },
@@ -234,10 +320,42 @@ describe("retrieval ontology", () => {
     });
 
     expect(result.extraction.relationships).toEqual([]);
-    expect(result.issues.map((issue) => issue.code)).toEqual(["unsupported_predicate"]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["ambiguous_relationship_evidence"]);
   });
 
-  it("accepts passive ownership only in its canonical owner-to-subject direction", () => {
+  it("requires relationship evidence to name both endpoints", () => {
+    const text = "Solar uses JDK 8. Radar is also active.";
+    const result = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
+      entities: [
+        {
+          key: "radar",
+          name: "Radar",
+          type: "service",
+          mentions: [{ chunkIndex: 0 }],
+        },
+        {
+          key: "jdk-8",
+          name: "JDK 8",
+          type: "technology",
+          mentions: [{ chunkIndex: 0 }],
+        },
+      ],
+      relationships: [
+        {
+          fromKey: "radar",
+          toKey: "jdk-8",
+          type: "USES",
+          fact: "Solar uses JDK 8.",
+          chunkIndex: 0,
+        },
+      ],
+    });
+
+    expect(result.extraction.relationships).toEqual([]);
+    expect(result.issues.map((issue) => issue.code)).toEqual(["ambiguous_relationship_evidence"]);
+  });
+
+  it("accepts a grounded relationship across entity categories without a schema allowlist", () => {
     const text = "Project Phoenix is led by Maya.";
     const valid = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
       entities: [
@@ -256,30 +374,16 @@ describe("retrieval ontology", () => {
       ],
       relationships: [
         {
-          fromKey: "maya",
-          toKey: "phoenix",
-          type: "OWNS",
-          fact: text,
-          chunkIndex: 0,
-        },
-      ],
-    });
-    const reversed = validateRetrievalExtraction({ ...document, content: text }, [{ text }], {
-      entities: valid.extraction.entities,
-      relationships: [
-        {
           fromKey: "phoenix",
           toKey: "maya",
-          type: "OWNS",
+          type: "LED_BY",
           fact: text,
           chunkIndex: 0,
         },
       ],
     });
-
     expect(valid.extraction.relationships).toHaveLength(1);
-    expect(reversed.extraction.relationships).toEqual([]);
-    expect(reversed.issues.map((issue) => issue.code)).toEqual(["invalid_relationship_types"]);
+    expect(valid.issues).toEqual([]);
   });
 
   it("uses the same general relationship for people and software", () => {
@@ -333,14 +437,12 @@ describe("retrieval ontology", () => {
     expect(result.issues).toEqual([]);
   });
 
-  it("renders the exact ontology used by validation for the extractor prompt", () => {
+  it("renders open relationship guidance for the extractor prompt", () => {
     const prompt = formatRetrievalOntologyForPrompt();
 
     expect(prompt).toContain("service");
-    expect(prompt).toContain(
-      "USES: person|team|service|product|effort|project -> technology|service|product|communication_channel",
-    );
-    expect(prompt).toContain("RESPONSIBLE_FOR: person|team|service ->");
-    expect(prompt).toContain("Only use the entity and relationship types listed above");
+    expect(prompt).toContain("Predicates are open, not selected from a fixed list");
+    expect(prompt).toContain("ACQUIRED, FOUNDED_BY, HEADQUARTERED_IN");
+    expect(prompt).toContain("Only use the entity types listed above");
   });
 });

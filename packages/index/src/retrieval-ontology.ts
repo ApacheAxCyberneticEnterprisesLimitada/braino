@@ -12,6 +12,7 @@ export const RETRIEVAL_ENTITY_TYPES = {
   product: "A product or user-facing application.",
   person: "A named human.",
   team: "An organizational team or group.",
+  organization: "A company, institution, or other named legal organization.",
   technology: "A runtime, framework, protocol, platform, or technical dependency.",
   location: "A physical location, cloud region, or hosting environment.",
   status: "An explicit lifecycle or delivery state.",
@@ -22,128 +23,28 @@ export const RETRIEVAL_ENTITY_TYPES = {
 
 export type RetrievalEntityType = keyof typeof RETRIEVAL_ENTITY_TYPES;
 
-interface RetrievalRelationshipDefinition {
-  description: string;
-  from: readonly RetrievalEntityType[];
-  to: readonly RetrievalEntityType[];
-  evidencePatterns: readonly RegExp[];
-}
-
-export const RETRIEVAL_RELATIONSHIPS = {
-  USES: {
-    description: "The source explicitly uses the target for its work or operation.",
-    from: ["person", "team", "service", "product", "effort", "project"],
-    to: ["technology", "service", "product", "communication_channel"],
-    evidencePatterns: [
-      /\buses?\b/i,
-      /\binstalls?\b/i,
-      /\btargets?\b/i,
-      /\bbuilds?\s+(?:with|on)\b/i,
-      /\bruns?\s+on\b/i,
-    ],
-  },
-  OWNS: {
-    description: "The source person, team, or service is accountable for the target.",
-    from: ["person", "team", "service"],
-    to: ["capability", "effort", "project", "product", "service"],
-    evidencePatterns: [
-      /\bowns?\b/i,
-      /\bownership\b/i,
-      /\bowned by\b/i,
-      /\bled by\b/i,
-      /\baccountable for\b/i,
-    ],
-  },
-  RESPONSIBLE_FOR: {
-    description: "The source is explicitly responsible for operating or performing the target.",
-    from: ["person", "team", "service"],
-    to: ["capability", "effort", "project", "product", "service"],
-    evidencePatterns: [
-      /\bresponsible for\b/i,
-      /\bhandles?\b/i,
-      /\bprocess(?:es|ing)?\b/i,
-      /\bmanages?\b/i,
-      /\boperates?\b/i,
-      /\bperforms?\b/i,
-    ],
-  },
-  PROVIDES: {
-    description: "The source explicitly provides or offers the target.",
-    from: ["team", "service", "product"],
-    to: ["capability", "communication_channel", "technology", "product", "service"],
-    evidencePatterns: [/\bsupports?\b/i, /\bprovides?\b/i, /\benables?\b/i, /\boffers?\b/i],
-  },
-  PART_OF: {
-    description: "The source is explicitly a component or subdivision of the target.",
-    from: ["team", "service", "product", "technology", "capability", "effort", "project"],
-    to: ["team", "service", "product", "technology", "capability", "effort", "project"],
-    evidencePatterns: [/\bpart of\b/i, /\bcomponent of\b/i, /\bwithin\b/i, /\bbelongs to\b/i],
-  },
-  MEMBER_OF: {
-    description: "The source person or team is explicitly a member of the target team.",
-    from: ["person", "team"],
-    to: ["team"],
-    evidencePatterns: [/\bmember of\b/i, /\bworks (?:in|for|on)\b/i, /\bbelongs to\b/i],
-  },
-  REPORTS_TO: {
-    description: "The source person or team explicitly reports to the target person or team.",
-    from: ["person", "team"],
-    to: ["person", "team"],
-    evidencePatterns: [/\breports? to\b/i, /\bmanaged by\b/i, /\bmanager is\b/i],
-  },
-  LOCATED_IN: {
-    description: "The source is explicitly located, hosted, or deployed in the target location.",
-    from: ["person", "team", "service", "product", "effort", "project"],
-    to: ["location"],
-    evidencePatterns: [
-      /\bdeploy(?:ed|s|ment)?\s+(?:in|to|on)\b/i,
-      /\bhosted\s+(?:in|on|at)\b/i,
-      /\blocated\s+(?:in|at)\b/i,
-      /\bbased\s+in\b/i,
-    ],
-  },
-  HAS_STATUS: {
-    description: "The source has the explicitly stated target status.",
-    from: ["effort", "project", "product", "service"],
-    to: ["status"],
-    evidencePatterns: [
-      /\bstatus\b/i,
-      /\bentered\b/i,
-      /\bis\s+(?:active|blocked|cancelled|complete|completed|drafting|paused|pending|planned)\b/i,
-    ],
-  },
-  CREATED_FOR: {
-    description: "The source was created for the target capability or purpose.",
-    from: ["service", "product", "effort", "project"],
-    to: ["capability"],
-    evidencePatterns: [
-      /\bcreated\s+(?:for|to)\b/i,
-      /\bbuilt\s+(?:for|to)\b/i,
-      /\bintroduced\s+(?:for|to)\b/i,
-    ],
-  },
-  DEPENDS_ON: {
-    description: "The source has an explicit operational or technical dependency on the target.",
-    from: ["service", "product", "technology"],
-    to: ["service", "technology"],
-    evidencePatterns: [/\bdepends?\s+on\b/i, /\brequires?\b/i, /\bdependency\b/i],
-  },
-} as const satisfies Record<string, RetrievalRelationshipDefinition>;
-
-export type RetrievalRelationshipType = keyof typeof RETRIEVAL_RELATIONSHIPS;
+/**
+ * Relationship labels are intentionally open. Enterprise evidence contains a
+ * long tail of useful predicates (ACQUIRED, FOUNDED_BY, HEADQUARTERED_IN,
+ * DISTRIBUTED_BY, ...); a central enum silently discards those edges. The
+ * persisted graph has one shape: a concise uppercase snake-case predicate.
+ */
+export type RetrievalRelationshipType = string;
+export const RETRIEVAL_RELATIONSHIP_TYPE_PATTERN = "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){0,7}$";
+const RETRIEVAL_RELATIONSHIP_TYPE = new RegExp(RETRIEVAL_RELATIONSHIP_TYPE_PATTERN);
 
 export type RetrievalValidationIssueCode =
+  | "ambiguous_relationship_evidence"
   | "duplicate_entity_key"
+  | "generic_entity_name"
   | "invalid_entity_name"
   | "invalid_mention"
-  | "invalid_relationship_types"
+  | "invalid_relationship_type"
   | "missing_relationship_evidence"
   | "uncertain_relationship"
   | "ungrounded_entity"
   | "unknown_entity_type"
-  | "unknown_relationship_endpoint"
-  | "unknown_relationship_type"
-  | "unsupported_predicate";
+  | "unknown_relationship_endpoint";
 
 export interface RetrievalValidationIssue {
   phase: "entity" | "relationship";
@@ -161,7 +62,9 @@ export interface RetrievalValidationResult {
 const UNCERTAIN_EVIDENCE = [
   /\bno decision\b/i,
   /\bnot (?:yet )?(?:decided|approved|confirmed|implemented|supported)\b/i,
-  /\b(?:may|might|could|would)\b/i,
+  // Keep this case-sensitive so the month in "15 May 2026" is not treated
+  // as the modal verb "may".
+  /\b(?:may|might|could|would)\b/,
   /\bif\b/i,
   /\bwhether\b/i,
   /\b(?:considered|discussed|proposed|suggested|hypothetical)\b/i,
@@ -169,6 +72,10 @@ const UNCERTAIN_EVIDENCE = [
   /\b(?:does|do|did|is|are|was|were|has|have|had|will)\s+not\b/i,
   /\b(?:doesn't|don't|didn't|isn't|aren't|wasn't|weren't|hasn't|haven't|hadn't|won't)\b/i,
 ] as const;
+
+export function hasUncertainRetrievalEvidence(evidence: string): boolean {
+  return UNCERTAIN_EVIDENCE.some((pattern) => pattern.test(evidence));
+}
 
 function normalizeText(value: string): string {
   return value
@@ -185,7 +92,31 @@ function isEntityType(value: string): value is RetrievalEntityType {
 }
 
 function isRelationshipType(value: string): value is RetrievalRelationshipType {
-  return Object.hasOwn(RETRIEVAL_RELATIONSHIPS, value);
+  return value.length <= 80 && RETRIEVAL_RELATIONSHIP_TYPE.test(value);
+}
+
+const GENERIC_ENTITY_NAMES: Partial<Record<RetrievalEntityType, ReadonlySet<string>>> = {
+  organization: new Set(["business", "company", "institution", "organization"]),
+  team: new Set(["department", "group", "squad", "team"]),
+  service: new Set(["backend", "service"]),
+  product: new Set(["app", "application", "product"]),
+  person: new Set(["founder", "person", "user"]),
+  technology: new Set(["database", "framework", "model", "runtime", "technology"]),
+  location: new Set(["headquarters", "location", "office", "region"]),
+  capability: new Set(["capability", "feature", "function"]),
+  communication_channel: new Set(["channel"]),
+  project: new Set(["project"]),
+  effort: new Set(["effort", "initiative", "program", "programme"]),
+};
+
+function hasOnlyGenericEntityNames(entity: RetrievalEntityInput): boolean {
+  const genericNames = isEntityType(entity.type) ? GENERIC_ENTITY_NAMES[entity.type] : undefined;
+  if (!genericNames) return false;
+  const labels = [entity.name, ...(entity.aliases ?? [])]
+    .map(normalizeText)
+    .map((label) => label.replace(/^(?:a|an|the)\s+/, ""))
+    .filter(Boolean);
+  return labels.length > 0 && labels.every((label) => genericNames.has(label));
 }
 
 function groundedEntityMention(
@@ -223,19 +154,6 @@ function groundedEntityMention(
   return sawValidChunk ? "ungrounded" : "invalid_mention";
 }
 
-function relationshipTypesAllowed(
-  definition: RetrievalRelationshipDefinition,
-  from: RetrievalEntityInput,
-  to: RetrievalEntityInput,
-): boolean {
-  return (
-    isEntityType(from.type) &&
-    isEntityType(to.type) &&
-    definition.from.includes(from.type) &&
-    definition.to.includes(to.type)
-  );
-}
-
 function groundedRelationshipEvidence(
   relation: RetrievalRelationshipInput,
   chunks: RetrievalChunkInput[],
@@ -244,6 +162,19 @@ function groundedRelationshipEvidence(
   if (!chunk) return null;
   const fact = normalizeText(relation.fact);
   return fact && normalizeText(chunk.text).includes(fact) ? relation.fact : null;
+}
+
+function evidenceNamesEntity(evidence: string, entity: RetrievalEntityInput): boolean {
+  const normalizedEvidence = ` ${normalizeText(evidence)} `;
+  return [entity.name, ...(entity.aliases ?? [])]
+    .map(normalizeText)
+    .filter(Boolean)
+    .some((label) => normalizedEvidence.includes(` ${label} `));
+}
+
+function isSingleSentence(evidence: string): boolean {
+  const withoutFinalPunctuation = evidence.trim().replace(/[.!?]+$/, "");
+  return !/[.!?]\s+(?=[\p{Lu}\p{N}])/u.test(withoutFinalPunctuation);
 }
 
 export function validateRetrievalExtraction(
@@ -289,6 +220,15 @@ export function validateRetrievalExtraction(
       });
       continue;
     }
+    if (hasOnlyGenericEntityNames(entity)) {
+      issues.push({
+        phase: "entity",
+        code: "generic_entity_name",
+        entityKey: entity.key,
+        message: `Entity ${entity.key} is a generic role word, not a stable graph identity.`,
+      });
+      continue;
+    }
     const grounding = groundedEntityMention(entity, chunks);
     if (grounding !== "valid") {
       issues.push({
@@ -311,9 +251,9 @@ export function validateRetrievalExtraction(
     if (!isRelationshipType(relation.type)) {
       issues.push({
         phase: "relationship",
-        code: "unknown_relationship_type",
+        code: "invalid_relationship_type",
         relationshipIndex,
-        message: `Relationship ${relationshipIndex} uses unknown type ${relation.type}.`,
+        message: `Relationship ${relationshipIndex} must use a concise uppercase snake-case type.`,
       });
       continue;
     }
@@ -328,16 +268,6 @@ export function validateRetrievalExtraction(
       });
       continue;
     }
-    const definition: RetrievalRelationshipDefinition = RETRIEVAL_RELATIONSHIPS[relation.type];
-    if (!relationshipTypesAllowed(definition, from, to)) {
-      issues.push({
-        phase: "relationship",
-        code: "invalid_relationship_types",
-        relationshipIndex,
-        message: `${relation.type} does not allow ${from.type} -> ${to.type}.`,
-      });
-      continue;
-    }
     const evidence = groundedRelationshipEvidence(relation, chunks);
     if (!evidence) {
       issues.push({
@@ -348,21 +278,25 @@ export function validateRetrievalExtraction(
       });
       continue;
     }
-    if (UNCERTAIN_EVIDENCE.some((pattern) => pattern.test(evidence))) {
+    if (
+      !isSingleSentence(evidence) ||
+      !evidenceNamesEntity(evidence, from) ||
+      !evidenceNamesEntity(evidence, to)
+    ) {
+      issues.push({
+        phase: "relationship",
+        code: "ambiguous_relationship_evidence",
+        relationshipIndex,
+        message: `Relationship ${relationshipIndex} must cite one sentence that names both endpoints.`,
+      });
+      continue;
+    }
+    if (hasUncertainRetrievalEvidence(evidence)) {
       issues.push({
         phase: "relationship",
         code: "uncertain_relationship",
         relationshipIndex,
         message: `Relationship ${relationshipIndex} is stated as uncertain, hypothetical, or negated.`,
-      });
-      continue;
-    }
-    if (!definition.evidencePatterns.some((pattern) => pattern.test(evidence))) {
-      issues.push({
-        phase: "relationship",
-        code: "unsupported_predicate",
-        relationshipIndex,
-        message: `Relationship ${relationshipIndex} lacks evidence for predicate ${relation.type}.`,
       });
       continue;
     }
@@ -372,28 +306,21 @@ export function validateRetrievalExtraction(
   return { extraction: { entities, relationships }, issues };
 }
 
-function joined(values: readonly string[]): string {
-  return values.join("|");
-}
-
 export function formatRetrievalOntologyForPrompt(): string {
   const entities = Object.entries(RETRIEVAL_ENTITY_TYPES)
     .map(([type, description]) => `- ${type}: ${description}`)
-    .join("\n");
-  const relationships = Object.entries(RETRIEVAL_RELATIONSHIPS)
-    .map(
-      ([type, definition]) =>
-        `- ${type}: ${joined(definition.from)} -> ${joined(definition.to)}. ${definition.description}`,
-    )
     .join("\n");
   return [
     "Entity types:",
     entities,
     "",
-    "Relationship types and canonical direction:",
-    relationships,
+    "Relationship types:",
+    "- Use a concise uppercase snake-case predicate that directly expresses the cited sentence.",
+    "- Predicates are open, not selected from a fixed list.",
+    "- Examples: ACQUIRED, FOUNDED_BY, HEADQUARTERED_IN, DISTRIBUTED_BY, USES.",
+    "- Preserve direction: in 'Northstar acquired Radar', use Northstar -ACQUIRED-> Radar.",
     "",
-    "Only use the entity and relationship types listed above.",
+    "Only use the entity types listed above.",
     "Every entity must quote a real mention, and every relationship must quote exact supporting text.",
     "Do not extract negated, hypothetical, proposed, or undecided relationships.",
   ].join("\n");

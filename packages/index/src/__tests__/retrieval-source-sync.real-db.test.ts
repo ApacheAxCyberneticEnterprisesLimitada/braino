@@ -1,8 +1,8 @@
 import type { EmbeddingProviderLike, QueryClient } from "@doco/db";
 import type { PGlite } from "@electric-sql/pglite";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
-import { syncRetrievalSourceBatch } from "../retrieval-source-sync.js";
+import { EMPTY_RETRIEVAL_EXTRACTOR, syncRetrievalSourceBatch } from "../retrieval-source-sync.js";
 
 class FixtureProvider implements EmbeddingProviderLike {
   modelId = "test:retrieval-sources";
@@ -17,6 +17,11 @@ class FixtureProvider implements EmbeddingProviderLike {
 
 const COLLECTION_ID = "collection_retrieval_sources";
 let db: PGlite;
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+});
 
 beforeEach(async () => {
   db = await freshDb();
@@ -89,12 +94,55 @@ async function documents() {
 }
 
 describe("unified retrieval source sync", () => {
+  it("uses fast local NLP during ordinary source sync when no model is configured", async () => {
+    const provider = new FixtureProvider();
+    const result = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
+      embeddingProvider: provider,
+      collectionId: COLLECTION_ID,
+      limit: 20,
+    });
+
+    expect(result.indexed).toBe(5);
+    expect(
+      (
+        await db.query<{ name: string; entity_type: string }>(
+          `SELECT name, entity_type
+             FROM retrieval_entities
+            WHERE collection_id = $1 AND name IN ('Solar', 'JDK 8')
+            ORDER BY name`,
+          [COLLECTION_ID],
+        )
+      ).rows,
+    ).toEqual([
+      { name: "JDK 8", entity_type: "technology" },
+      { name: "Solar", entity_type: "service" },
+    ]);
+    expect(
+      (
+        await db.query<{ relation_type: string; fact: string }>(
+          `SELECT relation_type, fact
+             FROM retrieval_relations
+            WHERE collection_id = $1 AND fact = 'Solar uses JDK 8.'`,
+          [COLLECTION_ID],
+        )
+      ).rows,
+    ).toEqual([{ relation_type: "USES", fact: "Solar uses JDK 8." }]);
+    expect(
+      await syncRetrievalSourceBatch(db as unknown as QueryClient, {
+        embeddingProvider: provider,
+        collectionId: COLLECTION_ID,
+        limit: 20,
+      }),
+    ).toMatchObject({ indexed: 0, deleted: 0 });
+  });
+
   it("normalizes every current source into one idempotent ingestion path", async () => {
     const provider = new FixtureProvider();
     const first = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
       embeddingProvider: provider,
       collectionId: COLLECTION_ID,
       limit: 20,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
     });
 
     expect(first).toEqual({
@@ -171,6 +219,7 @@ describe("unified retrieval source sync", () => {
       embeddingProvider: provider,
       collectionId: COLLECTION_ID,
       limit: 20,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
     });
     expect(second).toEqual({
       indexed: 0,
@@ -186,6 +235,7 @@ describe("unified retrieval source sync", () => {
       embeddingProvider: provider,
       collectionId: COLLECTION_ID,
       limit: 20,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
     });
     await db.exec(`
       UPDATE code_files SET content = 'java=17', sha = 'sha_2', synced_at = now()
@@ -198,6 +248,7 @@ describe("unified retrieval source sync", () => {
       embeddingProvider: provider,
       collectionId: COLLECTION_ID,
       limit: 20,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
     });
 
     expect(result).toEqual({
@@ -230,6 +281,7 @@ describe("unified retrieval source sync", () => {
       embeddingProvider: new FixtureProvider(),
       collectionId: COLLECTION_ID,
       limit: 20,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
     });
     const replacement = new FixtureProvider();
     replacement.modelId = "test:replacement-model";
@@ -238,6 +290,7 @@ describe("unified retrieval source sync", () => {
       embeddingProvider: replacement,
       collectionId: COLLECTION_ID,
       limit: 20,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
     });
 
     expect(result.indexed).toBe(5);
@@ -261,6 +314,7 @@ describe("unified retrieval source sync", () => {
 
     const result = await syncRetrievalSourceBatch(db as unknown as QueryClient, {
       embeddingProvider: provider,
+      extractor: EMPTY_RETRIEVAL_EXTRACTOR,
       collectionId: COLLECTION_ID,
     });
 
@@ -294,6 +348,7 @@ describe("unified retrieval source sync", () => {
           embeddingProvider: provider,
           collectionId: COLLECTION_ID,
           partition: { index, count: workers },
+          extractor: EMPTY_RETRIEVAL_EXTRACTOR,
         }),
       );
     }

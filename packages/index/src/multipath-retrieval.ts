@@ -96,9 +96,12 @@ const PATH_WEIGHTS: Record<RetrievalPath, number> = {
   chunk_vector: 1,
   relationship_lexical: 0.6,
   relationship_vector: 0.6,
-  entity_mention: 0.5,
-  neighbor_mention: 0.25,
-  graph_relation: 0.25,
+  entity_mention: 0.75,
+  // These paths exist only after a high-confidence relationship was traversed.
+  // Give the evidence bundle enough weight to enter the result window while
+  // protectRankedHead still preserves the three strongest direct documents.
+  neighbor_mention: 1.5,
+  graph_relation: 1,
 };
 
 /** Weighted reciprocal-rank fusion makes ranks from independent retrieval

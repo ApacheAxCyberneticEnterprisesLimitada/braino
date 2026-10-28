@@ -2,21 +2,21 @@ import { describe, expect, it } from "vitest";
 import { fuseCandidateRanks, protectRankedHead } from "../multipath-retrieval.js";
 
 describe("multi-path rank fusion", () => {
-  it("rewards agreement between lexical and vector retrieval over graph-only noise", () => {
-    const ranked = fuseCandidateRanks({
+  it("promotes corroborated graph evidence without displacing the direct head", () => {
+    const fused = fuseCandidateRanks({
       chunk_lexical: ["direct", "lexical-only"],
       chunk_vector: ["direct", "vector-only"],
       graph_relation: ["graph-only"],
       neighbor_mention: ["graph-only"],
     });
+    const rankedIds = protectRankedHead(
+      ["direct", "lexical-only", "vector-only"],
+      fused.map((candidate) => candidate.id),
+      1,
+    );
 
-    expect(ranked.map((candidate) => candidate.id)).toEqual([
-      "direct",
-      "lexical-only",
-      "vector-only",
-      "graph-only",
-    ]);
-    expect(ranked[0]?.score).toBeGreaterThan(ranked[1]?.score ?? 0);
+    expect(rankedIds).toEqual(["direct", "graph-only", "lexical-only", "vector-only"]);
+    expect(fused[0]?.id).toBe("graph-only");
   });
 
   it("uses stable ids to break equal-score ties", () => {

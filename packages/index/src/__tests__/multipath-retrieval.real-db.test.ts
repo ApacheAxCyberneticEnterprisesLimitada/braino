@@ -55,6 +55,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
       },
       {
         extractor: {
+          id: "fixture",
           async extract() {
             return {
               entities: [
@@ -98,6 +99,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
       {
         graphEnrichmentMode: "llm-validated",
         extractor: {
+          id: "fixture",
           async extract() {
             return {
               entities: [
@@ -145,6 +147,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
         {
           graphEnrichmentMode: "llm-validated",
           extractor: {
+            id: "fixture",
             async extract() {
               return { entities: [], relationships: [] };
             },
@@ -157,6 +160,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
   it("gives every connector one source-document ingestion path", async () => {
     let extractedChunks: string[] = [];
     const extractor: RetrievalExtractor = {
+      id: "fixture",
       async extract({ chunks }) {
         extractedChunks = chunks.map((chunk) => chunk.text);
         return {
@@ -213,6 +217,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
       },
       {
         extractor: {
+          id: "fixture",
           async extract() {
             return {
               entities: [
@@ -255,7 +260,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
     expect(relations.rows[0]?.count).toBe(0);
   });
 
-  it("resolves the same typed entity across sources while retaining both mentions", async () => {
+  it("resolves the same entity across sources even when extractors disagree about its type", async () => {
     await ingestRetrievalDocument(
       db as unknown as QueryClient,
       {
@@ -270,7 +275,7 @@ describe("Falkor-style retrieval graph ingestion", () => {
             {
               key: "solar",
               name: "Solar",
-              type: "Service",
+              type: "Product",
               mentions: [{ chunkIndex: 0 }],
             },
           ],
@@ -533,6 +538,110 @@ describe("Falkor-style multi-path retrieval", () => {
     const status = result.items[statusIndex];
     expect(status?.paths).toContain("neighbor_mention");
     expect(result.stats.relationshipsExpanded).toBeGreaterThan(0);
+  });
+
+  it("promotes evidence that completes a graph path above direct lexical distractors", async () => {
+    await ingestRetrievalDocument(
+      db as unknown as QueryClient,
+      {
+        collectionId: COLLECTION_ID,
+        source: "notion",
+        externalId: "emma-owner",
+        content: "Comms Platform owns Emma.",
+        chunks: [{ text: "Comms Platform owns Emma." }],
+        extraction: {
+          entities: [
+            {
+              key: "comms",
+              name: "Comms Platform",
+              type: "Team",
+              mentions: [{ chunkIndex: 0 }],
+            },
+            { key: "emma", name: "Emma", type: "Product", mentions: [{ chunkIndex: 0 }] },
+          ],
+          relationships: [
+            {
+              fromKey: "comms",
+              toKey: "emma",
+              type: "OWNS",
+              fact: "Comms Platform owns Emma.",
+              chunkIndex: 0,
+            },
+          ],
+        },
+      },
+      { embeddingProvider: provider },
+    );
+    await ingestRetrievalDocument(
+      db as unknown as QueryClient,
+      {
+        collectionId: COLLECTION_ID,
+        source: "slack",
+        externalId: "comms-channel",
+        content: "Comms Platform uses Slack for operational communication.",
+        chunks: [{ text: "Comms Platform uses Slack for operational communication." }],
+        extraction: {
+          entities: [
+            {
+              key: "comms",
+              name: "Comms Platform",
+              type: "Team",
+              mentions: [{ chunkIndex: 0 }],
+            },
+            {
+              key: "slack",
+              name: "Slack",
+              type: "Communication_channel",
+              mentions: [{ chunkIndex: 0 }],
+            },
+          ],
+          relationships: [
+            {
+              fromKey: "comms",
+              toKey: "slack",
+              type: "USES",
+              fact: "Comms Platform uses Slack for operational communication.",
+              chunkIndex: 0,
+            },
+          ],
+        },
+      },
+      { embeddingProvider: provider },
+    );
+    for (let index = 0; index < 8; index++) {
+      await ingestRetrievalDocument(
+        db as unknown as QueryClient,
+        {
+          collectionId: COLLECTION_ID,
+          source: "notion",
+          externalId: `emma-channel-distractor-${index}`,
+          content: `Emma communication channel review ${index} contains no ownership decision.`,
+          chunks: [
+            {
+              text: `Emma communication channel review ${index} contains no ownership decision.`,
+            },
+          ],
+          extraction: { entities: [], relationships: [] },
+        },
+        { embeddingProvider: provider },
+      );
+    }
+
+    const query = "Which communication channel does the team that owns Emma use?";
+    const [queryEmbedding] = await provider.embed([query], "query");
+    const result = await multiPathRetrieve(db as unknown as QueryClient, {
+      collectionId: COLLECTION_ID,
+      queryText: query,
+      keywords: ["Emma", "communication channel"],
+      semantic: { queryEmbedding, modelId: provider.modelId },
+      accessScopes: ["workspace"],
+      limit: 5,
+    });
+
+    const channelIndex = result.items.findIndex((item) => item.externalId === "comms-channel");
+    expect(channelIndex).toBeGreaterThanOrEqual(0);
+    expect(channelIndex).toBeLessThan(5);
+    expect(result.items[channelIndex]?.paths).toContain("neighbor_mention");
   });
 
   it("retrieves the Solar JDK evidence through relationship and chunk vectors", async () => {
