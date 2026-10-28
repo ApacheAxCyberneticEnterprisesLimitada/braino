@@ -3,13 +3,17 @@
 // tokens, so re-applying schema.sql renames the table and each token in place,
 // keeping who made it, its label and when it was last used. A hook holding an
 // old token gets a 401 and asks its agent to fetch the renamed one with
-// doco_hook_token.
+// doco_hook_token. Tokens rest as SHA-256 digests since the 2026-10-28 security
+// review, so the renamed token is stored as the digest of its new form.
+import { createHash } from "node:crypto";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";
 import { schemaSql } from "./schema-sql.js";
 
 let db: PGlite;
+
+const digest = (token: string) => createHash("sha256").update(token).digest("hex");
 
 async function tableExists(table: string): Promise<boolean> {
   const r = await db.query("SELECT to_regclass($1) AS reg", [`public.${table}`]);
@@ -61,7 +65,7 @@ describe("project_tokens becomes hook_tokens", () => {
     );
     expect(rows.rows).toEqual([
       {
-        token: "doco_ht_abcdefgh12345678",
+        token: digest("doco_ht_abcdefgh12345678"),
         created_by_user_id: "user_a",
         label: "Doco hook",
         revoked: false,
@@ -71,15 +75,15 @@ describe("project_tokens becomes hook_tokens", () => {
   });
 
   it("leaves hook_tokens alone when the schema is applied again", async () => {
-    await db.exec(`
-      INSERT INTO hook_tokens (token, workspace_id, created_by_user_id)
-      VALUES ('doco_ht_zyxwvuts87654321', 'workspace_w', 'user_a');
-    `);
+    await db.query(
+      "INSERT INTO hook_tokens (token, workspace_id, created_by_user_id) VALUES ($1, $2, $3)",
+      [digest("doco_ht_zyxwvuts87654321"), "workspace_w", "user_a"],
+    );
 
     await db.exec(schemaSql);
 
     expect(await tableExists("project_tokens")).toBe(false);
     const rows = await db.query("SELECT token FROM hook_tokens");
-    expect(rows.rows).toEqual([{ token: "doco_ht_zyxwvuts87654321" }]);
+    expect(rows.rows).toEqual([{ token: digest("doco_ht_zyxwvuts87654321") }]);
   });
 });

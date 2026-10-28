@@ -1008,11 +1008,14 @@ CREATE INDEX IF NOT EXISTS oauth_authorization_codes_expires_idx
   ON oauth_authorization_codes (expires_at);
 
 -- Access tokens (~1h TTL). Opaque, server-issued, validated on every
--- MCP / API request by exact match. We don't use JWTs: tokens are
--- single-tenant (this host issues + validates them) and revocation
--- needs to be instantaneous, which JWT TTLs can't guarantee.
+-- MCP / API request by exact match of the presented token's SHA-256 against
+-- `token`, which holds the digest and never the token itself
+-- (lib/secret-box.server.ts tokenDigest), so a copy of the database signs
+-- nobody in. We don't use JWTs: tokens are single-tenant (this host issues +
+-- validates them) and revocation needs to be instantaneous, which JWT TTLs
+-- can't guarantee.
 CREATE TABLE IF NOT EXISTS oauth_access_tokens (
-  token             text PRIMARY KEY,
+  token             text PRIMARY KEY,             -- SHA-256 of the token, hex
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_name        text,
@@ -1047,7 +1050,7 @@ CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
 -- anywhere — a repo .env, cloud env vars, CI secrets — without going stale.
 -- Revocation (from /tokens) is how a token is cut off.
 CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
-  token             text PRIMARY KEY,
+  token             text PRIMARY KEY,             -- SHA-256 of the token, hex
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
   user_id           text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   token_name        text,
@@ -1076,6 +1079,17 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_user_idx ON oauth_refresh_tokens (user_id);
 CREATE INDEX IF NOT EXISTS oauth_refresh_tokens_expires_idx
   ON oauth_refresh_tokens (expires_at);
+
+-- Tokens minted before the database held digests (2026-10-28) are hashed in
+-- place, once: a row still holding a token is one that starts with its
+-- prefix, and a digest never does. The tokens their holders keep go on
+-- working, since validation hashes what is presented.
+UPDATE oauth_access_tokens
+   SET token = encode(sha256(convert_to(token, 'UTF8')), 'hex')
+ WHERE token LIKE 'doco\_at\_%';
+UPDATE oauth_refresh_tokens
+   SET token = encode(sha256(convert_to(token, 'UTF8')), 'hex')
+ WHERE token LIKE 'doco\_rt\_%';
 
 -- Device Authorization Grant (RFC 8628). Designed for agents that
 -- cannot drive a localhost-redirect OAuth flow (no port-binding,
@@ -1148,7 +1162,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_idx
 -- what its maker can read there (decision_01M4C2J610DPD028P55Q8X6VG2), with
 -- no expiry; revoking is the only kill switch. Any member mints their own; an
 -- agent gets its person's with the MCP tool doco_hook_token and saves it in
--- .doco/hook-tokens.json, out of git, where the Doco hook reads it. They were
+-- .doco/hook-tokens.json, out of git, where the Doco hook reads it. `token`
+-- holds the token's SHA-256 (hex), matched against the digest of the bearer
+-- presented; `token_sealed` its sealed copy (lib/secret-box.server.ts), which
+-- doco_hook_token reads to hand the same token out again. They were
 -- project tokens (doco_pt_…) until they were named for the hook: a guarded,
 -- self-removing block renames the table, its index and each token's prefix
 -- on the first boot that still has project_tokens.
@@ -1162,7 +1179,8 @@ BEGIN
   END IF;
 END $$;
 CREATE TABLE IF NOT EXISTS hook_tokens (
-  token                 text PRIMARY KEY,
+  token                 text PRIMARY KEY,         -- SHA-256 of the token, hex
+  token_sealed          text,                     -- the token, sealed; null for one minted before 2026-10-28
   workspace_id          text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   created_by_user_id    text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   label                 text,
@@ -1172,6 +1190,13 @@ CREATE TABLE IF NOT EXISTS hook_tokens (
 );
 CREATE INDEX IF NOT EXISTS hook_tokens_workspace_idx
   ON hook_tokens (workspace_id) WHERE NOT revoked;
+-- Tokens minted before the database held digests (2026-10-28) are hashed in
+-- place, once, with no sealed copy to read them back from: they keep reading,
+-- and doco_hook_token mints its person a new one the next time it asks.
+ALTER TABLE hook_tokens ADD COLUMN IF NOT EXISTS token_sealed text;
+UPDATE hook_tokens
+   SET token = encode(sha256(convert_to(token, 'UTF8')), 'hex')
+ WHERE token LIKE 'doco\_ht\_%';
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Visualization perspectives and the per-collection attachment join. Ownership is

@@ -26,6 +26,7 @@ export {
   getHostConfig,
   // Users (the people who sign in)
   getUserById,
+  getUserForSession,
   getUserByUsername,
   getUserByGithubLogin,
   getUserByEmail,

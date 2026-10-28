@@ -355,6 +355,23 @@ export async function getUserById(id: string): Promise<UserRow | null> {
   return findUser("id = $1", id);
 }
 
+/**
+ * A person and the password hash their sessions are bound to
+ * (lib/session.server.ts): one query on every request a cookie signs in.
+ */
+export async function getUserForSession(
+  id: string,
+): Promise<{ user: UserRow; password_hash: string | null } | null> {
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT ${USER_COLUMNS}, password_hash FROM users WHERE id = $1 LIMIT 1`,
+      [id],
+    );
+    if (r.rows.length === 0) return null;
+    return { user: mapUserRow(r.rows[0]), password_hash: nullableString(r.rows[0].password_hash) };
+  });
+}
+
 /** The person with this Doco name, in any case. */
 export async function getUserByUsername(username: string): Promise<UserRow | null> {
   return findUser("lower(username) = lower($1)", username);
