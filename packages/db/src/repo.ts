@@ -764,9 +764,11 @@ export async function removeCollectionUser(collectionId: string, userId: string)
 
 // ─── Access requests ────────────────────────────────────────────────────────
 
+/** A request names a collection or a whole workspace, never both. */
 export interface AccessRequestRow {
   id: string;
-  collection_id: string;
+  collection_id: string | null;
+  workspace_id: string | null;
   requester_id: string;
   requested_role: CollectionRole;
   reason: string | null;
@@ -779,7 +781,8 @@ export interface AccessRequestRow {
 function mapAccessRequestRow(r: Record<string, unknown>): AccessRequestRow {
   return {
     id: String(r.id),
-    collection_id: String(r.collection_id),
+    collection_id: r.collection_id == null ? null : String(r.collection_id),
+    workspace_id: r.workspace_id == null ? null : String(r.workspace_id),
     requester_id: String(r.requester_id),
     requested_role: r.requested_role as CollectionRole,
     reason: r.reason == null ? null : String(r.reason),
@@ -791,28 +794,38 @@ function mapAccessRequestRow(r: Record<string, unknown>): AccessRequestRow {
 }
 
 /**
- * Create (or refresh) the caller's pending access request for a collection. The
- * partial unique index permits one live request per (collection, requester), so a
- * repeat upserts the role/reason instead of duplicating. Writing the grant on
- * approval is the caller's job (see `decideAccessRequest` + `upsertCollectionUser`).
+ * Create (or refresh) the caller's pending access request for a collection or
+ * a workspace (exactly one; the table's CHECK holds it). The partial unique
+ * indexes permit one live request per (target, requester), so a repeat
+ * upserts the role/reason instead of duplicating. Writing the grant on
+ * approval is the caller's job (see `decideAccessRequest`).
  */
 export async function createAccessRequest(opts: {
-  collection_id: string;
+  collection_id?: string;
+  workspace_id?: string;
   requester_id: string;
   requested_role: CollectionRole;
   reason?: string | null;
 }): Promise<AccessRequestRow> {
   const id = `accreq_${randomBytes(16).toString("base64url")}`;
+  const target = opts.workspace_id && !opts.collection_id ? "workspace_id" : "collection_id";
   return withClient(async (c) => {
     const r = await c.query(
-      `INSERT INTO access_requests (id, collection_id, requester_id, requested_role, reason)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (collection_id, requester_id) WHERE status = 'pending'
+      `INSERT INTO access_requests (id, collection_id, workspace_id, requester_id, requested_role, reason)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (${target}, requester_id) WHERE status = 'pending'
        DO UPDATE SET requested_role = EXCLUDED.requested_role,
                      reason = EXCLUDED.reason,
                      created_at = now()
        RETURNING *`,
-      [id, opts.collection_id, opts.requester_id, opts.requested_role, opts.reason ?? null],
+      [
+        id,
+        opts.collection_id ?? null,
+        opts.workspace_id ?? null,
+        opts.requester_id,
+        opts.requested_role,
+        opts.reason ?? null,
+      ],
     );
     return mapAccessRequestRow(r.rows[0] as Record<string, unknown>);
   });
@@ -838,6 +851,40 @@ export async function listPendingAccessRequestsForCollections(
       [collectionIds],
     );
     return r.rows.map((row) => mapAccessRequestRow(row as Record<string, unknown>));
+  });
+}
+
+/** Pending requests to join a set of workspaces (their owners' inbox), oldest first. */
+export async function listPendingAccessRequestsForWorkspaces(
+  workspaceIds: string[],
+): Promise<AccessRequestRow[]> {
+  if (workspaceIds.length === 0) return [];
+  return withClient(async (c) => {
+    const r = await c.query(
+      `SELECT * FROM access_requests
+       WHERE status = 'pending' AND workspace_id = ANY($1::text[])
+       ORDER BY created_at ASC`,
+      [workspaceIds],
+    );
+    return r.rows.map((row) => mapAccessRequestRow(row as Record<string, unknown>));
+  });
+}
+
+/** Pending-request counts for every workspace that has any: the header badge's other half. */
+export async function listPendingWorkspaceAccessRequestCounts(): Promise<
+  { workspace_id: string; n: number }[]
+> {
+  return withClient(async (c) => {
+    const r = await c.query<{ workspace_id: string; n: number | string }>(
+      `SELECT workspace_id, count(*)::int AS n
+         FROM access_requests
+        WHERE status = 'pending' AND workspace_id IS NOT NULL
+        GROUP BY workspace_id`,
+    );
+    return r.rows.map((row) => ({
+      workspace_id: String(row.workspace_id),
+      n: typeof row.n === "number" ? row.n : Number(row.n),
+    }));
   });
 }
 

@@ -68,6 +68,8 @@ export {
   createAccessRequest,
   getAccessRequest,
   listPendingAccessRequestsForCollections,
+  listPendingAccessRequestsForWorkspaces,
+  listPendingWorkspaceAccessRequestCounts,
   listPendingAccessRequestCountsByCollection,
   decideAccessRequest,
   cancelAccessRequest,

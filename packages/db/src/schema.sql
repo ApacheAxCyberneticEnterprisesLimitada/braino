@@ -91,7 +91,11 @@ CREATE TABLE IF NOT EXISTS workspaces (
   -- so this is set only on the ones people already had (marked once, below)
   -- and nothing writes it. It is no project's: its person walks no setup
   -- steps and gets no digest for it.
-  personal_user_id text REFERENCES users(id) ON DELETE SET NULL
+  personal_user_id text REFERENCES users(id) ON DELETE SET NULL,
+  -- Whether agents end each pull request they write for this workspace with a
+  -- "Briefed by Doco" line linked to their brief (the standing orders ask for
+  -- it). Off unless an owner turns it on, so it never reads as spam.
+  pr_brief_line boolean NOT NULL DEFAULT false
 );
 
 -- Workspace users (per-workspace role grants).
@@ -1141,9 +1145,14 @@ CREATE INDEX IF NOT EXISTS oauth_device_authorizations_expires_idx
 -- one live (pending) request per (collection, requester); deciding it frees a
 -- new one. Connector tokens defer to the matrix, so an approved grant
 -- takes effect on the requester's next call with no re-auth.
+-- Access requests: someone asks the owners of a collection, or of a whole
+-- workspace, for a role. Exactly one of collection_id and workspace_id is set.
+-- A workspace request is how a person whose project's .doco/workspace names a
+-- workspace they are not in asks to join it; approving writes workspace_users.
 CREATE TABLE IF NOT EXISTS access_requests (
   id             text PRIMARY KEY,                  -- accreq_<opaque>
-  collection_id        text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  collection_id  text REFERENCES collections(id) ON DELETE CASCADE,
+  workspace_id   text REFERENCES workspaces(id) ON DELETE CASCADE,
   requester_id   text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   requested_role text NOT NULL CHECK (requested_role IN ('reader','writer','owner')),
   reason         text,
@@ -1157,6 +1166,17 @@ CREATE INDEX IF NOT EXISTS access_requests_collection_status_idx
   ON access_requests (collection_id, status);
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_idx
   ON access_requests (collection_id, requester_id) WHERE status = 'pending';
+ALTER TABLE access_requests ADD COLUMN IF NOT EXISTS workspace_id text REFERENCES workspaces(id) ON DELETE CASCADE;
+ALTER TABLE access_requests ALTER COLUMN collection_id DROP NOT NULL;
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'access_requests_one_target') THEN
+    ALTER TABLE access_requests ADD CONSTRAINT access_requests_one_target
+      CHECK ((collection_id IS NULL) <> (workspace_id IS NULL));
+  END IF;
+END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_workspace_idx
+  ON access_requests (workspace_id, requester_id) WHERE status = 'pending';
 
 -- Hook tokens: a person's read-only credential for one workspace, reading
 -- what its maker can read there (decision_01M4C2J610DPD028P55Q8X6VG2), with
@@ -2075,6 +2095,8 @@ END $$;
 -- that this migration hasn't added yet and abort the entire schema-apply.
 ALTER TABLE collections
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS pr_brief_line boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS collections_deleted_at_idx ON collections (deleted_at) WHERE deleted_at IS NOT NULL;
 
 -- ── Unified retrieval sources ─────────────────────────────────────────────

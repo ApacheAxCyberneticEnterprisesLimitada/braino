@@ -16,6 +16,8 @@ import {
   getAccessRequest,
   listPendingAccessRequestCountsByCollection,
   listPendingAccessRequestsForCollections,
+  listPendingAccessRequestsForWorkspaces,
+  listPendingWorkspaceAccessRequestCounts,
 } from "../repo.js";
 
 const ORG = "workspace_test000000000000000";
@@ -247,6 +249,54 @@ describe("access requests", () => {
         owner_id: ORG,
         n: 1,
       });
+    });
+  });
+
+  // A person whose project names a workspace they are not in asks to join it
+  // (Loop 1 of "Making Doco viral": .doco/workspace as a spore).
+  describe("workspace requests", () => {
+    it("asks to join a workspace, one live request per person", async () => {
+      const a = await createAccessRequest({
+        workspace_id: ORG,
+        requester_id: REQ,
+        requested_role: "reader",
+      });
+      expect(a).toMatchObject({ workspace_id: ORG, collection_id: null, status: "pending" });
+      const b = await createAccessRequest({
+        workspace_id: ORG,
+        requester_id: REQ,
+        requested_role: "writer",
+      });
+      expect(b.id).toBe(a.id);
+      expect(await listPendingAccessRequestsForWorkspaces([ORG])).toEqual([
+        expect.objectContaining({ id: a.id, requested_role: "writer" }),
+      ]);
+      expect(await listPendingAccessRequestsForCollections([COLLECTION])).toEqual([]);
+    });
+
+    it("keeps a workspace request apart from a collection request", async () => {
+      await createAccessRequest({ workspace_id: ORG, requester_id: REQ, requested_role: "reader" });
+      await createAccessRequest({
+        collection_id: COLLECTION,
+        requester_id: REQ,
+        requested_role: "reader",
+      });
+      expect(await listPendingAccessRequestsForWorkspaces([ORG])).toHaveLength(1);
+      expect(await listPendingAccessRequestsForCollections([COLLECTION])).toHaveLength(1);
+      expect(await listPendingWorkspaceAccessRequestCounts()).toEqual([
+        { workspace_id: ORG, n: 1 },
+      ]);
+    });
+
+    it("needs exactly one of a collection and a workspace", async () => {
+      await expect(
+        createAccessRequest({
+          collection_id: COLLECTION,
+          workspace_id: ORG,
+          requester_id: REQ,
+          requested_role: "reader",
+        }),
+      ).rejects.toThrow();
     });
   });
 });
