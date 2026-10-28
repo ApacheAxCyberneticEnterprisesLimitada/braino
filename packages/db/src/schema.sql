@@ -95,7 +95,11 @@ CREATE TABLE IF NOT EXISTS workspaces (
   -- Whether agents end each pull request they write for this workspace with a
   -- "Briefed by Doco" line linked to their brief (the standing orders ask for
   -- it). Off unless an owner turns it on, so it never reads as spam.
-  pr_brief_line boolean NOT NULL DEFAULT false
+  pr_brief_line boolean NOT NULL DEFAULT false,
+  -- Whether anyone may read the web editions of its newspaper, The
+  -- <Workspace> Times, with the stories from its public collections only.
+  -- Members-only unless an owner turns it on.
+  times_public boolean NOT NULL DEFAULT false
 );
 
 -- Workspace users (per-workspace role grants).
@@ -1178,6 +1182,18 @@ END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS access_requests_one_pending_workspace_idx
   ON access_requests (workspace_id, requester_id) WHERE status = 'pending';
 
+-- The Workspace Times as it came out: each edition's stories, ranked once by
+-- a model when the digest went out (web lib/activity-digest.server.ts), so
+-- its web page (/workspaces/<handle>/times/<day>) shows the same front page
+-- without ranking again. Each reader sees the stories they may read.
+CREATE TABLE IF NOT EXISTS times_editions (
+  workspace_id text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  cadence      text NOT NULL CHECK (cadence IN ('daily', 'weekly')),
+  published_at timestamptz NOT NULL,
+  stories      jsonb NOT NULL DEFAULT '[]'::jsonb,
+  PRIMARY KEY (workspace_id, cadence, published_at)
+);
+
 -- Hook tokens: a person's read-only credential for one workspace, reading
 -- what its maker can read there (decision_01M4C2J610DPD028P55Q8X6VG2), with
 -- no expiry; revoking is the only kill switch. Any member mints their own; an
@@ -1409,6 +1425,14 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   -- How often the Times goes to that channel (lib/activity-digest.ts), as
   -- workspace_users.digest is for each member's email.
   digest                      text NOT NULL DEFAULT 'daily' CHECK (digest IN ('daily', 'weekly', 'off')),
+  -- Whether the team's Slack members may join its Doco workspace on their own,
+  -- and as what: off, or reader or writer. On, the Times post in the channel
+  -- carries a Join button, and linking a Slack account makes the person a
+  -- member (web lib/slack-join.server.ts).
+  member_join                 text NOT NULL DEFAULT 'off' CHECK (member_join IN ('off', 'reader', 'writer')),
+  -- Whether he answers in Slack Connect channels, which another company reads
+  -- too: off unless an owner turns it on.
+  answer_shared               boolean NOT NULL DEFAULT false,
   data                        jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at                  timestamptz NOT NULL DEFAULT now(),
   updated_at                  timestamptz NOT NULL DEFAULT now(),
@@ -1419,6 +1443,11 @@ ALTER TABLE group_chat_installations ADD COLUMN IF NOT EXISTS default_channel_na
 ALTER TABLE group_chat_installations
   ADD COLUMN IF NOT EXISTS digest text NOT NULL DEFAULT 'daily'
   CHECK (digest IN ('daily', 'weekly', 'off'));
+ALTER TABLE group_chat_installations
+  ADD COLUMN IF NOT EXISTS member_join text NOT NULL DEFAULT 'off'
+  CHECK (member_join IN ('off', 'reader', 'writer'));
+ALTER TABLE group_chat_installations
+  ADD COLUMN IF NOT EXISTS answer_shared boolean NOT NULL DEFAULT false;
 CREATE TABLE IF NOT EXISTS group_chat_channel_connections (
   id                      text PRIMARY KEY,
   provider                text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
@@ -2097,6 +2126,8 @@ ALTER TABLE collections
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE workspaces
   ADD COLUMN IF NOT EXISTS pr_brief_line boolean NOT NULL DEFAULT false;
+ALTER TABLE workspaces
+  ADD COLUMN IF NOT EXISTS times_public boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS collections_deleted_at_idx ON collections (deleted_at) WHERE deleted_at IS NOT NULL;
 
 -- ── Unified retrieval sources ─────────────────────────────────────────────
