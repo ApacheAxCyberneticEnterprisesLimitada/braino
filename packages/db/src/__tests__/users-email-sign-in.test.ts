@@ -29,12 +29,12 @@ async function columns(): Promise<string[]> {
 describe("users move from GitHub logins to Doco usernames", () => {
   beforeEach(async () => {
     db = await freshDb();
-    // A database from GitHub sign-in: no username or password, the GitHub id,
+    // A database from GitHub sign-in: no username or stamp, the GitHub id,
     // an avatar nobody wrote, and the kind column production still carried.
     await db.exec(`
       DROP INDEX users_username_key;
       DROP INDEX users_email_key;
-      ALTER TABLE users DROP COLUMN username, DROP COLUMN password_hash,
+      ALTER TABLE users DROP COLUMN username, DROP COLUMN stamp,
         ADD COLUMN github_id text, ADD COLUMN avatar_url text,
         ADD COLUMN kind text NOT NULL DEFAULT 'person';
       INSERT INTO users (id, github_id, github_login, email, data, created_at) VALUES
@@ -85,8 +85,8 @@ describe("users move from GitHub logins to Doco usernames", () => {
         "github_login",
         "id",
         "name",
-        "password_hash",
         "public_profile",
+        "stamp",
         "updated_at",
         "username",
       ].sort(),

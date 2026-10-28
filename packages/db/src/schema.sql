@@ -41,8 +41,8 @@ ON CONFLICT (id) DO NOTHING;
 -- Identity layer.
 --
 -- Two distinct concerns, split into two tables:
---   `users`      — the humans who sign in, with an email address and a
---                  password (decision_01M5EA9HVPXG0SF7FVZWCGXSQ1). Authored
+--   `users`      — the humans who sign in, with a passkey, and whose email
+--                  address Doco links to (decision_01M623N7EK5E1FCMPEY495V7NW). Authored
 --                  nodes via `created_by` / `updated_by`. Members of
 --                  workspaces/collections. OAuth clients/tokens have names on
 --                  the token rows; they are not represented as user rows.
@@ -60,11 +60,12 @@ CREATE TABLE IF NOT EXISTS users (
   -- The GitHub account the person is, for matching GitHub's events (a pull
   -- request's author) to them; nothing signs in with it.
   github_login    text,
-  -- Where Doco emails them, and what they sign in with; unique regardless of
-  -- case.
+  -- Where Doco emails them, and the links that add a passkey to their account;
+  -- unique regardless of case.
   email           text,
-  -- scrypt, as lib/password.server.ts writes it; null until they choose one.
-  password_hash   text,
+  -- What every session and emailed link of theirs carries; a new one ends them
+  -- all (decision_01M623QEJFBPZNCTFQAVTTWTHE).
+  stamp           text NOT NULL DEFAULT gen_random_uuid()::text,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
   updated_at      timestamptz NOT NULL DEFAULT now(),
@@ -74,6 +75,22 @@ CREATE TABLE IF NOT EXISTS users (
   public_profile  boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
+
+-- A person's passkeys, each the WebAuthn credential one passkey provider
+-- (iCloud Keychain, Google Password Manager, 1Password, …) keeps for them
+-- (decision_01M623QW4Z6TY9DA1HPH42G1CA). The provider names itself by `aaguid`, unsigned,
+-- so it is a label, never proof.
+CREATE TABLE IF NOT EXISTS passkeys (
+  id            text PRIMARY KEY,            -- the credential id, base64url
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  public_key    bytea NOT NULL,              -- COSE
+  counter       bigint NOT NULL DEFAULT 0,
+  transports    text[] NOT NULL DEFAULT '{}',
+  aaguid        text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  last_used_at  timestamptz
+);
+CREATE INDEX IF NOT EXISTS passkeys_user_idx ON passkeys (user_id);
 
 
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -2634,7 +2651,6 @@ BEGIN
   END IF;
 END $$;
 CREATE UNIQUE INDEX IF NOT EXISTS users_username_key ON users (lower(username));
-ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS public_profile boolean NOT NULL DEFAULT false;
 -- An address signs in one person: made unique once, a blank one counting as
 -- none and a later account sharing an address losing it to the first.
@@ -2660,6 +2676,29 @@ ALTER TABLE users
 -- asking them to choose a password (decision_01M5EA9JYTP68Y3EDX11805BXV),
 -- which went out on 2026-10-21; it went with the job.
 ALTER TABLE users DROP COLUMN IF EXISTS password_email_sent_at;
+-- Passkeys replaced passwords (decision_01M623N7EK5E1FCMPEY495V7NW). users.stamp is
+-- filled once, on the boot that adds it, with the stamp sessions carried until
+-- then, the SHA-256 of the account's id and password hash, so whoever was
+-- signed in stays signed in to add a passkey (decision_01M623NN6974YZ54JKG72KK9H1); then
+-- the password hash goes.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'users'
+       AND column_name = 'stamp'
+  ) THEN
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;
+    ALTER TABLE users ADD COLUMN stamp text;
+    UPDATE users SET stamp = left(translate(encode(sha256(convert_to(
+      id || ':' || coalesce(password_hash, ''), 'UTF8')), 'base64'), '+/', '-_'), 22);
+    ALTER TABLE users
+      ALTER COLUMN stamp SET DEFAULT gen_random_uuid()::text,
+      ALTER COLUMN stamp SET NOT NULL,
+      DROP COLUMN password_hash;
+  END IF;
+END $$;
 -- A person's name, filled once, on the boot that adds the column, from the
 -- real name of the Slack account they linked where a Slack copy of its team
 -- lists them; everyone else writes theirs on their profile.
