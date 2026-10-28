@@ -25,6 +25,11 @@ pnpm --filter @doco/index eval:enterprise-rag -- \
   --answers
 ```
 
+Pass `--graph` to enrich the corpus with the configured retrieval extractor and
+measure graph-assisted ranking. Without it, the runner uses the empty extractor
+as a direct-retrieval control. The summary records the extractor id and graph
+row counts so a graph run cannot be confused with an empty index.
+
 `--answers` uses `ANTHROPIC_API_KEY` and Doco's configured assistant model
 (`SENOR_DOCO_ANTHROPIC_MODEL`, default `claude-sonnet-4-6`). Omit it for a
 retrieval-only run. `--eligible-only` is only for partial-corpus calibration:

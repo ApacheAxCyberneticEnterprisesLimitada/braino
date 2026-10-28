@@ -12,6 +12,7 @@ import yauzl from "yauzl";
 
 import {
   dedupeRankedDocuments,
+  parseBenchmarkArgs,
   parseBenchmarkDocument,
   retrievalSummary,
   runnableQuestions,
@@ -25,7 +26,7 @@ const BENCHMARK_COLLECTION = "collection_enterpriserag_bench";
 const ACCESS_SCOPES = ["workspace"];
 const DEFAULT_ANSWER_MODEL = "claude-sonnet-4-6";
 
-const opts = parseArgs(process.argv.slice(2));
+const opts = parseBenchmarkArgs(process.argv.slice(2));
 process.env.DOCO_DATABASE_URL = opts.databaseUrl;
 
 const index = await import(INDEX_DIST);
@@ -40,7 +41,10 @@ try {
   await db.ensureSchema();
   client = await db.getPool().connect();
   await ensureBenchmarkCollection(client);
-  const indexing = await indexArchives(client, provider, opts.archives);
+  const extractor = opts.graph
+    ? index.configuredRetrievalExtractor()
+    : index.EMPTY_RETRIEVAL_EXTRACTOR;
+  const indexing = await indexArchives(client, provider, opts.archives, extractor);
   const { documentIds, ...indexingSummary } = indexing;
   const questions = readJsonLines(opts.questions);
   const selected = opts.eligibleOnly ? runnableQuestions(questions, documentIds) : questions;
@@ -61,51 +65,6 @@ try {
   await db.closePool();
 }
 
-function parseArgs(argv) {
-  const parsed = {
-    archives: [],
-    questions: "",
-    output: resolve("enterprise-rag-answers.jsonl"),
-    databaseUrl: process.env.DOCO_BENCHMARK_DATABASE_URL ?? "",
-    topK: 10,
-    eligibleOnly: false,
-    answers: false,
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === "--") continue;
-    const next = () => {
-      const value = argv[++i];
-      if (!value) throw new Error(`${arg} requires a value`);
-      return value;
-    };
-    if (arg === "--archive") parsed.archives.push(resolve(next()));
-    else if (arg === "--questions") parsed.questions = resolve(next());
-    else if (arg === "--output") parsed.output = resolve(next());
-    else if (arg === "--database-url") parsed.databaseUrl = next();
-    else if (arg === "--top-k") parsed.topK = Number(next());
-    else if (arg === "--eligible-only") parsed.eligibleOnly = true;
-    else if (arg === "--answers") parsed.answers = true;
-    else throw new Error(`Unknown argument: ${arg}`);
-  }
-  if (parsed.archives.length === 0) throw new Error("Pass at least one --archive");
-  if (!parsed.questions) throw new Error("Pass --questions");
-  if (!parsed.databaseUrl) {
-    throw new Error("Set DOCO_BENCHMARK_DATABASE_URL or pass --database-url");
-  }
-  const database = new URL(parsed.databaseUrl).pathname.slice(1).toLowerCase();
-  if (!database.includes("enterprise") && !database.includes("benchmark")) {
-    throw new Error("Refusing to use a database whose name is not benchmark-specific");
-  }
-  if (!Number.isInteger(parsed.topK) || parsed.topK < 1 || parsed.topK > 50) {
-    throw new Error("--top-k must be an integer from 1 to 50");
-  }
-  if (parsed.answers && !process.env.ANTHROPIC_API_KEY) {
-    throw new Error("--answers requires ANTHROPIC_API_KEY");
-  }
-  return parsed;
-}
-
 async function ensureBenchmarkCollection(c) {
   await c.query(
     `INSERT INTO workspaces (id, handle, name)
@@ -123,7 +82,7 @@ async function ensureBenchmarkCollection(c) {
   );
 }
 
-async function indexArchives(c, embeddingProvider, archives) {
+async function indexArchives(c, embeddingProvider, archives, extractor) {
   const ready = await loadReadyDocuments(c, embeddingProvider.modelId);
   const documentIds = new Set();
   let documents = 0;
@@ -149,8 +108,12 @@ async function indexArchives(c, embeddingProvider, archives) {
             ...document,
             accessScopes: ACCESS_SCOPES,
           },
-          { extractor: index.EMPTY_RETRIEVAL_EXTRACTOR },
+          { extractor },
         );
+        await c.query("UPDATE retrieval_documents SET extraction_id = $1 WHERE id = $2", [
+          extractor.id,
+          result.documentId,
+        ]);
         targets.chunkIds.push(...result.chunkIds);
         targets.entityIds.push(...result.entityIds);
         targets.relationIds.push(...result.relationIds);
@@ -179,7 +142,11 @@ async function indexArchives(c, embeddingProvider, archives) {
       characters += document.content.length;
       const key = `${document.source}\n${document.externalId}`;
       const state = ready.get(key);
-      if (state?.contentHash === md5(document.content) && state.embedded) {
+      if (
+        state?.contentHash === md5(document.content) &&
+        state.extractionId === extractor.id &&
+        state.embedded
+      ) {
         skipped++;
         return;
       }
@@ -196,6 +163,11 @@ async function indexArchives(c, embeddingProvider, archives) {
     embedded,
     characters,
     embeddingModel: embeddingProvider.modelId,
+    graph: {
+      enabled: extractor !== index.EMPTY_RETRIEVAL_EXTRACTOR,
+      extractor: extractor.id,
+      ...(await graphCounts(c)),
+    },
     durationMs: Math.round(performance.now() - startedAt),
     documentIds,
   };
@@ -229,7 +201,7 @@ async function embedTargets(targets, embeddingProvider) {
 async function loadReadyDocuments(c, modelId) {
   const rows = (
     await c.query(
-      `SELECT d.source, d.external_id, d.content_hash,
+      `SELECT d.source, d.external_id, d.content_hash, d.extraction_id,
               count(ch.id) > 0 AND count(e.entity_id) = count(ch.id) AS embedded
          FROM retrieval_documents d
          LEFT JOIN retrieval_chunks ch ON ch.document_id = d.id
@@ -246,9 +218,29 @@ async function loadReadyDocuments(c, modelId) {
   return new Map(
     rows.map((row) => [
       `${row.source}\n${row.external_id}`,
-      { contentHash: row.content_hash, embedded: row.embedded },
+      {
+        contentHash: row.content_hash,
+        extractionId: row.extraction_id,
+        embedded: row.embedded,
+      },
     ]),
   );
+}
+
+async function graphCounts(c) {
+  const counts = {};
+  for (const [name, table] of [
+    ["entities", "retrieval_entities"],
+    ["mentions", "retrieval_mentions"],
+    ["relations", "retrieval_relations"],
+  ]) {
+    const result = await c.query(
+      `SELECT count(*) AS count FROM ${table} WHERE collection_id = $1`,
+      [BENCHMARK_COLLECTION],
+    );
+    counts[name] = Number(result.rows[0].count);
+  }
+  return counts;
 }
 
 async function runQuestions(c, embeddingProvider, questions, args) {

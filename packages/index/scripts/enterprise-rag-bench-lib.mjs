@@ -1,6 +1,53 @@
-import { posix } from "node:path";
+import { posix, resolve } from "node:path";
 
 const DATASET_ID = /(?:^|[^a-z0-9])(dsid_[a-z0-9]+)(?=[^a-z0-9]|$)/i;
+
+export function parseBenchmarkArgs(argv, env = process.env) {
+  const parsed = {
+    archives: [],
+    questions: "",
+    output: resolve("enterprise-rag-answers.jsonl"),
+    databaseUrl: env.DOCO_BENCHMARK_DATABASE_URL ?? "",
+    topK: 10,
+    eligibleOnly: false,
+    answers: false,
+    graph: false,
+  };
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === "--") continue;
+    const next = () => {
+      const value = argv[++i];
+      if (!value) throw new Error(`${arg} requires a value`);
+      return value;
+    };
+    if (arg === "--archive") parsed.archives.push(resolve(next()));
+    else if (arg === "--questions") parsed.questions = resolve(next());
+    else if (arg === "--output") parsed.output = resolve(next());
+    else if (arg === "--database-url") parsed.databaseUrl = next();
+    else if (arg === "--top-k") parsed.topK = Number(next());
+    else if (arg === "--eligible-only") parsed.eligibleOnly = true;
+    else if (arg === "--answers") parsed.answers = true;
+    else if (arg === "--graph") parsed.graph = true;
+    else throw new Error(`Unknown argument: ${arg}`);
+  }
+  if (parsed.archives.length === 0) throw new Error("Pass at least one --archive");
+  if (!parsed.questions) throw new Error("Pass --questions");
+  if (!parsed.databaseUrl) {
+    throw new Error("Set DOCO_BENCHMARK_DATABASE_URL or pass --database-url");
+  }
+  const database = new URL(parsed.databaseUrl).pathname.slice(1).toLowerCase();
+  if (!database.includes("enterprise") && !database.includes("benchmark")) {
+    throw new Error("Refusing to use a database whose name is not benchmark-specific");
+  }
+  if (!Number.isInteger(parsed.topK) || parsed.topK < 1 || parsed.topK > 50) {
+    throw new Error("--top-k must be an integer from 1 to 50");
+  }
+  if (parsed.answers && !env.ANTHROPIC_API_KEY) {
+    throw new Error("--answers requires ANTHROPIC_API_KEY");
+  }
+  return parsed;
+}
 
 export function parseBenchmarkDocument(entryName, rawText, sourceHint) {
   const path = entryName.replaceAll("\\", "/").replace(/^\.\//, "");

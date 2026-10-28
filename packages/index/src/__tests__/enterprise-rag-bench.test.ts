@@ -2,12 +2,27 @@ import { describe, expect, it } from "vitest";
 
 import {
   dedupeRankedDocuments,
+  parseBenchmarkArgs,
   parseBenchmarkDocument,
   retrievalSummary,
   runnableQuestions,
 } from "../../scripts/enterprise-rag-bench-lib.mjs";
 
 describe("EnterpriseRAG-Bench adapter", () => {
+  it("makes graph enrichment an explicit benchmark dimension", () => {
+    const common = [
+      "--archive",
+      "/tmp/github.zip",
+      "--questions",
+      "/tmp/questions.jsonl",
+      "--database-url",
+      "postgres://localhost/doco_enterprise_benchmark",
+    ];
+
+    expect(parseBenchmarkArgs(common, {})).toMatchObject({ graph: false });
+    expect(parseBenchmarkArgs([...common, "--graph"], {})).toMatchObject({ graph: true });
+  });
+
   it("preserves the benchmark document id and source identity", () => {
     expect(
       parseBenchmarkDocument(
