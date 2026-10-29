@@ -1856,6 +1856,12 @@ CREATE TABLE IF NOT EXISTS google_drive_mirrors (
   needs_reauth_at    timestamptz,
   created_at         timestamptz NOT NULL DEFAULT now()
 );
+-- What the copy covers (lib/google-drive-roots.server.ts): everything the
+-- account sees, as roots the sync keeps current (its My Drive, every shared
+-- drive, every folder shared with it, listed again hourly), or only the roots
+-- an owner ticks. Nothing is copied until an owner chooses.
+ALTER TABLE google_drive_mirrors ADD COLUMN IF NOT EXISTS copies_everything boolean NOT NULL DEFAULT false;
+ALTER TABLE google_drive_mirrors ADD COLUMN IF NOT EXISTS roots_listed_at timestamptz;
 
 DROP TRIGGER IF EXISTS google_drive_mirrors_private_collection ON google_drive_mirrors;
 CREATE TRIGGER google_drive_mirrors_private_collection
