@@ -1838,7 +1838,8 @@ CREATE TABLE IF NOT EXISTS notion_users (
 -- The mirror used to read one person's Drive with their own OAuth grant
 -- (account_email, its tokens, one changes feed). That copy can't become the
 -- company's, so it goes: deleting its rows drops their embeddings, then the
--- tables are made again below in the company's shape.
+-- tables are made again below in the company's shape, and so are the views
+-- that read its files.
 DO $$
 BEGIN
   IF EXISTS (
@@ -1848,6 +1849,7 @@ BEGIN
        AND column_name = 'refresh_token'
   ) THEN
     DELETE FROM google_drive_mirrors;
+    DROP VIEW IF EXISTS imported_items, retrieval_source_documents;
     DROP TABLE google_drive_links, google_drive_files, google_drive_roots, google_drive_mirrors;
   END IF;
 END $$;
