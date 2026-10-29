@@ -4,6 +4,8 @@ import type { EmbeddingHit, EmbeddingSource } from "@doco/db";
 const DEFAULT_COLLECTION = "doco_embeddings";
 const DEFAULT_DIMENSIONS = 1536;
 const UPSERT_BATCH = 256;
+/** The HNSW graph each Qdrant collection is built with. */
+export const QDRANT_HNSW = { m: 32, ef_construct: 200 } as const;
 const UUID_NAMESPACE = Buffer.from("d0c00000000050008000000000000001", "hex");
 
 export interface VectorRecord {
@@ -207,7 +209,7 @@ export class QdrantVectorStore implements RetrievalStore {
         method: "PUT",
         body: JSON.stringify({
           vectors: { size: this.dimensions, distance: "Cosine", on_disk: true },
-          hnsw_config: { m: 32, ef_construct: 200, on_disk: true },
+          hnsw_config: { ...QDRANT_HNSW, on_disk: true },
           on_disk_payload: true,
         }),
       });
