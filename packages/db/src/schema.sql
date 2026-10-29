@@ -76,7 +76,9 @@ CREATE TABLE IF NOT EXISTS users (
   deactivated_at  timestamptz,
   -- Whether anyone, signed out too, may open their profile, with what they
   -- did in public collections and its share image. Off unless they turn it on.
-  public_profile  boolean NOT NULL DEFAULT false
+  public_profile  boolean NOT NULL DEFAULT false,
+  -- Whether they are the host superadmin, whom Doco's admin pages answer.
+  superadmin      boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
 
@@ -2173,7 +2175,6 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
   page_url              text NOT NULL DEFAULT '',
   route_path            text NOT NULL DEFAULT '',
   created_by            text REFERENCES users(id) ON DELETE SET NULL,
-  created_by_username   text NOT NULL DEFAULT '',
   client_context        jsonb NOT NULL DEFAULT '{}'::jsonb,
   server_context        jsonb NOT NULL DEFAULT '{}'::jsonb,
   data                  jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -2182,6 +2183,10 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
   reviewed_at           timestamptz,
   reviewed_by           text REFERENCES users(id) ON DELETE SET NULL
 );
+-- A report names its reporter through created_by, as they are called now; the
+-- copy of their username it kept went stale once usernames could change
+-- (decision_01M64TCVNSDZ5PMD080R5T33HK).
+ALTER TABLE feedback_reports DROP COLUMN IF EXISTS created_by_username;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Append-only guardrails. The commit log + version snapshots are
@@ -2788,6 +2793,23 @@ BEGIN
              WHERE btrim(m.real_name) <> '' AND NOT m.is_bot
              ORDER BY l.user_id, l.updated_at DESC) s
      WHERE s.user_id = u.id;
+  END IF;
+END $$;
+-- The host superadmin, whom the admin pages answer, was known by the username
+-- torrenegra until people could change their usernames, which would let
+-- whoever took that name in. On the boot that adds the column, the person
+-- named torrenegra is marked; nothing marks anyone after that
+-- (decision_01M64TCQ49GMRY08FWY05HC5GR).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'users'
+       AND column_name = 'superadmin'
+  ) THEN
+    ALTER TABLE users ADD COLUMN superadmin boolean NOT NULL DEFAULT false;
+    UPDATE users SET superadmin = true WHERE username = 'torrenegra';
   END IF;
 END $$;
 

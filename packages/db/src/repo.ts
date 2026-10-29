@@ -342,10 +342,12 @@ export interface UserRow {
   name: string | null;
   github_login: string | null;
   email: string | null;
+  /** Whether they are the host superadmin, whom Doco's admin pages answer. */
+  superadmin: boolean;
   data: Record<string, unknown>;
 }
 
-const USER_COLUMNS = "id, username, name, github_login, email, data";
+const USER_COLUMNS = "id, username, name, github_login, email, superadmin, data";
 
 function nullableString(value: unknown): string | null {
   return value === null || value === undefined ? null : String(value);
@@ -358,6 +360,7 @@ function mapUserRow(row: Record<string, unknown>): UserRow {
     name: nullableString(row.name),
     github_login: nullableString(row.github_login),
     email: nullableString(row.email),
+    superadmin: row.superadmin === true,
     data: (row.data && typeof row.data === "object" ? row.data : {}) as Record<string, unknown>,
   };
 }

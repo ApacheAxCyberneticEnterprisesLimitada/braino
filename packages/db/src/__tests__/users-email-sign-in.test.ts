@@ -88,6 +88,7 @@ describe("users move from GitHub logins to Doco usernames", () => {
         "password_hash",
         "public_profile",
         "stamp",
+        "superadmin",
         "updated_at",
         "username",
       ].sort(),
