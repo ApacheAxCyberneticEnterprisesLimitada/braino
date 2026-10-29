@@ -1,7 +1,7 @@
 // People sign in with their email, a password and a passkey
-// (decision_01M63T0ZE5482WK96XH5R6AHYY in meta-doco-product-decisions).
+// (decision_01M644G5305NGN9JB7XJPRGN9H in meta-doco-product-decisions).
 // users.stamp is what every session and emailed link of theirs carries
-// (decision_01M63T33W3W3JWBNQ9YN052FZ8 in meta-doco-security-decisions), and
+// (decision_01M644H4Y6SAKGVX7HK0TNG65R in meta-doco-security-decisions), and
 // users.password_hash came back empty the day after passwords were dropped.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
@@ -65,5 +65,31 @@ describe("passkeys", () => {
     );
     await db.exec("DELETE FROM users WHERE id = 'user_a'");
     expect((await db.query("SELECT 1 FROM passkeys")).rows).toHaveLength(0);
+  });
+});
+
+describe("authenticator apps", () => {
+  beforeEach(async () => {
+    db = await freshDb();
+    await db.exec(`INSERT INTO users (id, username, data) VALUES ('user_a', 'ana', '{}')`);
+  });
+
+  it("are one per account, starting with no step used and no wrong codes", async () => {
+    await db.query(`INSERT INTO authenticator_apps (user_id, secret) VALUES ('user_a', 'v1:x')`);
+    const [app] = (
+      await db.query<{ last_step: string; failures: number; last_used_at: Date | null }>(
+        "SELECT last_step, failures, last_used_at FROM authenticator_apps",
+      )
+    ).rows;
+    expect(app).toEqual({ last_step: 0, failures: 0, last_used_at: null });
+    await expect(
+      db.query(`INSERT INTO authenticator_apps (user_id, secret) VALUES ('user_a', 'v1:y')`),
+    ).rejects.toThrow(/duplicate key/);
+  });
+
+  it("go with their person's account", async () => {
+    await db.query(`INSERT INTO authenticator_apps (user_id, secret) VALUES ('user_a', 'v1:x')`);
+    await db.exec("DELETE FROM users WHERE id = 'user_a'");
+    expect((await db.query("SELECT 1 FROM authenticator_apps")).rows).toHaveLength(0);
   });
 });

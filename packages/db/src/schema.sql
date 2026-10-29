@@ -42,7 +42,7 @@ ON CONFLICT (id) DO NOTHING;
 --
 -- Two distinct concerns, split into two tables:
 --   `users`      — the humans who sign in, with their email, a password and a
---                  passkey (decision_01M63T0ZE5482WK96XH5R6AHYY). Authored
+--                  second factor (decision_01M644G5305NGN9JB7XJPRGN9H). Authored
 --                  nodes via `created_by` / `updated_by`. Members of
 --                  workspaces/collections. OAuth clients/tokens have names on
 --                  the token rows; they are not represented as user rows.
@@ -61,14 +61,14 @@ CREATE TABLE IF NOT EXISTS users (
   -- request's author) to them; nothing signs in with it.
   github_login    text,
   -- Where Doco emails them, and the links that create their account or replace
-  -- a lost password or passkey; unique regardless of case.
+  -- a lost password or second factor; unique regardless of case.
   email           text,
   -- Their password as `scrypt$<salt>$<key>`; they sign in with it, their
-  -- email and a passkey (decision_01M63T0ZE5482WK96XH5R6AHYY). Null until they
-  -- choose one.
+  -- email and a second factor, a passkey or an authenticator app
+  -- (decision_01M644G5305NGN9JB7XJPRGN9H). Null until they choose one.
   password_hash   text,
   -- What every session and emailed link of theirs carries; a new one ends them
-  -- all (decision_01M63T33W3W3JWBNQ9YN052FZ8).
+  -- all (decision_01M644H4Y6SAKGVX7HK0TNG65R).
   stamp           text NOT NULL DEFAULT gen_random_uuid()::text,
   data            jsonb NOT NULL,
   created_at      timestamptz NOT NULL DEFAULT now(),
@@ -82,7 +82,7 @@ CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
 
 -- A person's passkeys, each the WebAuthn credential one passkey provider
 -- (iCloud Keychain, Google Password Manager, 1Password, …) keeps for them
--- (decision_01M63T35XDXNY4P0HQMF28MGH8). The provider names itself by `aaguid`, unsigned,
+-- (decision_01M644H6QSMTTBBFT0JAR8TEDM). The provider names itself by `aaguid`, unsigned,
 -- so it is a label, never proof.
 CREATE TABLE IF NOT EXISTS passkeys (
   id            text PRIMARY KEY,            -- the credential id, base64url
@@ -95,6 +95,23 @@ CREATE TABLE IF NOT EXISTS passkeys (
   last_used_at  timestamptz
 );
 CREATE INDEX IF NOT EXISTS passkeys_user_idx ON passkeys (user_id);
+
+-- A person's authenticator app, the second factor for those who don't use a
+-- passkey: at most one per account, set up again in place
+-- (decision_01M644H6QSMTTBBFT0JAR8TEDM, lib/totp.server.ts). `secret` is the
+-- TOTP key, encrypted (lib/secret-box.server.ts). A code works once: the
+-- 30-second step of the last one taken is kept, and no earlier one counts.
+-- `failures` wrong codes since `failed_at` stop codes for a while
+-- (decision_01M644H4Y6SAKGVX7HK0TNG65R).
+CREATE TABLE IF NOT EXISTS authenticator_apps (
+  user_id       text PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+  secret        text NOT NULL,
+  last_step     bigint NOT NULL DEFAULT 0,
+  failures      integer NOT NULL DEFAULT 0,
+  failed_at     timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  last_used_at  timestamptz
+);
 
 
 CREATE TABLE IF NOT EXISTS workspaces (
@@ -2741,9 +2758,9 @@ ALTER TABLE users
 -- which went out on 2026-10-21; it went with the job.
 ALTER TABLE users DROP COLUMN IF EXISTS password_email_sent_at;
 -- A database from before sessions carried a stamp gives each person a new
--- one, which signs them out (decision_01M63T33W3W3JWBNQ9YN052FZ8). Passwords
+-- one, which signs them out (decision_01M644H4Y6SAKGVX7HK0TNG65R). Passwords
 -- came back next to passkeys the day after they were dropped
--- (decision_01M63T0ZE5482WK96XH5R6AHYY), so everyone chooses a new one.
+-- (decision_01M644G5305NGN9JB7XJPRGN9H), so everyone chooses a new one.
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS stamp text NOT NULL DEFAULT gen_random_uuid()::text,
   ADD COLUMN IF NOT EXISTS password_hash text;

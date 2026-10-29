@@ -376,19 +376,21 @@ export async function getUserById(id: string): Promise<UserRow | null> {
 
 /**
  * A person, the stamp their sessions are bound to and whether they have a
- * passkey yet (lib/session.server.ts): one query on every request a cookie
- * signs in.
+ * password and a second factor (a passkey or an authenticator app) yet
+ * (lib/session.server.ts): one query on every request a cookie signs in.
  */
 export async function getUserForSession(id: string): Promise<{
   user: UserRow;
   stamp: string;
   has_password: boolean;
-  has_passkey: boolean;
+  has_second_factor: boolean;
 } | null> {
   return withClient(async (c) => {
     const r = await c.query(
       `SELECT ${USER_COLUMNS}, stamp, password_hash IS NOT NULL AS has_password,
-              EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = users.id) AS has_passkey
+              (EXISTS (SELECT 1 FROM passkeys p WHERE p.user_id = users.id) OR
+               EXISTS (SELECT 1 FROM authenticator_apps a WHERE a.user_id = users.id))
+                AS has_second_factor
          FROM users WHERE id = $1 LIMIT 1`,
       [id],
     );
@@ -397,7 +399,7 @@ export async function getUserForSession(id: string): Promise<{
       user: mapUserRow(r.rows[0]),
       stamp: String(r.rows[0].stamp),
       has_password: r.rows[0].has_password === true,
-      has_passkey: r.rows[0].has_passkey === true,
+      has_second_factor: r.rows[0].has_second_factor === true,
     };
   });
 }
