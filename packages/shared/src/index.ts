@@ -15,3 +15,4 @@ export * from "./loaded-collection.js";
 export * from "./authoring-evaluator.js";
 export * from "./deterministic-checks.js";
 export * from "./policy-format.js";
+export * from "./collection-graph.js";
