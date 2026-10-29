@@ -12,7 +12,9 @@ import { freshDb } from "./fresh-db.js";
 function client(db: PGlite) {
   const c = {
     applied: 0,
+    statements: [] as string[],
     async query(sql: string, params?: unknown[]) {
+      c.statements.push(sql);
       if (sql === SCHEMA_SQL) c.applied += 1;
       if (params) return db.query(sql, params);
       const results = await db.exec(sql);
@@ -34,6 +36,22 @@ describe("applySchemaIfChanged", () => {
     await db.query("UPDATE schema_applied SET hash = 'another'");
     expect(await applySchemaIfChanged(c)).toBe(true);
     expect(c.applied).toBe(2);
+  });
+
+  it("holds the schema lock inside a transaction", async () => {
+    const db = await freshDb();
+    const c = client(db);
+
+    expect(await applySchemaIfChanged(c)).toBe(true);
+
+    const begin = c.statements.indexOf("BEGIN");
+    const lock = c.statements.indexOf("SELECT pg_advisory_xact_lock(hashtext('doco_schema'))");
+    const schema = c.statements.indexOf(SCHEMA_SQL);
+    const commit = c.statements.indexOf("COMMIT");
+    expect(begin).toBeGreaterThanOrEqual(0);
+    expect(lock).toBeGreaterThan(begin);
+    expect(schema).toBeGreaterThan(lock);
+    expect(commit).toBeGreaterThan(schema);
   });
 
   it("applies it to a database it was never applied to", async () => {
@@ -72,8 +90,7 @@ describe("schema.sql behind live traffic", () => {
     const c = busyClient(db, 0);
     await applySchemaIfChanged(c);
     const at = c.sent.indexOf("schema.sql");
-    expect(c.sent[at - 1]).toBe(`SET lock_timeout = ${SCHEMA_LOCK_TIMEOUT_MS}`);
-    expect(c.sent).toContain("RESET lock_timeout");
+    expect(c.sent[at - 1]).toBe(`SET LOCAL lock_timeout = ${SCHEMA_LOCK_TIMEOUT_MS}`);
   });
 
   it("is applied at deploy, trying again while the tables are busy", async () => {

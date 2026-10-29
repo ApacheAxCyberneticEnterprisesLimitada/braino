@@ -18,13 +18,48 @@ const { Pool } = pg;
 let _pool: pg.Pool | null = null;
 let _schemaReady: Promise<void> | null = null;
 
+function pem(value: string | undefined): string | undefined {
+  const normalized = value?.trim().replace(/\\n/g, "\n");
+  return normalized || undefined;
+}
+
+export function databasePoolConfig(env: NodeJS.ProcessEnv = process.env): pg.PoolConfig {
+  const connectionString =
+    env.DOCO_DATABASE_URL ?? env.DATABASE_URL ?? "postgres://postgres:doco@127.0.0.1:5433/doco";
+  const configuredMax = env.DOCO_DATABASE_POOL_MAX?.trim();
+  const max = configuredMax ? Number(configuredMax) : 10;
+  if (!Number.isInteger(max) || max < 1 || max > 100) {
+    throw new Error("DOCO_DATABASE_POOL_MAX must be between 1 and 100");
+  }
+
+  const ca = pem(env.DOCO_DATABASE_CA);
+  const cert = pem(env.DOCO_DATABASE_CERT);
+  const key = pem(env.DOCO_DATABASE_KEY);
+  if (Boolean(cert) !== Boolean(key)) {
+    throw new Error("DOCO_DATABASE_CERT and DOCO_DATABASE_KEY must be configured together");
+  }
+  if ((cert || key) && !ca) {
+    throw new Error("DOCO_DATABASE_CA is required with TLS client credentials");
+  }
+
+  return {
+    connectionString,
+    max,
+    ...(ca
+      ? {
+          ssl: {
+            ca,
+            ...(cert && key ? { cert, key } : {}),
+            rejectUnauthorized: true,
+          },
+        }
+      : {}),
+  };
+}
+
 export function getPool(): pg.Pool {
   if (_pool) return _pool;
-  const url =
-    process.env.DOCO_DATABASE_URL ??
-    process.env.DATABASE_URL ??
-    "postgres://postgres:doco@127.0.0.1:5433/doco";
-  _pool = new Pool({ connectionString: url, max: 10 });
+  _pool = new Pool(databasePoolConfig());
   _pool.on("error", (err) => {
     console.error("@doco/db pool error:", err);
   });
@@ -83,23 +118,29 @@ export const SCHEMA_LOCK_TIMEOUT_MS = 2_000;
  */
 export async function applySchemaIfChanged(c: QueryClient): Promise<boolean> {
   if ((await appliedSchemaHash(c)) === SCHEMA_HASH) return false;
-  await c.query("SELECT pg_advisory_lock(hashtext('doco_schema'))");
+  await c.query("BEGIN");
   try {
-    if ((await appliedSchemaHash(c)) === SCHEMA_HASH) return false;
-    await c.query(`SET lock_timeout = ${SCHEMA_LOCK_TIMEOUT_MS}`);
-    try {
-      await c.query(SCHEMA_SQL);
-    } finally {
-      await c.query("RESET lock_timeout");
+    await c.query("SELECT pg_advisory_xact_lock(hashtext('doco_schema'))");
+    if ((await appliedSchemaHash(c)) === SCHEMA_HASH) {
+      await c.query("COMMIT");
+      return false;
     }
+    await c.query(`SET LOCAL lock_timeout = ${SCHEMA_LOCK_TIMEOUT_MS}`);
+    await c.query(SCHEMA_SQL);
     await c.query(
       `INSERT INTO schema_applied (hash) VALUES ($1)
        ON CONFLICT (one) DO UPDATE SET hash = EXCLUDED.hash, applied_at = now()`,
       [SCHEMA_HASH],
     );
+    await c.query("COMMIT");
     return true;
-  } finally {
-    await c.query("SELECT pg_advisory_unlock(hashtext('doco_schema'))");
+  } catch (err) {
+    try {
+      await c.query("ROLLBACK");
+    } catch {
+      // Preserve the schema failure when the connection itself also failed.
+    }
+    throw err;
   }
 }
 
@@ -130,14 +171,12 @@ export async function applySchemaAtDeploy(
 }
 
 async function appliedSchemaHash(c: QueryClient): Promise<string | null> {
-  try {
-    const { rows } = await c.query<{ hash: string }>("SELECT hash FROM schema_applied");
-    return rows[0]?.hash ?? null;
-  } catch (err) {
-    // A database schema.sql was never applied to.
-    if ((err as { code?: string }).code === "42P01") return null;
-    throw err;
-  }
+  const present = await c.query<{ present: boolean }>(
+    "SELECT to_regclass('public.schema_applied') IS NOT NULL AS present",
+  );
+  if (!present.rows[0]?.present) return null;
+  const { rows } = await c.query<{ hash: string }>("SELECT hash FROM schema_applied");
+  return rows[0]?.hash ?? null;
 }
 
 async function applySchema(): Promise<void> {
