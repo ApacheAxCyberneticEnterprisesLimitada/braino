@@ -1819,71 +1819,90 @@ CREATE TABLE IF NOT EXISTS notion_users (
 );
 
 -- ── Google Drive mirror ───────────────────────────────────────────────────
--- A collection can be a read-only copy of the shared drives and folders a
--- workspace owner picks in one Google account's Drive, kept in sync. The same
--- rules as the Slack and Notion mirrors: deliberately NOT `nodes` (a file
--- deleted, moved out or unshared in Drive must really disappear, and a shared
--- drive runs to hundreds of thousands of files), every row cascades from the
--- mirror, which cascades from the collection, and the collection stays private
+-- A collection can be a read-only copy of a company's Google Drive, kept in
+-- sync: every file in every person's My Drive and in every shared drive that
+-- Drive already lets the whole company open (shared with the company, or with
+-- anyone who has the link). A file shared only with some people stays out, so
+-- the copy never shows anyone a file Drive would hide from them. The same rules
+-- as the Slack and Notion mirrors: deliberately NOT `nodes` (a file deleted or
+-- made private in Drive must really disappear, and a company's Drive runs to
+-- hundreds of thousands of files), every row cascades from the mirror, which
+-- cascades from the collection, and the collection stays private
 -- (collection_mirror_stays_private). Only rendered text is kept, never a
 -- file's bytes.
 
--- One row per mirroring collection: "this collection mirrors that Google
--- account's Drive". The grant is drive.readonly
--- (lib/google-api.server.ts): the account can read everything it sees, and
--- the copy holds only what sits under the picked roots.
+-- The mirror used to read one person's Drive with their own OAuth grant
+-- (account_email, its tokens, one changes feed). That copy can't become the
+-- company's, so it goes: deleting its rows drops their embeddings, then the
+-- tables are made again below in the company's shape.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+     WHERE table_schema = current_schema()
+       AND table_name = 'google_drive_mirrors'
+       AND column_name = 'refresh_token'
+  ) THEN
+    DELETE FROM google_drive_mirrors;
+    DROP TABLE google_drive_links, google_drive_files, google_drive_roots, google_drive_mirrors;
+  END IF;
+END $$;
+
+-- One row per mirroring collection: "this collection mirrors that company's
+-- Drive". A Workspace admin of the company granted Doco's service account
+-- domain-wide, read-only access (lib/google-api.server.ts), then signed in
+-- with Google so Doco could check they are an admin of the domain.
 CREATE TABLE IF NOT EXISTS google_drive_mirrors (
   collection_id      text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
-  -- The Google account whose Drive is read: what it can see bounds the copy.
-  account_email      text NOT NULL,
-  account_name       text NOT NULL DEFAULT '',
-  -- Encrypted at rest (lib/secret-box.server.ts), as the Notion tokens are.
-  access_token       text NOT NULL,
-  refresh_token      text NOT NULL,
+  -- The company's Google Workspace domain: a file shared with it is copied.
+  domain             text NOT NULL,
+  -- The admin who bound the company: Doco lists its people and shared drives
+  -- as them.
+  admin_email        text NOT NULL,
   -- Who confirmed, on behalf of their organization, that the collection may
   -- keep the copy.
   consented_by       text REFERENCES users(id) ON DELETE SET NULL,
   consented_at       timestamptz NOT NULL,
-  -- The account's changes feed: where the next read starts. Taken when the
-  -- grant is recorded, so nothing after it is missed; it never expires.
-  change_page_token  text NOT NULL,
   -- Sync pacing (lib/google-drive-mirror-sync.server.ts): a rate-limit pause,
   -- the tick heartbeat (the integration status calls the copy stalled when
   -- files are pending and this is old), the lease a running tick holds so the
-  -- next cron tick skips the mirror, and when the grant stopped working.
+  -- next cron tick skips the mirror, when the company's people and shared
+  -- drives were last listed, and when Google stopped honoring the grant.
   next_at            timestamptz,
   ticked_at          timestamptz,
   ticking_until      timestamptz,
+  roots_listed_at    timestamptz,
   needs_reauth_at    timestamptz,
   created_at         timestamptz NOT NULL DEFAULT now()
 );
--- What the copy covers (lib/google-drive-roots.server.ts): everything the
--- account sees, as roots the sync keeps current (its My Drive, every shared
--- drive, every folder shared with it, listed again hourly), or only the roots
--- an owner ticks. Nothing is copied until an owner chooses.
-ALTER TABLE google_drive_mirrors ADD COLUMN IF NOT EXISTS copies_everything boolean NOT NULL DEFAULT false;
-ALTER TABLE google_drive_mirrors ADD COLUMN IF NOT EXISTS roots_listed_at timestamptz;
 
 DROP TRIGGER IF EXISTS google_drive_mirrors_private_collection ON google_drive_mirrors;
 CREATE TRIGGER google_drive_mirrors_private_collection
   BEFORE INSERT OR UPDATE OF collection_id ON google_drive_mirrors
   FOR EACH ROW EXECUTE FUNCTION collection_mirror_stays_private();
 
--- What the mirror copies: the shared drives and folders an owner picked
--- (lib/google-drive-roots.server.ts). Picked under the mirror's account, so
--- connecting another account deletes them. A root's files go with it.
+-- Whose files the mirror copies (lib/google-drive-roots.server.ts): each
+-- person's My Drive and each shared drive, listed again hourly, so someone
+-- who joins or leaves, or a drive made or deleted, follows. A file has one
+-- root, its owner's or its drive's; a root's files go with it.
 CREATE TABLE IF NOT EXISTS google_drive_roots (
   collection_id         text NOT NULL REFERENCES google_drive_mirrors(collection_id) ON DELETE CASCADE,
-  -- A shared drive's id, or a folder's.
+  -- A person's primary email, or a shared drive's id.
   root_id               text NOT NULL,
-  kind                  text NOT NULL CHECK (kind IN ('drive', 'folder')),
-  -- As Google named it when picked; the sync keeps it current.
+  kind                  text NOT NULL CHECK (kind IN ('person', 'drive')),
+  -- The person's full name, or the drive's.
   name                  text NOT NULL,
-  -- The walk that lists everything under the root, a tick at a time: the
-  -- folders still to list, the page reached in the one being listed, when
-  -- the walk started (rows it didn't see since then are gone from Drive) and
-  -- when it last finished. A new root has neither, so the sync walks it.
-  discovery_queue       text[] NOT NULL DEFAULT '{}',
+  -- Who Doco reads the root as: the person, or a member of the drive.
+  reads_as              text NOT NULL,
+  -- The root's changes feed: where the next read starts, taken as its walk
+  -- starts so nothing after it is missed (NULL until then), and when it was
+  -- last read to its end: the feeds read least lately go first.
+  change_page_token     text,
+  changes_read_at       timestamptz,
+  -- The walk that lists the root's files, a page per request: where it is,
+  -- when it started (rows it didn't see since then are gone from Drive or
+  -- made private) and when it last finished. A new root has neither, so the
+  -- sync walks it.
   discovery_cursor      text,
   discovery_started_at  timestamptz,
   discovered_at         timestamptz,
@@ -1891,7 +1910,7 @@ CREATE TABLE IF NOT EXISTS google_drive_roots (
   PRIMARY KEY (collection_id, root_id)
 );
 
--- One row per file or folder under a picked root
+-- One row per file or folder the company can open, under its root
 -- (lib/google-drive-mirror-sync.server.ts). A walk or the changes feed
 -- inserts it with its listing metadata and flags it for a fetch when Drive's
 -- `version` moved; the drain renders it (lib/google-drive-render.ts). A

@@ -41,10 +41,10 @@ beforeEach(async () => {
     INSERT INTO notion_mirrors (collection_id, workspace_id, workspace_name, bot_id, access_token, consented_at)
       VALUES ('collection_notes', 'ws-1', 'Acme', 'bot-1', 'v1:enc', now());
     INSERT INTO google_drive_mirrors
-      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
-      VALUES ('collection_notes', 'ana@acme.test', 'v1:enc', 'v1:enc', now(), '1');
-    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
-      VALUES ('collection_notes', 'drive_1', 'drive', 'Engineering');
+      (collection_id, domain, admin_email, consented_at)
+      VALUES ('collection_notes', 'acme.test', 'admin@acme.test', now());
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name, reads_as)
+      VALUES ('collection_notes', 'drive_1', 'drive', 'Engineering', 'ana@acme.test');
   `);
 });
 

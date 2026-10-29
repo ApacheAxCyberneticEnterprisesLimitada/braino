@@ -61,10 +61,10 @@ beforeEach(async () => {
       ('collection_notes', 'p1', 'page', 'https://www.notion.so/p1', ${text(50)}, '2024-01-01T00:00:00Z');
     -- A Google Drive copy consented to on 4 October.
     INSERT INTO google_drive_mirrors
-      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
-      VALUES ('collection_notes', 'ana@acme.test', 'enc', 'enc', '2026-10-04T09:00:00Z', '1');
-    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
-      VALUES ('collection_notes', 'drive_1', 'drive', 'Engineering');
+      (collection_id, domain, admin_email, consented_at)
+      VALUES ('collection_notes', 'acme.test', 'admin@acme.test', '2026-10-04T09:00:00Z');
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name, reads_as)
+      VALUES ('collection_notes', 'drive_1', 'drive', 'Engineering', 'ana@acme.test');
     INSERT INTO google_drive_files (collection_id, file_id, root_id, kind, mime_type, plain_text, modified_time)
       VALUES ('collection_notes', 'f1', 'drive_1', 'doc', 'text/plain', ${text(5)}, '2026-10-01T00:00:00Z');
     -- Code, which a search reads and the brief doesn't.

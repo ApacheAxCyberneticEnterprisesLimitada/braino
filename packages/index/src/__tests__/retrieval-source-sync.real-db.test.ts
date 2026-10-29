@@ -62,10 +62,10 @@ beforeEach(async () => {
               'java=8.0.472', now());
 
     INSERT INTO google_drive_mirrors
-      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
-      VALUES ('${COLLECTION_ID}', 'ana@acme.test', 'sealed', 'sealed', now(), '1');
-    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
-      VALUES ('${COLLECTION_ID}', 'drive_eng', 'drive', 'Engineering');
+      (collection_id, domain, admin_email, consented_at)
+      VALUES ('${COLLECTION_ID}', 'acme.test', 'admin@acme.test', now());
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name, reads_as)
+      VALUES ('${COLLECTION_ID}', 'drive_eng', 'drive', 'Engineering', 'ana@acme.test');
     INSERT INTO google_drive_files
       (collection_id, file_id, root_id, kind, mime_type, name, parent_id, web_view_link,
        markdown, plain_text, content_hash, synced_at)

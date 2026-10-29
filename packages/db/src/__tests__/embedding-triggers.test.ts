@@ -38,10 +38,10 @@ beforeEach(async () => {
     INSERT INTO group_chat_messages (collection_id, channel_id, ts, text, posted_at)
       VALUES ('collection_1', 'C1', '1700000000.000100', 'hi', now());
     INSERT INTO google_drive_mirrors
-      (collection_id, account_email, access_token, refresh_token, consented_at, change_page_token)
-      VALUES ('collection_1', 'ana@acme.test', 'enc', 'enc', now(), '1');
-    INSERT INTO google_drive_roots (collection_id, root_id, kind, name)
-      VALUES ('collection_1', 'drive_1', 'drive', 'Engineering');
+      (collection_id, domain, admin_email, consented_at)
+      VALUES ('collection_1', 'acme.test', 'admin@acme.test', now());
+    INSERT INTO google_drive_roots (collection_id, root_id, kind, name, reads_as)
+      VALUES ('collection_1', 'drive_1', 'drive', 'Engineering', 'ana@acme.test');
     INSERT INTO google_drive_files (collection_id, file_id, root_id, kind, mime_type)
       VALUES ('collection_1', 'file_1', 'drive_1', 'doc', 'application/vnd.google-apps.document');
   `);
