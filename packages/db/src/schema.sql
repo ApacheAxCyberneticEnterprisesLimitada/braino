@@ -1455,8 +1455,9 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   doco_workspace_id           text,
   -- The channel Señor Doco speaks in unasked (lib/slack-conversations.server.ts):
   -- where he introduces himself and posts the workspace's Times, picked by the
-  -- owner at install, #general unless they pick another, and changed in the
-  -- team's Slack settings. Its name only labels it.
+  -- owner at install, #doco-times unless they pick another, and changed in the
+  -- team's Slack settings. He creates it when the team has none by that name
+  -- and adds the team to it. Its name only labels it.
   default_channel_id          text,
   default_channel_name        text,
   -- How often the Times goes to that channel (lib/activity-digest.ts), as
