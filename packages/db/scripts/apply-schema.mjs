@@ -3,17 +3,17 @@
 // build runs it last; anywhere but a Vercel production build it does
 // nothing, so a preview or CI build never touches a database.
 
-import { applySchemaAtDeploy, closePool, getPool } from "../dist/index.js";
+import { applySchemaAtDeploy, closePool, getPool, schemaAppliedAtDeploy } from "../dist/index.js";
 
-if (process.env.VERCEL_ENV !== "production") {
+if (!schemaAppliedAtDeploy()) {
   console.info("[schema] not a production deploy: schema.sql is applied on first use");
   process.exit(0);
 }
+// Production's processes never apply it themselves (ensureSchema), so a
+// production build without its database fails rather than ship without it.
 if (!process.env.DOCO_DATABASE_URL && !process.env.DATABASE_URL) {
-  console.warn(
-    "[schema] WARNING: no database URL in the build: schema.sql is applied on first use",
-  );
-  process.exit(0);
+  console.error("[schema] no database URL in the production build: schema.sql can't be applied");
+  process.exit(1);
 }
 
 const client = await getPool().connect();

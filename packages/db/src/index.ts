@@ -8,6 +8,7 @@ export {
   withTransaction,
   ensureSchema,
   applySchemaAtDeploy,
+  schemaAppliedAtDeploy,
 } from "./client.js";
 
 export type { PoolClient } from "pg";

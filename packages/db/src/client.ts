@@ -188,8 +188,21 @@ async function applySchema(): Promise<void> {
   }
 }
 
-/** Bring the database to schema.sql once per process (applySchemaIfChanged). */
-export async function ensureSchema(): Promise<void> {
+/** Whether the deploy applies schema.sql (scripts/apply-schema.mjs): in
+ *  production, before its code takes traffic. */
+export function schemaAppliedAtDeploy(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.VERCEL_ENV === "production";
+}
+
+/**
+ * Bring the database to schema.sql once per process (applySchemaIfChanged),
+ * except where the deploy did: there a process that finds another schema.sql
+ * applied belongs to an older deployment, which Vercel keeps serving to tabs
+ * opened before the deploy, and applying its own file would undo the newer
+ * one, deadlocking against live traffic on the way.
+ */
+export async function ensureSchema(env: NodeJS.ProcessEnv = process.env): Promise<void> {
+  if (schemaAppliedAtDeploy(env)) return;
   if (!_schemaReady) {
     _schemaReady = applySchema().catch((err) => {
       _schemaReady = null;

@@ -4,7 +4,13 @@
 // trigger locks, and instances starting together after a deploy deadlocked.
 import type { PGlite } from "@electric-sql/pglite";
 import { describe, expect, it } from "vitest";
-import { SCHEMA_LOCK_TIMEOUT_MS, applySchemaAtDeploy, applySchemaIfChanged } from "../client.js";
+import {
+  SCHEMA_LOCK_TIMEOUT_MS,
+  applySchemaAtDeploy,
+  applySchemaIfChanged,
+  ensureSchema,
+  schemaAppliedAtDeploy,
+} from "../client.js";
 import { SCHEMA_SQL } from "../schema-embedded.js";
 import { freshDb } from "./fresh-db.js";
 
@@ -108,5 +114,19 @@ describe("schema.sql behind live traffic", () => {
     await expect(
       applySchemaAtDeploy(busyClient(db, 5), { attempts: 3, waitMs: 0 }),
     ).rejects.toThrow("lock timeout");
+  });
+});
+
+describe("a running process in production", () => {
+  // Vercel keeps serving a tab opened before a deploy from the deployment it
+  // was opened on. That deployment found the new deploy's schema.sql applied,
+  // took it for one to apply its own older file over, and deadlocked against
+  // live traffic, so every sign-in from such a tab failed (2026-10-29).
+  it("leaves schema.sql to the deploy, so an older deployment never applies its own", async () => {
+    expect(schemaAppliedAtDeploy({ VERCEL_ENV: "production" })).toBe(true);
+    expect(schemaAppliedAtDeploy({ VERCEL_ENV: "preview" })).toBe(false);
+    expect(schemaAppliedAtDeploy({})).toBe(false);
+    // No database answers here, so applying it would fail.
+    await expect(ensureSchema({ VERCEL_ENV: "production" })).resolves.toBeUndefined();
   });
 });
