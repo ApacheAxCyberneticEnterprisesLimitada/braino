@@ -1,6 +1,4 @@
 import {
-  COLLECTION_EDGE_TYPES,
-  type CollectionCreationRelationship,
   DEFAULT_WORKSPACE_CONSTITUTION,
   type EntityId,
   HOST_RESERVED_SLUGS,
@@ -9,7 +7,6 @@ import {
   nowIso,
   validateRequestedCollectionHandle,
 } from "@doco/shared";
-import { createCollectionEdge } from "./collection-graph.js";
 import {
   type CollectionTemplate,
   DEFAULT_COLLECTION_TEMPLATES,
@@ -204,8 +201,6 @@ export async function createCollectionInWorkspace(opts: {
    * template default.
    */
   goal?: string;
-  /** Optional first edge to a live collection in the same workspace. */
-  relationship?: CollectionCreationRelationship;
 }): Promise<{
   collectionId: EntityId<"collection">;
   workspaceId: string;
@@ -229,33 +224,6 @@ export async function createCollectionInWorkspace(opts: {
     const workspaceHandle = String(workspaceRow.rows[0]?.handle ?? "");
     if (!workspaceHandle) {
       throw new Error(`Workspace "${opts.workspaceId}" has no handle.`);
-    }
-
-    const workspaceRoleRow = await c.query<{ role: string }>(
-      "SELECT role FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
-      [opts.workspaceId, opts.createdByUserId],
-    );
-    const workspaceRole = workspaceRoleRow.rows[0]?.role;
-    if (opts.relationship) {
-      if (workspaceRole !== "owner") {
-        throw new Error("Only workspace owners can connect collections.");
-      }
-      if (!COLLECTION_EDGE_TYPES.includes(opts.relationship.edgeType)) {
-        throw new Error(`Unknown collection edge type '${opts.relationship.edgeType}'.`);
-      }
-      if (opts.relationship.direction !== "from_new" && opts.relationship.direction !== "to_new") {
-        throw new Error(
-          `Unknown collection relationship direction '${opts.relationship.direction}'.`,
-        );
-      }
-      const related = await c.query<{ id: string }>(
-        `SELECT id FROM collections
-          WHERE id = $1 AND workspace_id = $2 AND deleted_at IS NULL`,
-        [opts.relationship.relatedCollectionId, opts.workspaceId],
-      );
-      if (related.rows.length !== 1) {
-        throw new Error(`The related collection must be live and belong to ${opts.workspaceId}.`);
-      }
     }
 
     let handle = baseHandle;
@@ -318,6 +286,11 @@ export async function createCollectionInWorkspace(opts: {
     // and the explicit row would just be redundant. We only carry the
     // collection_users grant for creators whose workspace role is below owner; in
     // that case they need an explicit owner row on what they created.
+    const workspaceRoleRow = await c.query<{ role: string }>(
+      "SELECT role FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
+      [opts.workspaceId, opts.createdByUserId],
+    );
+    const workspaceRole = workspaceRoleRow.rows[0]?.role;
     if (workspaceRole !== "owner") {
       await c.query(
         `INSERT INTO collection_users (collection_id, user_id, role, joined_at)
@@ -325,17 +298,6 @@ export async function createCollectionInWorkspace(opts: {
          ON CONFLICT (collection_id, user_id) DO UPDATE SET role = 'owner'`,
         [collectionId, opts.createdByUserId, created],
       );
-    }
-
-    if (opts.relationship) {
-      const newIsSource = opts.relationship.direction === "from_new";
-      await createCollectionEdge(c, {
-        workspaceId: opts.workspaceId,
-        edgeType: opts.relationship.edgeType,
-        fromCollectionId: newIsSource ? collectionId : opts.relationship.relatedCollectionId,
-        toCollectionId: newIsSource ? opts.relationship.relatedCollectionId : collectionId,
-        createdBy: opts.createdByUserId,
-      });
     }
 
     if (template && template.policies.length > 0) {

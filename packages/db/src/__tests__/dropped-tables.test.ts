@@ -22,6 +22,8 @@ const DROPPED_TABLES = [
   // Folded into group_chat_conversations, which keeps a person's welcome and
   // the quiet switch beside a channel's introduction.
   "group_chat_channel_intros",
+  // The workspace-level collection-link abstraction was unshipped.
+  "collection_edges",
 ];
 
 function declaresTable(table: string): boolean {

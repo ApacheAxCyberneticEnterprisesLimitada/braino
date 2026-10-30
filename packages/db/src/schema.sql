@@ -230,36 +230,10 @@ CREATE TABLE IF NOT EXISTS collections (
   deleted_at      timestamptz
 );
 
--- Workspace-level graph: one coarse node per collection, with typed directed
--- relations between collections. Collection contents stay in their native
--- indexes/graphs; these edges route retrieval between those indexes. This is
--- deliberately separate from `edges`, whose endpoints are graph-content
--- nodes and whose collection-local invariants must remain simple.
---
--- The composite key lets both endpoint FKs carry workspace_id, so Postgres
--- itself guarantees that a relation never crosses workspace boundaries.
-CREATE UNIQUE INDEX IF NOT EXISTS collections_id_workspace_uniq
-  ON collections (id, workspace_id);
-CREATE TABLE IF NOT EXISTS collection_edges (
-  id                  text PRIMARY KEY, -- collection_edge_<ulid>
-  workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  edge_type            text NOT NULL
-                         CHECK (edge_type IN ('implements','documents','depends_on','derived_from')),
-  from_collection_id  text NOT NULL,
-  to_collection_id    text NOT NULL,
-  created_at           timestamptz NOT NULL DEFAULT now(),
-  created_by           text REFERENCES users(id) ON DELETE SET NULL,
-  CHECK (from_collection_id <> to_collection_id),
-  FOREIGN KEY (from_collection_id, workspace_id)
-    REFERENCES collections(id, workspace_id) ON DELETE CASCADE,
-  FOREIGN KEY (to_collection_id, workspace_id)
-    REFERENCES collections(id, workspace_id) ON DELETE CASCADE,
-  UNIQUE (workspace_id, from_collection_id, to_collection_id, edge_type)
-);
-CREATE INDEX IF NOT EXISTS collection_edges_from_idx
-  ON collection_edges (workspace_id, from_collection_id);
-CREATE INDEX IF NOT EXISTS collection_edges_to_idx
-  ON collection_edges (workspace_id, to_collection_id);
+-- Collection linking is unshipped. Remove both its rows and the supporting
+-- index from databases that already received the abandoned abstraction.
+DROP TABLE IF EXISTS collection_edges;
+DROP INDEX IF EXISTS collections_id_workspace_uniq;
 
 -- Per-collection policies. Every policy is an authoring policy; the standalone
 -- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and
