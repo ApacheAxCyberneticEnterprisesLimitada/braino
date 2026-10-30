@@ -2610,6 +2610,26 @@ CREATE TABLE IF NOT EXISTS unseen_work_alerts (
   sent_at       timestamptz NOT NULL,
   PRIMARY KEY (workspace_id, user_id)
 );
+-- The pull requests imported before they carried labels (the agent that made
+-- each and how Doco saw the work, web: lib/pull-request-provenance.ts) are
+-- imported again once, in every workspace (decision_01M655E2KR8SD7C11QX823WKYV;
+-- Alexander, 2026-10-30, "Spot agents committing without Doco"): each
+-- connected collection that brings pull requests from GitHub, last imported
+-- before labels shipped, is queued for the background import "Re-import all"
+-- starts, a running marker with no cursor, which the sweep picks up and the
+-- worker rebuilds from the collection's connections. Labels go on past the
+-- judge (labelPullRequest), so it costs no model call. Its import stamps the
+-- marker after then, so a later boot queues nothing.
+UPDATE collections
+   SET data = jsonb_set(data, '{github_integration,backfill}', '{"status": "running"}'::jsonb, true)
+ WHERE deleted_at IS NULL
+   AND coalesce(data->>'template_handle', '') NOT IN ('github-issues', 'codebase')
+   AND jsonb_path_exists(
+         data,
+         '$.github_integration.connections[*] ? (@.repo.type() == "string" && @.installation_id.type() == "number")')
+   AND coalesce(data->'github_integration'->'backfill'->>'status', '') <> 'running'
+   AND coalesce((data->'github_integration'->'backfill'->>'cursor_at')::timestamptz, 'epoch')
+       < '2026-10-30T00:30:00Z';
 -- The schedule opened with an email after a workday of silence until it
 -- started at a week: each alert's step moves down one, the workday's to none,
 -- once, as the step's range check arrives.

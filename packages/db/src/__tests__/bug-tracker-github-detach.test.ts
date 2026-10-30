@@ -59,7 +59,10 @@ describe("a Bug tracker no longer brings anything from GitHub", () => {
     await seed("acme-legacy", { github_integration: GITHUB });
     await db.exec(schemaSql);
     for (const id of ["acme-github-issues", "acme-pull-requests", "acme-legacy"]) {
-      expect((await dataOf(id)).github_integration, id).toEqual(GITHUB);
+      // Its import may be queued again (pull requests imported before they
+      // carried labels are), but its connection stays.
+      const { connections, installations } = (await dataOf(id)).github_integration as typeof GITHUB;
+      expect({ connections, installations }, id).toEqual(GITHUB);
     }
   });
 });
