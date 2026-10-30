@@ -87,9 +87,14 @@ describe("authenticator apps", () => {
     ).rejects.toThrow(/duplicate key/);
   });
 
-  it("go with their person's account", async () => {
+  it("and their recovery codes go with their person's account", async () => {
     await db.query(`INSERT INTO authenticator_apps (user_id, secret) VALUES ('user_a', 'v1:x')`);
+    await db.query(
+      `INSERT INTO authenticator_recovery_codes (user_id, code_hash)
+       VALUES ('user_a', 'hash')`,
+    );
     await db.exec("DELETE FROM users WHERE id = 'user_a'");
     expect((await db.query("SELECT 1 FROM authenticator_apps")).rows).toHaveLength(0);
+    expect((await db.query("SELECT 1 FROM authenticator_recovery_codes")).rows).toHaveLength(0);
   });
 });

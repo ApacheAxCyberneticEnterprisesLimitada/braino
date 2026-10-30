@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS users (
   -- a lost password or second factor; unique regardless of case.
   email           text,
   -- Their password as `scrypt$<salt>$<key>`; they sign in with it, their
-  -- email and a second factor, a passkey or an authenticator app
+  -- email and a second factor: a passkey, authenticator app or one of the
+  -- app's recovery codes
   -- (decision_01M644G5305NGN9JB7XJPRGN9H). Null until they choose one.
   password_hash   text,
   -- What every session and emailed link of theirs carries; a new one ends them
@@ -113,6 +114,16 @@ CREATE TABLE IF NOT EXISTS authenticator_apps (
   failed_at     timestamptz,
   created_at    timestamptz NOT NULL DEFAULT now(),
   last_used_at  timestamptz
+);
+
+-- The one-use codes a person saves when they set up their authenticator app.
+-- Only each code's SHA-256 is kept: the plaintext is shown once, and replacing
+-- or removing the app replaces or removes its codes with it.
+CREATE TABLE IF NOT EXISTS authenticator_recovery_codes (
+  user_id       text NOT NULL REFERENCES authenticator_apps(user_id) ON DELETE CASCADE,
+  code_hash     text NOT NULL,
+  created_at    timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (user_id, code_hash)
 );
 
 
