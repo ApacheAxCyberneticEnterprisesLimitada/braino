@@ -2587,7 +2587,9 @@ CREATE TRIGGER google_drive_files_embeddings_drop
 -- (silence-alerts.server.ts decides, every hour). A row is one episode: it
 -- opens when the silence turns unexpected, its emails, and Señor Doco's
 -- Slack messages with them, go out along the schedule (email_step), and it is
--- deleted when data or calls resume.
+-- deleted when data or calls resume. An owner of the workspace can nudge an
+-- agent's person (nudged_at) or disregard its alert, just this time
+-- (disregarded_at) or always (disregarded_agents).
 CREATE TABLE IF NOT EXISTS silence_alerts (
   id            text PRIMARY KEY,
   workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -2611,7 +2613,25 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   -- The last step of the email schedule that went out: 0 none yet, 1 after a
   -- week of silence, 2 two weeks, 3 a month.
   email_step    int NOT NULL DEFAULT 0 CHECK (email_step BETWEEN 0 AND 3),
+  -- When an owner of the workspace emailed the agent's person about it.
+  nudged_at     timestamptz,
+  -- When an owner of the workspace disregarded it: the row stays, so the
+  -- check doesn't open it again, but no page shows it and nothing is sent
+  -- until it closes.
+  disregarded_at timestamptz,
   CHECK ((collection_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
+);
+ALTER TABLE silence_alerts
+  ADD COLUMN IF NOT EXISTS nudged_at timestamptz,
+  ADD COLUMN IF NOT EXISTS disregarded_at timestamptz;
+-- The agents an owner of a workspace disregarded always: no alert opens about
+-- that person's agent in that workspace again.
+CREATE TABLE IF NOT EXISTS disregarded_agents (
+  workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  agent         text NOT NULL,
+  disregarded_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (workspace_id, user_id, agent)
 );
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
   ON silence_alerts (collection_id) WHERE collection_id IS NOT NULL;
