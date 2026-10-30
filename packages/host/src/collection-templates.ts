@@ -956,6 +956,36 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     ],
   },
   {
+    // Documents written in Doco itself, edited like Notion pages
+    // (decision_01M66MV5A0GYFNMRT30YM65B24). A document is one Reference whose
+    // prose IS the document: the first line is its title, the rest its body in
+    // Markdown, so agents read and write a document as they do any node and it
+    // is searched like every other one. No new node type, table or retrieval
+    // source. A document is in force once written, so new ones start `active`.
+    name: "documents",
+    label: "Documents",
+    icon: "📄",
+    description:
+      "Write and keep documents in Doco: specs, plans, notes, anything a page says best, in Markdown, searchable alongside your other knowledge.",
+    // Open on the documents, the one edited last first.
+    perspectives: [{ slug: "documents", isDefault: true }],
+    policies: [
+      {
+        policy:
+          "Only References belong in a Documents collection: each document is one Reference whose prose is the document.",
+        predicate: { kind: "requires_node_type", node_types: ["reference"] },
+      },
+      {
+        policy:
+          "A document's prose is the document: its first line is the title, the rest its body in Markdown. Read one at `GET /<handle>/api/references/<id>.json`, create one with `POST /<handle>/api/references.json` `{prose}`, change one with `PATCH /<handle>/api/references/<id>.json` `{prose}`.",
+      },
+      {
+        policy:
+          "Keep one document per subject. When a document replaces another, retire the old one and link the new one to it with `replaces`; link a document to the decisions, rules and intents it explains with `relates_to`.",
+      },
+    ],
+  },
+  {
     // GitHub pull-requests template. PRs from a connected repository are
     // synced as Reference nodes. No authoring constraints are imposed —
     // the template is intentionally minimal; the GitHub integration

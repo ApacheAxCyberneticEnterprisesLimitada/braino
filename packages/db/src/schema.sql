@@ -1348,7 +1348,7 @@ UPDATE hook_tokens
 CREATE TABLE IF NOT EXISTS perspectives (
   id              text PRIMARY KEY,
   slug            text NOT NULL UNIQUE,
-  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack')),
+  kind            text NOT NULL CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','documents')),
   name            text NOT NULL,
   description     text,
   icon            text,
@@ -2477,9 +2477,15 @@ CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
 DELETE FROM perspectives WHERE id IN ('perspective_code', 'perspective_notion');
 ALTER TABLE perspectives DROP CONSTRAINT IF EXISTS perspectives_kind_check;
 ALTER TABLE perspectives ADD CONSTRAINT perspectives_kind_check
-  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack'));
+  CHECK (kind IN ('graph','list','process','org-tree','sla','glossary','pull-requests','slack','documents'));
 INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
   ('perspective_slack','slack','slack','Slack','A mirrored Slack workspace''s public channels: messages, threads, and search.','💬',NULL,true,'{}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+-- The Documents perspective: a Documents collection's documents. Its kind
+-- joined the perspectives CHECK above, before this row, for the same reason.
+INSERT INTO perspectives (id, slug, kind, name, description, icon, owner_handle, is_builtin, config) VALUES
+  ('perspective_documents','documents','documents','Documents','The documents of a Documents collection, the one edited last first.','📄',NULL,true,'{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- Actor access tokens act as their user, capped at actor_role, resolved live —

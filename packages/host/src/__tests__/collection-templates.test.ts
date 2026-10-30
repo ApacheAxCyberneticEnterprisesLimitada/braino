@@ -57,6 +57,7 @@ describe("removed templates are gone", () => {
       "bugs",
       "codebase",
       "design-decisions",
+      "documents",
       "evals",
       "faq",
       "github-issues",
@@ -506,6 +507,24 @@ describe("faq template", () => {
     expect(prose).toMatch(/steward|owner|last_reviewed|stale/i);
     // Lifecycle / KCS states.
     expect(prose).toMatch(/lifecycle|drafting|queued|active|retired/i);
+  });
+});
+
+describe("documents template", () => {
+  const template = findCollectionTemplateByName("documents");
+  if (!template) throw new Error("documents template not registered");
+
+  it("opens on the Documents perspective", () => {
+    expect(template.label).toBe("Documents");
+    expect(template.perspectives).toEqual([{ slug: "documents", isDefault: true }]);
+  });
+
+  // Each document is one Reference whose prose is the document.
+  it("holds only References", () => {
+    const allowlist = template.policies.find(
+      (p) => p.predicate?.kind === "requires_node_type",
+    )?.predicate;
+    expect(allowlist).toEqual({ kind: "requires_node_type", node_types: ["reference"] });
   });
 });
 
