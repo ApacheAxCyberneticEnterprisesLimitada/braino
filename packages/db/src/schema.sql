@@ -2600,6 +2600,16 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
+
+-- When each person last heard, per workspace, about their agents' pull
+-- requests that went without Doco (web: lib/unseen-work-alerts.server.ts):
+-- at most once a week, about what opened since.
+CREATE TABLE IF NOT EXISTS unseen_work_alerts (
+  workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  sent_at       timestamptz NOT NULL,
+  PRIMARY KEY (workspace_id, user_id)
+);
 -- The schedule opened with an email after a workday of silence until it
 -- started at a week: each alert's step moves down one, the workday's to none,
 -- once, as the step's range check arrives.
