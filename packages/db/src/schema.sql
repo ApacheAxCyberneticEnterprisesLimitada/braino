@@ -185,7 +185,13 @@ CREATE TABLE IF NOT EXISTS workspace_onboarding (
   workspace_id     text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   user_id          text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   joined_as        text NOT NULL CHECK (joined_as IN ('creator', 'invitee')),
+  -- What its creator answered, creating it, to whether the workspace is for a
+  -- project with a GitHub repository: yes walks them through connecting GitHub
+  -- after Slack. NULL when nobody was asked (someone who joined from an
+  -- invite, or a creator from before the question, who walks it).
+  github_repo      boolean,
   started_at       timestamptz NOT NULL DEFAULT now(),
+  slack_done_at    timestamptz,
   sources_done_at  timestamptz,
   invite_done_at   timestamptz,
   reminded_at      timestamptz,
@@ -2393,6 +2399,12 @@ ALTER TABLE workspace_onboarding DROP COLUMN IF EXISTS hook_done_at;
 -- When an owner ended (or skipped) inviting their colleagues
 -- (decision_01M4NJQXQZXFA74A7MCSYY9B6S).
 ALTER TABLE workspace_onboarding ADD COLUMN IF NOT EXISTS invite_done_at timestamptz;
+-- Connecting Slack became a workspace's first step, ended by connecting a team
+-- or skipping it, and connecting GitHub a step only for a workspace its
+-- creator said is for a project with a GitHub repository (Alexander,
+-- 2026-10-30).
+ALTER TABLE workspace_onboarding ADD COLUMN IF NOT EXISTS slack_done_at timestamptz;
+ALTER TABLE workspace_onboarding ADD COLUMN IF NOT EXISTS github_repo boolean;
 -- Inviting colleagues became an owner's last step when it shipped on
 -- 2026-10-17, done only once they end or skip it
 -- (decision_01M4TGN2D498GD9FXS7R3M5KH9). Until then it read as done once any
