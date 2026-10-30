@@ -386,6 +386,35 @@ CREATE INDEX IF NOT EXISTS query_events_actor_idx ON query_events (actor, at DES
 CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_id, actor)
   WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
 
+-- Information Doco returned to an agent, and the agent's optional judgment
+-- once it knows whether that information helped. One row is the whole
+-- feedback loop: the original question and ranked ids are the denominator;
+-- nullable feedback columns distinguish "not answered" from either answer.
+CREATE TABLE IF NOT EXISTS agent_results (
+  id                    text PRIMARY KEY,       -- result_<ulid>, returned to the agent
+  actor                 text NOT NULL,          -- user_<ulid> whose credential asked
+  tool                  text NOT NULL CHECK (tool IN ('doco_brief', 'doco_search')),
+  query                 text NOT NULL,
+  result_ids            text[] NOT NULL DEFAULT '{}',
+  source                text NOT NULL
+                          CHECK (source IN ('api','mcp','ui','slack','import','reset','system')),
+  metadata              jsonb,
+  context               jsonb NOT NULL DEFAULT '{}'::jsonb,
+  relevant              boolean,
+  better_answer_found   boolean,
+  better_answer         text NOT NULL DEFAULT '',
+  better_answer_source  text NOT NULL DEFAULT '',
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  feedback_at           timestamptz,
+  CHECK ((relevant IS NULL) = (better_answer_found IS NULL)),
+  CHECK (better_answer_found IS TRUE OR (better_answer = '' AND better_answer_source = '')),
+  CHECK (better_answer_found IS NOT TRUE OR better_answer <> '' OR better_answer_source <> '')
+);
+CREATE INDEX IF NOT EXISTS agent_results_actor_created_idx
+  ON agent_results (actor, created_at DESC);
+CREATE INDEX IF NOT EXISTS agent_results_feedback_idx
+  ON agent_results (feedback_at DESC) WHERE feedback_at IS NOT NULL;
+
 -- The activity logs counted per UTC day (activity-log.server.ts), so the
 -- Activity calendars and top lists read days instead of every row: one row per
 -- day, log, collection (or, for a search across a whole workspace, no collection and the
