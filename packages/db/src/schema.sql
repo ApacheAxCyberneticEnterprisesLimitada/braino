@@ -1586,6 +1586,17 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
   updated_at      timestamptz NOT NULL DEFAULT now(),
   UNIQUE (provider, workspace_id, chat_user_id, user_id)
 );
+-- The Slack user who approved an install is the owner who started it, signed
+-- in to Doco in the browser Slack sent back to, and each install links the two
+-- (lib/slack.server.ts). Teams installed before that are linked here, so
+-- their installer manages Señor Doco as an owner without linking first
+-- (Alexander, 2026-11-01). Every later boot finds them linked.
+INSERT INTO group_chat_user_links (id, provider, workspace_id, chat_user_id, user_id)
+SELECT 'gcul_' || replace(gen_random_uuid()::text, '-', ''), i.provider, i.workspace_id,
+       i.installed_by_chat_user_id, i.installed_by_user_id
+  FROM group_chat_installations i
+ WHERE i.installed_by_chat_user_id IS NOT NULL AND i.installed_by_user_id IS NOT NULL
+ON CONFLICT (provider, workspace_id, chat_user_id, user_id) DO NOTHING;
 -- What Señor Doco keeps about each conversation he speaks in unasked
 -- (lib/slack-conversations.server.ts): a channel, or a person, by their chat
 -- user id, whose direct messages with him are where he speaks to them. He
