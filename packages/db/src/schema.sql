@@ -2695,14 +2695,21 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
 
--- When each person last heard, per workspace, about their agents' pull
--- requests that went without Doco (web: lib/unseen-work-alerts.server.ts):
--- at most once a week, about what opened since.
-CREATE TABLE IF NOT EXISTS unseen_work_alerts (
-  workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  sent_at       timestamptz NOT NULL,
-  PRIMARY KEY (workspace_id, user_id)
+-- Each person, by GitHub login, whose pull requests a workspace can't see:
+-- they aren't a member, or their agent shipped without Doco (web:
+-- lib/unseen-work-alerts.server.ts). The pull requests opened up to
+-- told_through were sent; an owner's Disregard hides those opened up to
+-- disregarded_through (just this time), or every one (always). The weekly
+-- marker per author it replaces is gone (Alexander, 2026-11-02: "we should
+-- not wait one week any longer").
+DROP TABLE IF EXISTS unseen_work_alerts;
+CREATE TABLE IF NOT EXISTS unseen_work_authors (
+  workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  login               text NOT NULL CHECK (login = lower(login)),
+  told_through        timestamptz,
+  disregarded_through timestamptz,
+  disregarded_always  boolean NOT NULL DEFAULT false,
+  PRIMARY KEY (workspace_id, login)
 );
 -- The pull requests imported before they carried labels (the agent that made
 -- each and how Doco saw the work, web: lib/pull-request-provenance.ts) are
@@ -2713,12 +2720,20 @@ CREATE TABLE IF NOT EXISTS unseen_work_alerts (
 -- starts, a running marker with no cursor, which the sweep picks up and the
 -- worker rebuilds from the collection's connections. Labels go on past the
 -- judge (labelPullRequest), so it costs no model call. Its import stamps the
--- marker after then, so a later boot queues nothing. Moved on once, when a
--- brief or record of another workspace stopped counting as going through
--- Doco (Alexander, 2026-11-02, "Find why no alert for Oki skipping Doco"), so
--- the pull requests labeled before relabel too.
+-- marker after then, so a later boot queues nothing. Moved on when a brief or
+-- record of another workspace stopped counting as going through Doco, and
+-- again when each pull request came to carry who opened it, for the alerts
+-- about someone who isn't a member (Alexander, 2026-11-02, "Find why no alert
+-- for Oki skipping Doco"), so the pull requests labeled before relabel too.
+-- The build applies this while the deploy before it still serves, and the
+-- sweep (web: routes/api.github.backfill-sweep.tsx) takes up an import whose
+-- cursor sat still five minutes: the marker's cursor stands five minutes
+-- ahead, so the import starts ten minutes on, under this deploy's code. The
+-- first move's ran under the old code at once, and labeled as before.
 UPDATE collections
-   SET data = jsonb_set(data, '{github_integration,backfill}', '{"status": "running"}'::jsonb, true)
+   SET data = jsonb_set(data, '{github_integration,backfill}',
+                        jsonb_build_object('status', 'running', 'cursor_at', now() + interval '5 minutes'),
+                        true)
  WHERE deleted_at IS NULL
    AND coalesce(data->>'template_handle', '') NOT IN ('github-issues', 'codebase')
    AND jsonb_path_exists(
@@ -2726,7 +2741,7 @@ UPDATE collections
          '$.github_integration.connections[*] ? (@.repo.type() == "string" && @.installation_id.type() == "number")')
    AND coalesce(data->'github_integration'->'backfill'->>'status', '') <> 'running'
    AND coalesce((data->'github_integration'->'backfill'->>'cursor_at')::timestamptz, 'epoch')
-       < '2026-11-02T15:40:00Z';
+       < '2026-11-02T16:30:00Z';
 -- The schedule opened with an email after a workday of silence until it
 -- started at a week: each alert's step moves down one, the workday's to none,
 -- once, as the step's range check arrives.

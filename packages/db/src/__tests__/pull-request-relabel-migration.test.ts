@@ -4,7 +4,11 @@
 // they carried labels, for the background re-import "Re-import all" starts;
 // once that import ran, a later boot queues nothing. Alexander, 2026-11-02,
 // "Find why no alert for Oki skipping Doco": once more when a brief or record
-// of another workspace stopped counting as going through Doco.
+// of another workspace stopped counting as going through Doco, which ran
+// under the code the deploy replaced, as the build applies schema.sql before
+// its code serves; and again when each pull request came to carry who opened
+// it, with the marker's cursor ahead, so the sweep starts the import ten
+// minutes on.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";
@@ -63,13 +67,14 @@ beforeEach(async () => {
       backfill: { status: "running", cursor_at: "2026-10-20T00:00:00Z" },
     },
   });
+  // Relabeled at 15:57, under the code the deploy replaced.
   await collection("labeled_before", {
     template_handle: "github-pull-requests",
-    github_integration: { ...CONNECTED, backfill: done("2026-10-30T02:00:00Z") },
+    github_integration: { ...CONNECTED, backfill: done("2026-11-02T15:57:33Z") },
   });
   await collection("labeled", {
     template_handle: "github-pull-requests",
-    github_integration: { ...CONNECTED, backfill: done("2026-11-02T16:00:00Z") },
+    github_integration: { ...CONNECTED, backfill: done("2026-11-02T17:00:00Z") },
   });
   await collection(
     "deleted",
@@ -86,12 +91,21 @@ describe("relabeling the pull requests imported before labels", () => {
     const was = await backfills();
     await db.exec(schemaSql);
     const now = await backfills();
-    expect(now.prs).toEqual({ status: "running" });
-    expect(now.decisions_with_prs).toEqual({ status: "running" });
-    expect(now.labeled_before).toEqual({ status: "running" });
+    const queued = { status: "running", cursor_at: expect.any(String) };
+    expect(now.prs).toEqual(queued);
+    expect(now.decisions_with_prs).toEqual(queued);
+    expect(now.labeled_before).toEqual(queued);
     for (const id of ["issues", "code", "disconnected", "importing", "labeled", "deleted"]) {
       expect(now[id]).toEqual(was[id]);
     }
+  });
+
+  it("starts the import ten minutes on, once the deploy's code serves", async () => {
+    await db.exec(schemaSql);
+    const { cursor_at } = (await backfills()).prs as { cursor_at: string };
+    // The sweep takes up an import whose cursor sat still five minutes.
+    expect(Date.parse(cursor_at) - Date.now()).toBeGreaterThan(4 * 60_000);
+    expect(Date.parse(cursor_at) - Date.now()).toBeLessThanOrEqual(5 * 60_000);
   });
 
   it("queues nothing on a later boot, once the import ran", async () => {
