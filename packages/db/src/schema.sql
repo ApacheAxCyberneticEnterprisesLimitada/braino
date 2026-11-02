@@ -239,6 +239,20 @@ DROP INDEX IF EXISTS collections_id_workspace_uniq;
 -- index, never authored graph edges. Recomputing one collection replaces every
 -- relationship that touches it; evidence retains the exact summary versions
 -- and source ids admitted by the deterministic validator.
+CREATE TABLE IF NOT EXISTS collection_summaries (
+  collection_id         text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
+  workspace_id          text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  source_version        text NOT NULL,
+  summary_version       text NOT NULL,
+  relationships_version text,
+  model_id              text NOT NULL,
+  digest                text NOT NULL,
+  evidence_ids          text[] NOT NULL DEFAULT ARRAY[]::text[],
+  summarized_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS collection_summaries_workspace_idx
+  ON collection_summaries (workspace_id, summarized_at);
+
 CREATE TABLE IF NOT EXISTS collection_relationships (
   id                  text PRIMARY KEY,
   workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
