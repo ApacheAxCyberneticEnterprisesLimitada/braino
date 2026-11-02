@@ -11,7 +11,9 @@ The committed fixture contains eight similar four-collection product groups.
 Nested batches add complete groups, so larger batches add both gold edges and
 same-role hard negatives. The report includes exact precision/recall/F1,
 endpoint discovery, relationship-type and direction accuracy, unsupported
-evidence rate, invalid edges, token counts, and latency.
+evidence rate, invalid edges, token counts, and latency. Anchored runs pass
+model output through the production validator and record every rejected edge
+with a machine-readable reason alongside both the raw and accepted output.
 
 ```sh
 pnpm --filter @doco/index eval:collection-relations -- \
@@ -29,7 +31,13 @@ report outside git when it contains summaries derived from private collections.
 Use `--anchor <collection-id>` to model the production path: compare one added
 or changed collection with every visible collection, and score only edges that
 involve that anchor. This keeps the expected output fixed while batch size grows,
-so the result isolates the effect of additional comparison candidates.
+so the result isolates the effect of additional comparison candidates. The
+validator admits only current, evidence-grounded anchor edges from the supplied
+summary snapshots; those snapshots are also the candidate allowlist. It rejects
+self-links, unknown endpoints or types, invalid confidence, non-anchor output,
+foreign, stale, unknown, or missing evidence, and duplicate directed edges.
+Passing this boundary means an edge is structurally admissible, not semantically
+true; a separate pairwise verifier can evaluate the much smaller accepted set.
 
 ## EnterpriseRAG-Bench
 

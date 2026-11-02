@@ -4,196 +4,228 @@
   "description": "Eight similar four-collection product groups. Nested batches add complete groups, so every larger batch contains more gold relationships and more same-role hard negatives.",
   "collections": [
     {
-      "id": "atlas-product",
+      "collectionId": "atlas-product",
+      "summaryVersion": "v1",
       "name": "Atlas product decisions",
       "digest": "Defines Atlas merchant checkout requirements, refund behavior, and the customer-facing payment experience.",
-      "evidence_ids": ["atlas_product_checkout", "atlas_product_refunds"]
+      "evidenceIds": ["atlas_product_checkout", "atlas_product_refunds"]
     },
     {
-      "id": "atlas-code",
+      "collectionId": "atlas-code",
+      "summaryVersion": "v1",
       "name": "Atlas application",
       "digest": "The Atlas TypeScript application implements the checkout and refund workflows approved in Atlas product decisions. It calls the Atlas Ledger service for balances and settlement.",
-      "evidence_ids": ["atlas_code_checkout", "atlas_code_ledger_client"]
+      "evidenceIds": ["atlas_code_checkout", "atlas_code_ledger_client"]
     },
     {
-      "id": "atlas-docs",
+      "collectionId": "atlas-docs",
+      "summaryVersion": "v1",
       "name": "Atlas customer documentation",
       "digest": "Explains the Atlas checkout and refund behavior defined by Atlas product decisions for merchants integrating payments.",
-      "evidence_ids": ["atlas_docs_checkout", "atlas_docs_refunds"]
+      "evidenceIds": ["atlas_docs_checkout", "atlas_docs_refunds"]
     },
     {
-      "id": "atlas-ledger",
+      "collectionId": "atlas-ledger",
+      "summaryVersion": "v1",
       "name": "Atlas Ledger service",
       "digest": "Operates the balance and settlement API consumed by the Atlas application. It is not used by the other product applications.",
-      "evidence_ids": ["atlas_ledger_api", "atlas_ledger_consumers"]
+      "evidenceIds": ["atlas_ledger_api", "atlas_ledger_consumers"]
     },
     {
-      "id": "beacon-product",
+      "collectionId": "beacon-product",
+      "summaryVersion": "v1",
       "name": "Beacon product decisions",
       "digest": "Defines Beacon incident triage, escalation, and responder-notification behavior for operations teams.",
-      "evidence_ids": ["beacon_product_triage", "beacon_product_escalation"]
+      "evidenceIds": ["beacon_product_triage", "beacon_product_escalation"]
     },
     {
-      "id": "beacon-code",
+      "collectionId": "beacon-code",
+      "summaryVersion": "v1",
       "name": "Beacon application",
       "digest": "The Beacon Go application implements the incident workflows approved in Beacon product decisions. It calls Beacon Paging to notify responders.",
-      "evidence_ids": ["beacon_code_triage", "beacon_code_paging_client"]
+      "evidenceIds": ["beacon_code_triage", "beacon_code_paging_client"]
     },
     {
-      "id": "beacon-docs",
+      "collectionId": "beacon-docs",
+      "summaryVersion": "v1",
       "name": "Beacon responder handbook",
       "digest": "Documents the Beacon triage and escalation behavior defined by Beacon product decisions for incident responders.",
-      "evidence_ids": ["beacon_docs_triage", "beacon_docs_escalation"]
+      "evidenceIds": ["beacon_docs_triage", "beacon_docs_escalation"]
     },
     {
-      "id": "beacon-paging",
+      "collectionId": "beacon-paging",
+      "summaryVersion": "v1",
       "name": "Beacon Paging service",
       "digest": "Operates the responder notification API consumed by the Beacon application. It is independent of the payment and hiring systems.",
-      "evidence_ids": ["beacon_paging_api", "beacon_paging_consumers"]
+      "evidenceIds": ["beacon_paging_api", "beacon_paging_consumers"]
     },
     {
-      "id": "cedar-product",
+      "collectionId": "cedar-product",
+      "summaryVersion": "v1",
       "name": "Cedar product decisions",
       "digest": "Defines Cedar candidate intake, interview scheduling, and hiring-team review behavior.",
-      "evidence_ids": ["cedar_product_intake", "cedar_product_interviews"]
+      "evidenceIds": ["cedar_product_intake", "cedar_product_interviews"]
     },
     {
-      "id": "cedar-code",
+      "collectionId": "cedar-code",
+      "summaryVersion": "v1",
       "name": "Cedar application",
       "digest": "The Cedar Ruby application implements the candidate and interview workflows approved in Cedar product decisions. It calls Cedar Calendar for availability.",
-      "evidence_ids": ["cedar_code_candidates", "cedar_code_calendar_client"]
+      "evidenceIds": ["cedar_code_candidates", "cedar_code_calendar_client"]
     },
     {
-      "id": "cedar-docs",
+      "collectionId": "cedar-docs",
+      "summaryVersion": "v1",
       "name": "Cedar recruiting guide",
       "digest": "Documents the Cedar candidate and interview behavior defined by Cedar product decisions for recruiters and interviewers.",
-      "evidence_ids": ["cedar_docs_candidates", "cedar_docs_interviews"]
+      "evidenceIds": ["cedar_docs_candidates", "cedar_docs_interviews"]
     },
     {
-      "id": "cedar-calendar",
+      "collectionId": "cedar-calendar",
+      "summaryVersion": "v1",
       "name": "Cedar Calendar service",
       "digest": "Operates the interview availability API consumed by the Cedar application. It does not schedule incidents or customer messages.",
-      "evidence_ids": ["cedar_calendar_api", "cedar_calendar_consumers"]
+      "evidenceIds": ["cedar_calendar_api", "cedar_calendar_consumers"]
     },
     {
-      "id": "drift-product",
+      "collectionId": "drift-product",
+      "summaryVersion": "v1",
       "name": "Drift product decisions",
       "digest": "Defines Drift analytics dashboards, metric exploration, and scheduled report behavior.",
-      "evidence_ids": ["drift_product_dashboards", "drift_product_reports"]
+      "evidenceIds": ["drift_product_dashboards", "drift_product_reports"]
     },
     {
-      "id": "drift-code",
+      "collectionId": "drift-code",
+      "summaryVersion": "v1",
       "name": "Drift application",
       "digest": "The Drift Python application implements the dashboard and report workflows approved in Drift product decisions. It queries Drift Metrics for aggregates.",
-      "evidence_ids": ["drift_code_dashboards", "drift_code_metrics_client"]
+      "evidenceIds": ["drift_code_dashboards", "drift_code_metrics_client"]
     },
     {
-      "id": "drift-docs",
+      "collectionId": "drift-docs",
+      "summaryVersion": "v1",
       "name": "Drift analytics manual",
       "digest": "Documents the Drift dashboard and reporting behavior defined by Drift product decisions for analysts.",
-      "evidence_ids": ["drift_docs_dashboards", "drift_docs_reports"]
+      "evidenceIds": ["drift_docs_dashboards", "drift_docs_reports"]
     },
     {
-      "id": "drift-metrics",
+      "collectionId": "drift-metrics",
+      "summaryVersion": "v1",
       "name": "Drift Metrics service",
       "digest": "Operates the aggregate-query API consumed by the Drift application. Its data is unrelated to responder paging.",
-      "evidence_ids": ["drift_metrics_api", "drift_metrics_consumers"]
+      "evidenceIds": ["drift_metrics_api", "drift_metrics_consumers"]
     },
     {
-      "id": "ember-product",
+      "collectionId": "ember-product",
+      "summaryVersion": "v1",
       "name": "Ember product decisions",
       "digest": "Defines Ember campaign composition, audience selection, and scheduled customer-message delivery.",
-      "evidence_ids": ["ember_product_campaigns", "ember_product_audiences"]
+      "evidenceIds": ["ember_product_campaigns", "ember_product_audiences"]
     },
     {
-      "id": "ember-code",
+      "collectionId": "ember-code",
+      "summaryVersion": "v1",
       "name": "Ember application",
       "digest": "The Ember Kotlin application implements the campaign workflows approved in Ember product decisions. It sends deliveries through Ember Dispatch.",
-      "evidence_ids": ["ember_code_campaigns", "ember_code_dispatch_client"]
+      "evidenceIds": ["ember_code_campaigns", "ember_code_dispatch_client"]
     },
     {
-      "id": "ember-docs",
+      "collectionId": "ember-docs",
+      "summaryVersion": "v1",
       "name": "Ember messaging guide",
       "digest": "Documents the Ember campaign and audience behavior defined by Ember product decisions for marketing operators.",
-      "evidence_ids": ["ember_docs_campaigns", "ember_docs_audiences"]
+      "evidenceIds": ["ember_docs_campaigns", "ember_docs_audiences"]
     },
     {
-      "id": "ember-dispatch",
+      "collectionId": "ember-dispatch",
+      "summaryVersion": "v1",
       "name": "Ember Dispatch service",
       "digest": "Operates the outbound delivery API consumed by the Ember application. It does not process checkout settlements.",
-      "evidence_ids": ["ember_dispatch_api", "ember_dispatch_consumers"]
+      "evidenceIds": ["ember_dispatch_api", "ember_dispatch_consumers"]
     },
     {
-      "id": "fjord-product",
+      "collectionId": "fjord-product",
+      "summaryVersion": "v1",
       "name": "Fjord product decisions",
       "digest": "Defines Fjord subscription plans, invoice correction, and account-credit behavior.",
-      "evidence_ids": ["fjord_product_plans", "fjord_product_invoices"]
+      "evidenceIds": ["fjord_product_plans", "fjord_product_invoices"]
     },
     {
-      "id": "fjord-code",
+      "collectionId": "fjord-code",
+      "summaryVersion": "v1",
       "name": "Fjord application",
       "digest": "The Fjord Java application implements the subscription and invoice workflows approved in Fjord product decisions. It calls Fjord Rating for charge calculations.",
-      "evidence_ids": ["fjord_code_subscriptions", "fjord_code_rating_client"]
+      "evidenceIds": ["fjord_code_subscriptions", "fjord_code_rating_client"]
     },
     {
-      "id": "fjord-docs",
+      "collectionId": "fjord-docs",
+      "summaryVersion": "v1",
       "name": "Fjord billing guide",
       "digest": "Documents the Fjord subscription and invoice behavior defined by Fjord product decisions for account administrators.",
-      "evidence_ids": ["fjord_docs_subscriptions", "fjord_docs_invoices"]
+      "evidenceIds": ["fjord_docs_subscriptions", "fjord_docs_invoices"]
     },
     {
-      "id": "fjord-rating",
+      "collectionId": "fjord-rating",
+      "summaryVersion": "v1",
       "name": "Fjord Rating service",
       "digest": "Operates the charge-calculation API consumed by the Fjord application. It is separate from the Atlas settlement ledger.",
-      "evidence_ids": ["fjord_rating_api", "fjord_rating_consumers"]
+      "evidenceIds": ["fjord_rating_api", "fjord_rating_consumers"]
     },
     {
-      "id": "grove-product",
+      "collectionId": "grove-product",
+      "summaryVersion": "v1",
       "name": "Grove product decisions",
       "digest": "Defines Grove knowledge publishing, review, and internal-search behavior.",
-      "evidence_ids": ["grove_product_publishing", "grove_product_search"]
+      "evidenceIds": ["grove_product_publishing", "grove_product_search"]
     },
     {
-      "id": "grove-code",
+      "collectionId": "grove-code",
+      "summaryVersion": "v1",
       "name": "Grove application",
       "digest": "The Grove Rust application implements the publishing and search workflows approved in Grove product decisions. It indexes content through Grove Search.",
-      "evidence_ids": ["grove_code_publishing", "grove_code_search_client"]
+      "evidenceIds": ["grove_code_publishing", "grove_code_search_client"]
     },
     {
-      "id": "grove-docs",
+      "collectionId": "grove-docs",
+      "summaryVersion": "v1",
       "name": "Grove author handbook",
       "digest": "Documents the Grove publishing and review behavior defined by Grove product decisions for knowledge authors.",
-      "evidence_ids": ["grove_docs_publishing", "grove_docs_review"]
+      "evidenceIds": ["grove_docs_publishing", "grove_docs_review"]
     },
     {
-      "id": "grove-search",
+      "collectionId": "grove-search",
+      "summaryVersion": "v1",
       "name": "Grove Search service",
       "digest": "Operates the indexing and query API consumed by the Grove application. It does not provide analytics aggregates.",
-      "evidence_ids": ["grove_search_api", "grove_search_consumers"]
+      "evidenceIds": ["grove_search_api", "grove_search_consumers"]
     },
     {
-      "id": "harbor-product",
+      "collectionId": "harbor-product",
+      "summaryVersion": "v1",
       "name": "Harbor product decisions",
       "digest": "Defines Harbor organization login, session management, and administrator access controls.",
-      "evidence_ids": ["harbor_product_login", "harbor_product_access"]
+      "evidenceIds": ["harbor_product_login", "harbor_product_access"]
     },
     {
-      "id": "harbor-code",
+      "collectionId": "harbor-code",
+      "summaryVersion": "v1",
       "name": "Harbor application",
       "digest": "The Harbor Elixir application implements the login and access workflows approved in Harbor product decisions. It validates identities through Harbor Directory.",
-      "evidence_ids": ["harbor_code_login", "harbor_code_directory_client"]
+      "evidenceIds": ["harbor_code_login", "harbor_code_directory_client"]
     },
     {
-      "id": "harbor-docs",
+      "collectionId": "harbor-docs",
+      "summaryVersion": "v1",
       "name": "Harbor administrator guide",
       "digest": "Documents the Harbor login and access behavior defined by Harbor product decisions for organization administrators.",
-      "evidence_ids": ["harbor_docs_login", "harbor_docs_access"]
+      "evidenceIds": ["harbor_docs_login", "harbor_docs_access"]
     },
     {
-      "id": "harbor-directory",
+      "collectionId": "harbor-directory",
+      "summaryVersion": "v1",
       "name": "Harbor Directory service",
       "digest": "Operates the identity validation API consumed by the Harbor application. It is not a recruiting candidate directory.",
-      "evidence_ids": ["harbor_directory_api", "harbor_directory_consumers"]
+      "evidenceIds": ["harbor_directory_api", "harbor_directory_consumers"]
     }
   ],
   "relationships": [

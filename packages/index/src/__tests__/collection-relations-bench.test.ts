@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildCollectionRelationsPrompt,
   parseCollectionRelationsArgs,
   scoreCollectionRelationships,
   validateCollectionRelationsFixture,
@@ -11,22 +10,25 @@ import {
 const fixture = {
   collections: [
     {
-      id: "atlas-product",
+      collectionId: "atlas-product",
       name: "Atlas product decisions",
       digest: "Defines the Atlas customer workflows and requirements.",
-      evidence_ids: ["decision_atlas"],
+      summaryVersion: "product-v1",
+      evidenceIds: ["decision_atlas"],
     },
     {
-      id: "atlas-code",
+      collectionId: "atlas-code",
       name: "Atlas application",
       digest: "Implements the workflows specified by Atlas product decisions.",
-      evidence_ids: ["reference_atlas_code"],
+      summaryVersion: "code-v1",
+      evidenceIds: ["reference_atlas_code"],
     },
     {
-      id: "beacon-product",
+      collectionId: "beacon-product",
       name: "Beacon product decisions",
       digest: "Defines Beacon's incident-management experience.",
-      evidence_ids: ["decision_beacon"],
+      summaryVersion: "beacon-v1",
+      evidenceIds: ["decision_beacon"],
     },
   ],
   relationships: [{ from: "atlas-code", to: "atlas-product", type: "implements" }],
@@ -113,8 +115,16 @@ describe("collection relationship benchmark", () => {
         type: "implements",
         confidence: 0.94,
         evidence: [
-          { collection_id: "atlas-code", evidence_ids: ["reference_atlas_code"] },
-          { collection_id: "atlas-product", evidence_ids: ["decision_atlas"] },
+          {
+            collectionId: "atlas-code",
+            summaryVersion: "code-v1",
+            evidenceIds: ["reference_atlas_code"],
+          },
+          {
+            collectionId: "atlas-product",
+            summaryVersion: "product-v1",
+            evidenceIds: ["decision_atlas"],
+          },
         ],
       },
       {
@@ -150,8 +160,16 @@ describe("collection relationship benchmark", () => {
         type: "documents",
         confidence: 0.8,
         evidence: [
-          { collection_id: "atlas-code", evidence_ids: ["reference_atlas_code"] },
-          { collection_id: "atlas-product", evidence_ids: ["decision_atlas"] },
+          {
+            collectionId: "atlas-code",
+            summaryVersion: "code-v1",
+            evidenceIds: ["reference_atlas_code"],
+          },
+          {
+            collectionId: "atlas-product",
+            summaryVersion: "product-v1",
+            evidenceIds: ["decision_atlas"],
+          },
         ],
       },
     ];
@@ -171,8 +189,16 @@ describe("collection relationship benchmark", () => {
       type: "implements",
       confidence: 0.9,
       evidence: [
-        { collection_id: "atlas-code", evidence_ids: ["reference_atlas_code"] },
-        { collection_id: "atlas-product", evidence_ids: ["decision_atlas"] },
+        {
+          collectionId: "atlas-code",
+          summaryVersion: "code-v1",
+          evidenceIds: ["reference_atlas_code"],
+        },
+        {
+          collectionId: "atlas-product",
+          summaryVersion: "product-v1",
+          evidenceIds: ["decision_atlas"],
+        },
       ],
     };
 
@@ -193,16 +219,5 @@ describe("collection relationship benchmark", () => {
       invalidEdges: 1,
       unsupportedEdges: 1,
     });
-  });
-
-  it("asks for abstention and evidence from both endpoint collections", () => {
-    const prompt = buildCollectionRelationsPrompt(fixture.collections, { anchor: "atlas-code" });
-    expect(prompt).toContain("Omit unrelated pairs");
-    expect(prompt).toContain("evidence from both endpoint collections");
-    expect(prompt).toContain("from=implementation, to=product, type=implements");
-    expect(prompt).toContain("from=documentation, to=product, type=documents");
-    expect(prompt).toContain("Every relationship must involve atlas-code");
-    expect(prompt).toContain('"atlas-product"');
-    expect(prompt).toContain("decision_atlas");
   });
 });

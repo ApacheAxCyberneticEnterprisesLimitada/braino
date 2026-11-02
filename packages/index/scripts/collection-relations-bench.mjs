@@ -5,6 +5,9 @@ import { readFile, writeFile } from "node:fs/promises";
 import {
   buildCollectionRelationsPrompt,
   collectionRelationshipsResponseSchema,
+  validateCollectionRelationships,
+} from "../dist/collection-relationship-validation.js";
+import {
   parseCollectionRelationsArgs,
   scoreCollectionRelationships,
   validateCollectionRelationsFixture,
@@ -24,7 +27,7 @@ function decodedContent(envelope) {
 }
 
 async function inferRelationships(options, collections) {
-  const prompt = buildCollectionRelationsPrompt(collections, { anchor: options.anchor });
+  const prompt = buildCollectionRelationsPrompt(collections, { anchorId: options.anchor });
   const startedAt = performance.now();
   const response = await fetch(options.url, {
     method: "POST",
@@ -84,7 +87,9 @@ function aggregateBatch(runs) {
     batchSize: runs[0]?.batchSize ?? 0,
     repeats: runs.length,
     gold: metric("gold"),
+    rawPredicted: mean(runs.map((run) => run.rawPredictions.length)),
     predicted: metric("predicted"),
+    rejected: mean(runs.map((run) => run.rejections.length)),
     precision: metric("precision"),
     recall: metric("recall"),
     f1: metric("f1"),
@@ -107,7 +112,9 @@ function printSummary(summary) {
   const rows = summary.map((row) => ({
     collections: row.batchSize,
     gold: row.gold.toFixed(0),
-    predicted: row.predicted.toFixed(1),
+    raw: row.rawPredicted.toFixed(1),
+    accepted: row.predicted.toFixed(1),
+    rejected: row.rejected.toFixed(1),
     precision: percent(row.precision),
     recall: percent(row.recall),
     F1: percent(row.f1),
@@ -135,7 +142,7 @@ async function main() {
   }
 
   const anchorIndex = options.anchor
-    ? fixture.collections.findIndex((collection) => collection.id === options.anchor)
+    ? fixture.collections.findIndex((collection) => collection.collectionId === options.anchor)
     : 0;
   const warmupFixture = visibleBenchmarkFixture(
     fixture,
@@ -153,7 +160,13 @@ async function main() {
       const visible = visibleBenchmarkFixture(fixture, batchSize, options.anchor);
       for (let repeat = 1; repeat <= options.repeats; repeat++) {
         const inferred = await inferRelationships(options, visible.collections);
-        const metrics = scoreCollectionRelationships(visible, inferred.relationships);
+        const validation = options.anchor
+          ? validateCollectionRelationships(
+              { anchorId: options.anchor, summaries: visible.collections },
+              inferred.relationships,
+            )
+          : { accepted: inferred.relationships, rejected: [] };
+        const metrics = scoreCollectionRelationships(visible, validation.accepted);
         runs.push({
           batchSize,
           repeat,
@@ -162,10 +175,12 @@ async function main() {
           outputTokens: inferred.outputTokens,
           ollamaDurationMs: inferred.ollamaDurationMs,
           metrics,
-          predictions: inferred.relationships,
+          rawPredictions: inferred.relationships,
+          predictions: validation.accepted,
+          rejections: validation.rejected,
         });
         console.log(
-          `${batchSize} collections, run ${repeat}/${options.repeats}: precision=${percent(metrics.precision)} recall=${percent(metrics.recall)} latency=${(inferred.latencyMs / 1000).toFixed(1)}s`,
+          `${batchSize} collections, run ${repeat}/${options.repeats}: accepted=${validation.accepted.length}/${inferred.relationships.length} precision=${percent(metrics.precision)} recall=${percent(metrics.recall)} latency=${(inferred.latencyMs / 1000).toFixed(1)}s`,
         );
       }
     }
