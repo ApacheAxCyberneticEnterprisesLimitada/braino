@@ -2721,10 +2721,11 @@ CREATE TABLE IF NOT EXISTS unseen_work_authors (
 -- worker rebuilds from the collection's connections. Labels go on past the
 -- judge (labelPullRequest), so it costs no model call. Its import stamps the
 -- marker after then, so a later boot queues nothing. Moved on when a brief or
--- record of another workspace stopped counting as going through Doco, and
--- again when each pull request came to carry who opened it, for the alerts
--- about someone who isn't a member (Alexander, 2026-11-02, "Find why no alert
--- for Oki skipping Doco"), so the pull requests labeled before relabel too.
+-- record of another workspace stopped counting as going through Doco, when
+-- each pull request came to carry who opened it, for the alerts about someone
+-- who isn't a member, and when only its author's records came to count as
+-- logging it (Alexander, 2026-11-02, "Find why no alert for Oki skipping
+-- Doco"), so the pull requests labeled before relabel too.
 -- The build applies this while the deploy before it still serves, and the
 -- sweep (web: routes/api.github.backfill-sweep.tsx) takes up an import whose
 -- cursor sat still five minutes: the marker's cursor stands five minutes
@@ -2741,7 +2742,7 @@ UPDATE collections
          '$.github_integration.connections[*] ? (@.repo.type() == "string" && @.installation_id.type() == "number")')
    AND coalesce(data->'github_integration'->'backfill'->>'status', '') <> 'running'
    AND coalesce((data->'github_integration'->'backfill'->>'cursor_at')::timestamptz, 'epoch')
-       < '2026-11-02T16:30:00Z';
+       < '2026-11-02T21:40:00Z';
 -- The schedule opened with an email after a workday of silence until it
 -- started at a week: each alert's step moves down one, the workday's to none,
 -- once, as the step's range check arrives.
