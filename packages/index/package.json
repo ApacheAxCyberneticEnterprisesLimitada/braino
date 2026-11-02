@@ -23,6 +23,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
+    "eval:collection-relations": "node scripts/collection-relations-bench.mjs",
     "eval:retrieval": "node scripts/eval-retrieval.mjs",
     "eval:enterprise-rag": "node scripts/enterprise-rag-bench.mjs",
     "backfill:qdrant": "node scripts/backfill-qdrant.mjs",

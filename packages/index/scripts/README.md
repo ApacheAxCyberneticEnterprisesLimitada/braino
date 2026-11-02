@@ -1,5 +1,36 @@
 # Retrieval eval harness
 
+## Collection relationship inference
+
+`collection-relations-bench.mjs` measures how well the configured local Qwen
+model infers a sparse, directed graph from increasingly large batches of
+evidence-linked collection digests. It is evaluation-only: it writes a JSON
+report and never writes collection relationships to Doco or Postgres.
+
+The committed fixture contains eight similar four-collection product groups.
+Nested batches add complete groups, so larger batches add both gold edges and
+same-role hard negatives. The report includes exact precision/recall/F1,
+endpoint discovery, relationship-type and direction accuracy, unsupported
+evidence rate, invalid edges, token counts, and latency.
+
+```sh
+pnpm --filter @doco/index eval:collection-relations -- \
+  --model qwen3:8b \
+  --batch-sizes 8,16,24,32 \
+  --num-ctx 8192 \
+  --output /tmp/collection-relations-benchmark.json
+```
+
+Use `--repeats N` to measure stability. `DOCO_GRAPH_EXTRACTION_URL` and
+`DOCO_GRAPH_EXTRACTION_API_TOKEN` select a remote Ollama-compatible endpoint;
+otherwise the runner uses `http://127.0.0.1:11434/api/chat`. Keep the JSON
+report outside git when it contains summaries derived from private collections.
+
+Use `--anchor <collection-id>` to model the production path: compare one added
+or changed collection with every visible collection, and score only edges that
+involve that anchor. This keeps the expected output fixed while batch size grows,
+so the result isolates the effect of additional comparison candidates.
+
 ## EnterpriseRAG-Bench
 
 `enterprise-rag-bench.mjs` runs Doco's production chunking, embedding, and
