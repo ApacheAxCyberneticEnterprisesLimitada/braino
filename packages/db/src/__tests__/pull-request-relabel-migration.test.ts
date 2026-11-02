@@ -8,7 +8,8 @@
 // under the code the deploy replaced, as the build applies schema.sql before
 // its code serves; and again when each pull request came to carry who opened
 // it, with the marker's cursor ahead, so the sweep starts the import ten
-// minutes on; and when only its author's records came to count as logging it.
+// minutes on; when only its author's records came to count as logging it;
+// and when Doco came to look in every workspace that tracks the repository.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";
@@ -67,14 +68,15 @@ beforeEach(async () => {
       backfill: { status: "running", cursor_at: "2026-10-20T00:00:00Z" },
     },
   });
-  // Relabeled at 16:47, before only the author's records counted.
+  // Relabeled at 22:02, before Doco looked in other workspaces that track
+  // the repository.
   await collection("labeled_before", {
     template_handle: "github-pull-requests",
-    github_integration: { ...CONNECTED, backfill: done("2026-11-02T16:47:43Z") },
+    github_integration: { ...CONNECTED, backfill: done("2026-11-02T22:02:39Z") },
   });
   await collection("labeled", {
     template_handle: "github-pull-requests",
-    github_integration: { ...CONNECTED, backfill: done("2026-11-02T22:30:00Z") },
+    github_integration: { ...CONNECTED, backfill: done("2026-11-02T23:30:00Z") },
   });
   await collection(
     "deleted",
@@ -113,7 +115,7 @@ describe("relabeling the pull requests imported before labels", () => {
     await db.exec(`
       UPDATE collections
          SET data = jsonb_set(data, '{github_integration,backfill}',
-                              '{"status": "done", "cursor_at": "2026-11-02T22:30:00Z"}'::jsonb)
+                              '{"status": "done", "cursor_at": "2026-11-02T23:30:00Z"}'::jsonb)
        WHERE id IN ('prs', 'decisions_with_prs', 'labeled_before');
     `);
     const was = await backfills();
