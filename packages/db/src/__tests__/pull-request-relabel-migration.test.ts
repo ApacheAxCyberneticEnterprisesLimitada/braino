@@ -2,7 +2,9 @@
 // older pull requests of every workspace once. Applying schema.sql queues
 // each collection that brings pull requests from GitHub, last imported before
 // they carried labels, for the background re-import "Re-import all" starts;
-// once that import ran, a later boot queues nothing.
+// once that import ran, a later boot queues nothing. Alexander, 2026-11-02,
+// "Find why no alert for Oki skipping Doco": once more when a brief or record
+// of another workspace stopped counting as going through Doco.
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "./fresh-db.js";
@@ -61,9 +63,13 @@ beforeEach(async () => {
       backfill: { status: "running", cursor_at: "2026-10-20T00:00:00Z" },
     },
   });
-  await collection("labeled", {
+  await collection("labeled_before", {
     template_handle: "github-pull-requests",
     github_integration: { ...CONNECTED, backfill: done("2026-10-30T02:00:00Z") },
+  });
+  await collection("labeled", {
+    template_handle: "github-pull-requests",
+    github_integration: { ...CONNECTED, backfill: done("2026-11-02T16:00:00Z") },
   });
   await collection(
     "deleted",
@@ -82,6 +88,7 @@ describe("relabeling the pull requests imported before labels", () => {
     const now = await backfills();
     expect(now.prs).toEqual({ status: "running" });
     expect(now.decisions_with_prs).toEqual({ status: "running" });
+    expect(now.labeled_before).toEqual({ status: "running" });
     for (const id of ["issues", "code", "disconnected", "importing", "labeled", "deleted"]) {
       expect(now[id]).toEqual(was[id]);
     }
@@ -92,8 +99,8 @@ describe("relabeling the pull requests imported before labels", () => {
     await db.exec(`
       UPDATE collections
          SET data = jsonb_set(data, '{github_integration,backfill}',
-                              '{"status": "done", "cursor_at": "2026-10-30T03:00:00Z"}'::jsonb)
-       WHERE id IN ('prs', 'decisions_with_prs');
+                              '{"status": "done", "cursor_at": "2026-11-02T17:00:00Z"}'::jsonb)
+       WHERE id IN ('prs', 'decisions_with_prs', 'labeled_before');
     `);
     const was = await backfills();
     await db.exec(schemaSql);

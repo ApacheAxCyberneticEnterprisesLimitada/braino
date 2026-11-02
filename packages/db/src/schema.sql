@@ -2713,7 +2713,10 @@ CREATE TABLE IF NOT EXISTS unseen_work_alerts (
 -- starts, a running marker with no cursor, which the sweep picks up and the
 -- worker rebuilds from the collection's connections. Labels go on past the
 -- judge (labelPullRequest), so it costs no model call. Its import stamps the
--- marker after then, so a later boot queues nothing.
+-- marker after then, so a later boot queues nothing. Moved on once, when a
+-- brief or record of another workspace stopped counting as going through
+-- Doco (Alexander, 2026-11-02, "Find why no alert for Oki skipping Doco"), so
+-- the pull requests labeled before relabel too.
 UPDATE collections
    SET data = jsonb_set(data, '{github_integration,backfill}', '{"status": "running"}'::jsonb, true)
  WHERE deleted_at IS NULL
@@ -2723,7 +2726,7 @@ UPDATE collections
          '$.github_integration.connections[*] ? (@.repo.type() == "string" && @.installation_id.type() == "number")')
    AND coalesce(data->'github_integration'->'backfill'->>'status', '') <> 'running'
    AND coalesce((data->'github_integration'->'backfill'->>'cursor_at')::timestamptz, 'epoch')
-       < '2026-10-30T00:30:00Z';
+       < '2026-11-02T15:40:00Z';
 -- The schedule opened with an email after a workday of silence until it
 -- started at a week: each alert's step moves down one, the workday's to none,
 -- once, as the step's range check arrives.
