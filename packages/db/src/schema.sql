@@ -235,6 +235,34 @@ CREATE TABLE IF NOT EXISTS collections (
 DROP TABLE IF EXISTS collection_edges;
 DROP INDEX IF EXISTS collections_id_workspace_uniq;
 
+-- Model-inferred relationships between collections are a derived evidence
+-- index, never authored graph edges. Recomputing one collection replaces every
+-- relationship that touches it; evidence retains the exact summary versions
+-- and source ids admitted by the deterministic validator.
+CREATE TABLE IF NOT EXISTS collection_relationships (
+  id                  text PRIMARY KEY,
+  workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  from_collection_id  text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  to_collection_id    text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  relationship_type   text NOT NULL
+                        CHECK (relationship_type IN
+                          ('implements', 'documents', 'depends_on', 'derived_from')),
+  confidence          double precision NOT NULL CHECK (confidence >= 0 AND confidence <= 1),
+  evidence            jsonb NOT NULL CHECK (jsonb_typeof(evidence) = 'array'),
+  verification_status text NOT NULL DEFAULT 'inferred'
+                        CHECK (verification_status IN ('inferred', 'verified')),
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  updated_at          timestamptz NOT NULL DEFAULT now(),
+  CHECK (from_collection_id <> to_collection_id),
+  UNIQUE (workspace_id, from_collection_id, relationship_type, to_collection_id)
+);
+CREATE INDEX IF NOT EXISTS collection_relationships_workspace_idx
+  ON collection_relationships (workspace_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS collection_relationships_from_idx
+  ON collection_relationships (from_collection_id);
+CREATE INDEX IF NOT EXISTS collection_relationships_to_idx
+  ON collection_relationships (to_collection_id);
+
 -- Per-collection policies. Every policy is an authoring policy; the standalone
 -- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and
 -- is mirrored to a column for filtering. The full structured record

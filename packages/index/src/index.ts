@@ -11,5 +11,6 @@ export * from "./retrieval-extractor.js";
 export * from "./retrieval-source-sync.js";
 export * from "./multipath-retrieval.js";
 export * from "./collection-relationship-validation.js";
+export * from "./collection-relationship-store.js";
 export * from "./qdrant-sync.js";
 export { loadCollectionFromPostgres } from "./loadCollection.js";
