@@ -126,7 +126,7 @@ describe("Ollama collection relationship model", () => {
     expect(summaryRequest.messages[1].content).toContain('"kind":"product-decisions"');
     expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
     const relationshipRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
-    expect(relationshipRequest.options).toMatchObject({ num_ctx: 8_192, num_predict: 2_048 });
+    expect(relationshipRequest.options).toMatchObject({ num_ctx: 8_192, num_predict: 768 });
     expect(relationshipRequest.messages[0].content).toContain("every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain("Evaluate every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain(

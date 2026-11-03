@@ -213,7 +213,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       buildCollectionRelationsPrompt(input.summaries),
       collectionRelationshipsResponseSchemaFor(input.summaries),
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-      { numCtx: 8_192, numPredict: 2_048 },
+      { numCtx: 8_192, numPredict: 768 },
     );
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Ollama returned an invalid collection relationship result");
