@@ -1657,18 +1657,19 @@ SELECT 'gcul_' || replace(gen_random_uuid()::text, '-', ''), i.provider, i.works
  WHERE i.installed_by_chat_user_id IS NOT NULL AND i.installed_by_user_id IS NOT NULL
 ON CONFLICT (provider, workspace_id, chat_user_id, user_id) DO NOTHING;
 -- What Señor Doco keeps about each conversation he speaks in unasked
--- (lib/slack-conversations.server.ts): a channel, or a person, by their chat
--- user id, whose direct messages with him are where he speaks to them. He
--- introduces himself once in each (a channel's introduction, a person's
--- welcome), and says nothing unasked in one someone quieted. A person's row
--- also holds when they last opened his Home tab, which shows what was
--- decided since (lib/slack-home.server.ts).
+-- (lib/slack-conversations.server.ts): a channel, a person, by their chat
+-- user id, whose direct messages with him are where he speaks to them, or a
+-- thread ("<channel>/<thread ts>"). He introduces himself once in each (a
+-- channel's introduction, a person's welcome, his one offer in a thread), and
+-- closes a thread once what he offered there is done. A person's row also
+-- holds when they last opened his Home tab, which shows what was decided
+-- since (lib/slack-home.server.ts).
 CREATE TABLE IF NOT EXISTS group_chat_conversations (
   provider        text NOT NULL CHECK (provider IN ('slack','google-chat','discord','other')),
   workspace_id    text NOT NULL,
   conversation_id text NOT NULL,
   introduced_at   timestamptz,
-  quiet_at        timestamptz,
+  closed_at       timestamptz,
   home_opened_at  timestamptz,
   PRIMARY KEY (provider, workspace_id, conversation_id)
 );
@@ -2546,6 +2547,32 @@ ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS history_next_at timestam
 ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS replies_next_at timestamptz;
 ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS history_oldest_ts text;
 ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS decision_offers boolean NOT NULL DEFAULT false;
+-- Quieting Señor Doco from Slack is gone: Manage under what he posts unasked
+-- opens the team's Slack settings on doco.to (Alexander, 2026-11-03: "No
+-- management options in Slack other than the button to go to Doco."). A
+-- channel someone quieted stays quiet through the switches there: the Times
+-- off where it was his channel, and no watching for decisions in it. What was
+-- quiet_at lives on only as a thread's closed_at.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = current_schema() AND table_name = 'group_chat_conversations'
+                AND column_name = 'quiet_at') THEN
+    UPDATE group_chat_installations i SET digest = 'off', updated_at = now()
+      FROM group_chat_conversations q
+     WHERE q.provider = i.provider AND q.workspace_id = i.workspace_id
+       AND q.conversation_id = i.default_channel_id AND q.quiet_at IS NOT NULL;
+    UPDATE group_chat_channels gc SET decision_offers = false
+      FROM group_chat_mirrors m
+      JOIN group_chat_installations i ON i.id = m.installation_id
+      JOIN group_chat_conversations q
+        ON q.provider = i.provider AND q.workspace_id = i.workspace_id AND q.quiet_at IS NOT NULL
+     WHERE m.collection_id = gc.collection_id AND q.conversation_id = gc.channel_id;
+    ALTER TABLE group_chat_conversations RENAME COLUMN quiet_at TO closed_at;
+    UPDATE group_chat_conversations SET closed_at = NULL
+     WHERE closed_at IS NOT NULL AND position('/' IN conversation_id) = 0;
+  END IF;
+END $$;
 ALTER TABLE group_chat_messages ADD COLUMN IF NOT EXISTS replies_cursor text;
 -- Thread roots whose earlier replies the backfill still has to fetch.
 CREATE INDEX IF NOT EXISTS group_chat_messages_replies_pending_idx
