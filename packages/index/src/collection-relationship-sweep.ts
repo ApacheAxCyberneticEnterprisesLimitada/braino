@@ -19,6 +19,30 @@ const SOURCE_EXCERPT_CHARS = 600;
 const COLLECTION_GOAL_CHARS = 600;
 const SUMMARY_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
 
+const COLLECTION_SUMMARY_SOURCES_CTE = `
+ranked_collection_sources AS (
+  SELECT collection_id, source, external_id, title, content, source_updated_at,
+         row_number() OVER (
+           PARTITION BY collection_id, source
+           ORDER BY source_updated_at DESC NULLS LAST, external_id
+         ) AS source_rank
+    FROM retrieval_source_documents
+), bounded_collection_sources AS (
+  SELECT collection_id, source, external_id, title, content, source_updated_at,
+         row_number() OVER (
+           PARTITION BY collection_id
+           ORDER BY source_updated_at DESC NULLS LAST, source, external_id
+         ) AS summary_rank
+    FROM ranked_collection_sources
+   WHERE source_rank <= ${SOURCES_PER_KIND}
+), collection_summary_sources AS (
+  SELECT collection_id, source, external_id, title,
+         left(content, ${SOURCE_EXCERPT_CHARS}) AS content,
+         source_updated_at, summary_rank
+    FROM bounded_collection_sources
+   WHERE summary_rank <= ${SOURCES_PER_SUMMARY}
+)`;
+
 interface CollectionStateRow {
   collection_id: string;
   workspace_id: string;
@@ -119,15 +143,16 @@ function checkedSummary(
 
 async function collectionStates(c: QueryClient, modelId: string): Promise<CollectionState[]> {
   const rows = await c.query<CollectionStateRow>(
-    `WITH source_states AS (
+    `WITH ${COLLECTION_SUMMARY_SOURCES_CTE}, source_states AS (
        SELECT collection_id,
               md5(string_agg(
-                md5(source || E'\n' || external_id || E'\n' || coalesce(source_updated_at::text, '')),
-                '' ORDER BY source, external_id
+                md5(source || E'\n' || external_id || E'\n' || coalesce(title, '') ||
+                    E'\n' || content),
+                '' ORDER BY summary_rank
               )) AS source_fingerprint,
               count(*)::int AS source_count,
               max(source_updated_at) AS source_changed_at
-         FROM retrieval_source_documents
+         FROM collection_summary_sources
         GROUP BY collection_id
      ), relationship_counts AS (
        SELECT workspace_id, count(*)::int AS relationship_count
@@ -247,25 +272,17 @@ async function collectionSources(
   collectionId: string,
 ): Promise<CollectionSummarySource[]> {
   const rows = await c.query<SourceRow>(
-    `WITH ranked AS (
-       SELECT source, external_id, title, content, source_updated_at,
-              row_number() OVER (
-                PARTITION BY source ORDER BY source_updated_at DESC NULLS LAST, external_id
-              ) AS source_rank
-         FROM retrieval_source_documents
-        WHERE collection_id = $1
-     )
+    `WITH ${COLLECTION_SUMMARY_SOURCES_CTE}
      SELECT source, external_id, title, content
-       FROM ranked
-      WHERE source_rank <= $2
-      ORDER BY source_updated_at DESC NULLS LAST, source, external_id
-      LIMIT $3`,
-    [collectionId, SOURCES_PER_KIND, SOURCES_PER_SUMMARY],
+       FROM collection_summary_sources
+      WHERE collection_id = $1
+      ORDER BY summary_rank`,
+    [collectionId],
   );
   return rows.rows.map((row) => ({
     evidenceId: `${row.source}:${row.external_id}`,
     title: row.title,
-    content: row.content.slice(0, SOURCE_EXCERPT_CHARS),
+    content: row.content,
   }));
 }
 

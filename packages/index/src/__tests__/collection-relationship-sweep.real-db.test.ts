@@ -200,6 +200,18 @@ describe("collection relationship sweep", () => {
 
     await db.exec(`
       UPDATE nodes
+         SET updated_at = '2026-01-15T00:00:00Z'
+       WHERE id = 'decision_checkout'
+    `);
+    expect(await sweepCollectionRelationships(client(), { model, limit: 1 })).toMatchObject({
+      processed: 0,
+      summarized: 0,
+    });
+    expect(model.summarize).toHaveBeenCalledTimes(2);
+    expect(model.infer).toHaveBeenCalledTimes(1);
+
+    await db.exec(`
+      UPDATE nodes
          SET prose = 'The product requires checkout and refunds.',
              updated_at = '2026-02-01T00:00:00Z'
        WHERE id = 'decision_checkout'
