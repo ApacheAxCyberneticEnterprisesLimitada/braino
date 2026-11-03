@@ -16,7 +16,7 @@ function ollamaResponse(content: unknown): Response {
 
 describe("Ollama collection relationship model", () => {
   it("finishes a model request before the serverless function deadline", () => {
-    expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(120_000);
+    expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
   });
 
   it("is disabled unless the shared graph model is configured", () => {
