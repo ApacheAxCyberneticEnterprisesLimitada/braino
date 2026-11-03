@@ -224,6 +224,13 @@ function staleWorkspaceGraphs(
   });
 }
 
+function pendingWorkCount(states: readonly CollectionState[], modelId: string): number {
+  return (
+    states.filter((collection) => collection.needsSummary).length +
+    staleWorkspaceGraphs(states, modelId).length
+  );
+}
+
 async function collectionSources(
   c: QueryClient,
   collectionId: string,
@@ -383,13 +390,51 @@ export async function sweepCollectionRelationships(
 
   const initialStates = await collectionStates(c, args.model.id);
   const pendingSummaries = initialStates.filter((collection) => collection.needsSummary);
+  const staleGraphs = staleWorkspaceGraphs(initialStates, args.model.id);
+  const graphToRefresh =
+    staleGraphs.find((graph) => graph.failedAt === null) ??
+    (pendingSummaries.length === 0 ? staleGraphs[0] : undefined);
+
+  if (graphToRefresh) {
+    result.processed++;
+    try {
+      const summaries = await workspaceSummaries(c, graphToRefresh.workspaceId);
+      const inferred = summaries.length < 2 ? [] : await args.model.infer({ summaries });
+      const validation = validateCollectionRelationships(
+        { summaries },
+        normalizeCollectionRelationshipDirections(summaries, inferred),
+      );
+      await replaceWorkspaceRelationships(c, {
+        workspaceId: graphToRefresh.workspaceId,
+        relationships: validation.accepted,
+      });
+      await markRelationshipsCurrent(
+        c,
+        graphToRefresh.workspaceId,
+        graphToRefresh.relationshipVersion,
+      );
+      await clearRelationshipFailure(c, graphToRefresh.workspaceId);
+      result.accepted += validation.accepted.length;
+      result.rejected += validation.rejected.length;
+    } catch (error) {
+      const message = errorMessage(error);
+      await recordRelationshipFailure(c, graphToRefresh.workspaceId, message);
+      result.failures.push({
+        collectionId: graphToRefresh.workspaceId,
+        error: message,
+      });
+    }
+
+    const finalStates = await collectionStates(c, args.model.id);
+    result.pending = pendingWorkCount(finalStates, args.model.id);
+    return result;
+  }
+
   const prioritizedWorkspaceId = pendingSummaries[0]?.workspace_id;
   const prioritizedWorkspaceSummaries = pendingSummaries.filter(
     (collection) => collection.workspace_id === prioritizedWorkspaceId,
   );
-  const summaryLimit =
-    limit > 1 && prioritizedWorkspaceSummaries.length === limit ? limit - 1 : limit;
-  const summariesToRefresh = prioritizedWorkspaceSummaries.slice(0, summaryLimit);
+  const summariesToRefresh = prioritizedWorkspaceSummaries.slice(0, limit);
   for (const collection of summariesToRefresh) {
     result.processed++;
     try {
@@ -426,42 +471,7 @@ export async function sweepCollectionRelationships(
     }
   }
 
-  const statesAfterSummaries = await collectionStates(c, args.model.id);
-  const remaining = limit - result.processed;
-  const graphsToRefresh = staleWorkspaceGraphs(statesAfterSummaries, args.model.id).slice(
-    0,
-    remaining,
-  );
-  for (const graph of graphsToRefresh) {
-    result.processed++;
-    try {
-      const summaries = await workspaceSummaries(c, graph.workspaceId);
-      const inferred = summaries.length < 2 ? [] : await args.model.infer({ summaries });
-      const validation = validateCollectionRelationships(
-        { summaries },
-        normalizeCollectionRelationshipDirections(summaries, inferred),
-      );
-      await replaceWorkspaceRelationships(c, {
-        workspaceId: graph.workspaceId,
-        relationships: validation.accepted,
-      });
-      await markRelationshipsCurrent(c, graph.workspaceId, graph.relationshipVersion);
-      await clearRelationshipFailure(c, graph.workspaceId);
-      result.accepted += validation.accepted.length;
-      result.rejected += validation.rejected.length;
-    } catch (error) {
-      const message = errorMessage(error);
-      await recordRelationshipFailure(c, graph.workspaceId, message);
-      result.failures.push({
-        collectionId: graph.workspaceId,
-        error: message,
-      });
-    }
-  }
-
   const finalStates = await collectionStates(c, args.model.id);
-  result.pending =
-    finalStates.filter((collection) => collection.needsSummary).length +
-    staleWorkspaceGraphs(finalStates, args.model.id).length;
+  result.pending = pendingWorkCount(finalStates, args.model.id);
   return result;
 }

@@ -15,8 +15,8 @@ function ollamaResponse(content: unknown): Response {
 }
 
 describe("Ollama collection relationship model", () => {
-  it("allows a complete workspace graph enough time to finish", () => {
-    expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
+  it("finishes a model request before the serverless function deadline", () => {
+    expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(120_000);
   });
 
   it("is disabled unless the shared graph model is configured", () => {
@@ -123,7 +123,7 @@ describe("Ollama collection relationship model", () => {
     expect(summaryRequest.messages[1].content).toContain('"kind":"product-decisions"');
     expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
     const relationshipRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
-    expect(relationshipRequest.options).toMatchObject({ num_ctx: 16_384, num_predict: 4_096 });
+    expect(relationshipRequest.options).toMatchObject({ num_ctx: 8_192, num_predict: 2_048 });
     expect(relationshipRequest.messages[0].content).toContain("every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain("Evaluate every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain(

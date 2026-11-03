@@ -7,7 +7,7 @@ import {
 
 export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
 export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/chat";
-export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
+export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 120_000;
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v3-bounded";
 
 export interface CollectionSummarySource {
@@ -208,7 +208,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       buildCollectionRelationsPrompt(input.summaries),
       collectionRelationshipsResponseSchemaFor(input.summaries),
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-      { numCtx: 16_384, numPredict: 4_096 },
+      { numCtx: 8_192, numPredict: 2_048 },
     );
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Ollama returned an invalid collection relationship result");
@@ -229,10 +229,13 @@ export function configuredCollectionRelationshipModel(
     ...(env.DOCO_GRAPH_EXTRACTION_API_TOKEN
       ? { apiToken: env.DOCO_GRAPH_EXTRACTION_API_TOKEN }
       : {}),
-    timeoutMs: parsePositiveInteger(
-      env.DOCO_GRAPH_EXTRACTION_TIMEOUT_MS,
+    timeoutMs: Math.min(
+      parsePositiveInteger(
+        env.DOCO_GRAPH_EXTRACTION_TIMEOUT_MS,
+        DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
+        "DOCO_GRAPH_EXTRACTION_TIMEOUT_MS",
+      ),
       DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
-      "DOCO_GRAPH_EXTRACTION_TIMEOUT_MS",
     ),
   });
 }

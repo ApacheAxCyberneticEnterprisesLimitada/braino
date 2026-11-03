@@ -128,9 +128,14 @@ describe("collection relationship sweep", () => {
       }),
     };
 
-    const result = await sweepCollectionRelationships(client(), { model, limit: 10 });
+    const summarized = await sweepCollectionRelationships(client(), { model, limit: 10 });
 
-    expect(result).toMatchObject({ summarized: 3, accepted: 2, rejected: 0, pending: 0 });
+    expect(summarized).toMatchObject({ summarized: 3, accepted: 0, rejected: 0, pending: 1 });
+    expect(model.infer).not.toHaveBeenCalled();
+
+    const inferred = await sweepCollectionRelationships(client(), { model, limit: 10 });
+
+    expect(inferred).toMatchObject({ summarized: 0, accepted: 2, rejected: 0, pending: 0 });
     expect(model.infer).toHaveBeenCalledTimes(1);
     expect(vi.mocked(model.infer).mock.calls[0]?.[0].summaries).toHaveLength(3);
     await expect(
@@ -284,7 +289,7 @@ describe("collection relationship sweep", () => {
     expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_code");
   });
 
-  it("reserves batch capacity to replace a prioritized workspace graph", async () => {
+  it("never combines summary generation and graph inference in one invocation", async () => {
     await db.exec(`
       INSERT INTO workspaces (id, handle, name)
       VALUES ('workspace_two', 'two', 'Two');
@@ -305,10 +310,15 @@ describe("collection relationship sweep", () => {
     `);
     const model = fakeModel();
 
-    const result = await sweepCollectionRelationships(client(), { model, limit: 3 });
+    const summarized = await sweepCollectionRelationships(client(), { model, limit: 3 });
 
-    expect(result).toMatchObject({ processed: 3, summarized: 2, accepted: 1 });
+    expect(summarized).toMatchObject({ processed: 2, summarized: 2, accepted: 0 });
     expect(model.summarize).toHaveBeenCalledTimes(2);
+    expect(model.infer).not.toHaveBeenCalled();
+
+    const inferred = await sweepCollectionRelationships(client(), { model, limit: 3 });
+
+    expect(inferred).toMatchObject({ processed: 1, summarized: 0, accepted: 1 });
     expect(model.infer).toHaveBeenCalledTimes(1);
   });
 
@@ -371,12 +381,18 @@ describe("collection relationship sweep", () => {
       .mockRejectedValueOnce(new Error("Qwen unavailable"))
       .mockResolvedValue([]);
 
+    const firstSummaries = await sweepCollectionRelationships(client(), { model, limit: 3 });
+    expect(firstSummaries).toMatchObject({ processed: 2, summarized: 2, failures: [] });
+
     const failed = await sweepCollectionRelationships(client(), { model, limit: 3 });
     expect(failed.failures).toEqual([
       expect.objectContaining({ collectionId: "workspace_one", error: "Qwen unavailable" }),
     ]);
-    const rotated = await sweepCollectionRelationships(client(), { model, limit: 3 });
-    expect(rotated).toMatchObject({ processed: 3, summarized: 2, failures: [] });
+    const rotatedSummaries = await sweepCollectionRelationships(client(), { model, limit: 3 });
+    expect(rotatedSummaries).toMatchObject({ processed: 2, summarized: 2, failures: [] });
+
+    const rotatedGraph = await sweepCollectionRelationships(client(), { model, limit: 3 });
+    expect(rotatedGraph).toMatchObject({ processed: 1, summarized: 0, failures: [] });
     expect(vi.mocked(model.infer).mock.calls[1]?.[0].summaries[0]?.collectionId).toBe(
       "collection_two_a",
     );
