@@ -9,7 +9,7 @@ import {
 } from "@doco/shared";
 import {
   type CollectionTemplate,
-  DEFAULT_COLLECTION_TEMPLATES,
+  findCollectionTemplateByName,
   templatePolicyToPolicyRow,
 } from "./collection-templates.js";
 
@@ -191,14 +191,13 @@ export async function createCollectionInWorkspace(opts: {
   requestedHandle: string;
   createdByUserId: string;
   visibility?: "private" | "public";
-  templateHandle?: string | null;
+  /** The template the collection is made from. Every new collection has one. */
+  templateHandle: string;
   autoSuffix?: boolean;
   /**
    * Project-owner-authored sentence describing what this collection is for.
-   * When omitted, defaults to the chosen template's `description`
-   * (templated collections) or an empty string (no-template collections). Pass
-   * an explicit string — including the empty string — to override the
-   * template default.
+   * When omitted, defaults to the template's `description`. Pass an explicit
+   * string — including the empty string — to override it.
    */
   goal?: string;
 }): Promise<{
@@ -211,6 +210,8 @@ export async function createCollectionInWorkspace(opts: {
   const baseHandle = opts.requestedHandle.trim().toLowerCase();
   const handleError = validateRequestedCollectionHandle(baseHandle);
   if (handleError) throw new Error(handleError);
+  const template = findCollectionTemplateByName(opts.templateHandle);
+  if (!template) throw new Error(`Unknown template "${opts.templateHandle}".`);
 
   const { withClient } = await import("@doco/db");
   return withClient(async (c) => {
@@ -245,18 +246,16 @@ export async function createCollectionInWorkspace(opts: {
     const collectionId = makeEntityId("collection", generateUlid()) as EntityId<"collection">;
     const created = nowIso();
     const visibility = opts.visibility ?? "private";
-    const template = opts.templateHandle ? findCollectionTemplate(opts.templateHandle) : null;
-    const defaultNodeLifecycle = template?.defaultNodeLifecycle ?? null;
-    // Goal: explicit caller value wins (including ""), else the
-    // template's description, else empty for no-template collections.
-    const goal = opts.goal !== undefined ? opts.goal : (template?.description ?? "");
+    const defaultNodeLifecycle = template.defaultNodeLifecycle ?? null;
+    // Goal: explicit caller value wins (including ""), else the template's description.
+    const goal = opts.goal ?? template.description;
     const data: Record<string, unknown> = {
       id: collectionId,
       handle,
       visibility,
       owner_id: opts.workspaceId,
       workspace_id: opts.workspaceId,
-      template_handle: opts.templateHandle ?? null,
+      template_handle: opts.templateHandle,
       created_at: created,
       created_by: opts.createdByUserId,
       lifecycle: "active",
@@ -300,43 +299,41 @@ export async function createCollectionInWorkspace(opts: {
       );
     }
 
-    if (template && template.policies.length > 0) {
-      for (const policy of template.policies) {
-        // Translate the (still old-shape) TemplatePolicy into the unified
-        // policy row (a standalone `kind` plus an evaluator predicate). The
-        // pure translation lives in `templatePolicyToPolicyRow` so the
-        // template scenario tests seed the exact same rows we enforce here.
-        const row = templatePolicyToPolicyRow(policy);
-        const policyId = `policy_${generateUlid()}`;
-        const policyData: Record<string, unknown> = {
-          id: policyId,
-          collection_id: collectionId,
-          kind: row.kind,
-          predicate: row.predicate,
-          ...(row.on_violation !== undefined ? { on_violation: row.on_violation } : {}),
-          ...(row.fires_when_node_lifecycle
-            ? { fires_when_node_lifecycle: row.fires_when_node_lifecycle }
-            : {}),
-          template_seeded: true,
-          template_handle: opts.templateHandle ?? null,
-          created_at: created,
-          created_by: opts.createdByUserId,
-          lifecycle: "active",
-        };
-        await c.query(
-          `INSERT INTO policies (id, collection_id, kind, data, lifecycle,
-                                created_at, updated_at, created_by, updated_by)
-           VALUES ($1, $2, $3, $4::jsonb, 'active', $5, $5, $6, $6)`,
-          [
-            policyId,
-            collectionId,
-            row.kind,
-            JSON.stringify(policyData),
-            created,
-            opts.createdByUserId,
-          ],
-        );
-      }
+    for (const policy of template.policies) {
+      // Translate the (still old-shape) TemplatePolicy into the unified
+      // policy row (a standalone `kind` plus an evaluator predicate). The
+      // pure translation lives in `templatePolicyToPolicyRow` so the
+      // template scenario tests seed the exact same rows we enforce here.
+      const row = templatePolicyToPolicyRow(policy);
+      const policyId = `policy_${generateUlid()}`;
+      const policyData: Record<string, unknown> = {
+        id: policyId,
+        collection_id: collectionId,
+        kind: row.kind,
+        predicate: row.predicate,
+        ...(row.on_violation !== undefined ? { on_violation: row.on_violation } : {}),
+        ...(row.fires_when_node_lifecycle
+          ? { fires_when_node_lifecycle: row.fires_when_node_lifecycle }
+          : {}),
+        template_seeded: true,
+        template_handle: opts.templateHandle,
+        created_at: created,
+        created_by: opts.createdByUserId,
+        lifecycle: "active",
+      };
+      await c.query(
+        `INSERT INTO policies (id, collection_id, kind, data, lifecycle,
+                              created_at, updated_at, created_by, updated_by)
+         VALUES ($1, $2, $3, $4::jsonb, 'active', $5, $5, $6, $6)`,
+        [
+          policyId,
+          collectionId,
+          row.kind,
+          JSON.stringify(policyData),
+          created,
+          opts.createdByUserId,
+        ],
+      );
     }
 
     let insertedDefaultPerspective = false;
@@ -372,10 +369,6 @@ export async function createCollectionInWorkspace(opts: {
 
     return { collectionId, workspaceId: opts.workspaceId, workspaceHandle, handle, goal };
   });
-}
-
-export function findCollectionTemplate(handle: string): CollectionTemplate | null {
-  return DEFAULT_COLLECTION_TEMPLATES.find((tpl) => tpl.name === handle) ?? null;
 }
 
 export interface UpdateCollectionOptions {
