@@ -32,6 +32,7 @@ interface CollectionStateRow {
   stored_relationships_version: string | null;
   stored_model_id: string | null;
   summarized_at: string | Date | null;
+  relationship_failed_at: string | Date | null;
 }
 
 interface CollectionState extends CollectionStateRow {
@@ -43,6 +44,7 @@ interface CollectionState extends CollectionStateRow {
 interface WorkspaceGraphState {
   workspaceId: string;
   relationshipVersion: string;
+  failedAt: string | Date | null;
 }
 
 interface SummaryRow {
@@ -139,12 +141,14 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
             cs.summary_version AS stored_summary_version,
             cs.relationships_version AS stored_relationships_version,
             cs.model_id AS stored_model_id,
-            cs.summarized_at
+            cs.summarized_at,
+            rf.failed_at AS relationship_failed_at
        FROM collections c
        LEFT JOIN source_states s ON s.collection_id = c.id
        LEFT JOIN collection_summaries cs ON cs.collection_id = c.id
        LEFT JOIN collection_summary_failures sf ON sf.collection_id = c.id
        LEFT JOIN relationship_counts rc ON rc.workspace_id = c.workspace_id
+       LEFT JOIN collection_relationship_failures rf ON rf.workspace_id = c.workspace_id
       WHERE c.deleted_at IS NULL
       ORDER BY (sf.collection_id IS NOT NULL),
                sf.failed_at ASC NULLS FIRST,
@@ -201,10 +205,23 @@ function staleWorkspaceGraphs(
         (collection) => collection.stored_relationships_version !== relationshipVersion,
       )
     ) {
-      stale.push({ workspaceId, relationshipVersion });
+      stale.push({
+        workspaceId,
+        relationshipVersion,
+        failedAt: workspace[0]?.relationship_failed_at ?? null,
+      });
     }
   }
-  return stale.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
+  return stale.sort((left, right) => {
+    if ((left.failedAt === null) !== (right.failedAt === null)) {
+      return left.failedAt === null ? -1 : 1;
+    }
+    if (left.failedAt !== null && right.failedAt !== null) {
+      const age = new Date(left.failedAt).getTime() - new Date(right.failedAt).getTime();
+      if (age !== 0) return age;
+    }
+    return left.workspaceId.localeCompare(right.workspaceId);
+  });
 }
 
 async function collectionSources(
@@ -325,6 +342,25 @@ async function markRelationshipsCurrent(
   );
 }
 
+async function clearRelationshipFailure(c: QueryClient, workspaceId: string): Promise<void> {
+  await c.query("DELETE FROM collection_relationship_failures WHERE workspace_id = $1", [
+    workspaceId,
+  ]);
+}
+
+async function recordRelationshipFailure(
+  c: QueryClient,
+  workspaceId: string,
+  error: string,
+): Promise<void> {
+  await c.query(
+    `INSERT INTO collection_relationship_failures (workspace_id, failed_at, error)
+     VALUES ($1, now(), $2)
+     ON CONFLICT (workspace_id) DO UPDATE SET failed_at = now(), error = EXCLUDED.error`,
+    [workspaceId, error],
+  );
+}
+
 /**
  * Advance the derived graph in two durable stages: summarize changed
  * collections, then infer one complete graph after every summary in a
@@ -410,12 +446,15 @@ export async function sweepCollectionRelationships(
         relationships: validation.accepted,
       });
       await markRelationshipsCurrent(c, graph.workspaceId, graph.relationshipVersion);
+      await clearRelationshipFailure(c, graph.workspaceId);
       result.accepted += validation.accepted.length;
       result.rejected += validation.rejected.length;
     } catch (error) {
+      const message = errorMessage(error);
+      await recordRelationshipFailure(c, graph.workspaceId, message);
       result.failures.push({
         collectionId: graph.workspaceId,
-        error: errorMessage(error),
+        error: message,
       });
     }
   }

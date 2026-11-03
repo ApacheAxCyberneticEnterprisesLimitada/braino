@@ -353,19 +353,39 @@ describe("collection relationship sweep", () => {
     ).resolves.toEqual([]);
   });
 
-  it("retries inference after failure without summarizing unchanged evidence twice", async () => {
+  it("moves failed graph inference behind untouched workspaces before retrying", async () => {
+    await db.exec(`
+      INSERT INTO workspaces (id, handle, name)
+      VALUES ('workspace_two', 'two', 'Two');
+      INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
+      VALUES
+        ('collection_two_a', 'two-a', 'workspace_two', 'workspace_two', 'private', 'A', '{}'),
+        ('collection_two_b', 'two-b', 'workspace_two', 'workspace_two', 'private', 'B', '{}');
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES
+        ('reference_two_a', 'collection_two_a', 'reference', 'active', 'Two A.', '2026-01-01T00:00:00Z'),
+        ('reference_two_b', 'collection_two_b', 'reference', 'active', 'Two B.', '2026-01-01T00:00:00Z');
+    `);
     const model = fakeModel();
     vi.mocked(model.infer)
       .mockRejectedValueOnce(new Error("Qwen unavailable"))
-      .mockResolvedValueOnce([]);
+      .mockResolvedValue([]);
 
-    const failed = await sweepCollectionRelationships(client(), { model, limit: 10 });
+    const failed = await sweepCollectionRelationships(client(), { model, limit: 3 });
     expect(failed.failures).toEqual([
       expect.objectContaining({ collectionId: "workspace_one", error: "Qwen unavailable" }),
     ]);
+    const rotated = await sweepCollectionRelationships(client(), { model, limit: 3 });
+    expect(rotated).toMatchObject({ processed: 3, summarized: 2, failures: [] });
+    expect(vi.mocked(model.infer).mock.calls[1]?.[0].summaries[0]?.collectionId).toBe(
+      "collection_two_a",
+    );
     const retried = await sweepCollectionRelationships(client(), { model, limit: 1 });
     expect(retried).toMatchObject({ processed: 1, summarized: 0, failures: [] });
-    expect(model.summarize).toHaveBeenCalledTimes(2);
-    expect(model.infer).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(model.infer).mock.calls[2]?.[0].summaries[0]?.collectionId).toBe(
+      "collection_code",
+    );
+    expect(model.summarize).toHaveBeenCalledTimes(4);
+    expect(model.infer).toHaveBeenCalledTimes(3);
   });
 });

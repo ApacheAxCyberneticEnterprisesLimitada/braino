@@ -262,6 +262,14 @@ CREATE TABLE IF NOT EXISTS collection_summary_failures (
   error          text NOT NULL
 );
 
+-- A failed workspace inference follows the same queue rule as a failed
+-- summary: retry it only after graphs that have not had a chance yet.
+CREATE TABLE IF NOT EXISTS collection_relationship_failures (
+  workspace_id  text PRIMARY KEY REFERENCES workspaces(id) ON DELETE CASCADE,
+  failed_at     timestamptz NOT NULL DEFAULT now(),
+  error         text NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS collection_relationships (
   id                  text PRIMARY KEY,
   workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
