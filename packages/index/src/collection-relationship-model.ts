@@ -10,6 +10,9 @@ export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/c
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
 
+const RELATIONSHIP_DIGEST_CHARS = 700;
+const RELATIONSHIP_EVIDENCE_IDS = 4;
+
 export function isSemanticCollectionDigest(value: unknown): value is string {
   if (typeof value !== "string") return false;
   const digest = value.trim();
@@ -257,9 +260,14 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
   async infer(input: {
     summaries: readonly CollectionSummaryDigest[];
   }): Promise<unknown[]> {
+    const summaries = input.summaries.map((summary) => ({
+      ...summary,
+      digest: summary.digest.slice(0, RELATIONSHIP_DIGEST_CHARS).trim(),
+      evidenceIds: summary.evidenceIds.slice(0, RELATIONSHIP_EVIDENCE_IDS),
+    }));
     const decoded = await this.request(
-      buildCollectionRelationsPrompt(input.summaries),
-      collectionRelationshipsResponseSchemaFor(input.summaries),
+      buildCollectionRelationsPrompt(summaries),
+      collectionRelationshipsResponseSchemaFor(summaries),
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
       { numCtx: 8_192, numPredict: 768 },
     );

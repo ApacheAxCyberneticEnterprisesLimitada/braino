@@ -151,6 +151,34 @@ describe("Ollama collection relationship model", () => {
     ).toEqual(["collection_code", "collection_product"]);
   });
 
+  it("bounds stored summaries before building the full-workspace inference request", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(ollamaResponse({ relationships: [] }));
+    const model = new OllamaCollectionRelationshipModel({ fetchImpl });
+    const evidenceIds = Array.from({ length: 6 }, (_, index) => `node:evidence_${index + 1}`);
+
+    await model.infer({
+      summaries: [
+        {
+          collectionId: "collection_long",
+          name: "Long",
+          kind: "documents",
+          digest: `Concrete relationship evidence ${"detail ".repeat(140)}TAIL_MARKER`,
+          summaryVersion: "long-v1",
+          evidenceIds,
+        },
+      ],
+    });
+
+    const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(request.messages[1].content).not.toContain("TAIL_MARKER");
+    expect(
+      request.format.properties.relationships.items.properties.evidence.items.properties.evidenceIds
+        .items.enum,
+    ).toEqual(evidenceIds.slice(0, 4));
+  });
+
   it("rejects summary evidence the model was not shown", async () => {
     const model = new OllamaCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
