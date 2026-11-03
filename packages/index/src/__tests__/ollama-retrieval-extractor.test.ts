@@ -164,11 +164,16 @@ describe("OllamaRetrievalExtractor", () => {
     expect(extraction.entities.map((entity) => entity.mentions[0].chunkIndex)).toEqual([0, 1]);
   });
 
-  it("uses local NLP by default and Ollama only when a model is configured", () => {
+  it("uses local NLP unless the retrieval workload has its own Ollama model", () => {
     expect(configuredRetrievalExtractor({})).toBeInstanceOf(LocalNlpRetrievalExtractor);
     expect(
       configuredRetrievalExtractor({
         DOCO_GRAPH_EXTRACTION_MODEL: "qwen3:8b",
+      }),
+    ).toBeInstanceOf(LocalNlpRetrievalExtractor);
+    expect(
+      configuredRetrievalExtractor({
+        DOCO_RETRIEVAL_EXTRACTION_MODEL: "qwen3:8b",
       }),
     ).toBeInstanceOf(OllamaRetrievalExtractor);
   });

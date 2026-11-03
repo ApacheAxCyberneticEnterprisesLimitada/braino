@@ -17,18 +17,18 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
 export function configuredRetrievalExtractor(
   env: Record<string, string | undefined> = process.env,
 ): RetrievalExtractor {
-  const model = env.DOCO_GRAPH_EXTRACTION_MODEL?.trim();
+  const model = env.DOCO_RETRIEVAL_EXTRACTION_MODEL?.trim();
   if (!model) return new LocalNlpRetrievalExtractor();
   return new OllamaRetrievalExtractor({
     model,
-    url: env.DOCO_GRAPH_EXTRACTION_URL?.trim() || DEFAULT_OLLAMA_GRAPH_URL,
-    ...(env.DOCO_GRAPH_EXTRACTION_API_TOKEN
-      ? { apiToken: env.DOCO_GRAPH_EXTRACTION_API_TOKEN }
+    url: env.DOCO_RETRIEVAL_EXTRACTION_URL?.trim() || DEFAULT_OLLAMA_GRAPH_URL,
+    ...(env.DOCO_RETRIEVAL_EXTRACTION_API_TOKEN
+      ? { apiToken: env.DOCO_RETRIEVAL_EXTRACTION_API_TOKEN }
       : {}),
     timeoutMs: parsePositiveInteger(
-      env.DOCO_GRAPH_EXTRACTION_TIMEOUT_MS,
+      env.DOCO_RETRIEVAL_EXTRACTION_TIMEOUT_MS,
       120_000,
-      "DOCO_GRAPH_EXTRACTION_TIMEOUT_MS",
+      "DOCO_RETRIEVAL_EXTRACTION_TIMEOUT_MS",
     ),
   });
 }
