@@ -125,6 +125,10 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
               max(source_updated_at) AS source_changed_at
          FROM retrieval_source_documents
         GROUP BY collection_id
+     ), relationship_counts AS (
+       SELECT workspace_id, count(*)::int AS relationship_count
+         FROM collection_relationships
+        GROUP BY workspace_id
      )
      SELECT c.id AS collection_id, c.workspace_id, c.handle,
             coalesce(nullif(c.data->>'template_handle', ''), 'generic') AS kind,
@@ -140,9 +144,11 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
        LEFT JOIN source_states s ON s.collection_id = c.id
        LEFT JOIN collection_summaries cs ON cs.collection_id = c.id
        LEFT JOIN collection_summary_failures sf ON sf.collection_id = c.id
+       LEFT JOIN relationship_counts rc ON rc.workspace_id = c.workspace_id
       WHERE c.deleted_at IS NULL
       ORDER BY (sf.collection_id IS NOT NULL),
                sf.failed_at ASC NULLS FIRST,
+               coalesce(rc.relationship_count, 0) DESC,
                (cs.collection_id IS NOT NULL),
                s.source_changed_at DESC NULLS LAST,
                cs.summarized_at NULLS FIRST,
@@ -375,6 +381,7 @@ export async function sweepCollectionRelationships(
         collectionId: collection.collection_id,
         error: message,
       });
+      break;
     }
   }
 
