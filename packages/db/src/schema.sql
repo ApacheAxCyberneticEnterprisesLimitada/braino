@@ -2385,7 +2385,7 @@ SELECT p.collection_id,
        nullif(p.title, ''),
        CASE WHEN btrim(p.markdown) <> '' THEN p.markdown ELSE p.title END,
        ARRAY['workspace']::text[],
-       p.synced_at
+       p.last_edited_time
   FROM notion_pages p
   JOIN collections c ON c.id = p.collection_id AND c.deleted_at IS NULL
  WHERE p.synced_at IS NOT NULL
@@ -2421,7 +2421,7 @@ SELECT f.collection_id,
        nullif(f.name, ''),
        CASE WHEN btrim(f.markdown) <> '' THEN f.markdown ELSE f.name END,
        ARRAY['workspace']::text[],
-       f.synced_at
+       f.modified_time
   FROM google_drive_files f
   JOIN collections c ON c.id = f.collection_id AND c.deleted_at IS NULL
  WHERE f.synced_at IS NOT NULL AND f.kind <> 'folder'
