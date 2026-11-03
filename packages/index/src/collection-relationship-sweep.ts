@@ -152,6 +152,8 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
       WHERE c.deleted_at IS NULL
       ORDER BY (sf.collection_id IS NOT NULL),
                sf.failed_at ASC NULLS FIRST,
+               (rf.workspace_id IS NOT NULL),
+               rf.failed_at ASC NULLS FIRST,
                coalesce(rc.relationship_count, 0) DESC,
                (cs.collection_id IS NOT NULL),
                s.source_changed_at DESC NULLS LAST,
