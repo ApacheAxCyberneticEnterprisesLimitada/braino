@@ -213,6 +213,50 @@ describe("collection relationship sweep", () => {
     expect(model.infer).toHaveBeenCalledTimes(2);
   });
 
+  it("bounds each Qwen summary and moves past a failed collection", async () => {
+    await db.exec(`
+      UPDATE collections SET goal = repeat('g', 5000) WHERE id = 'collection_code';
+      INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
+      VALUES (
+        'collection_third', 'one-third', 'workspace_one', 'workspace_one', 'private',
+        'Third collection', '{}'::jsonb
+      );
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      SELECT 'reference_' || n, 'collection_code', 'reference', 'active',
+             repeat('x', 2000) || n, '2026-03-01T00:00:00Z'::timestamptz + n * interval '1 second'
+        FROM generate_series(1, 20) AS n;
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES (
+        'reference_third', 'collection_third', 'reference', 'active',
+        'A small third collection.', '2026-01-01T00:00:00Z'
+      );
+    `);
+    const model = fakeModel();
+    vi.mocked(model.summarize).mockImplementation(async (input) => {
+      if (input.collectionId === "collection_code") throw new Error("Qwen timed out");
+      return {
+        digest: `${input.name}: ${input.sources.map((source) => source.content).join(" ")}`,
+        evidenceIds: input.sources.map((source) => source.evidenceId),
+      };
+    });
+
+    const failed = await sweepCollectionRelationships(client(), { model, limit: 1 });
+    expect(failed.failures).toEqual([
+      expect.objectContaining({ collectionId: "collection_code", error: "Qwen timed out" }),
+    ]);
+    const failedInput = vi.mocked(model.summarize).mock.calls[0]?.[0];
+    expect(failedInput?.goal.length).toBeLessThanOrEqual(600);
+    expect(failedInput?.sources.length).toBeLessThanOrEqual(8);
+    expect(failedInput?.sources.every((source) => source.content.length <= 600)).toBe(true);
+    expect(
+      failedInput?.sources.reduce((chars, source) => chars + source.content.length, 0),
+    ).toBeLessThanOrEqual(4_800);
+
+    const next = await sweepCollectionRelationships(client(), { model, limit: 1 });
+    expect(next).toMatchObject({ summarized: 1, failures: [] });
+    expect(vi.mocked(model.summarize).mock.calls[1]?.[0].collectionId).not.toBe("collection_code");
+  });
+
   it("drops deterministically rejected candidates instead of storing them", async () => {
     const model = fakeModel();
     vi.mocked(model.infer).mockImplementation(async ({ summaries }) => {

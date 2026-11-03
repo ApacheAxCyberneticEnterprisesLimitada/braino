@@ -13,9 +13,10 @@ import {
   validateCollectionRelationships,
 } from "./collection-relationship-validation.js";
 
-const SOURCES_PER_KIND = 6;
-const SOURCES_PER_SUMMARY = 30;
-const SOURCE_EXCERPT_CHARS = 1_200;
+const SOURCES_PER_KIND = 8;
+const SOURCES_PER_SUMMARY = 8;
+const SOURCE_EXCERPT_CHARS = 600;
+const COLLECTION_GOAL_CHARS = 600;
 
 interface CollectionStateRow {
   collection_id: string;
@@ -138,8 +139,11 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
        FROM collections c
        LEFT JOIN source_states s ON s.collection_id = c.id
        LEFT JOIN collection_summaries cs ON cs.collection_id = c.id
+       LEFT JOIN collection_summary_failures sf ON sf.collection_id = c.id
       WHERE c.deleted_at IS NULL
-      ORDER BY (cs.collection_id IS NOT NULL),
+      ORDER BY (sf.collection_id IS NOT NULL),
+               sf.failed_at ASC NULLS FIRST,
+               (cs.collection_id IS NOT NULL),
                s.source_changed_at DESC NULLS LAST,
                cs.summarized_at NULLS FIRST,
                c.workspace_id, c.id`,
@@ -260,6 +264,23 @@ async function saveSummary(
   );
 }
 
+async function clearSummaryFailure(c: QueryClient, collectionId: string): Promise<void> {
+  await c.query("DELETE FROM collection_summary_failures WHERE collection_id = $1", [collectionId]);
+}
+
+async function recordSummaryFailure(
+  c: QueryClient,
+  collectionId: string,
+  error: string,
+): Promise<void> {
+  await c.query(
+    `INSERT INTO collection_summary_failures (collection_id, failed_at, error)
+     VALUES ($1, now(), $2)
+     ON CONFLICT (collection_id) DO UPDATE SET failed_at = now(), error = EXCLUDED.error`,
+    [collectionId, error],
+  );
+}
+
 async function workspaceSummaries(
   c: QueryClient,
   workspaceId: string,
@@ -339,17 +360,20 @@ export async function sweepCollectionRelationships(
                 collectionId: collection.collection_id,
                 name: collection.handle,
                 kind: collection.kind,
-                goal: collection.goal,
+                goal: collection.goal.slice(0, COLLECTION_GOAL_CHARS),
                 sources,
               }),
               sources,
             );
       await saveSummary(c, collection, args.model.id, summary);
+      await clearSummaryFailure(c, collection.collection_id);
       result.summarized++;
     } catch (error) {
+      const message = errorMessage(error);
+      await recordSummaryFailure(c, collection.collection_id, message);
       result.failures.push({
         collectionId: collection.collection_id,
-        error: errorMessage(error),
+        error: message,
       });
     }
   }

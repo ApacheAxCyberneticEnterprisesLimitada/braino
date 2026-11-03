@@ -8,7 +8,7 @@ import {
 export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
 export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/chat";
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
-export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v2";
+export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v3-bounded";
 
 export interface CollectionSummarySource {
   evidenceId: string;
@@ -48,7 +48,7 @@ const summaryResponseSchema = {
   additionalProperties: false,
   required: ["digest", "evidenceIds"],
   properties: {
-    digest: { type: "string", minLength: 1, maxLength: 2_000 },
+    digest: { type: "string", minLength: 1, maxLength: 1_200 },
     evidenceIds: {
       type: "array",
       minItems: 1,
@@ -116,7 +116,12 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     this.fetchImpl = options.fetchImpl ?? fetch;
   }
 
-  private async request(prompt: string, format: object, system: string): Promise<unknown> {
+  private async request(
+    prompt: string,
+    format: object,
+    system: string,
+    options: { numCtx: number; numPredict: number },
+  ): Promise<unknown> {
     const response = await this.fetchImpl(this.url, {
       method: "POST",
       headers: {
@@ -133,8 +138,8 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
         options: {
           temperature: 0,
           seed: 42,
-          num_ctx: 16_384,
-          num_predict: 4_096,
+          num_ctx: options.numCtx,
+          num_predict: options.numPredict,
         },
         messages: [
           { role: "system", content: system },
@@ -171,13 +176,14 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     const decoded = await this.request(
       summaryPrompt(input),
       summaryResponseSchema,
-      "You write concise, evidence-grounded summaries of enterprise knowledge collections for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
+      "You write one compact, evidence-grounded paragraph (at most 180 words) about an enterprise knowledge collection for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
+      { numCtx: 8_192, numPredict: 1_024 },
     );
     if (
       !isObject(decoded) ||
       typeof decoded.digest !== "string" ||
       !decoded.digest.trim() ||
-      decoded.digest.length > 2_000 ||
+      decoded.digest.length > 1_200 ||
       !Array.isArray(decoded.evidenceIds) ||
       decoded.evidenceIds.length === 0 ||
       decoded.evidenceIds.length > 12 ||
@@ -202,6 +208,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       buildCollectionRelationsPrompt(input.summaries),
       collectionRelationshipsResponseSchemaFor(input.summaries),
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
+      { numCtx: 16_384, numPredict: 4_096 },
     );
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Ollama returned an invalid collection relationship result");

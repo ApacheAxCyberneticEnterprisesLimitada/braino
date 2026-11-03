@@ -253,6 +253,15 @@ CREATE TABLE IF NOT EXISTS collection_summaries (
 CREATE INDEX IF NOT EXISTS collection_summaries_workspace_idx
   ON collection_summaries (workspace_id, summarized_at);
 
+-- A failed summary moves behind work that has not had a chance yet. Without
+-- this small durable queue marker, one slow collection is selected every
+-- minute forever and prevents every later collection from being summarized.
+CREATE TABLE IF NOT EXISTS collection_summary_failures (
+  collection_id  text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
+  failed_at      timestamptz NOT NULL DEFAULT now(),
+  error          text NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS collection_relationships (
   id                  text PRIMARY KEY,
   workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
