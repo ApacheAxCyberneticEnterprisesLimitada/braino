@@ -181,11 +181,11 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
       ORDER BY (rf.workspace_id IS NOT NULL),
                rf.failed_at ASC NULLS FIRST,
                coalesce(rc.relationship_count, 0) DESC,
-               (sf.collection_id IS NOT NULL),
-               sf.failed_at ASC NULLS FIRST,
-               (cs.collection_id IS NOT NULL),
+               greatest(
+                 coalesce(sf.failed_at, '-infinity'::timestamptz),
+                 coalesce(cs.summarized_at, '-infinity'::timestamptz)
+               ),
                s.source_changed_at DESC NULLS LAST,
-               cs.summarized_at NULLS FIRST,
                c.workspace_id, c.id`,
   );
   return rows.rows.map((row) => {

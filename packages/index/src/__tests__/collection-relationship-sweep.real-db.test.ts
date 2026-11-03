@@ -360,6 +360,28 @@ describe("collection relationship sweep", () => {
     expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_code");
   });
 
+  it("does not let a hot collection starve a cooled-down failure in its workspace", async () => {
+    const model = fakeModel();
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    vi.mocked(model.summarize).mockClear();
+
+    await db.exec(`
+      UPDATE collection_summaries
+         SET summarized_at = CASE collection_id
+           WHEN 'collection_code' THEN now() - interval '20 minutes'
+           ELSE now()
+         END;
+      UPDATE nodes
+         SET prose = prose || ' Changed.', updated_at = now();
+      INSERT INTO collection_summary_failures (collection_id, failed_at, error)
+      VALUES ('collection_code', now() - interval '10 minutes', 'Qwen timed out');
+    `);
+
+    await sweepCollectionRelationships(client(), { model, limit: 1 });
+
+    expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_code");
+  });
+
   it("never combines summary generation and graph inference in one invocation", async () => {
     await db.exec(`
       INSERT INTO workspaces (id, handle, name)
