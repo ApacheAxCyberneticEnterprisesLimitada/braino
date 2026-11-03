@@ -301,6 +301,41 @@ describe("collection relationship sweep", () => {
     expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_code");
   });
 
+  it("infers a visible graph before a lexically earlier empty workspace", async () => {
+    await db.exec(`
+      INSERT INTO workspaces (id, handle, name)
+      VALUES ('workspace_aaa', 'aaa', 'AAA');
+      INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
+      VALUES
+        ('collection_aaa_a', 'aaa-a', 'workspace_aaa', 'workspace_aaa', 'private', 'A', '{}'),
+        ('collection_aaa_b', 'aaa-b', 'workspace_aaa', 'workspace_aaa', 'private', 'B', '{}');
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES
+        ('reference_aaa_a', 'collection_aaa_a', 'reference', 'active', 'A.', '2026-01-01T00:00:00Z'),
+        ('reference_aaa_b', 'collection_aaa_b', 'reference', 'active', 'B.', '2026-01-01T00:00:00Z');
+      INSERT INTO collection_relationships
+        (id, workspace_id, from_collection_id, to_collection_id,
+         relationship_type, confidence, evidence)
+      VALUES
+        ('relationship_existing', 'workspace_one', 'collection_code', 'collection_product',
+         'implements', 0.9, '[]');
+    `);
+    const model = fakeModel();
+
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    vi.mocked(model.infer).mockClear();
+    await db.exec("UPDATE collection_summaries SET relationships_version = NULL");
+
+    await sweepCollectionRelationships(client(), { model, limit: 1 });
+
+    expect(vi.mocked(model.infer).mock.calls[0]?.[0].summaries[0]?.collectionId).toBe(
+      "collection_code",
+    );
+  });
+
   it("moves summaries for a failed graph behind an untouched workspace", async () => {
     await db.exec(`
       INSERT INTO workspaces (id, handle, name)

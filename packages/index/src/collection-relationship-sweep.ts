@@ -256,7 +256,8 @@ function staleWorkspaceGraphs(
       const age = new Date(left.failedAt).getTime() - new Date(right.failedAt).getTime();
       if (age !== 0) return age;
     }
-    return left.workspaceId.localeCompare(right.workspaceId);
+    // Preserve collectionStates' priority among equally retryable workspaces.
+    return 0;
   });
 }
 
