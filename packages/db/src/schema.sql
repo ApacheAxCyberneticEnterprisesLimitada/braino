@@ -3173,6 +3173,15 @@ BEGIN
   END IF;
 END $$;
 
+-- Expiring ownership for the long-running background sweeps. A Vercel hard
+-- timeout cannot run a finally block, so session advisory locks can strand a
+-- job forever; these rows make every abandoned claim recover by itself.
+CREATE TABLE IF NOT EXISTS background_job_leases (
+  name          text PRIMARY KEY,
+  owner         text NOT NULL,
+  leased_until  timestamptz NOT NULL
+);
+
 -- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
 -- a cold start applies this file only when it differs, so its every change
 -- still reaches the database on the first boot after it deploys and its
