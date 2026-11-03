@@ -43,20 +43,25 @@ interface OllamaCollectionRelationshipModelOptions {
   fetchImpl?: typeof fetch;
 }
 
-const summaryResponseSchema = {
-  type: "object",
-  additionalProperties: false,
-  required: ["digest", "evidenceIds"],
-  properties: {
-    digest: { type: "string", minLength: 1, maxLength: 1_200 },
-    evidenceIds: {
-      type: "array",
-      minItems: 1,
-      maxItems: 12,
-      items: { type: "string" },
+function summaryResponseSchemaFor(sources: readonly CollectionSummarySource[]) {
+  return {
+    type: "object",
+    additionalProperties: false,
+    required: ["digest", "evidenceIds"],
+    properties: {
+      digest: { type: "string", minLength: 1, maxLength: 1_200 },
+      evidenceIds: {
+        type: "array",
+        minItems: 1,
+        maxItems: 12,
+        items: {
+          type: "string",
+          enum: [...new Set(sources.map((source) => source.evidenceId))],
+        },
+      },
     },
-  },
-} as const;
+  } as const;
+}
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -175,9 +180,9 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     }
     const decoded = await this.request(
       summaryPrompt(input),
-      summaryResponseSchema,
+      summaryResponseSchemaFor(input.sources),
       "You write one compact, evidence-grounded paragraph (at most 180 words) about an enterprise knowledge collection for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
-      { numCtx: 8_192, numPredict: 1_024 },
+      { numCtx: 4_096, numPredict: 384 },
     );
     if (
       !isObject(decoded) ||
