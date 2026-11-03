@@ -8,7 +8,13 @@ import {
 export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
 export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/chat";
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
-export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v5-semantic-sentences";
+export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
+
+export function isSemanticCollectionDigest(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const digest = value.trim();
+  return digest.length >= 80 && digest.length <= 1_200 && digest.split(/\s+/u).length >= 8;
+}
 
 export interface CollectionSummarySource {
   evidenceId: string;
@@ -194,10 +200,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     );
     if (
       !isObject(decoded) ||
-      typeof decoded.digest !== "string" ||
-      decoded.digest.trim().length < 80 ||
-      decoded.digest.trim().split(/\s+/u).length < 8 ||
-      decoded.digest.length > 1_200 ||
+      !isSemanticCollectionDigest(decoded.digest) ||
       !Array.isArray(decoded.evidenceIds) ||
       decoded.evidenceIds.length === 0 ||
       decoded.evidenceIds.length > 12 ||

@@ -26,11 +26,15 @@ beforeEach(async () => {
 
 const client = () => db as unknown as QueryClient;
 
+function fakeDigest(input: { name: string; sources: readonly { content: string }[] }): string {
+  return `The ${input.name} collection summarizes concrete evidence for reliable relationship inference: ${input.sources.map((source) => source.content).join(" ")}`;
+}
+
 function fakeModel(): CollectionRelationshipModel {
   return {
     id: "ollama:qwen3:8b",
     summarize: vi.fn(async (input) => ({
-      digest: `${input.name}: ${input.sources.map((source) => source.content).join(" ")}`,
+      digest: fakeDigest(input),
       evidenceIds: input.sources.map((source) => source.evidenceId),
     })),
     infer: vi.fn(async ({ summaries }) => {
@@ -93,7 +97,7 @@ describe("collection relationship sweep", () => {
     const model: CollectionRelationshipModel = {
       id: "ollama:qwen3:8b",
       summarize: vi.fn(async (input) => ({
-        digest: `${input.name}: ${input.sources.map((source) => source.content).join(" ")}`,
+        digest: fakeDigest(input),
         evidenceIds: input.sources.map((source) => source.evidenceId),
       })),
       infer: vi.fn(async ({ summaries }) => {
@@ -230,6 +234,36 @@ describe("collection relationship sweep", () => {
     expect(model.infer).toHaveBeenCalledTimes(2);
   });
 
+  it("repairs a stored identifier list without replacing valid sibling summaries", async () => {
+    const model = fakeModel();
+    expect(await sweepCollectionRelationships(client(), { model, limit: 10 })).toMatchObject({
+      summarized: 2,
+    });
+    await db.exec(`
+      UPDATE collection_summaries
+         SET digest = 'doco_01M3T6V5JN0RZAEH05RND2ZT90#torre-codebase#code:api-gateway'
+       WHERE collection_id = 'collection_code'
+    `);
+
+    expect(await sweepCollectionRelationships(client(), { model, limit: 1 })).toMatchObject({
+      summarized: 1,
+      accepted: 0,
+    });
+    expect(model.summarize).toHaveBeenCalledTimes(3);
+    expect(vi.mocked(model.summarize).mock.calls[2]?.[0].collectionId).toBe("collection_code");
+
+    const summaries = await db.query<{ collection_id: string; digest: string }>(
+      "SELECT collection_id, digest FROM collection_summaries ORDER BY collection_id",
+    );
+    expect(summaries.rows).toEqual([
+      expect.objectContaining({
+        collection_id: "collection_code",
+        digest: expect.stringContaining("The application implements checkout"),
+      }),
+      expect.objectContaining({ collection_id: "collection_product" }),
+    ]);
+  });
+
   it("bounds each Qwen summary and moves past a failed collection", async () => {
     await db.exec(`
       UPDATE collections SET goal = repeat('g', 5000) WHERE id = 'collection_code';
@@ -252,7 +286,7 @@ describe("collection relationship sweep", () => {
     vi.mocked(model.summarize).mockImplementation(async (input) => {
       if (input.collectionId === "collection_code") throw new Error("Qwen timed out");
       return {
-        digest: `${input.name}: ${input.sources.map((source) => source.content).join(" ")}`,
+        digest: fakeDigest(input),
         evidenceIds: input.sources.map((source) => source.evidenceId),
       };
     });

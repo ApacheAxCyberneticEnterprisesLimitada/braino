@@ -5,6 +5,7 @@ import {
   type CollectionRelationshipModel,
   type CollectionSummaryResult,
   type CollectionSummarySource,
+  isSemanticCollectionDigest,
 } from "./collection-relationship-model.js";
 import { replaceWorkspaceRelationships } from "./collection-relationship-store.js";
 import {
@@ -56,6 +57,7 @@ interface CollectionStateRow {
   stored_summary_version: string | null;
   stored_relationships_version: string | null;
   stored_model_id: string | null;
+  stored_digest: string | null;
   summarized_at: string | Date | null;
   summary_failed_at: string | Date | null;
   relationship_failed_at: string | Date | null;
@@ -168,6 +170,7 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
             cs.summary_version AS stored_summary_version,
             cs.relationships_version AS stored_relationships_version,
             cs.model_id AS stored_model_id,
+            cs.digest AS stored_digest,
             cs.summarized_at,
             sf.failed_at AS summary_failed_at,
             rf.failed_at AS relationship_failed_at
@@ -204,7 +207,8 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
     const needsSummary =
       row.stored_source_version !== sourceVersion ||
       row.stored_summary_version !== summaryVersion ||
-      row.stored_model_id !== modelId;
+      row.stored_model_id !== modelId ||
+      (Number(row.source_count) > 0 && !isSemanticCollectionDigest(row.stored_digest));
     return { ...row, sourceVersion, summaryVersion, needsSummary };
   });
 }

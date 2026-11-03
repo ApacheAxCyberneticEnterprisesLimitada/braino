@@ -21,7 +21,7 @@ describe("Ollama collection relationship model", () => {
   });
 
   it("invalidates stored summaries when the semantic-summary contract changes", () => {
-    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe("workspace-graph-v5-semantic-sentences");
+    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
   });
 
   it("is disabled unless the shared graph model is configured", () => {
