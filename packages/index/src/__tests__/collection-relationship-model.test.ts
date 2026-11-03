@@ -126,7 +126,7 @@ describe("Ollama collection relationship model", () => {
       options: { temperature: 0, seed: 42 },
     });
     const summaryRequest = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
-    expect(summaryRequest.options).toMatchObject({ num_ctx: 4_096, num_predict: 384 });
+    expect(summaryRequest.options).toMatchObject({ num_ctx: 4_096, num_predict: 640 });
     expect(summaryRequest.format.properties.evidenceIds.items.enum).toEqual([
       "node:decision_checkout",
     ]);

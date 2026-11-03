@@ -189,7 +189,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       summaryPrompt(input),
       summaryResponseSchemaFor(input.sources),
       "You write one compact, evidence-grounded paragraph (at most 180 words) about an enterprise knowledge collection for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
-      { numCtx: 4_096, numPredict: 384 },
+      { numCtx: 4_096, numPredict: 640 },
     );
     if (
       !isObject(decoded) ||
