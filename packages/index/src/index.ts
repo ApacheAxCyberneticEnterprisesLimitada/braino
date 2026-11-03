@@ -15,4 +15,5 @@ export * from "./collection-relationship-store.js";
 export * from "./collection-relationship-model.js";
 export * from "./collection-relationship-sweep.js";
 export * from "./qdrant-sync.js";
+export * from "./code-graph-sync.js";
 export { loadCollectionFromPostgres } from "./loadCollection.js";
