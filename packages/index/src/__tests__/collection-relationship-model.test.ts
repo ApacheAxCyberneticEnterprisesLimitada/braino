@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
   DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
   OllamaCollectionRelationshipModel,
   configuredCollectionRelationshipModel,
@@ -19,6 +20,10 @@ describe("Ollama collection relationship model", () => {
     expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
   });
 
+  it("invalidates stored summaries when the semantic-summary contract changes", () => {
+    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
+  });
+
   it("is disabled unless the shared graph model is configured", () => {
     expect(configuredCollectionRelationshipModel({})).toBeNull();
   });
@@ -28,7 +33,8 @@ describe("Ollama collection relationship model", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
         ollamaResponse({
-          digest: "Implements checkout from the product plan.",
+          digest:
+            "The collection defines checkout through the payment service and confirms orders only after payment succeeds.",
           evidenceIds: ["node:decision_checkout"],
         }),
       )
@@ -78,7 +84,8 @@ describe("Ollama collection relationship model", () => {
         ],
       }),
     ).resolves.toEqual({
-      digest: "Implements checkout from the product plan.",
+      digest:
+        "The collection defines checkout through the payment service and confirms orders only after payment succeeds.",
       evidenceIds: ["node:decision_checkout"],
     });
 
@@ -123,8 +130,10 @@ describe("Ollama collection relationship model", () => {
     expect(summaryRequest.format.properties.evidenceIds.items.enum).toEqual([
       "node:decision_checkout",
     ]);
+    expect(summaryRequest.format.properties.digest).toMatchObject({ minLength: 80 });
     expect(summaryRequest.messages[1].content).toContain('"kind":"product-decisions"');
     expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
+    expect(summaryRequest.messages[1].content).toContain("Never return only a collection name");
     const relationshipRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
     expect(relationshipRequest.options).toMatchObject({ num_ctx: 8_192, num_predict: 768 });
     expect(relationshipRequest.messages[0].content).toContain("every unordered pair");
@@ -145,7 +154,11 @@ describe("Ollama collection relationship model", () => {
   it("rejects summary evidence the model was not shown", async () => {
     const model = new OllamaCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
-        ollamaResponse({ digest: "Invented.", evidenceIds: ["node:not-supplied"] }),
+        ollamaResponse({
+          digest:
+            "The collection documents a concrete checkout workflow through the payment service before confirming an order.",
+          evidenceIds: ["node:not-supplied"],
+        }),
       ),
     });
     await expect(
@@ -157,5 +170,29 @@ describe("Ollama collection relationship model", () => {
         sources: [{ evidenceId: "node:real", title: "decision", content: "Real." }],
       }),
     ).rejects.toThrow(/evidence/i);
+  });
+
+  it("rejects identifier-only collection summaries", async () => {
+    const model = new OllamaCollectionRelationshipModel({
+      fetchImpl: vi.fn(async () =>
+        ollamaResponse({ digest: "doco_01M46A3A7QZ1FSSN1DDY18K5CM", evidenceIds: ["node:real"] }),
+      ),
+    });
+
+    await expect(
+      model.summarize({
+        collectionId: "collection_one",
+        name: "One",
+        kind: "generic",
+        goal: "",
+        sources: [
+          {
+            evidenceId: "node:real",
+            title: "Checkout decision",
+            content: "Checkout uses the payment service before order confirmation.",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/summary/i);
   });
 });
