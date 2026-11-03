@@ -1,8 +1,9 @@
 import {
   COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
   type CollectionSummaryDigest,
+  attachCollectionRelationshipEvidence,
   buildCollectionRelationsPrompt,
-  collectionRelationshipsResponseSchemaFor,
+  collectionRelationshipCandidatesResponseSchemaFor,
 } from "./collection-relationship-validation.js";
 
 export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
@@ -267,14 +268,14 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     }));
     const decoded = await this.request(
       buildCollectionRelationsPrompt(summaries),
-      collectionRelationshipsResponseSchemaFor(summaries),
+      collectionRelationshipCandidatesResponseSchemaFor(summaries),
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
       { numCtx: 8_192, numPredict: 768 },
     );
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Ollama returned an invalid collection relationship result");
     }
-    return decoded.relationships;
+    return attachCollectionRelationshipEvidence(summaries, decoded.relationships);
   }
 }
 

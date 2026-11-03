@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   COLLECTION_RELATIONSHIP_TYPES,
+  attachCollectionRelationshipEvidence,
   normalizeCollectionRelationshipDirections,
   validateCollectionRelationships,
 } from "../dist/collection-relationship-validation.js";
@@ -74,7 +75,10 @@ export function validateBenchmarkRelationships(collections, relationships, ancho
       ...(anchor ? { anchorId: anchor } : {}),
       summaries: collections,
     },
-    normalizeCollectionRelationshipDirections(collections, relationships),
+    normalizeCollectionRelationshipDirections(
+      collections,
+      attachCollectionRelationshipEvidence(collections, relationships),
+    ),
   );
 }
 

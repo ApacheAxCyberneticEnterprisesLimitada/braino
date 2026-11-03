@@ -38,7 +38,7 @@ export interface CollectionSummaryDigest extends CollectionSummarySnapshot {
   digest: string;
 }
 
-export const collectionRelationshipsResponseSchema = {
+export const collectionRelationshipCandidatesResponseSchema = {
   type: "object",
   additionalProperties: false,
   required: ["relationships"],
@@ -49,7 +49,7 @@ export const collectionRelationshipsResponseSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["from", "to", "type", "confidence", "evidence"],
+        required: ["from", "to", "type", "confidence"],
         properties: {
           from: {
             type: "string",
@@ -63,20 +63,6 @@ export const collectionRelationshipsResponseSchema = {
           },
           type: { type: "string", enum: COLLECTION_RELATIONSHIP_TYPES },
           confidence: { type: "number", minimum: 0, maximum: 1 },
-          evidence: {
-            type: "array",
-            minItems: 2,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["collectionId", "summaryVersion", "evidenceIds"],
-              properties: {
-                collectionId: { type: "string" },
-                summaryVersion: { type: "string" },
-                evidenceIds: { type: "array", minItems: 1, items: { type: "string" } },
-              },
-            },
-          },
         },
       },
     },
@@ -84,54 +70,56 @@ export const collectionRelationshipsResponseSchema = {
 } as const;
 
 /** Constrain structured output to identifiers the model was actually shown. */
-export function collectionRelationshipsResponseSchemaFor(
+export function collectionRelationshipCandidatesResponseSchemaFor(
   summaries: readonly CollectionSummaryDigest[],
 ) {
   const collectionIds = [...new Set(summaries.map((summary) => summary.collectionId))];
-  const summaryVersions = [...new Set(summaries.map((summary) => summary.summaryVersion))];
-  const evidenceIds = [...new Set(summaries.flatMap((summary) => summary.evidenceIds))];
-  const item = collectionRelationshipsResponseSchema.properties.relationships.items;
-  const evidenceItem = item.properties.evidence.items;
+  const item = collectionRelationshipCandidatesResponseSchema.properties.relationships.items;
   return {
-    ...collectionRelationshipsResponseSchema,
+    ...collectionRelationshipCandidatesResponseSchema,
     properties: {
       relationships: {
-        ...collectionRelationshipsResponseSchema.properties.relationships,
+        ...collectionRelationshipCandidatesResponseSchema.properties.relationships,
         items: {
           ...item,
           properties: {
             ...item.properties,
             from: { ...item.properties.from, enum: collectionIds },
             to: { ...item.properties.to, enum: collectionIds },
-            evidence: {
-              ...item.properties.evidence,
-              items: {
-                ...evidenceItem,
-                properties: {
-                  ...evidenceItem.properties,
-                  collectionId: {
-                    ...evidenceItem.properties.collectionId,
-                    enum: collectionIds,
-                  },
-                  summaryVersion: {
-                    ...evidenceItem.properties.summaryVersion,
-                    enum: summaryVersions,
-                  },
-                  evidenceIds: {
-                    ...evidenceItem.properties.evidenceIds,
-                    items: {
-                      ...evidenceItem.properties.evidenceIds.items,
-                      enum: evidenceIds,
-                    },
-                  },
-                },
-              },
-            },
           },
         },
       },
     },
   };
+}
+
+/** Attach trusted summary metadata after the model chooses only semantic edge fields. */
+export function attachCollectionRelationshipEvidence(
+  summaries: readonly CollectionSummaryDigest[],
+  relationships: readonly unknown[],
+): unknown[] {
+  const summaryById = new Map(summaries.map((summary) => [summary.collectionId, summary]));
+  return relationships.map((relationship) => {
+    if (!isObject(relationship)) return relationship;
+    const endpointIds = [relationship.from, relationship.to].filter(
+      (id): id is string => typeof id === "string",
+    );
+    return {
+      ...relationship,
+      evidence: endpointIds.flatMap((id) => {
+        const summary = summaryById.get(id);
+        return summary
+          ? [
+              {
+                collectionId: summary.collectionId,
+                summaryVersion: summary.summaryVersion,
+                evidenceIds: [...summary.evidenceIds],
+              },
+            ]
+          : [];
+      }),
+    };
+  });
 }
 
 const DOCUMENTATION_KINDS = new Set(["google-drive", "notion", "slack"]);
@@ -181,7 +169,7 @@ export function buildCollectionRelationsPrompt(
     "documents: FROM must be the documentation; TO must be the decision, process, or system it explains for readers. A broad Notion, Drive, Slack, or handbook collection can document several collections, but only where the digests share concrete subjects.",
     "depends_on: the subject requires the object's service, API, data, process, or artifact to operate.",
     "derived_from: the subject was produced or adapted from the object's source material; similarity alone is insufficient.",
-    "Every edge needs evidence from both endpoint collections. Repeat each endpoint's collectionId and summaryVersion exactly, and use only its supplied evidenceIds.",
+    "Doco attaches the supplied summary versions and evidence IDs after inference. Return only from, to, type, and confidence for each edge.",
     "Direction is always grammatical subject to object: from=implementation, to=product, type=implements; from=documentation, to=product, type=documents; from=dependent, to=dependency, type=depends_on; from=derived material, to=source, type=derived_from.",
     "Direction examples: codebase → architectural-decisions is implements; notion → architectural-decisions is documents. Never reverse either example.",
     "Before returning, read every candidate literally as 'FROM implements/documents/depends_on/derived_from TO'. If that sentence is backwards, swap FROM and TO.",

@@ -46,18 +46,6 @@ describe("Ollama collection relationship model", () => {
               to: "collection_product",
               type: "implements",
               confidence: 0.94,
-              evidence: [
-                {
-                  collectionId: "collection_code",
-                  summaryVersion: "code-v1",
-                  evidenceIds: ["node:reference_checkout"],
-                },
-                {
-                  collectionId: "collection_product",
-                  summaryVersion: "product-v1",
-                  evidenceIds: ["node:decision_checkout"],
-                },
-              ],
             },
           ],
         }),
@@ -110,7 +98,26 @@ describe("Ollama collection relationship model", () => {
           },
         ],
       }),
-    ).resolves.toHaveLength(1);
+    ).resolves.toEqual([
+      {
+        from: "collection_code",
+        to: "collection_product",
+        type: "implements",
+        confidence: 0.94,
+        evidence: [
+          {
+            collectionId: "collection_code",
+            summaryVersion: "code-v1",
+            evidenceIds: ["node:reference_checkout"],
+          },
+          {
+            collectionId: "collection_product",
+            summaryVersion: "product-v1",
+            evidenceIds: ["node:decision_checkout"],
+          },
+        ],
+      },
+    ]);
 
     expect(model.id).toBe("ollama:qwen3:8b");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -144,15 +151,23 @@ describe("Ollama collection relationship model", () => {
     expect(relationshipRequest.messages[1].content).toContain(
       "Return at most 5 strongest relationships",
     );
+    expect(relationshipRequest.messages[1].content).toContain(
+      "Return only from, to, type, and confidence",
+    );
     expect(relationshipRequest.format.properties.relationships.maxItems).toBe(5);
     expect(relationshipRequest.format.properties.relationships.items.properties.from.enum).toEqual([
       "collection_code",
       "collection_product",
     ]);
+    expect(relationshipRequest.format.properties.relationships.items.required).toEqual([
+      "from",
+      "to",
+      "type",
+      "confidence",
+    ]);
     expect(
-      relationshipRequest.format.properties.relationships.items.properties.evidence.items.properties
-        .collectionId.enum,
-    ).toEqual(["collection_code", "collection_product"]);
+      relationshipRequest.format.properties.relationships.items.properties.evidence,
+    ).toBeUndefined();
   });
 
   it("bounds stored summaries before building the full-workspace inference request", async () => {
@@ -177,10 +192,8 @@ describe("Ollama collection relationship model", () => {
 
     const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
     expect(request.messages[1].content).not.toContain("TAIL_MARKER");
-    expect(
-      request.format.properties.relationships.items.properties.evidence.items.properties.evidenceIds
-        .items.enum,
-    ).toEqual(evidenceIds.slice(0, 4));
+    expect(request.messages[1].content).toContain(evidenceIds[3]);
+    expect(request.messages[1].content).not.toContain(evidenceIds[4]);
   });
 
   it("rejects summary evidence the model was not shown", async () => {

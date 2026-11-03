@@ -5,7 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import {
   COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
   buildCollectionRelationsPrompt,
-  collectionRelationshipsResponseSchemaFor,
+  collectionRelationshipCandidatesResponseSchemaFor,
 } from "../dist/collection-relationship-validation.js";
 import {
   parseCollectionRelationsArgs,
@@ -41,7 +41,7 @@ async function inferRelationships(options, collections) {
       model: options.model,
       stream: false,
       think: false,
-      format: collectionRelationshipsResponseSchemaFor(collections),
+      format: collectionRelationshipCandidatesResponseSchemaFor(collections),
       keep_alive: "10m",
       options: {
         temperature: 0,

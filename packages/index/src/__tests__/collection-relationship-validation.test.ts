@@ -4,7 +4,7 @@ import {
   type CollectionRelationshipInference,
   type CollectionRelationshipValidationScope,
   buildCollectionRelationsPrompt,
-  collectionRelationshipsResponseSchema,
+  collectionRelationshipCandidatesResponseSchema,
   normalizeCollectionRelationshipDirections,
   validateCollectionRelationships,
 } from "../collection-relationship-validation.js";
@@ -261,15 +261,14 @@ describe("collection relationship validation", () => {
     expect(prompt).toContain("codebase → architectural-decisions");
     expect(prompt).toContain("notion → architectural-decisions");
     expect(
-      collectionRelationshipsResponseSchema.properties.relationships.items.properties.evidence.items
-        .required,
-    ).toEqual(["collectionId", "summaryVersion", "evidenceIds"]);
+      collectionRelationshipCandidatesResponseSchema.properties.relationships.items.required,
+    ).toEqual(["from", "to", "type", "confidence"]);
     expect(
-      collectionRelationshipsResponseSchema.properties.relationships.items.properties.from
+      collectionRelationshipCandidatesResponseSchema.properties.relationships.items.properties.from
         .description,
     ).toContain("grammatical subject");
     expect(
-      collectionRelationshipsResponseSchema.properties.relationships.items.properties.to
+      collectionRelationshipCandidatesResponseSchema.properties.relationships.items.properties.to
         .description,
     ).toContain("grammatical object");
   });
