@@ -19,6 +19,7 @@ const SOURCES_PER_SUMMARY = 8;
 const SOURCE_EXCERPT_CHARS = 600;
 const COLLECTION_GOAL_CHARS = 600;
 const SUMMARY_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
+const GRAPH_MAX_STALENESS_MS = 15 * 60 * 1_000;
 
 const COLLECTION_SUMMARY_SOURCES_CTE = `
 ranked_collection_sources AS (
@@ -56,6 +57,7 @@ interface CollectionStateRow {
   stored_source_version: string | null;
   stored_summary_version: string | null;
   stored_relationships_version: string | null;
+  relationships_inferred_at: string | Date | null;
   stored_model_id: string | null;
   stored_digest: string | null;
   summarized_at: string | Date | null;
@@ -169,6 +171,7 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
             cs.source_version AS stored_source_version,
             cs.summary_version AS stored_summary_version,
             cs.relationships_version AS stored_relationships_version,
+            cs.relationships_inferred_at,
             cs.model_id AS stored_model_id,
             cs.digest AS stored_digest,
             cs.summarized_at,
@@ -222,6 +225,7 @@ function summaryRetryReady(state: CollectionState, now: number): boolean {
 function staleWorkspaceGraphs(
   states: readonly CollectionState[],
   modelId: string,
+  now = Date.now(),
 ): WorkspaceGraphState[] {
   const byWorkspace = new Map<string, CollectionState[]>();
   for (const state of states) {
@@ -232,12 +236,39 @@ function staleWorkspaceGraphs(
 
   const stale: WorkspaceGraphState[] = [];
   for (const [workspaceId, workspace] of byWorkspace) {
-    if (workspace.some((collection) => collection.needsSummary)) continue;
+    if (
+      workspace.some(
+        (collection) =>
+          collection.stored_summary_version === null ||
+          (Number(collection.source_count) > 0 &&
+            !isSemanticCollectionDigest(collection.stored_digest)),
+      )
+    ) {
+      continue;
+    }
+    const hasPendingSummary = workspace.some((collection) => collection.needsSummary);
+    const inferredTimes = workspace
+      .map((collection) =>
+        collection.relationships_inferred_at === null
+          ? Number.NaN
+          : new Date(collection.relationships_inferred_at).getTime(),
+      )
+      .filter(Number.isFinite);
+    const lastInferredAt = inferredTimes.length > 0 ? Math.min(...inferredTimes) : null;
+    if (
+      hasPendingSummary &&
+      (lastInferredAt === null || lastInferredAt > now - GRAPH_MAX_STALENESS_MS)
+    ) {
+      continue;
+    }
     const relationshipVersion = version("relationships", [
       COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
       modelId,
       ...workspace
-        .map((collection) => [collection.collection_id, collection.summaryVersion] as const)
+        .map(
+          (collection) =>
+            [collection.collection_id, collection.stored_summary_version as string] as const,
+        )
         .sort(([left], [right]) => left.localeCompare(right)),
     ]);
     if (
@@ -376,7 +407,8 @@ async function markRelationshipsCurrent(
 ): Promise<void> {
   await c.query(
     `UPDATE collection_summaries
-        SET relationships_version = $2
+        SET relationships_version = $2,
+            relationships_inferred_at = now()
       WHERE workspace_id = $1`,
     [workspaceId, relationshipVersion],
   );
@@ -426,7 +458,7 @@ export async function sweepCollectionRelationships(
   const pendingSummaries = initialStates.filter(
     (collection) => collection.needsSummary && summaryRetryReady(collection, now),
   );
-  const staleGraphs = staleWorkspaceGraphs(initialStates, args.model.id);
+  const staleGraphs = staleWorkspaceGraphs(initialStates, args.model.id, now);
   const graphToRefresh =
     staleGraphs.find((graph) => graph.failedAt === null) ??
     (pendingSummaries.length === 0 ? staleGraphs[0] : undefined);

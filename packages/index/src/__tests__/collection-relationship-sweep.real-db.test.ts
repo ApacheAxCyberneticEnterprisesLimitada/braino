@@ -234,6 +234,35 @@ describe("collection relationship sweep", () => {
     expect(model.infer).toHaveBeenCalledTimes(2);
   });
 
+  it("refreshes an overdue graph while hot collections still need summaries", async () => {
+    const model = fakeModel();
+
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+
+    await db.exec(`
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES
+        ('reference_checkout_v2', 'collection_code', 'reference', 'active',
+         'The application now implements checkout version two.', '2026-02-01T00:00:00Z'),
+        ('decision_checkout_v2', 'collection_product', 'decision', 'active',
+         'The product now requires checkout version two.', '2026-02-01T00:00:00Z');
+    `);
+
+    const firstSummary = await sweepCollectionRelationships(client(), { model, limit: 1 });
+    expect(firstSummary).toMatchObject({ summarized: 1, accepted: 0 });
+
+    await db.exec(`
+      UPDATE collection_summaries
+         SET relationships_inferred_at = now() - interval '16 minutes';
+    `);
+
+    const overdueGraph = await sweepCollectionRelationships(client(), { model, limit: 1 });
+    expect(overdueGraph).toMatchObject({ summarized: 0, accepted: 1 });
+    expect(model.summarize).toHaveBeenCalledTimes(3);
+    expect(model.infer).toHaveBeenCalledTimes(2);
+  });
+
   it("repairs a stored identifier list without replacing valid sibling summaries", async () => {
     const model = fakeModel();
     expect(await sweepCollectionRelationships(client(), { model, limit: 10 })).toMatchObject({

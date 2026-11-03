@@ -245,11 +245,14 @@ CREATE TABLE IF NOT EXISTS collection_summaries (
   source_version        text NOT NULL,
   summary_version       text NOT NULL,
   relationships_version text,
+  relationships_inferred_at timestamptz,
   model_id              text NOT NULL,
   digest                text NOT NULL,
   evidence_ids          text[] NOT NULL DEFAULT ARRAY[]::text[],
   summarized_at         timestamptz NOT NULL DEFAULT now()
 );
+ALTER TABLE collection_summaries
+  ADD COLUMN IF NOT EXISTS relationships_inferred_at timestamptz;
 CREATE INDEX IF NOT EXISTS collection_summaries_workspace_idx
   ON collection_summaries (workspace_id, summarized_at);
 
@@ -293,6 +296,18 @@ CREATE INDEX IF NOT EXISTS collection_relationships_from_idx
   ON collection_relationships (from_collection_id);
 CREATE INDEX IF NOT EXISTS collection_relationships_to_idx
   ON collection_relationships (to_collection_id);
+UPDATE collection_summaries cs
+   SET relationships_inferred_at = coalesce(
+         (SELECT max(r.updated_at)
+            FROM collection_relationships r
+           WHERE r.workspace_id = cs.workspace_id),
+         cs.summarized_at
+       )
+ WHERE cs.relationships_inferred_at IS NULL
+   AND (cs.relationships_version IS NOT NULL OR EXISTS (
+         SELECT 1 FROM collection_relationships r
+          WHERE r.workspace_id = cs.workspace_id
+       ));
 
 -- Per-collection policies. Every policy is an authoring policy; the standalone
 -- `kind` classifies it ('suggestion' | 'deterministic' | 'probabilistic') and
