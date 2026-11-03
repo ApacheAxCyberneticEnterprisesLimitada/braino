@@ -3,13 +3,14 @@
 import { readFile, writeFile } from "node:fs/promises";
 
 import {
+  COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
   buildCollectionRelationsPrompt,
-  collectionRelationshipsResponseSchema,
-  validateCollectionRelationships,
+  collectionRelationshipsResponseSchemaFor,
 } from "../dist/collection-relationship-validation.js";
 import {
   parseCollectionRelationsArgs,
   scoreCollectionRelationships,
+  validateBenchmarkRelationships,
   validateCollectionRelationsFixture,
   visibleBenchmarkFixture,
 } from "./collection-relations-bench-lib.mjs";
@@ -40,7 +41,7 @@ async function inferRelationships(options, collections) {
       model: options.model,
       stream: false,
       think: false,
-      format: collectionRelationshipsResponseSchema,
+      format: collectionRelationshipsResponseSchemaFor(collections),
       keep_alive: "10m",
       options: {
         temperature: 0,
@@ -51,8 +52,7 @@ async function inferRelationships(options, collections) {
       messages: [
         {
           role: "system",
-          content:
-            "You infer a sparse, evidence-linked graph among knowledge collections. Precision is more important than recall. Never infer a relationship from naming similarity alone.",
+          content: COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
         },
         { role: "user", content: prompt },
       ],
@@ -160,12 +160,11 @@ async function main() {
       const visible = visibleBenchmarkFixture(fixture, batchSize, options.anchor);
       for (let repeat = 1; repeat <= options.repeats; repeat++) {
         const inferred = await inferRelationships(options, visible.collections);
-        const validation = options.anchor
-          ? validateCollectionRelationships(
-              { anchorId: options.anchor, summaries: visible.collections },
-              inferred.relationships,
-            )
-          : { accepted: inferred.relationships, rejected: [] };
+        const validation = validateBenchmarkRelationships(
+          visible.collections,
+          inferred.relationships,
+          options.anchor,
+        );
         const metrics = scoreCollectionRelationships(visible, validation.accepted);
         runs.push({
           batchSize,

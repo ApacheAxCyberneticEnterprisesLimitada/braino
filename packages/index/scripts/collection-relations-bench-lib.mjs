@@ -1,6 +1,10 @@
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { COLLECTION_RELATIONSHIP_TYPES } from "../dist/collection-relationship-validation.js";
+import {
+  COLLECTION_RELATIONSHIP_TYPES,
+  normalizeCollectionRelationshipDirections,
+  validateCollectionRelationships,
+} from "../dist/collection-relationship-validation.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -62,6 +66,16 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
     throw new Error("--anchor cannot be blank");
   }
   return parsed;
+}
+
+export function validateBenchmarkRelationships(collections, relationships, anchor = "") {
+  return validateCollectionRelationships(
+    {
+      ...(anchor ? { anchorId: anchor } : {}),
+      summaries: collections,
+    },
+    normalizeCollectionRelationshipDirections(collections, relationships),
+  );
 }
 
 export function validateCollectionRelationsFixture(fixture) {

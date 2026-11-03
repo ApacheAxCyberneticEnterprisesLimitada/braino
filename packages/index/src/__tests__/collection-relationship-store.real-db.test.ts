@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
 import {
   listCollectionRelationships,
-  replaceCollectionRelationships,
+  replaceWorkspaceRelationships,
 } from "../collection-relationship-store.js";
 
 let db: PGlite;
@@ -26,10 +26,9 @@ beforeEach(async () => {
 const client = () => db as unknown as QueryClient;
 
 describe("collection relationship store", () => {
-  it("atomically replaces every inferred relationship touching the changed collection", async () => {
-    await replaceCollectionRelationships(client(), {
+  it("atomically replaces the workspace graph instead of competing per-anchor slices", async () => {
+    await replaceWorkspaceRelationships(client(), {
       workspaceId: "workspace_one",
-      anchorId: "collection_alpha",
       relationships: [
         {
           from: "collection_alpha",
@@ -70,35 +69,8 @@ describe("collection relationship store", () => {
       ],
     });
 
-    const first = await listCollectionRelationships(client(), {
+    await replaceWorkspaceRelationships(client(), {
       workspaceId: "workspace_one",
-      collectionIds: ["collection_alpha", "collection_beta", "collection_gamma"],
-    });
-    expect(first).toHaveLength(2);
-    expect(first[0]).toMatchObject({
-      workspaceId: "workspace_one",
-      from: "collection_alpha",
-      to: "collection_beta",
-      type: "depends_on",
-      confidence: 0.91,
-      verificationStatus: "inferred",
-    });
-    expect(first[0]?.evidence).toEqual([
-      {
-        collectionId: "collection_alpha",
-        summaryVersion: "alpha-v1",
-        evidenceIds: ["decision_alpha"],
-      },
-      {
-        collectionId: "collection_beta",
-        summaryVersion: "beta-v1",
-        evidenceIds: ["decision_beta"],
-      },
-    ]);
-
-    await replaceCollectionRelationships(client(), {
-      workspaceId: "workspace_one",
-      anchorId: "collection_alpha",
       relationships: [
         {
           from: "collection_alpha",
@@ -121,12 +93,12 @@ describe("collection relationship store", () => {
       ],
     });
 
-    expect(
-      await listCollectionRelationships(client(), {
+    await expect(
+      listCollectionRelationships(client(), {
         workspaceId: "workspace_one",
         collectionIds: ["collection_alpha", "collection_beta", "collection_gamma"],
       }),
-    ).toEqual([
+    ).resolves.toEqual([
       expect.objectContaining({
         from: "collection_alpha",
         to: "collection_gamma",
@@ -136,9 +108,8 @@ describe("collection relationship store", () => {
   });
 
   it("returns an edge only when the reader can access both endpoints", async () => {
-    await replaceCollectionRelationships(client(), {
+    await replaceWorkspaceRelationships(client(), {
       workspaceId: "workspace_one",
-      anchorId: "collection_alpha",
       relationships: [
         {
           from: "collection_alpha",
@@ -170,16 +141,14 @@ describe("collection relationship store", () => {
   });
 
   it("rejects foreign endpoints without deleting the current relationships", async () => {
-    await replaceCollectionRelationships(client(), {
+    await replaceWorkspaceRelationships(client(), {
       workspaceId: "workspace_one",
-      anchorId: "collection_alpha",
       relationships: [],
     });
 
     await expect(
-      replaceCollectionRelationships(client(), {
+      replaceWorkspaceRelationships(client(), {
         workspaceId: "workspace_one",
-        anchorId: "collection_alpha",
         relationships: [
           {
             from: "collection_alpha",

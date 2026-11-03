@@ -28,16 +28,16 @@ Use `--repeats N` to measure stability. `DOCO_GRAPH_EXTRACTION_URL` and
 otherwise the runner uses `http://127.0.0.1:11434/api/chat`. Keep the JSON
 report outside git when it contains summaries derived from private collections.
 
-Use `--anchor <collection-id>` to model the production path: compare one added
-or changed collection with every visible collection, and score only edges that
-involve that anchor. This keeps the expected output fixed while batch size grows,
-so the result isolates the effect of additional comparison candidates. The
-validator admits only current, evidence-grounded anchor edges from the supplied
-summary snapshots; those snapshots are also the candidate allowlist. It rejects
-self-links, unknown endpoints or types, invalid confidence, non-anchor output,
-foreign, stale, unknown, or missing evidence, and duplicate directed edges.
-Passing this boundary means an edge is structurally admissible, not semantically
-true; a separate pairwise verifier can evaluate the much smaller accepted set.
+Production summarizes every changed collection first, then asks Qwen for one
+complete workspace graph only when every summary is current. The default
+unanchored benchmark exercises that path. Use `--anchor <collection-id>` for a
+focused diagnostic that scores only edges involving one collection while the
+batch adds comparison candidates. In either mode the validator admits only
+current, evidence-grounded edges from the supplied summary snapshots; those
+snapshots are also the candidate allowlist. It rejects self-links, unknown
+endpoints or types, invalid confidence, out-of-scope anchor output, foreign,
+stale, unknown, or missing evidence, and duplicate directed edges. Passing this
+boundary means an edge is structurally admissible, not semantically true.
 
 ## EnterpriseRAG-Bench
 

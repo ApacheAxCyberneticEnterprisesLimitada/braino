@@ -5,6 +5,7 @@ import {
   type CollectionRelationshipValidationScope,
   buildCollectionRelationsPrompt,
   collectionRelationshipsResponseSchema,
+  normalizeCollectionRelationshipDirections,
   validateCollectionRelationships,
 } from "../collection-relationship-validation.js";
 
@@ -59,6 +60,44 @@ function relationship(
 }
 
 describe("collection relationship validation", () => {
+  it("canonicalizes role-inverted implementation and documentation edges", () => {
+    const summaries = [
+      {
+        collectionId: "architecture",
+        name: "Architecture",
+        kind: "architectural-decisions",
+        digest: "Defines checkout architecture.",
+        summaryVersion: "architecture-v1",
+        evidenceIds: ["architecture-evidence"],
+      },
+      {
+        collectionId: "code",
+        name: "Code",
+        kind: "codebase",
+        digest: "Implements checkout architecture.",
+        summaryVersion: "code-v1",
+        evidenceIds: ["code-evidence"],
+      },
+      {
+        collectionId: "notion",
+        name: "Notion",
+        kind: "notion",
+        digest: "Documents checkout architecture.",
+        summaryVersion: "notion-v1",
+        evidenceIds: ["notion-evidence"],
+      },
+    ];
+    const relationships = [
+      { from: "architecture", to: "code", type: "implements" },
+      { from: "architecture", to: "notion", type: "documents" },
+    ];
+
+    expect(normalizeCollectionRelationshipDirections(summaries, relationships)).toEqual([
+      { from: "code", to: "architecture", type: "implements" },
+      { from: "notion", to: "architecture", type: "documents" },
+    ]);
+  });
+
   it("accepts grounded anchor edges and canonicalizes their evidence", () => {
     expect(validateCollectionRelationships(scope, [relationship()])).toEqual({
       accepted: [
@@ -195,6 +234,7 @@ describe("collection relationship validation", () => {
         {
           collectionId: "atlas-code",
           name: "Atlas application",
+          kind: "codebase",
           digest: "Implements Atlas checkout.",
           summaryVersion: "code-v2",
           evidenceIds: ["code-checkout"],
@@ -202,6 +242,7 @@ describe("collection relationship validation", () => {
         {
           collectionId: "atlas-product",
           name: "Atlas product",
+          kind: "product-decisions",
           digest: "Defines Atlas checkout.",
           summaryVersion: "product-v4",
           evidenceIds: ["product-checkout"],
@@ -214,9 +255,22 @@ describe("collection relationship validation", () => {
     expect(prompt).toContain("summaryVersion");
     expect(prompt).toContain("evidenceIds");
     expect(prompt).toContain("from=implementation, to=product, type=implements");
+    expect(prompt).toContain("Evaluate every unordered pair");
+    expect(prompt).toContain("broad Notion");
+    expect(prompt).toContain("FROM must be the concrete implementation");
+    expect(prompt).toContain("codebase → architectural-decisions");
+    expect(prompt).toContain("notion → architectural-decisions");
     expect(
       collectionRelationshipsResponseSchema.properties.relationships.items.properties.evidence.items
         .required,
     ).toEqual(["collectionId", "summaryVersion", "evidenceIds"]);
+    expect(
+      collectionRelationshipsResponseSchema.properties.relationships.items.properties.from
+        .description,
+    ).toContain("grammatical subject");
+    expect(
+      collectionRelationshipsResponseSchema.properties.relationships.items.properties.to
+        .description,
+    ).toContain("grammatical object");
   });
 });

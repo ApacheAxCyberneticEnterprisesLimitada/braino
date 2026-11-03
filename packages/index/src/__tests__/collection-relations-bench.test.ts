@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseCollectionRelationsArgs,
   scoreCollectionRelationships,
+  validateBenchmarkRelationships,
   validateCollectionRelationsFixture,
   visibleBenchmarkFixture,
 } from "../../scripts/collection-relations-bench-lib.mjs";
@@ -208,6 +209,32 @@ describe("collection relationship benchmark", () => {
       exactTruePositives: 1,
       precision: 0.5,
       recall: 1,
+    });
+  });
+
+  it("applies production validation to unanchored workspace runs", () => {
+    const prediction = {
+      from: "atlas-code",
+      to: "atlas-product",
+      type: "implements",
+      confidence: 0.9,
+      evidence: [
+        {
+          collectionId: "atlas-code",
+          summaryVersion: "code-v1",
+          evidenceIds: ["reference_atlas_code"],
+        },
+        {
+          collectionId: "atlas-product",
+          summaryVersion: "product-v1",
+          evidenceIds: ["decision_atlas"],
+        },
+      ],
+    };
+
+    expect(validateBenchmarkRelationships(fixture.collections, [prediction, prediction])).toEqual({
+      accepted: [prediction],
+      rejected: [expect.objectContaining({ reasons: ["duplicate_relationship"] })],
     });
   });
 

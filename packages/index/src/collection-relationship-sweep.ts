@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import type { QueryClient } from "@doco/db";
-import type {
-  CollectionRelationshipModel,
-  CollectionSummaryResult,
-  CollectionSummarySource,
+import {
+  COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
+  type CollectionRelationshipModel,
+  type CollectionSummaryResult,
+  type CollectionSummarySource,
 } from "./collection-relationship-model.js";
-import { replaceCollectionRelationships } from "./collection-relationship-store.js";
+import { replaceWorkspaceRelationships } from "./collection-relationship-store.js";
 import {
   type CollectionSummaryDigest,
+  normalizeCollectionRelationshipDirections,
   validateCollectionRelationships,
 } from "./collection-relationship-validation.js";
 
@@ -19,6 +21,7 @@ interface CollectionStateRow {
   collection_id: string;
   workspace_id: string;
   handle: string;
+  kind: string;
   goal: string;
   source_fingerprint: string | null;
   source_count: number | string;
@@ -30,15 +33,21 @@ interface CollectionStateRow {
   summarized_at: string | Date | null;
 }
 
-interface PendingCollection extends CollectionStateRow {
+interface CollectionState extends CollectionStateRow {
   sourceVersion: string;
   summaryVersion: string;
   needsSummary: boolean;
 }
 
+interface WorkspaceGraphState {
+  workspaceId: string;
+  relationshipVersion: string;
+}
+
 interface SummaryRow {
   collection_id: string;
   handle: string;
+  kind: string;
   summary_version: string;
   digest: string;
   evidence_ids: string[] | string;
@@ -65,9 +74,9 @@ export interface CollectionRelationshipSweepResult {
   pending: number;
 }
 
-function version(parts: readonly (string | number)[]): string {
+function version(prefix: "summary" | "relationships", parts: readonly unknown[]): string {
   const digest = createHash("sha256").update(JSON.stringify(parts)).digest("hex");
-  return `summary_${digest.slice(0, 24)}`;
+  return `${prefix}_${digest.slice(0, 24)}`;
 }
 
 function errorMessage(error: unknown): string {
@@ -103,7 +112,7 @@ function checkedSummary(
   };
 }
 
-async function collectionStates(c: QueryClient, modelId: string): Promise<PendingCollection[]> {
+async function collectionStates(c: QueryClient, modelId: string): Promise<CollectionState[]> {
   const rows = await c.query<CollectionStateRow>(
     `WITH source_states AS (
        SELECT collection_id,
@@ -116,7 +125,9 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Pendin
          FROM retrieval_source_documents
         GROUP BY collection_id
      )
-     SELECT c.id AS collection_id, c.workspace_id, c.handle, c.goal,
+     SELECT c.id AS collection_id, c.workspace_id, c.handle,
+            coalesce(nullif(c.data->>'template_handle', ''), 'generic') AS kind,
+            c.goal,
             s.source_fingerprint, coalesce(s.source_count, 0)::int AS source_count,
             s.source_changed_at,
             cs.source_version AS stored_source_version,
@@ -133,24 +144,57 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Pendin
                cs.summarized_at NULLS FIRST,
                c.workspace_id, c.id`,
   );
-  const pending: PendingCollection[] = [];
-  for (const row of rows.rows) {
-    const sourceVersion = version([
+  return rows.rows.map((row) => {
+    const sourceVersion = version("summary", [
       row.handle,
+      row.kind,
       row.goal,
       row.source_fingerprint ?? "empty",
       Number(row.source_count),
     ]);
-    const summaryVersion = version([modelId, sourceVersion]);
+    const summaryVersion = version("summary", [
+      COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
+      modelId,
+      sourceVersion,
+    ]);
     const needsSummary =
       row.stored_source_version !== sourceVersion ||
       row.stored_summary_version !== summaryVersion ||
       row.stored_model_id !== modelId;
-    if (needsSummary || row.stored_relationships_version !== summaryVersion) {
-      pending.push({ ...row, sourceVersion, summaryVersion, needsSummary });
+    return { ...row, sourceVersion, summaryVersion, needsSummary };
+  });
+}
+
+function staleWorkspaceGraphs(
+  states: readonly CollectionState[],
+  modelId: string,
+): WorkspaceGraphState[] {
+  const byWorkspace = new Map<string, CollectionState[]>();
+  for (const state of states) {
+    const workspace = byWorkspace.get(state.workspace_id) ?? [];
+    workspace.push(state);
+    byWorkspace.set(state.workspace_id, workspace);
+  }
+
+  const stale: WorkspaceGraphState[] = [];
+  for (const [workspaceId, workspace] of byWorkspace) {
+    if (workspace.some((collection) => collection.needsSummary)) continue;
+    const relationshipVersion = version("relationships", [
+      COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
+      modelId,
+      ...workspace
+        .map((collection) => [collection.collection_id, collection.summaryVersion] as const)
+        .sort(([left], [right]) => left.localeCompare(right)),
+    ]);
+    if (
+      workspace.some(
+        (collection) => collection.stored_relationships_version !== relationshipVersion,
+      )
+    ) {
+      stale.push({ workspaceId, relationshipVersion });
     }
   }
-  return pending;
+  return stale.sort((left, right) => left.workspaceId.localeCompare(right.workspaceId));
 }
 
 async function collectionSources(
@@ -182,7 +226,7 @@ async function collectionSources(
 
 async function saveSummary(
   c: QueryClient,
-  input: PendingCollection,
+  input: CollectionState,
   modelId: string,
   summary: CollectionSummaryResult,
 ): Promise<void> {
@@ -221,7 +265,9 @@ async function workspaceSummaries(
   workspaceId: string,
 ): Promise<CollectionSummaryDigest[]> {
   const rows = await c.query<SummaryRow>(
-    `SELECT cs.collection_id, c.handle, cs.summary_version, cs.digest, cs.evidence_ids
+    `SELECT cs.collection_id, c.handle,
+            coalesce(nullif(c.data->>'template_handle', ''), 'generic') AS kind,
+            cs.summary_version, cs.digest, cs.evidence_ids
        FROM collection_summaries cs
        JOIN collections c ON c.id = cs.collection_id AND c.deleted_at IS NULL
       WHERE cs.workspace_id = $1
@@ -232,6 +278,7 @@ async function workspaceSummaries(
   return rows.rows.map((row) => ({
     collectionId: row.collection_id,
     name: row.handle,
+    kind: row.kind,
     digest: row.digest,
     summaryVersion: row.summary_version,
     evidenceIds: textArray(row.evidence_ids),
@@ -240,92 +287,65 @@ async function workspaceSummaries(
 
 async function markRelationshipsCurrent(
   c: QueryClient,
-  collectionId: string,
-  summaryVersion: string,
+  workspaceId: string,
+  relationshipVersion: string,
 ): Promise<void> {
   await c.query(
     `UPDATE collection_summaries
         SET relationships_version = $2
-      WHERE collection_id = $1 AND summary_version = $2`,
-    [collectionId, summaryVersion],
+      WHERE workspace_id = $1`,
+    [workspaceId, relationshipVersion],
   );
 }
 
 /**
- * Advance the derived collection graph by a bounded number of stale anchors.
- * Durable versions split summary work from inference work, so a failed second
- * model call retries without paying for the first one again.
+ * Advance the derived graph in two durable stages: summarize changed
+ * collections, then infer one complete graph after every summary in a
+ * workspace is current. A graph failure retries without paying for summaries
+ * again, and no collection is ever compared against a partial workspace.
  */
 export async function sweepCollectionRelationships(
   c: QueryClient,
   args: { model: CollectionRelationshipModel; limit?: number },
 ): Promise<CollectionRelationshipSweepResult> {
   const limit = Math.max(1, Math.min(10, Math.floor(args.limit ?? 1)));
-  const pending = await collectionStates(c, args.model.id);
-  const selected = pending.slice(0, limit);
   const result: CollectionRelationshipSweepResult = {
     processed: 0,
     summarized: 0,
     accepted: 0,
     rejected: 0,
     failures: [],
-    pending: Math.max(0, pending.length - selected.length),
+    pending: 0,
   };
 
-  for (const collection of selected) {
+  const initialStates = await collectionStates(c, args.model.id);
+  const summariesToRefresh = initialStates
+    .filter((collection) => collection.needsSummary)
+    .slice(0, limit);
+  for (const collection of summariesToRefresh) {
     result.processed++;
     try {
-      if (collection.needsSummary) {
-        const sources = await collectionSources(c, collection.collection_id);
-        const summary =
-          sources.length === 0
-            ? {
-                digest:
-                  collection.goal.trim() ||
-                  `${collection.handle} does not contain source evidence yet.`,
-                evidenceIds: [],
-              }
-            : checkedSummary(
-                await args.model.summarize({
-                  collectionId: collection.collection_id,
-                  name: collection.handle,
-                  goal: collection.goal,
-                  sources,
-                }),
+      const sources = await collectionSources(c, collection.collection_id);
+      const summary =
+        sources.length === 0
+          ? {
+              digest:
+                collection.goal.trim() ||
+                `${collection.handle} does not contain source evidence yet.`,
+              evidenceIds: [],
+            }
+          : checkedSummary(
+              await args.model.summarize({
+                collectionId: collection.collection_id,
+                name: collection.handle,
+                kind: collection.kind,
+                goal: collection.goal,
                 sources,
-              );
-        await saveSummary(c, collection, args.model.id, summary);
-        result.summarized++;
-      }
-
-      const summaries = await workspaceSummaries(c, collection.workspace_id);
-      const anchor = summaries.find((summary) => summary.collectionId === collection.collection_id);
-      if (!anchor) {
-        await replaceCollectionRelationships(c, {
-          workspaceId: collection.workspace_id,
-          anchorId: collection.collection_id,
-          relationships: [],
-        });
-        await markRelationshipsCurrent(c, collection.collection_id, collection.summaryVersion);
-        continue;
-      }
-
-      const inferred = await args.model.infer({
-        anchorId: collection.collection_id,
-        summaries,
-      });
-      const validation = validateCollectionRelationships(
-        { anchorId: collection.collection_id, summaries },
-        inferred,
-      );
-      await replaceCollectionRelationships(c, {
-        workspaceId: collection.workspace_id,
-        anchorId: collection.collection_id,
-        relationships: validation.accepted,
-      });
-      await markRelationshipsCurrent(c, collection.collection_id, collection.summaryVersion);
-      result.accepted += validation.accepted.length;
-      result.rejected += validation.rejected.length;
+              }),
+              sources,
+            );
+      await saveSummary(c, collection, args.model.id, summary);
+      result.summarized++;
     } catch (error) {
       result.failures.push({
         collectionId: collection.collection_id,
@@ -333,5 +353,40 @@ export async function sweepCollectionRelationships(
       });
     }
   }
+
+  const statesAfterSummaries = await collectionStates(c, args.model.id);
+  const remaining = limit - result.processed;
+  const graphsToRefresh = staleWorkspaceGraphs(statesAfterSummaries, args.model.id).slice(
+    0,
+    remaining,
+  );
+  for (const graph of graphsToRefresh) {
+    result.processed++;
+    try {
+      const summaries = await workspaceSummaries(c, graph.workspaceId);
+      const inferred = summaries.length < 2 ? [] : await args.model.infer({ summaries });
+      const validation = validateCollectionRelationships(
+        { summaries },
+        normalizeCollectionRelationshipDirections(summaries, inferred),
+      );
+      await replaceWorkspaceRelationships(c, {
+        workspaceId: graph.workspaceId,
+        relationships: validation.accepted,
+      });
+      await markRelationshipsCurrent(c, graph.workspaceId, graph.relationshipVersion);
+      result.accepted += validation.accepted.length;
+      result.rejected += validation.rejected.length;
+    } catch (error) {
+      result.failures.push({
+        collectionId: graph.workspaceId,
+        error: errorMessage(error),
+      });
+    }
+  }
+
+  const finalStates = await collectionStates(c, args.model.id);
+  result.pending =
+    finalStates.filter((collection) => collection.needsSummary).length +
+    staleWorkspaceGraphs(finalStates, args.model.id).length;
   return result;
 }

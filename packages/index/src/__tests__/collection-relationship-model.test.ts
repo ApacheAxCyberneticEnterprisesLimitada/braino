@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
   OllamaCollectionRelationshipModel,
   configuredCollectionRelationshipModel,
 } from "../collection-relationship-model.js";
@@ -14,6 +15,10 @@ function ollamaResponse(content: unknown): Response {
 }
 
 describe("Ollama collection relationship model", () => {
+  it("allows a complete workspace graph enough time to finish", () => {
+    expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
+  });
+
   it("is disabled unless the shared graph model is configured", () => {
     expect(configuredCollectionRelationshipModel({})).toBeNull();
   });
@@ -62,6 +67,7 @@ describe("Ollama collection relationship model", () => {
       model.summarize({
         collectionId: "collection_product",
         name: "Product",
+        kind: "product-decisions",
         goal: "Product decisions",
         sources: [
           {
@@ -78,11 +84,11 @@ describe("Ollama collection relationship model", () => {
 
     await expect(
       model.infer({
-        anchorId: "collection_code",
         summaries: [
           {
             collectionId: "collection_code",
             name: "Code",
+            kind: "codebase",
             digest: "Implements checkout.",
             summaryVersion: "code-v1",
             evidenceIds: ["node:reference_checkout"],
@@ -90,6 +96,7 @@ describe("Ollama collection relationship model", () => {
           {
             collectionId: "collection_product",
             name: "Product",
+            kind: "product-decisions",
             digest: "Defines checkout.",
             summaryVersion: "product-v1",
             evidenceIds: ["node:decision_checkout"],
@@ -111,6 +118,23 @@ describe("Ollama collection relationship model", () => {
       think: false,
       options: { temperature: 0, seed: 42 },
     });
+    const summaryRequest = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
+    expect(summaryRequest.messages[1].content).toContain('"kind":"product-decisions"');
+    expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
+    const relationshipRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
+    expect(relationshipRequest.messages[0].content).toContain("every unordered pair");
+    expect(relationshipRequest.messages[1].content).toContain("Evaluate every unordered pair");
+    expect(relationshipRequest.messages[1].content).toContain(
+      "A codebase can implement architectural decisions",
+    );
+    expect(relationshipRequest.format.properties.relationships.items.properties.from.enum).toEqual([
+      "collection_code",
+      "collection_product",
+    ]);
+    expect(
+      relationshipRequest.format.properties.relationships.items.properties.evidence.items.properties
+        .collectionId.enum,
+    ).toEqual(["collection_code", "collection_product"]);
   });
 
   it("rejects summary evidence the model was not shown", async () => {
@@ -123,6 +147,7 @@ describe("Ollama collection relationship model", () => {
       model.summarize({
         collectionId: "collection_one",
         name: "One",
+        kind: "generic",
         goal: "",
         sources: [{ evidenceId: "node:real", title: "decision", content: "Real." }],
       }),

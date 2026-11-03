@@ -56,19 +56,15 @@ function storedRelationship(row: CollectionRelationshipRow): StoredCollectionRel
   };
 }
 
-export async function replaceCollectionRelationships(
+export async function replaceWorkspaceRelationships(
   c: QueryClient,
   input: {
     workspaceId: string;
-    anchorId: string;
     relationships: readonly CollectionRelationshipInference[];
   },
 ): Promise<StoredCollectionRelationship[]> {
-  const endpointIds = new Set([input.anchorId]);
+  const endpointIds = new Set<string>();
   for (const relationship of input.relationships) {
-    if (relationship.from !== input.anchorId && relationship.to !== input.anchorId) {
-      throw new Error(`Every relationship must touch anchor collection ${input.anchorId}`);
-    }
     endpointIds.add(relationship.from);
     endpointIds.add(relationship.to);
   }
@@ -80,11 +76,11 @@ export async function replaceCollectionRelationships(
          FROM collections
         WHERE workspace_id = $1
           AND deleted_at IS NULL
-          AND id = ANY($2::text[])
         FOR UPDATE`,
-      [input.workspaceId, [...endpointIds]],
+      [input.workspaceId],
     );
-    if (collections.rows.length !== endpointIds.size) {
+    const liveCollectionIds = new Set(collections.rows.map((collection) => collection.id));
+    if ([...endpointIds].some((id) => !liveCollectionIds.has(id))) {
       throw new Error(
         `Every relationship endpoint must be a live collection in ${input.workspaceId}`,
       );
@@ -92,9 +88,8 @@ export async function replaceCollectionRelationships(
 
     await c.query(
       `DELETE FROM collection_relationships
-        WHERE workspace_id = $1
-          AND (from_collection_id = $2 OR to_collection_id = $2)`,
-      [input.workspaceId, input.anchorId],
+        WHERE workspace_id = $1`,
+      [input.workspaceId],
     );
 
     const stored: StoredCollectionRelationship[] = [];
