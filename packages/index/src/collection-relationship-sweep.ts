@@ -17,6 +17,7 @@ const SOURCES_PER_KIND = 8;
 const SOURCES_PER_SUMMARY = 8;
 const SOURCE_EXCERPT_CHARS = 600;
 const COLLECTION_GOAL_CHARS = 600;
+const SUMMARY_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
 
 interface CollectionStateRow {
   collection_id: string;
@@ -32,6 +33,7 @@ interface CollectionStateRow {
   stored_relationships_version: string | null;
   stored_model_id: string | null;
   summarized_at: string | Date | null;
+  summary_failed_at: string | Date | null;
   relationship_failed_at: string | Date | null;
 }
 
@@ -142,6 +144,7 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
             cs.relationships_version AS stored_relationships_version,
             cs.model_id AS stored_model_id,
             cs.summarized_at,
+            sf.failed_at AS summary_failed_at,
             rf.failed_at AS relationship_failed_at
        FROM collections c
        LEFT JOIN source_states s ON s.collection_id = c.id
@@ -150,11 +153,11 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
        LEFT JOIN relationship_counts rc ON rc.workspace_id = c.workspace_id
        LEFT JOIN collection_relationship_failures rf ON rf.workspace_id = c.workspace_id
       WHERE c.deleted_at IS NULL
-      ORDER BY (sf.collection_id IS NOT NULL),
-               sf.failed_at ASC NULLS FIRST,
-               (rf.workspace_id IS NOT NULL),
+      ORDER BY (rf.workspace_id IS NOT NULL),
                rf.failed_at ASC NULLS FIRST,
                coalesce(rc.relationship_count, 0) DESC,
+               (sf.collection_id IS NOT NULL),
+               sf.failed_at ASC NULLS FIRST,
                (cs.collection_id IS NOT NULL),
                s.source_changed_at DESC NULLS LAST,
                cs.summarized_at NULLS FIRST,
@@ -179,6 +182,12 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
       row.stored_model_id !== modelId;
     return { ...row, sourceVersion, summaryVersion, needsSummary };
   });
+}
+
+function summaryRetryReady(state: CollectionState, now: number): boolean {
+  if (state.summary_failed_at === null) return true;
+  const failedAt = new Date(state.summary_failed_at).getTime();
+  return Number.isNaN(failedAt) || failedAt <= now - SUMMARY_RETRY_COOLDOWN_MS;
 }
 
 function staleWorkspaceGraphs(
@@ -391,7 +400,10 @@ export async function sweepCollectionRelationships(
   };
 
   const initialStates = await collectionStates(c, args.model.id);
-  const pendingSummaries = initialStates.filter((collection) => collection.needsSummary);
+  const now = Date.now();
+  const pendingSummaries = initialStates.filter(
+    (collection) => collection.needsSummary && summaryRetryReady(collection, now),
+  );
   const staleGraphs = staleWorkspaceGraphs(initialStates, args.model.id);
   const graphToRefresh =
     staleGraphs.find((graph) => graph.failedAt === null) ??

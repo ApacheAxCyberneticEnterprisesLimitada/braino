@@ -315,6 +315,39 @@ describe("collection relationship sweep", () => {
     expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_two_a");
   });
 
+  it("retries a cooled-down summary for a visible graph before untouched work", async () => {
+    const model = fakeModel();
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+    vi.mocked(model.summarize).mockClear();
+
+    await db.exec(`
+      INSERT INTO workspaces (id, handle, name)
+      VALUES ('workspace_two', 'two', 'Two');
+      INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
+      VALUES
+        ('collection_two_a', 'two-a', 'workspace_two', 'workspace_two', 'private', 'A', '{}');
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES
+        ('reference_two_a', 'collection_two_a', 'reference', 'active', 'Two A.', '2026-01-01T00:00:00Z');
+      INSERT INTO collection_relationships
+        (id, workspace_id, from_collection_id, to_collection_id,
+         relationship_type, confidence, evidence)
+      VALUES
+        ('relationship_existing', 'workspace_one', 'collection_code', 'collection_product',
+         'implements', 0.9, '[]');
+      UPDATE nodes
+         SET prose = 'The application implements checkout and refunds.',
+             updated_at = '2026-02-01T00:00:00Z'
+       WHERE id = 'reference_checkout';
+      INSERT INTO collection_summary_failures (collection_id, failed_at, error)
+      VALUES ('collection_code', now() - interval '10 minutes', 'Qwen timed out');
+    `);
+
+    await sweepCollectionRelationships(client(), { model, limit: 1 });
+
+    expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_code");
+  });
+
   it("never combines summary generation and graph inference in one invocation", async () => {
     await db.exec(`
       INSERT INTO workspaces (id, handle, name)
