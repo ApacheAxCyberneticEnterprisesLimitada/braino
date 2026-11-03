@@ -21,7 +21,7 @@ describe("Ollama collection relationship model", () => {
   });
 
   it("invalidates stored summaries when the semantic-summary contract changes", () => {
-    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
+    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe("workspace-graph-v5-semantic-sentences");
   });
 
   it("is disabled unless the shared graph model is configured", () => {
@@ -190,6 +190,34 @@ describe("Ollama collection relationship model", () => {
             evidenceId: "node:real",
             title: "Checkout decision",
             content: "Checkout uses the payment service before order confirmation.",
+          },
+        ],
+      }),
+    ).rejects.toThrow(/summary/i);
+  });
+
+  it("rejects identifier lists padded past the summary length minimum", async () => {
+    const model = new OllamaCollectionRelationshipModel({
+      fetchImpl: vi.fn(async () =>
+        ollamaResponse({
+          digest:
+            "doco_01M3T6V5JN0RZAEH05RND2ZT90#torre-codebase#code:torre-labs/api-gateway:CHANGELOG.md#code:torre-labs/api-gateway:docs/public-api/index.md",
+          evidenceIds: ["node:real"],
+        }),
+      ),
+    });
+
+    await expect(
+      model.summarize({
+        collectionId: "collection_code",
+        name: "Codebase",
+        kind: "codebase",
+        goal: "",
+        sources: [
+          {
+            evidenceId: "node:real",
+            title: "API gateway",
+            content: "The API gateway publishes its public API and records changes.",
           },
         ],
       }),

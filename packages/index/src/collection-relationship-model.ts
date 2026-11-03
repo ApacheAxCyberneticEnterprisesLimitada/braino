@@ -8,7 +8,7 @@ import {
 export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
 export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/chat";
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
-export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
+export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v5-semantic-sentences";
 
 export interface CollectionSummarySource {
   evidenceId: string;
@@ -53,8 +53,9 @@ function summaryResponseSchemaFor(sources: readonly CollectionSummarySource[]) {
         type: "string",
         minLength: 80,
         maxLength: 1_200,
+        pattern: "^(?:\\S+\\s+){7,}\\S+$",
         description:
-          "A semantic paragraph about the collection's evidence, never a collection name, handle, or identifier.",
+          "A semantic paragraph of at least eight words about the collection's evidence, never a collection name, handle, identifier, or identifier list.",
       },
       evidenceIds: {
         type: "array",
@@ -96,7 +97,7 @@ function summaryPrompt(input: {
     "Preserve concrete overlap that another collection could independently describe; a relationship does not require an explicit cross-reference or the other collection's name.",
     "For code, retain the architecture and decisions it realizes plus services it calls. For decision collections, retain the structures, technologies, requirements, and processes chosen. For Notion, Drive, Slack, and other documentation sources, retain exactly what systems, decisions, and processes they explain.",
     "Do not guess or replace concrete subjects with generic phrases such as 'contains documentation'. Keep details that could prove a directed relationship to another collection.",
-    "Write a semantic paragraph of 80 to 1200 characters. Never return only a collection name, handle, identifier, or evidence ID as the digest.",
+    "Write a semantic paragraph of at least eight words and 80 to 1200 characters. Never return only a collection name, handle, identifier, identifier list, or evidence ID as the digest.",
     "Cite only supplied evidenceId values. Return the smallest useful evidence set.",
     "",
     `<collection id=${JSON.stringify(input.collectionId)}>`,
@@ -195,6 +196,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       !isObject(decoded) ||
       typeof decoded.digest !== "string" ||
       decoded.digest.trim().length < 80 ||
+      decoded.digest.trim().split(/\s+/u).length < 8 ||
       decoded.digest.length > 1_200 ||
       !Array.isArray(decoded.evidenceIds) ||
       decoded.evidenceIds.length === 0 ||
