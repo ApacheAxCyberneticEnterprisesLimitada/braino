@@ -19,6 +19,7 @@ const SOURCES_PER_SUMMARY = 8;
 const SOURCE_EXCERPT_CHARS = 600;
 const COLLECTION_GOAL_CHARS = 600;
 const SUMMARY_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
+// A hot source may delay, but never indefinitely block, a complete graph snapshot.
 const GRAPH_MAX_STALENESS_MS = 15 * 60 * 1_000;
 
 const COLLECTION_SUMMARY_SOURCES_CTE = `
