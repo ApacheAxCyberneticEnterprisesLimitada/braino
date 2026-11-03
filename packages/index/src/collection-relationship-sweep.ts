@@ -346,9 +346,14 @@ export async function sweepCollectionRelationships(
   };
 
   const initialStates = await collectionStates(c, args.model.id);
-  const summariesToRefresh = initialStates
-    .filter((collection) => collection.needsSummary)
-    .slice(0, limit);
+  const pendingSummaries = initialStates.filter((collection) => collection.needsSummary);
+  const prioritizedWorkspaceId = pendingSummaries[0]?.workspace_id;
+  const prioritizedWorkspaceSummaries = pendingSummaries.filter(
+    (collection) => collection.workspace_id === prioritizedWorkspaceId,
+  );
+  const summaryLimit =
+    limit > 1 && prioritizedWorkspaceSummaries.length === limit ? limit - 1 : limit;
+  const summariesToRefresh = prioritizedWorkspaceSummaries.slice(0, summaryLimit);
   for (const collection of summariesToRefresh) {
     result.processed++;
     try {

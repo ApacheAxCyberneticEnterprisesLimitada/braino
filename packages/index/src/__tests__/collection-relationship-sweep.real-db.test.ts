@@ -284,6 +284,34 @@ describe("collection relationship sweep", () => {
     expect(vi.mocked(model.summarize).mock.calls[0]?.[0].collectionId).toBe("collection_code");
   });
 
+  it("reserves batch capacity to replace a prioritized workspace graph", async () => {
+    await db.exec(`
+      INSERT INTO workspaces (id, handle, name)
+      VALUES ('workspace_two', 'two', 'Two');
+      INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
+      VALUES
+        ('collection_two_a', 'two-a', 'workspace_two', 'workspace_two', 'private', 'A', '{}'),
+        ('collection_two_b', 'two-b', 'workspace_two', 'workspace_two', 'private', 'B', '{}');
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES
+        ('reference_two_a', 'collection_two_a', 'reference', 'active', 'Newer A.', '2027-01-01T00:00:00Z'),
+        ('reference_two_b', 'collection_two_b', 'reference', 'active', 'Newer B.', '2027-01-01T00:00:00Z');
+      INSERT INTO collection_relationships
+        (id, workspace_id, from_collection_id, to_collection_id,
+         relationship_type, confidence, evidence)
+      VALUES
+        ('relationship_existing', 'workspace_one', 'collection_code', 'collection_product',
+         'implements', 0.9, '[]');
+    `);
+    const model = fakeModel();
+
+    const result = await sweepCollectionRelationships(client(), { model, limit: 3 });
+
+    expect(result).toMatchObject({ processed: 3, summarized: 2, accepted: 1 });
+    expect(model.summarize).toHaveBeenCalledTimes(2);
+    expect(model.infer).toHaveBeenCalledTimes(1);
+  });
+
   it("drops deterministically rejected candidates instead of storing them", async () => {
     const model = fakeModel();
     vi.mocked(model.infer).mockImplementation(async ({ summaries }) => {
