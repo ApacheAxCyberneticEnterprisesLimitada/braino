@@ -117,6 +117,31 @@ function summaryPrompt(input: {
   ].join("\n");
 }
 
+function extractiveSummary(input: {
+  name: string;
+  kind: string;
+  sources: readonly CollectionSummarySource[];
+}): CollectionSummaryResult {
+  const sources = input.sources.slice(0, 3);
+  const material = sources
+    .map((source) => [source.title?.trim(), source.content.trim()].filter(Boolean).join(": "))
+    .filter(Boolean)
+    .join(" ");
+  const digest =
+    `The ${input.name} ${input.kind} collection is summarized directly from its indexed source evidence rather than inferred identifiers. Its supplied material states: ${material}`
+      .replace(/\s+/gu, " ")
+      .trim()
+      .slice(0, 1_200)
+      .trim();
+  if (!isSemanticCollectionDigest(digest)) {
+    throw new Error("Collection evidence could not produce a semantic summary");
+  }
+  return {
+    digest,
+    evidenceIds: sources.map((source) => source.evidenceId),
+  };
+}
+
 /** One zero-temperature Ollama-compatible Qwen client for both pipeline stages. */
 export class OllamaCollectionRelationshipModel implements CollectionRelationshipModel {
   readonly id: string;
@@ -192,12 +217,23 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     if (input.sources.length === 0) {
       throw new Error("Collection summarization requires source evidence");
     }
-    const decoded = await this.request(
-      summaryPrompt(input),
-      summaryResponseSchemaFor(input.sources),
-      "You write one compact, evidence-grounded paragraph (at most 180 words) about an enterprise knowledge collection for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
-      { numCtx: 4_096, numPredict: 640 },
-    );
+    let decoded: unknown;
+    try {
+      decoded = await this.request(
+        summaryPrompt(input),
+        summaryResponseSchemaFor(input.sources),
+        "You write one compact, evidence-grounded paragraph (at most 180 words) about an enterprise knowledge collection for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
+        { numCtx: 4_096, numPredict: 640 },
+      );
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message === "Ollama returned invalid JSON for collection relationships"
+      ) {
+        return extractiveSummary(input);
+      }
+      throw error;
+    }
     if (
       !isObject(decoded) ||
       !isSemanticCollectionDigest(decoded.digest) ||
@@ -206,7 +242,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       decoded.evidenceIds.length > 12 ||
       !decoded.evidenceIds.every((id) => typeof id === "string" && id.length > 0)
     ) {
-      throw new Error("Ollama returned an invalid collection summary");
+      return extractiveSummary(input);
     }
     const allowedEvidence = new Set(input.sources.map((source) => source.evidenceId));
     if (decoded.evidenceIds.some((id) => !allowedEvidence.has(id))) {

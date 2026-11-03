@@ -172,7 +172,7 @@ describe("Ollama collection relationship model", () => {
     ).rejects.toThrow(/evidence/i);
   });
 
-  it("rejects identifier-only collection summaries", async () => {
+  it("replaces identifier-only output with an extractive summary", async () => {
     const model = new OllamaCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
         ollamaResponse({ digest: "doco_01M46A3A7QZ1FSSN1DDY18K5CM", evidenceIds: ["node:real"] }),
@@ -193,10 +193,15 @@ describe("Ollama collection relationship model", () => {
           },
         ],
       }),
-    ).rejects.toThrow(/summary/i);
+    ).resolves.toEqual({
+      digest: expect.stringContaining(
+        "Checkout uses the payment service before order confirmation.",
+      ),
+      evidenceIds: ["node:real"],
+    });
   });
 
-  it("rejects identifier lists padded past the summary length minimum", async () => {
+  it("replaces identifier lists padded past the summary minimum", async () => {
     const model = new OllamaCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
         ollamaResponse({
@@ -221,6 +226,40 @@ describe("Ollama collection relationship model", () => {
           },
         ],
       }),
-    ).rejects.toThrow(/summary/i);
+    ).resolves.toEqual({
+      digest: expect.stringContaining(
+        "The API gateway publishes its public API and records changes.",
+      ),
+      evidenceIds: ["node:real"],
+    });
+  });
+
+  it("replaces malformed model JSON with an extractive summary", async () => {
+    const model = new OllamaCollectionRelationshipModel({
+      fetchImpl: vi.fn(async () =>
+        Response.json({ message: { content: '{"digest":"unfinished' } }),
+      ),
+    });
+
+    await expect(
+      model.summarize({
+        collectionId: "collection_notion",
+        name: "Notion",
+        kind: "notion",
+        goal: "",
+        sources: [
+          {
+            evidenceId: "notion:page-one",
+            title: "Checkout architecture",
+            content: "The handbook documents checkout through the payment service.",
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      digest: expect.stringContaining(
+        "The handbook documents checkout through the payment service.",
+      ),
+      evidenceIds: ["notion:page-one"],
+    });
   });
 });
