@@ -141,6 +141,10 @@ describe("Ollama collection relationship model", () => {
     expect(relationshipRequest.messages[1].content).toContain(
       "A codebase can implement architectural decisions",
     );
+    expect(relationshipRequest.messages[1].content).toContain(
+      "Return at most 5 strongest relationships",
+    );
+    expect(relationshipRequest.format.properties.relationships.maxItems).toBe(5);
     expect(relationshipRequest.format.properties.relationships.items.properties.from.enum).toEqual([
       "collection_code",
       "collection_product",
