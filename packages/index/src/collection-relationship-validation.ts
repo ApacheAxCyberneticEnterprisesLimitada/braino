@@ -151,7 +151,10 @@ export function normalizeCollectionRelationshipDirections(
 
 export function buildCollectionRelationsPrompt(
   summaries: readonly CollectionSummaryDigest[],
-  { anchorId = "" }: { anchorId?: string } = {},
+  {
+    anchorId = "",
+    requiredPairs = [],
+  }: { anchorId?: string; requiredPairs?: readonly (readonly [string, string])[] } = {},
 ): string {
   const normalizedSummaries = summaries.map((summary) => ({
     ...summary,
@@ -176,6 +179,11 @@ export function buildCollectionRelationsPrompt(
     ...(anchorId
       ? [
           `Every relationship must involve ${anchorId}. Omit relationships between two non-anchor collections.`,
+        ]
+      : []),
+    ...(requiredPairs.length > 0
+      ? [
+          `Evaluate only these required coverage pairs: ${requiredPairs.map(([left, right]) => `${left} ↔ ${right}`).join(", ")}. Do not return relationships outside these pairs.`,
         ]
       : []),
     "Return an empty relationships array when nothing is sufficiently supported.",

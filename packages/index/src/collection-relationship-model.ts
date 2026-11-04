@@ -1,6 +1,7 @@
 import {
   COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
   type CollectionSummaryDigest,
+  MAX_COLLECTION_RELATIONSHIPS,
   attachCollectionRelationshipEvidence,
   buildCollectionRelationsPrompt,
   collectionRelationshipCandidatesResponseSchemaFor,
@@ -11,10 +12,13 @@ export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/c
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
-  "workspace-graph-v5-code-translation-coverage";
+  "workspace-graph-v6-targeted-translation-coverage";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 4;
+const TRANSLATION_EVIDENCE = /\b(?:english|locali[sz](?:ation|ed)|spanish|translation)\b/iu;
+const CODE_PROVENANCE_EVIDENCE =
+  /\b(?:existing-code baseline|extracted from (?:the )?code|fetched (?:default )?branches|imported from (?:the )?code)\b/iu;
 
 export function isSemanticCollectionDigest(value: unknown): value is string {
   if (typeof value !== "string") return false;
@@ -84,6 +88,51 @@ function summaryResponseSchemaFor(sources: readonly CollectionSummarySource[]) {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function pairKey(left: string, right: string): string {
+  return [left, right].sort().join("\u0000");
+}
+
+function relationshipPairKey(value: unknown): string | null {
+  if (!isObject(value) || typeof value.from !== "string" || typeof value.to !== "string") {
+    return null;
+  }
+  return pairKey(value.from, value.to);
+}
+
+function missingCodeTranslationPairs(
+  summaries: readonly CollectionSummaryDigest[],
+  relationships: readonly unknown[],
+): Array<readonly [string, string]> {
+  const coveredPairs = new Set(relationships.map(relationshipPairKey).filter(Boolean));
+  const codebases = summaries.filter(
+    (summary) => summary.kind?.trim().toLowerCase() === "codebase",
+  );
+  const translations = summaries.filter(
+    (summary) =>
+      TRANSLATION_EVIDENCE.test(summary.digest) && CODE_PROVENANCE_EVIDENCE.test(summary.digest),
+  );
+  return translations.flatMap((translation) =>
+    codebases
+      .map((codebase) => [translation.collectionId, codebase.collectionId] as const)
+      .filter(([left, right]) => !coveredPairs.has(pairKey(left, right))),
+  );
+}
+
+function uniqueRelationshipCandidates(relationships: readonly unknown[]): unknown[] {
+  const seen = new Set<string>();
+  const unique: unknown[] = [];
+  for (const relationship of relationships) {
+    const key = isObject(relationship)
+      ? `${String(relationship.from)}\u0000${String(relationship.type)}\u0000${String(relationship.to)}`
+      : JSON.stringify(relationship);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(relationship);
+    if (unique.length === MAX_COLLECTION_RELATIONSHIPS) break;
+  }
+  return unique;
 }
 
 function parsePositiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -277,7 +326,31 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Ollama returned an invalid collection relationship result");
     }
-    return attachCollectionRelationshipEvidence(summaries, decoded.relationships);
+    const missingPairs = missingCodeTranslationPairs(summaries, decoded.relationships);
+    if (missingPairs.length === 0) {
+      return attachCollectionRelationshipEvidence(summaries, decoded.relationships);
+    }
+
+    const focusedIds = new Set(missingPairs.flat());
+    const focusedSummaries = summaries.filter((summary) => focusedIds.has(summary.collectionId));
+    const focused = await this.request(
+      buildCollectionRelationsPrompt(focusedSummaries, { requiredPairs: missingPairs }),
+      collectionRelationshipCandidatesResponseSchemaFor(focusedSummaries),
+      COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
+      { numCtx: 4_096, numPredict: 256 },
+    );
+    if (!isObject(focused) || !Array.isArray(focused.relationships)) {
+      throw new Error("Ollama returned an invalid focused collection relationship result");
+    }
+    const allowedPairs = new Set(missingPairs.map(([left, right]) => pairKey(left, right)));
+    const focusedRelationships = focused.relationships.filter((relationship) => {
+      const key = relationshipPairKey(relationship);
+      return key !== null && allowedPairs.has(key);
+    });
+    return attachCollectionRelationshipEvidence(
+      summaries,
+      uniqueRelationshipCandidates([...focusedRelationships, ...decoded.relationships]),
+    );
   }
 }
 

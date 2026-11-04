@@ -24,7 +24,7 @@ describe("Ollama collection relationship model", () => {
   it("invalidates graph inference without rebuilding unchanged semantic summaries", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v5-code-translation-coverage",
+      "workspace-graph-v6-targeted-translation-coverage",
     );
   });
 
@@ -202,6 +202,90 @@ describe("Ollama collection relationship model", () => {
     expect(request.messages[1].content).not.toContain("TAIL_MARKER");
     expect(request.messages[1].content).toContain(evidenceIds[3]);
     expect(request.messages[1].content).not.toContain(evidenceIds[4]);
+  });
+
+  it("runs a focused Qwen pass when the workspace pass misses code-derived translations", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(ollamaResponse({ relationships: [] }))
+      .mockResolvedValueOnce(
+        ollamaResponse({
+          relationships: [
+            {
+              from: "collection_translations",
+              to: "collection_code",
+              type: "derived_from",
+              confidence: 0.96,
+            },
+          ],
+        }),
+      );
+    const model = new OllamaCollectionRelationshipModel({ fetchImpl });
+
+    await expect(
+      model.infer({
+        summaries: [
+          {
+            collectionId: "collection_code",
+            name: "Torre codebase",
+            kind: "codebase",
+            digest: "The Scala application contains the runtime message orchestration.",
+            summaryVersion: "code-v1",
+            evidenceIds: ["github:runtime"],
+          },
+          {
+            collectionId: "collection_translations",
+            name: "Torre translations",
+            kind: "generic",
+            digest:
+              "English and Spanish translation records are an existing-code baseline from fetched default branches; current runtime use is not verified.",
+            summaryVersion: "translations-v1",
+            evidenceIds: ["reference:translation"],
+          },
+          {
+            collectionId: "collection_product",
+            name: "Product decisions",
+            kind: "product-decisions",
+            digest: "Product requirements for the job hub experience.",
+            summaryVersion: "product-v1",
+            evidenceIds: ["decision:job-hub"],
+          },
+        ],
+      }),
+    ).resolves.toEqual([
+      {
+        from: "collection_translations",
+        to: "collection_code",
+        type: "derived_from",
+        confidence: 0.96,
+        evidence: [
+          {
+            collectionId: "collection_translations",
+            summaryVersion: "translations-v1",
+            evidenceIds: ["reference:translation"],
+          },
+          {
+            collectionId: "collection_code",
+            summaryVersion: "code-v1",
+            evidenceIds: ["github:runtime"],
+          },
+        ],
+      },
+    ]);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const focusedRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
+    expect(focusedRequest.messages[1].content).toContain(
+      "Evaluate only these required coverage pairs",
+    );
+    expect(focusedRequest.messages[1].content).toContain(
+      "collection_translations ↔ collection_code",
+    );
+    expect(focusedRequest.messages[1].content).not.toContain("collection_product");
+    expect(focusedRequest.format.properties.relationships.items.properties.from.enum).toEqual([
+      "collection_code",
+      "collection_translations",
+    ]);
   });
 
   it("rejects summary evidence the model was not shown", async () => {
