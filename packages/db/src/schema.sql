@@ -2304,6 +2304,18 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
 -- copy of their username it kept went stale once usernames could change
 -- (decision_01M64TCVNSDZ5PMD080R5T33HK).
 ALTER TABLE feedback_reports DROP COLUMN IF EXISTS created_by_username;
+-- A report names the build it was sent from as client_context.app.release, the
+-- build stamp itself. Reports sent while the header read "Alpha <sha>" kept the
+-- words they scraped from it as app.alpha_text; the header now names the
+-- private beta (Alexander, 2026-11-04), so those carry over to app.release.
+UPDATE feedback_reports
+   SET client_context = CASE
+         WHEN jsonb_typeof(client_context #> '{app,alpha_text}') = 'string'
+         THEN jsonb_set(client_context #- '{app,alpha_text}', '{app,release}',
+                        to_jsonb(regexp_replace(client_context #>> '{app,alpha_text}', '^Alpha\s+', '')))
+         ELSE client_context #- '{app,alpha_text}'
+       END
+ WHERE client_context #> '{app,alpha_text}' IS NOT NULL;
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Append-only guardrails. The commit log + version snapshots are
