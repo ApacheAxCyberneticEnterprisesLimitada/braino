@@ -28,6 +28,7 @@ export const HOST_RESERVED_SLUGS: ReadonlySet<string> = new Set([
   "recovery-codes",
   "passkey-options",
   "confirm-email",
+  "welcome",
   "new-collection",
   "new",
   "collections",
