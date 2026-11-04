@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { QueryClient } from "@doco/db";
 import {
   COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
+  COLLECTION_SUMMARY_PIPELINE_VERSION,
   type CollectionRelationshipModel,
   type CollectionSummaryResult,
   type CollectionSummarySource,
@@ -204,7 +205,7 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
       Number(row.source_count),
     ]);
     const summaryVersion = version("summary", [
-      COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
+      COLLECTION_SUMMARY_PIPELINE_VERSION,
       modelId,
       sourceVersion,
     ]);

@@ -9,7 +9,9 @@ import {
 export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
 export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/chat";
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
-export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
+export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
+export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
+  "workspace-graph-v5-code-translation-coverage";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 4;

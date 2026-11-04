@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
+  COLLECTION_SUMMARY_PIPELINE_VERSION,
   DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
   OllamaCollectionRelationshipModel,
   configuredCollectionRelationshipModel,
@@ -20,8 +21,11 @@ describe("Ollama collection relationship model", () => {
     expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
   });
 
-  it("invalidates stored summaries when the semantic-summary contract changes", () => {
-    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
+  it("invalidates graph inference without rebuilding unchanged semantic summaries", () => {
+    expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
+    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
+      "workspace-graph-v5-code-translation-coverage",
+    );
   });
 
   it("is disabled unless the shared graph model is configured", () => {
