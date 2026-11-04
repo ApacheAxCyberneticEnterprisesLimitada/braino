@@ -1,8 +1,8 @@
-import { LocalNlpRetrievalExtractor } from "./local-nlp-retrieval-extractor.js";
 import {
-  DEFAULT_OLLAMA_GRAPH_URL,
-  OllamaRetrievalExtractor,
-} from "./ollama-retrieval-extractor.js";
+  DEFAULT_GEMINI_RETRIEVAL_TIMEOUT_MS,
+  GeminiRetrievalExtractor,
+} from "./gemini-retrieval-extractor.js";
+import { LocalNlpRetrievalExtractor } from "./local-nlp-retrieval-extractor.js";
 import type { RetrievalExtractor } from "./retrieval-ingestion.js";
 
 function parsePositiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -13,21 +13,17 @@ function parsePositiveInteger(value: string | undefined, fallback: number, name:
   return parsed;
 }
 
-/** A configured generative model upgrades extraction; otherwise fast local NLP is the default. */
+/** Gemini upgrades extraction when OpenRouter is configured; local NLP is the no-key default. */
 export function configuredRetrievalExtractor(
   env: Record<string, string | undefined> = process.env,
 ): RetrievalExtractor {
-  const model = env.DOCO_RETRIEVAL_EXTRACTION_MODEL?.trim();
-  if (!model) return new LocalNlpRetrievalExtractor();
-  return new OllamaRetrievalExtractor({
-    model,
-    url: env.DOCO_RETRIEVAL_EXTRACTION_URL?.trim() || DEFAULT_OLLAMA_GRAPH_URL,
-    ...(env.DOCO_RETRIEVAL_EXTRACTION_API_TOKEN
-      ? { apiToken: env.DOCO_RETRIEVAL_EXTRACTION_API_TOKEN }
-      : {}),
+  const apiToken = env.OPENROUTER_API_KEY?.trim();
+  if (!apiToken) return new LocalNlpRetrievalExtractor();
+  return new GeminiRetrievalExtractor({
+    apiToken,
     timeoutMs: parsePositiveInteger(
       env.DOCO_RETRIEVAL_EXTRACTION_TIMEOUT_MS,
-      120_000,
+      DEFAULT_GEMINI_RETRIEVAL_TIMEOUT_MS,
       "DOCO_RETRIEVAL_EXTRACTION_TIMEOUT_MS",
     ),
   });

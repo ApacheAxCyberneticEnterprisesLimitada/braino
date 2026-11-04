@@ -2,7 +2,7 @@
 
 ## Collection relationship inference
 
-`collection-relations-bench.mjs` compares Ollama and OpenRouter models on the same
+`collection-relations-bench.mjs` measures OpenRouter models on the same
 sparse, directed graph inference task using increasingly large batches of
 evidence-linked collection digests. It is evaluation-only: it writes a JSON
 report and never writes collection relationships to Doco or Postgres.
@@ -18,21 +18,11 @@ correctly. Anchored runs pass
 model output through the production validator and record every rejected edge
 with a machine-readable reason alongside both the raw and accepted output.
 
-```sh
-pnpm --filter @doco/index eval:collection-relations -- \
-  --provider ollama \
-  --model qwen3:8b \
-  --batch-sizes 8,16,24,32 \
-  --num-ctx 8192 \
-  --output /tmp/collection-relations-benchmark.json
-```
-
-Run the identical prompts, structured-output schema, validation, and scoring
-through the production OpenRouter path with Gemini 3.5 Flash-Lite:
+Run the production prompts, structured-output schema, validation, and scoring
+through OpenRouter with Gemini 3.5 Flash-Lite:
 
 ```sh
 OPENROUTER_API_KEY='…' pnpm --filter @doco/index eval:collection-relations -- \
-  --provider openrouter \
   --model google/gemini-3.5-flash-lite \
   --batch-sizes 8,16,24,32 \
   --output /tmp/gemini-collection-relations-benchmark.json
@@ -41,10 +31,8 @@ OPENROUTER_API_KEY='…' pnpm --filter @doco/index eval:collection-relations -- 
 OpenRouter requests require native JSON Schema support, deny data-collecting
 providers, use minimal thinking, and retry transient 429/503 capacity responses.
 
-Use `--repeats N` to measure stability. `DOCO_GRAPH_EXTRACTION_URL` and
-`DOCO_GRAPH_EXTRACTION_API_TOKEN` select a remote Ollama-compatible endpoint;
-otherwise the runner uses `http://127.0.0.1:11434/api/chat`. Keep the JSON
-report outside git when it contains summaries derived from private collections.
+Use `--repeats N` to measure stability. Keep the JSON report outside git when it
+contains summaries derived from private collections.
 
 Production summarizes every changed collection first, then asks its configured model for one
 complete workspace graph only when every summary is current. The default

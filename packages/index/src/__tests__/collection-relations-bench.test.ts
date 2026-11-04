@@ -39,32 +39,27 @@ const fixture = {
 };
 
 describe("collection relationship benchmark", () => {
-  it("parses explicit model, context, repeat, and nested batch settings", () => {
+  it("parses explicit model, repeat, and nested batch settings", () => {
     expect(
       parseCollectionRelationsArgs(
         [
-          "--provider",
-          "ollama",
           "--fixture",
           "/tmp/relations.json",
           "--model",
-          "qwen3:8b",
+          "google/gemini-3.5-flash-lite",
           "--batch-sizes",
           "8,16,32",
-          "--num-ctx",
-          "16384",
           "--repeats",
           "3",
           "--anchor",
           "atlas-code",
         ],
-        {},
+        { OPENROUTER_API_KEY: "router-secret" },
       ),
     ).toMatchObject({
       fixture: "/tmp/relations.json",
-      model: "qwen3:8b",
+      model: "google/gemini-3.5-flash-lite",
       batchSizes: [8, 16, 32],
-      numCtx: 16_384,
       repeats: 3,
       anchor: "atlas-code",
     });
@@ -72,10 +67,7 @@ describe("collection relationship benchmark", () => {
 
   it("configures Gemini Flash-Lite through OpenRouter without changing the benchmark contract", () => {
     expect(
-      parseCollectionRelationsArgs(["--provider", "openrouter"], {
-        DOCO_GRAPH_EXTRACTION_MODEL: "qwen3:8b",
-        DOCO_GRAPH_EXTRACTION_URL: "https://qwen.test/api/chat",
-        DOCO_GRAPH_EXTRACTION_API_TOKEN: "qwen-secret",
+      parseCollectionRelationsArgs([], {
         OPENROUTER_API_KEY: "router-secret",
       }),
     ).toMatchObject({
@@ -95,7 +87,6 @@ describe("collection relationship benchmark", () => {
     expect(
       buildCollectionRelationsBenchmarkRequest(
         {
-          provider: "openrouter",
           model: "google/gemini-3.5-flash-lite",
           apiToken: "router-secret",
         },
@@ -125,7 +116,7 @@ describe("collection relationship benchmark", () => {
     });
 
     expect(
-      decodeCollectionRelationsBenchmarkResponse("openrouter", {
+      decodeCollectionRelationsBenchmarkResponse({
         choices: [{ message: { content: JSON.stringify({ relationships: [] }) } }],
         usage: { prompt_tokens: 123, completion_tokens: 45 },
       }),

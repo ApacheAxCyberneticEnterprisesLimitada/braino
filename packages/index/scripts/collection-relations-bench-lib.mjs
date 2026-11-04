@@ -7,6 +7,7 @@ import {
   normalizeCollectionRelationshipDirections,
   validateCollectionRelationships,
 } from "../dist/collection-relationship-validation.js";
+import { buildOpenRouterStructuredOutputRequest } from "../dist/openrouter-structured-output.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -32,13 +33,12 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
   const parsed = {
     fixture: resolve(HERE, "eval-fixtures/collection-relations.json"),
     output: resolve("collection-relations-benchmark.json"),
-    provider: env.DOCO_COLLECTION_RELATIONSHIP_BENCH_PROVIDER?.trim() || "openrouter",
+    provider: "openrouter",
     model: "",
     url: "",
     apiToken: "",
     anchor: "",
     batchSizes: [8, 16, 24, 32],
-    numCtx: 8192,
     repeats: 1,
     timeoutMs: 180_000,
   };
@@ -52,38 +52,25 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
     };
     if (arg === "--fixture") parsed.fixture = resolve(next());
     else if (arg === "--output") parsed.output = resolve(next());
-    else if (arg === "--provider") parsed.provider = next();
     else if (arg === "--model") parsed.model = next();
     else if (arg === "--url") parsed.url = next();
     else if (arg === "--anchor") parsed.anchor = next();
     else if (arg === "--batch-sizes") parsed.batchSizes = batchSizes(next());
-    else if (arg === "--num-ctx") {
-      parsed.numCtx = positiveInteger(next(), "--num-ctx", { min: 2048, max: 65_536 });
-    } else if (arg === "--repeats") {
+    else if (arg === "--repeats") {
       parsed.repeats = positiveInteger(next(), "--repeats", { min: 1, max: 10 });
     } else if (arg === "--timeout-ms") {
       parsed.timeoutMs = positiveInteger(next(), "--timeout-ms", { min: 1_000, max: 900_000 });
     } else throw new Error(`Unknown argument: ${arg}`);
   }
-  if (!new Set(["ollama", "openrouter"]).has(parsed.provider)) {
-    throw new Error("--provider must be ollama or openrouter");
-  }
-  const openRouter = parsed.provider === "openrouter";
   if (!parsed.model) {
-    parsed.model = openRouter
-      ? "google/gemini-3.5-flash-lite"
-      : env.DOCO_GRAPH_EXTRACTION_MODEL?.trim() || "qwen3:8b";
+    parsed.model = "google/gemini-3.5-flash-lite";
   }
   if (!parsed.model.trim()) throw new Error("--model cannot be blank");
   if (!parsed.url) {
-    parsed.url = openRouter
-      ? "https://openrouter.ai/api/v1/chat/completions"
-      : env.DOCO_GRAPH_EXTRACTION_URL?.trim() || "http://127.0.0.1:11434/api/chat";
+    parsed.url = "https://openrouter.ai/api/v1/chat/completions";
   }
-  parsed.apiToken = openRouter
-    ? env.OPENROUTER_API_KEY?.trim() || ""
-    : env.DOCO_GRAPH_EXTRACTION_API_TOKEN?.trim() || "";
-  if (openRouter && !parsed.apiToken) {
+  parsed.apiToken = env.OPENROUTER_API_KEY?.trim() || "";
+  if (!parsed.apiToken) {
     throw new Error("OpenRouter benchmarks require OPENROUTER_API_KEY");
   }
   if (!parsed.anchor.trim() && argv.includes("--anchor")) {
@@ -92,11 +79,11 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
   return parsed;
 }
 
-function jsonContent(content, provider) {
+function jsonContent(content) {
   try {
     return typeof content === "string" ? JSON.parse(content) : content;
   } catch {
-    throw new Error(`${provider} returned invalid JSON for collection relationships`);
+    throw new Error("OpenRouter returned invalid JSON for collection relationships");
   }
 }
 
@@ -104,81 +91,32 @@ export function buildCollectionRelationsBenchmarkRequest(
   options,
   { systemPrompt, prompt, schema },
 ) {
-  if (options.provider === "openrouter") {
-    return {
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${options.apiToken}`,
-      },
-      body: {
-        model: options.model,
-        stream: false,
-        temperature: 0,
-        max_tokens: 4096,
-        reasoning: { effort: "minimal" },
-        provider: { require_parameters: true, data_collection: "deny" },
-        response_format: {
-          type: "json_schema",
-          json_schema: { name: "collection_relationships", strict: true, schema },
-        },
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: prompt },
-        ],
-      },
-    };
-  }
-  return {
-    headers: {
-      "content-type": "application/json",
-      ...(options.apiToken ? { authorization: `Bearer ${options.apiToken}` } : {}),
-    },
-    body: {
-      model: options.model,
-      stream: false,
-      think: false,
-      format: schema,
-      keep_alive: "10m",
-      options: {
-        temperature: 0,
-        seed: 42,
-        num_ctx: options.numCtx,
-        num_predict: 4096,
-      },
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: prompt },
-      ],
-    },
-  };
+  return buildOpenRouterStructuredOutputRequest(options.model, options.apiToken, {
+    system: systemPrompt,
+    prompt,
+    schema,
+    schemaName: "collection_relationships",
+    maxTokens: 4096,
+  });
 }
 
-export function decodeCollectionRelationsBenchmarkResponse(provider, envelope) {
-  let decoded;
-  let promptTokens;
-  let outputTokens;
-  let providerDurationMs = 0;
-  if (provider === "openrouter") {
-    const content = envelope?.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error("openrouter returned an invalid collection relationship envelope");
-    }
-    decoded = jsonContent(content, provider);
-    promptTokens = Number(envelope.usage?.prompt_tokens ?? 0);
-    outputTokens = Number(envelope.usage?.completion_tokens ?? 0);
-  } else {
-    if (!envelope || typeof envelope !== "object" || !envelope.message) {
-      throw new Error("ollama returned an invalid collection relationship envelope");
-    }
-    decoded = jsonContent(envelope.message.content, provider);
-    promptTokens = Number(envelope.prompt_eval_count ?? 0);
-    outputTokens = Number(envelope.eval_count ?? 0);
-    providerDurationMs = Number(envelope.total_duration ?? 0) / 1_000_000;
+export function decodeCollectionRelationsBenchmarkResponse(envelope) {
+  const content = envelope?.choices?.[0]?.message?.content;
+  if (!content) {
+    throw new Error("OpenRouter returned an invalid collection relationship envelope");
   }
+  const decoded = jsonContent(content);
+  const promptTokens = Number(envelope.usage?.prompt_tokens ?? 0);
+  const outputTokens = Number(envelope.usage?.completion_tokens ?? 0);
   if (!decoded || !Array.isArray(decoded.relationships)) {
-    throw new Error(`${provider} returned an invalid collection relationship result`);
+    throw new Error("OpenRouter returned an invalid collection relationship result");
   }
-  return { relationships: decoded.relationships, promptTokens, outputTokens, providerDurationMs };
+  return {
+    relationships: decoded.relationships,
+    promptTokens,
+    outputTokens,
+    providerDurationMs: 0,
+  };
 }
 
 export async function fetchCollectionRelationsBenchmark(

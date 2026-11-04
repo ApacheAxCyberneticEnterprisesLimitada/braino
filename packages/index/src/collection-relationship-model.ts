@@ -6,9 +6,11 @@ import {
   buildCollectionRelationsPrompt,
   collectionRelationshipCandidatesResponseSchemaFor,
 } from "./collection-relationship-validation.js";
+import {
+  OpenRouterStructuredOutputClient,
+  type OpenRouterStructuredOutputClientOptions,
+} from "./openrouter-structured-output.js";
 
-export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "google/gemini-3.5-flash-lite";
-export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v5-gemini-summaries";
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v9-gemini-generate-audit";
@@ -48,14 +50,6 @@ export interface CollectionRelationshipModel {
   infer(input: {
     summaries: readonly CollectionSummaryDigest[];
   }): Promise<unknown[]>;
-}
-
-interface OpenRouterCollectionRelationshipModelOptions {
-  model?: string;
-  url?: string;
-  apiToken?: string;
-  timeoutMs?: number;
-  fetchImpl?: typeof fetch;
 }
 
 function summaryResponseSchemaFor(sources: readonly CollectionSummarySource[]) {
@@ -199,19 +193,14 @@ function extractiveSummary(input: {
 /** One strict-schema Gemini client for both pipeline stages. */
 export class OpenRouterCollectionRelationshipModel implements CollectionRelationshipModel {
   readonly id: string;
-  private readonly model: string;
-  private readonly url: string;
-  private readonly apiToken: string | undefined;
-  private readonly timeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
+  private readonly client: OpenRouterStructuredOutputClient;
 
-  constructor(options: OpenRouterCollectionRelationshipModelOptions = {}) {
-    this.model = options.model?.trim() || DEFAULT_COLLECTION_RELATIONSHIP_MODEL;
-    this.id = `openrouter:${this.model}`;
-    this.url = options.url?.trim() || DEFAULT_COLLECTION_RELATIONSHIP_URL;
-    this.apiToken = options.apiToken?.trim() || undefined;
-    this.timeoutMs = options.timeoutMs ?? DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS;
-    this.fetchImpl = options.fetchImpl ?? fetch;
+  constructor(options: OpenRouterStructuredOutputClientOptions = {}) {
+    this.client = new OpenRouterStructuredOutputClient({
+      ...options,
+      timeoutMs: options.timeoutMs ?? DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
+    });
+    this.id = this.client.id;
   }
 
   private async request(
@@ -221,55 +210,13 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
     system: string,
     maxTokens: number,
   ): Promise<unknown> {
-    const response = await this.fetchImpl(this.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(this.apiToken ? { authorization: `Bearer ${this.apiToken}` } : {}),
-      },
-      signal: AbortSignal.timeout(this.timeoutMs),
-      body: JSON.stringify({
-        model: this.model,
-        stream: false,
-        temperature: 0,
-        max_tokens: maxTokens,
-        reasoning: { effort: "minimal" },
-        provider: {
-          require_parameters: true,
-          data_collection: "deny",
-        },
-        response_format: {
-          type: "json_schema",
-          json_schema: {
-            name: schemaName,
-            strict: true,
-            schema,
-          },
-        },
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: prompt },
-        ],
-      }),
+    return this.client.request({
+      prompt,
+      schema,
+      schemaName,
+      system,
+      maxTokens,
     });
-    if (!response.ok) {
-      throw new Error(
-        `OpenRouter collection relationship request failed with HTTP ${response.status}`,
-      );
-    }
-    const envelope: unknown = await response.json();
-    const choice =
-      isObject(envelope) && Array.isArray(envelope.choices) ? envelope.choices[0] : undefined;
-    if (!isObject(choice) || !isObject(choice.message)) {
-      throw new Error("OpenRouter returned an invalid collection relationship envelope");
-    }
-    try {
-      return typeof choice.message.content === "string"
-        ? JSON.parse(choice.message.content)
-        : choice.message.content;
-    } catch {
-      throw new Error("OpenRouter returned invalid JSON for collection relationships");
-    }
   }
 
   async summarize(input: {
@@ -294,7 +241,7 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message === "OpenRouter returned invalid JSON for collection relationships"
+        error.message === "OpenRouter returned invalid structured-output JSON"
       ) {
         return extractiveSummary(input);
       }

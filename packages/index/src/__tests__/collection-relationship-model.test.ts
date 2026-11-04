@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
   COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
   COLLECTION_SUMMARY_PIPELINE_VERSION,
-  DEFAULT_COLLECTION_RELATIONSHIP_MODEL,
   DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
-  DEFAULT_COLLECTION_RELATIONSHIP_URL,
   OpenRouterCollectionRelationshipModel,
   configuredCollectionRelationshipModel,
 } from "../collection-relationship-model.js";
+import {
+  DEFAULT_OPENROUTER_MODEL,
+  OPENROUTER_CHAT_COMPLETIONS_URL,
+} from "../openrouter-structured-output.js";
 
 function openRouterResponse(content: unknown): Response {
   return Response.json({
@@ -20,13 +22,11 @@ function openRouterResponse(content: unknown): Response {
 describe("OpenRouter collection relationship model", () => {
   it("finishes a model request before the serverless function deadline", () => {
     expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
-    expect(DEFAULT_COLLECTION_RELATIONSHIP_MODEL).toBe("google/gemini-3.5-flash-lite");
-    expect(DEFAULT_COLLECTION_RELATIONSHIP_URL).toBe(
-      "https://openrouter.ai/api/v1/chat/completions",
-    );
+    expect(DEFAULT_OPENROUTER_MODEL).toBe("google/gemini-3.5-flash-lite");
+    expect(OPENROUTER_CHAT_COMPLETIONS_URL).toBe("https://openrouter.ai/api/v1/chat/completions");
   });
 
-  it("invalidates Qwen summaries and graph inference after the Gemini migration", () => {
+  it("invalidates previous summaries and graph inference after the Gemini migration", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v5-gemini-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
       "workspace-graph-v9-gemini-generate-audit",
@@ -154,9 +154,15 @@ describe("OpenRouter collection relationship model", () => {
     expect(
       summaryRequest.response_format.json_schema.schema.properties.evidenceIds.items.enum,
     ).toEqual(["node:decision_checkout"]);
-    expect(summaryRequest.response_format.json_schema.schema.properties.digest).toMatchObject({
-      minLength: 80,
-    });
+    expect(summaryRequest.response_format.json_schema.schema.properties.digest).not.toHaveProperty(
+      "minLength",
+    );
+    expect(summaryRequest.response_format.json_schema.schema.properties.digest).not.toHaveProperty(
+      "maxLength",
+    );
+    expect(summaryRequest.response_format.json_schema.schema.properties.digest).not.toHaveProperty(
+      "pattern",
+    );
     expect(summaryRequest.messages[1].content).toContain('"kind":"product-decisions"');
     expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
     expect(summaryRequest.messages[1].content).toContain("Never return only a collection name");

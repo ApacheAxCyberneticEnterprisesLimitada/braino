@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
+import { GeminiRetrievalExtractor } from "../gemini-retrieval-extractor.js";
 import { LocalNlpRetrievalExtractor } from "../local-nlp-retrieval-extractor.js";
-import { OllamaRetrievalExtractor } from "../ollama-retrieval-extractor.js";
 import { configuredRetrievalExtractor } from "../retrieval-extractor.js";
 
 const DOCUMENT = {
@@ -11,20 +11,20 @@ const DOCUMENT = {
   content: "Solar uses JDK 8.",
 };
 
-function ollamaResponse(content: unknown): Response {
+function openRouterResponse(content: unknown): Response {
   return new Response(
     JSON.stringify({
-      message: { content: JSON.stringify(content) },
-      done: true,
+      choices: [{ message: { content: JSON.stringify(content) } }],
+      usage: { prompt_tokens: 12, completion_tokens: 7 },
     }),
     { status: 200, headers: { "content-type": "application/json" } },
   );
 }
 
-describe("OllamaRetrievalExtractor", () => {
+describe("GeminiRetrievalExtractor", () => {
   it("accepts an evidence-grounded relationship type that was not predefined", async () => {
     const fetchImpl = vi.fn(async () =>
-      ollamaResponse({
+      openRouterResponse({
         entities: [
           { name: "Northstar", type: "product", aliases: [], confidence: 0.98 },
           { name: "Radar", type: "service", aliases: [], confidence: 0.96 },
@@ -40,7 +40,7 @@ describe("OllamaRetrievalExtractor", () => {
         ],
       }),
     );
-    const extractor = new OllamaRetrievalExtractor({ fetchImpl });
+    const extractor = new GeminiRetrievalExtractor({ fetchImpl });
 
     const extraction = await extractor.extract({
       document: { ...DOCUMENT, content: "Northstar acquired Radar in 2025." },
@@ -50,9 +50,9 @@ describe("OllamaRetrievalExtractor", () => {
     expect(extraction.relationships).toEqual([expect.objectContaining({ type: "ACQUIRED" })]);
   });
 
-  it("uses a local Qwen 8B model and turns grounded model output into graph input", async () => {
+  it("uses Gemini through OpenRouter and turns grounded model output into graph input", async () => {
     const fetchImpl = vi.fn(async () =>
-      ollamaResponse({
+      openRouterResponse({
         entities: [
           { name: "Solar", type: "service", aliases: [], confidence: 0.98 },
           { name: "JDK 8", type: "technology", aliases: [], confidence: 0.96 },
@@ -68,7 +68,10 @@ describe("OllamaRetrievalExtractor", () => {
         ],
       }),
     );
-    const extractor = new OllamaRetrievalExtractor({ fetchImpl, apiToken: "test-graph-token" });
+    const extractor = new GeminiRetrievalExtractor({
+      fetchImpl,
+      apiToken: "test-graph-token",
+    });
 
     const extraction = await extractor.extract({
       document: DOCUMENT,
@@ -77,23 +80,30 @@ describe("OllamaRetrievalExtractor", () => {
 
     expect(fetchImpl).toHaveBeenCalledOnce();
     const [url, init] = fetchImpl.mock.calls[0];
-    expect(url).toBe("http://127.0.0.1:11434/api/chat");
+    expect(url).toBe("https://openrouter.ai/api/v1/chat/completions");
     const request = JSON.parse(String(init?.body));
     expect(request).toMatchObject({
-      model: "qwen3:8b",
+      model: "google/gemini-3.5-flash-lite",
       stream: false,
-      think: false,
-      options: { temperature: 0, seed: 42 },
+      temperature: 0,
+      max_tokens: 2048,
+      reasoning: { effort: "minimal" },
+      provider: { require_parameters: true, data_collection: "deny" },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "retrieval_graph", strict: true },
+      },
     });
     expect(init?.headers).toEqual({
       "content-type": "application/json",
       authorization: "Bearer test-graph-token",
     });
-    expect(request.format.properties.entities.items.properties.type.enum).toContain("service");
-    expect(request.format.properties.relationships.items.properties.type).toMatchObject({
-      pattern: "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+){0,7}$",
-      maxLength: 80,
-    });
+    expect(
+      request.response_format.json_schema.schema.properties.entities.items.properties.type.enum,
+    ).toContain("service");
+    expect(
+      request.response_format.json_schema.schema.properties.relationships.items.properties.type,
+    ).toEqual({ type: "string" });
     expect(request.messages[0].content).toContain("Predicates are open");
     expect(request.messages[1].content).toContain("Solar uses JDK 8.");
     expect(request.messages[1].content).toContain("Leila -FOUNDED-> Northstar");
@@ -131,13 +141,13 @@ describe("OllamaRetrievalExtractor", () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValueOnce(
-        ollamaResponse({
+        openRouterResponse({
           entities: [{ name: "Radar", type: "service", aliases: [], confidence: 0.9 }],
           relationships: [],
         }),
       )
       .mockResolvedValueOnce(
-        ollamaResponse({
+        openRouterResponse({
           entities: [
             {
               name: "Radar",
@@ -149,7 +159,7 @@ describe("OllamaRetrievalExtractor", () => {
           relationships: [],
         }),
       );
-    const extractor = new OllamaRetrievalExtractor({ fetchImpl });
+    const extractor = new GeminiRetrievalExtractor({ fetchImpl });
 
     const extraction = await extractor.extract({
       document: { ...DOCUMENT, content: "Radar is active.\nRadar handles alerts." },
@@ -164,23 +174,18 @@ describe("OllamaRetrievalExtractor", () => {
     expect(extraction.entities.map((entity) => entity.mentions[0].chunkIndex)).toEqual([0, 1]);
   });
 
-  it("uses local NLP unless the retrieval workload has its own Ollama model", () => {
+  it("uses local NLP until OpenRouter is configured", () => {
     expect(configuredRetrievalExtractor({})).toBeInstanceOf(LocalNlpRetrievalExtractor);
     expect(
       configuredRetrievalExtractor({
-        DOCO_GRAPH_EXTRACTION_MODEL: "qwen3:8b",
+        OPENROUTER_API_KEY: "router-secret",
       }),
-    ).toBeInstanceOf(LocalNlpRetrievalExtractor);
-    expect(
-      configuredRetrievalExtractor({
-        DOCO_RETRIEVAL_EXTRACTION_MODEL: "qwen3:8b",
-      }),
-    ).toBeInstanceOf(OllamaRetrievalExtractor);
+    ).toBeInstanceOf(GeminiRetrievalExtractor);
   });
 
-  it("fails clearly when Ollama returns invalid structured output", async () => {
-    const fetchImpl = vi.fn(async () => ollamaResponse({ entities: "wrong" }));
-    const extractor = new OllamaRetrievalExtractor({ fetchImpl });
+  it("fails clearly when Gemini returns invalid structured output", async () => {
+    const fetchImpl = vi.fn(async () => openRouterResponse({ entities: "wrong" }));
+    const extractor = new GeminiRetrievalExtractor({ fetchImpl });
 
     await expect(
       extractor.extract({ document: DOCUMENT, chunks: [{ text: DOCUMENT.content }] }),

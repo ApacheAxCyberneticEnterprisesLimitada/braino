@@ -1,4 +1,8 @@
 import type { RetrievalChunkInput } from "@doco/db";
+import {
+  OpenRouterStructuredOutputClient,
+  type OpenRouterStructuredOutputClientOptions,
+} from "./openrouter-structured-output.js";
 import type {
   RetrievalExtraction,
   RetrievalExtractor,
@@ -10,16 +14,7 @@ import {
   formatRetrievalOntologyForPrompt,
 } from "./retrieval-ontology.js";
 
-export const DEFAULT_OLLAMA_GRAPH_MODEL = "qwen3:8b";
-export const DEFAULT_OLLAMA_GRAPH_URL = "http://127.0.0.1:11434/api/chat";
-
-interface OllamaRetrievalExtractorOptions {
-  model?: string;
-  url?: string;
-  apiToken?: string;
-  timeoutMs?: number;
-  fetchImpl?: typeof fetch;
-}
+export const DEFAULT_GEMINI_RETRIEVAL_TIMEOUT_MS = 120_000;
 
 interface ModelEntity {
   name: string;
@@ -95,7 +90,7 @@ function validConfidence(value: unknown): value is number {
 
 function parseModelExtraction(value: unknown): ModelExtraction {
   if (!isObject(value) || !Array.isArray(value.entities) || !Array.isArray(value.relationships)) {
-    throw new Error("Ollama returned an invalid graph extraction");
+    throw new Error("Gemini returned an invalid graph extraction");
   }
 
   const entities: ModelEntity[] = value.entities.map((candidate) => {
@@ -109,7 +104,7 @@ function parseModelExtraction(value: unknown): ModelExtraction {
       !candidate.aliases.every((alias) => typeof alias === "string") ||
       !validConfidence(candidate.confidence)
     ) {
-      throw new Error("Ollama returned an invalid graph extraction entity");
+      throw new Error("Gemini returned an invalid graph extraction entity");
     }
     return {
       name: candidate.name.trim(),
@@ -132,7 +127,7 @@ function parseModelExtraction(value: unknown): ModelExtraction {
       !candidate.evidence.trim() ||
       !validConfidence(candidate.confidence)
     ) {
-      throw new Error("Ollama returned an invalid graph extraction relationship");
+      throw new Error("Gemini returned an invalid graph extraction relationship");
     }
     return {
       from: candidate.from.trim(),
@@ -173,75 +168,17 @@ function chunkPrompt(document: RetrievalSourceDocument, chunk: RetrievalChunkInp
   ].join("\n");
 }
 
-/**
- * Local, zero-API-cost entity and relationship extraction through Ollama.
- * Chunks are isolated deliberately: the model cannot cite evidence from a
- * different chunk, and the existing ontology validator remains the final gate.
- */
-export class OllamaRetrievalExtractor implements RetrievalExtractor {
+/** Hosted graph extraction; the deterministic local extractor remains the no-key fallback. */
+export class GeminiRetrievalExtractor implements RetrievalExtractor {
   readonly id: string;
-  private readonly model: string;
-  private readonly url: string;
-  private readonly apiToken: string | undefined;
-  private readonly timeoutMs: number;
-  private readonly fetchImpl: typeof fetch;
+  private readonly client: OpenRouterStructuredOutputClient;
 
-  constructor(options: OllamaRetrievalExtractorOptions = {}) {
-    this.model = options.model?.trim() || DEFAULT_OLLAMA_GRAPH_MODEL;
-    this.id = `ollama:${this.model}`;
-    this.url = options.url?.trim() || DEFAULT_OLLAMA_GRAPH_URL;
-    this.apiToken = options.apiToken?.trim() || undefined;
-    this.timeoutMs = options.timeoutMs ?? 120_000;
-    this.fetchImpl = options.fetchImpl ?? fetch;
-  }
-
-  private async requestExtraction(prompt: string): Promise<ModelExtraction> {
-    const response = await this.fetchImpl(this.url, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        ...(this.apiToken ? { authorization: `Bearer ${this.apiToken}` } : {}),
-      },
-      signal: AbortSignal.timeout(this.timeoutMs),
-      body: JSON.stringify({
-        model: this.model,
-        stream: false,
-        think: false,
-        format: responseSchema,
-        keep_alive: "10m",
-        options: {
-          temperature: 0,
-          seed: 42,
-          num_ctx: 8192,
-          num_predict: 2048,
-        },
-        messages: [
-          {
-            role: "system",
-            content: [
-              "You extract a small, evidence-grounded enterprise knowledge graph.",
-              formatRetrievalOntologyForPrompt(),
-            ].join("\n\n"),
-          },
-          { role: "user", content: prompt },
-        ],
-      }),
+  constructor(options: OpenRouterStructuredOutputClientOptions = {}) {
+    this.client = new OpenRouterStructuredOutputClient({
+      ...options,
+      timeoutMs: options.timeoutMs ?? DEFAULT_GEMINI_RETRIEVAL_TIMEOUT_MS,
     });
-    if (!response.ok) {
-      throw new Error(`Ollama graph extraction failed with HTTP ${response.status}`);
-    }
-    const envelope: unknown = await response.json();
-    if (!isObject(envelope) || !isObject(envelope.message)) {
-      throw new Error("Ollama returned an invalid graph extraction envelope");
-    }
-    const content = envelope.message.content;
-    let decoded: unknown;
-    try {
-      decoded = typeof content === "string" ? JSON.parse(content) : content;
-    } catch {
-      throw new Error("Ollama returned invalid JSON for graph extraction");
-    }
-    return parseModelExtraction(decoded);
+    this.id = this.client.id;
   }
 
   private async extractChunk(
@@ -249,7 +186,18 @@ export class OllamaRetrievalExtractor implements RetrievalExtractor {
     chunk: RetrievalChunkInput,
     chunkIndex: number,
   ): Promise<RetrievalExtraction> {
-    const extracted = await this.requestExtraction(chunkPrompt(document, chunk));
+    const extracted = parseModelExtraction(
+      await this.client.request({
+        system: [
+          "You extract a small, evidence-grounded enterprise knowledge graph.",
+          formatRetrievalOntologyForPrompt(),
+        ].join("\n\n"),
+        prompt: chunkPrompt(document, chunk),
+        schema: responseSchema,
+        schemaName: "retrieval_graph",
+        maxTokens: 2_048,
+      }),
+    );
     const key = (entityIndex: number) => `chunk-${chunkIndex}:entity-${entityIndex}`;
     const endpointKeys = new Map<string, string>();
     for (const [entityIndex, entity] of extracted.entities.entries()) {

@@ -32,7 +32,7 @@ function fakeDigest(input: { name: string; sources: readonly { content: string }
 
 function fakeModel(): CollectionRelationshipModel {
   return {
-    id: "ollama:qwen3:8b",
+    id: "openrouter:google/gemini-3.5-flash-lite",
     summarize: vi.fn(async (input) => ({
       digest: fakeDigest(input),
       evidenceIds: input.sources.map((source) => source.evidenceId),
@@ -95,7 +95,7 @@ describe("collection relationship sweep", () => {
       );
     `);
     const model: CollectionRelationshipModel = {
-      id: "ollama:qwen3:8b",
+      id: "openrouter:google/gemini-3.5-flash-lite",
       summarize: vi.fn(async (input) => ({
         digest: fakeDigest(input),
         evidenceIds: input.sources.map((source) => source.evidenceId),
@@ -161,7 +161,7 @@ describe("collection relationship sweep", () => {
     ]);
   });
 
-  it("summarizes changed collections, validates Qwen output, and makes unchanged runs free", async () => {
+  it("summarizes changed collections, validates Gemini output, and makes unchanged runs free", async () => {
     const model = fakeModel();
 
     expect(await sweepCollectionRelationships(client(), { model, limit: 1 })).toMatchObject({
@@ -293,7 +293,7 @@ describe("collection relationship sweep", () => {
     ]);
   });
 
-  it("bounds each Qwen summary and moves past a failed collection", async () => {
+  it("bounds each Gemini summary and moves past a failed collection", async () => {
     await db.exec(`
       UPDATE collections SET goal = repeat('g', 5000) WHERE id = 'collection_code';
       INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
@@ -313,7 +313,7 @@ describe("collection relationship sweep", () => {
     `);
     const model = fakeModel();
     vi.mocked(model.summarize).mockImplementation(async (input) => {
-      if (input.collectionId === "collection_code") throw new Error("Qwen timed out");
+      if (input.collectionId === "collection_code") throw new Error("Gemini timed out");
       return {
         digest: fakeDigest(input),
         evidenceIds: input.sources.map((source) => source.evidenceId),
@@ -323,7 +323,7 @@ describe("collection relationship sweep", () => {
     const failed = await sweepCollectionRelationships(client(), { model, limit: 3 });
     expect(failed).toMatchObject({ processed: 1, summarized: 0 });
     expect(failed.failures).toEqual([
-      expect.objectContaining({ collectionId: "collection_code", error: "Qwen timed out" }),
+      expect.objectContaining({ collectionId: "collection_code", error: "Gemini timed out" }),
     ]);
     const failedInput = vi.mocked(model.summarize).mock.calls[0]?.[0];
     expect(failedInput?.goal.length).toBeLessThanOrEqual(600);
@@ -416,7 +416,7 @@ describe("collection relationship sweep", () => {
         ('relationship_existing', 'workspace_one', 'collection_code', 'collection_product',
          'implements', 0.9, '[]');
       INSERT INTO collection_relationship_failures (workspace_id, error)
-      VALUES ('workspace_one', 'Qwen timed out');
+      VALUES ('workspace_one', 'Gemini timed out');
     `);
     const model = fakeModel();
 
@@ -450,7 +450,7 @@ describe("collection relationship sweep", () => {
              updated_at = '2026-02-01T00:00:00Z'
        WHERE id = 'reference_checkout';
       INSERT INTO collection_summary_failures (collection_id, failed_at, error)
-      VALUES ('collection_code', now() - interval '10 minutes', 'Qwen timed out');
+      VALUES ('collection_code', now() - interval '10 minutes', 'Gemini timed out');
     `);
 
     await sweepCollectionRelationships(client(), { model, limit: 1 });
@@ -472,7 +472,7 @@ describe("collection relationship sweep", () => {
       UPDATE nodes
          SET prose = prose || ' Changed.', updated_at = now();
       INSERT INTO collection_summary_failures (collection_id, failed_at, error)
-      VALUES ('collection_code', now() - interval '10 minutes', 'Qwen timed out');
+      VALUES ('collection_code', now() - interval '10 minutes', 'Gemini timed out');
     `);
 
     await sweepCollectionRelationships(client(), { model, limit: 1 });
@@ -569,7 +569,7 @@ describe("collection relationship sweep", () => {
     `);
     const model = fakeModel();
     vi.mocked(model.infer)
-      .mockRejectedValueOnce(new Error("Qwen unavailable"))
+      .mockRejectedValueOnce(new Error("Gemini unavailable"))
       .mockResolvedValue([]);
 
     const firstSummaries = await sweepCollectionRelationships(client(), { model, limit: 3 });
@@ -577,7 +577,7 @@ describe("collection relationship sweep", () => {
 
     const failed = await sweepCollectionRelationships(client(), { model, limit: 3 });
     expect(failed.failures).toEqual([
-      expect.objectContaining({ collectionId: "workspace_one", error: "Qwen unavailable" }),
+      expect.objectContaining({ collectionId: "workspace_one", error: "Gemini unavailable" }),
     ]);
     const rotatedSummaries = await sweepCollectionRelationships(client(), { model, limit: 3 });
     expect(rotatedSummaries).toMatchObject({ processed: 2, summarized: 2, failures: [] });

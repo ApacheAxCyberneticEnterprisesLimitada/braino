@@ -36,11 +36,11 @@ async function inferRelationships(options, collections) {
   if (!response.ok) {
     const detail = (await response.text()).slice(0, 500);
     throw new Error(
-      `${options.provider} collection relationship inference failed with HTTP ${response.status}: ${detail}`,
+      `OpenRouter collection relationship inference failed with HTTP ${response.status}: ${detail}`,
     );
   }
   const envelope = await response.json();
-  const decoded = decodeCollectionRelationsBenchmarkResponse(options.provider, envelope);
+  const decoded = decodeCollectionRelationsBenchmarkResponse(envelope);
   return {
     relationships: decoded.relationships,
     latencyMs,
@@ -175,11 +175,10 @@ async function main() {
     benchmark: fixture.name ?? "collection relationships",
     fixtureVersion: fixture.version ?? null,
     generatedAt: new Date().toISOString(),
-    provider: options.provider,
+    provider: "openrouter",
     model: options.model,
     anchor: options.anchor || null,
     url: options.url,
-    numCtx: options.numCtx,
     batchSizes: options.batchSizes,
     repeats: options.repeats,
     collectionCount: fixture.collections.length,
