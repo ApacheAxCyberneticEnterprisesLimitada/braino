@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Postgres adapter for Doco source-of-truth storage.",
-  "license": "Apache-2.0",
+  "license": "UNLICENSED",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
