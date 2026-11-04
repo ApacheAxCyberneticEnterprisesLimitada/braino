@@ -24,7 +24,7 @@ describe("Ollama collection relationship model", () => {
   it("invalidates graph inference without rebuilding unchanged semantic summaries", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v6-targeted-translation-coverage",
+      "workspace-graph-v7-full-summary-translation-coverage",
     );
   });
 
@@ -237,8 +237,7 @@ describe("Ollama collection relationship model", () => {
             collectionId: "collection_translations",
             name: "Torre translations",
             kind: "generic",
-            digest:
-              "English and Spanish translation records are an existing-code baseline from fetched default branches; current runtime use is not verified.",
+            digest: `English and Spanish translation records preserve exact localized copy. ${"Additional translation copy. ".repeat(35)} Status: existing-code baseline from fetched default branches; current runtime use is not verified.`,
             summaryVersion: "translations-v1",
             evidenceIds: ["reference:translation"],
           },
@@ -281,6 +280,7 @@ describe("Ollama collection relationship model", () => {
     expect(focusedRequest.messages[1].content).toContain(
       "collection_translations ↔ collection_code",
     );
+    expect(focusedRequest.messages[1].content).toContain("existing-code baseline");
     expect(focusedRequest.messages[1].content).not.toContain("collection_product");
     expect(focusedRequest.format.properties.relationships.items.properties.from.enum).toEqual([
       "collection_code",

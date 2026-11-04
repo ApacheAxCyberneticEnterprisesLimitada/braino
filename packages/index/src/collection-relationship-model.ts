@@ -12,7 +12,7 @@ export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/c
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
-  "workspace-graph-v6-targeted-translation-coverage";
+  "workspace-graph-v7-full-summary-translation-coverage";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 4;
@@ -312,10 +312,14 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
   async infer(input: {
     summaries: readonly CollectionSummaryDigest[];
   }): Promise<unknown[]> {
-    const summaries = input.summaries.map((summary) => ({
+    const fullSummaries = input.summaries.map((summary) => ({
+      ...summary,
+      digest: summary.digest.slice(0, 1_200).trim(),
+      evidenceIds: summary.evidenceIds.slice(0, RELATIONSHIP_EVIDENCE_IDS),
+    }));
+    const summaries = fullSummaries.map((summary) => ({
       ...summary,
       digest: summary.digest.slice(0, RELATIONSHIP_DIGEST_CHARS).trim(),
-      evidenceIds: summary.evidenceIds.slice(0, RELATIONSHIP_EVIDENCE_IDS),
     }));
     const decoded = await this.request(
       buildCollectionRelationsPrompt(summaries),
@@ -326,13 +330,15 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Ollama returned an invalid collection relationship result");
     }
-    const missingPairs = missingCodeTranslationPairs(summaries, decoded.relationships);
+    const missingPairs = missingCodeTranslationPairs(fullSummaries, decoded.relationships);
     if (missingPairs.length === 0) {
-      return attachCollectionRelationshipEvidence(summaries, decoded.relationships);
+      return attachCollectionRelationshipEvidence(fullSummaries, decoded.relationships);
     }
 
     const focusedIds = new Set(missingPairs.flat());
-    const focusedSummaries = summaries.filter((summary) => focusedIds.has(summary.collectionId));
+    const focusedSummaries = fullSummaries.filter((summary) =>
+      focusedIds.has(summary.collectionId),
+    );
     const focused = await this.request(
       buildCollectionRelationsPrompt(focusedSummaries, { requiredPairs: missingPairs }),
       collectionRelationshipCandidatesResponseSchemaFor(focusedSummaries),
@@ -348,7 +354,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       return key !== null && allowedPairs.has(key);
     });
     return attachCollectionRelationshipEvidence(
-      summaries,
+      fullSummaries,
       uniqueRelationshipCandidates([...focusedRelationships, ...decoded.relationships]),
     );
   }
