@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildCollectionRelationsBenchmarkRequest,
+  decodeCollectionRelationsBenchmarkResponse,
+  fetchCollectionRelationsBenchmark,
   parseCollectionRelationsArgs,
   scoreCollectionRelationships,
   validateBenchmarkRelationships,
@@ -40,6 +43,8 @@ describe("collection relationship benchmark", () => {
     expect(
       parseCollectionRelationsArgs(
         [
+          "--provider",
+          "ollama",
           "--fixture",
           "/tmp/relations.json",
           "--model",
@@ -63,6 +68,94 @@ describe("collection relationship benchmark", () => {
       repeats: 3,
       anchor: "atlas-code",
     });
+  });
+
+  it("configures Gemini Flash-Lite through OpenRouter without changing the benchmark contract", () => {
+    expect(
+      parseCollectionRelationsArgs(["--provider", "openrouter"], {
+        DOCO_GRAPH_EXTRACTION_MODEL: "qwen3:8b",
+        DOCO_GRAPH_EXTRACTION_URL: "https://qwen.test/api/chat",
+        DOCO_GRAPH_EXTRACTION_API_TOKEN: "qwen-secret",
+        OPENROUTER_API_KEY: "router-secret",
+      }),
+    ).toMatchObject({
+      provider: "openrouter",
+      model: "google/gemini-3.5-flash-lite",
+      url: "https://openrouter.ai/api/v1/chat/completions",
+      apiToken: "router-secret",
+    });
+  });
+
+  it("builds and decodes a deterministic OpenRouter structured-output request", () => {
+    const schema = {
+      type: "object",
+      properties: { relationships: { type: "array", items: { type: "object" } } },
+      required: ["relationships"],
+    };
+    expect(
+      buildCollectionRelationsBenchmarkRequest(
+        {
+          provider: "openrouter",
+          model: "google/gemini-3.5-flash-lite",
+          apiToken: "router-secret",
+        },
+        { systemPrompt: "system", prompt: "prompt", schema },
+      ),
+    ).toEqual({
+      headers: {
+        authorization: "Bearer router-secret",
+        "content-type": "application/json",
+      },
+      body: {
+        model: "google/gemini-3.5-flash-lite",
+        stream: false,
+        temperature: 0,
+        max_tokens: 4096,
+        reasoning: { effort: "minimal" },
+        provider: { require_parameters: true, data_collection: "deny" },
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "collection_relationships", strict: true, schema },
+        },
+        messages: [
+          { role: "system", content: "system" },
+          { role: "user", content: "prompt" },
+        ],
+      },
+    });
+
+    expect(
+      decodeCollectionRelationsBenchmarkResponse("openrouter", {
+        choices: [{ message: { content: JSON.stringify({ relationships: [] }) } }],
+        usage: { prompt_tokens: 123, completion_tokens: 45 },
+      }),
+    ).toEqual({
+      relationships: [],
+      promptTokens: 123,
+      outputTokens: 45,
+      providerDurationMs: 0,
+    });
+  });
+
+  it("retries transient model capacity failures without retrying bad requests", async () => {
+    const responses = [
+      { ok: false, status: 503 },
+      { ok: true, status: 200 },
+    ];
+    const fetchModel = vi.fn(async () => responses.shift());
+    const sleep = vi.fn(async () => undefined);
+
+    await expect(
+      fetchCollectionRelationsBenchmark("https://model.test", {}, { fetchModel, sleep }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(fetchModel).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(1_000);
+
+    fetchModel.mockResolvedValueOnce({ ok: false, status: 400 });
+    await expect(
+      fetchCollectionRelationsBenchmark("https://model.test", {}, { fetchModel, sleep }),
+    ).resolves.toMatchObject({ status: 400 });
+    expect(fetchModel).toHaveBeenCalledTimes(3);
   });
 
   it("rejects non-increasing or duplicate batch sizes", () => {
@@ -143,6 +236,8 @@ describe("collection relationship benchmark", () => {
       exactTruePositives: 1,
       precision: 0.5,
       recall: 1,
+      recallCeiling: 1,
+      budgetRecall: 1,
       f1: 2 / 3,
       endpointPairRecall: 1,
       typeAccuracy: 1,
@@ -151,6 +246,38 @@ describe("collection relationship benchmark", () => {
       unsupportedRate: 0.5,
       invalidEdges: 0,
     });
+  });
+
+  it("separates model misses from the eight-edge response budget", () => {
+    const collections = Array.from({ length: 10 }, (_, index) => ({
+      collectionId: `collection-${index}`,
+      name: `Collection ${index}`,
+      digest: `Concrete collection ${index} evidence for the relationship benchmark fixture.`,
+      summaryVersion: "v1",
+      evidenceIds: [`evidence-${index}`],
+    }));
+    const relationships = Array.from({ length: 9 }, (_, index) => ({
+      from: `collection-${index}`,
+      to: `collection-${index + 1}`,
+      type: "depends_on",
+    }));
+    const predictions = relationships.slice(0, 8).map((relationship) => ({
+      ...relationship,
+      confidence: 0.9,
+      evidence: [relationship.from, relationship.to].map((collectionId) => ({
+        collectionId,
+        summaryVersion: "v1",
+        evidenceIds: [`evidence-${collectionId.split("-").at(-1)}`],
+      })),
+    }));
+
+    expect(scoreCollectionRelationships({ collections, relationships }, predictions)).toMatchObject(
+      {
+        recall: 8 / 9,
+        recallCeiling: 8 / 9,
+        budgetRecall: 1,
+      },
+    );
   });
 
   it("counts reversed and mistyped known pairs without granting exact credit", () => {

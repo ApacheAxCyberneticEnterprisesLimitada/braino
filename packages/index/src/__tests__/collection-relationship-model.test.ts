@@ -3,47 +3,55 @@ import { describe, expect, it, vi } from "vitest";
 import {
   COLLECTION_RELATIONSHIP_PIPELINE_VERSION,
   COLLECTION_SUMMARY_PIPELINE_VERSION,
+  DEFAULT_COLLECTION_RELATIONSHIP_MODEL,
   DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
-  OllamaCollectionRelationshipModel,
+  DEFAULT_COLLECTION_RELATIONSHIP_URL,
+  OpenRouterCollectionRelationshipModel,
   configuredCollectionRelationshipModel,
 } from "../collection-relationship-model.js";
 
-function ollamaResponse(content: unknown): Response {
+function openRouterResponse(content: unknown): Response {
   return Response.json({
-    message: { content: JSON.stringify(content) },
-    prompt_eval_count: 12,
-    eval_count: 7,
+    choices: [{ message: { content: JSON.stringify(content) } }],
+    usage: { prompt_tokens: 12, completion_tokens: 7 },
   });
 }
 
-describe("Ollama collection relationship model", () => {
+describe("OpenRouter collection relationship model", () => {
   it("finishes a model request before the serverless function deadline", () => {
     expect(DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS).toBe(180_000);
-  });
-
-  it("invalidates graph inference without rebuilding unchanged semantic summaries", () => {
-    expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
-    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v8-single-translation-provenance-edge",
+    expect(DEFAULT_COLLECTION_RELATIONSHIP_MODEL).toBe("google/gemini-3.5-flash-lite");
+    expect(DEFAULT_COLLECTION_RELATIONSHIP_URL).toBe(
+      "https://openrouter.ai/api/v1/chat/completions",
     );
   });
 
-  it("is disabled unless the shared graph model is configured", () => {
-    expect(configuredCollectionRelationshipModel({})).toBeNull();
+  it("invalidates Qwen summaries and graph inference after the Gemini migration", () => {
+    expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v5-gemini-summaries");
+    expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
+      "workspace-graph-v9-gemini-generate-audit",
+    );
   });
 
-  it("summarizes evidence and infers relationships through deterministic Qwen requests", async () => {
+  it("is disabled unless OpenRouter is configured", () => {
+    expect(configuredCollectionRelationshipModel({})).toBeNull();
+    expect(configuredCollectionRelationshipModel({ OPENROUTER_API_KEY: "router-secret" })?.id).toBe(
+      "openrouter:google/gemini-3.5-flash-lite",
+    );
+  });
+
+  it("summarizes evidence and infers relationships through strict Gemini requests", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        ollamaResponse({
+        openRouterResponse({
           digest:
             "The collection defines checkout through the payment service and confirms orders only after payment succeeds.",
           evidenceIds: ["node:decision_checkout"],
         }),
       )
       .mockResolvedValueOnce(
-        ollamaResponse({
+        openRouterResponse({
           relationships: [
             {
               from: "collection_code",
@@ -54,9 +62,9 @@ describe("Ollama collection relationship model", () => {
           ],
         }),
       );
-    const model = new OllamaCollectionRelationshipModel({
-      model: "qwen3:8b",
-      url: "https://qwen.test/api/chat",
+    const model = new OpenRouterCollectionRelationshipModel({
+      model: "google/gemini-3.5-flash-lite",
+      url: "https://openrouter.test/api/v1/chat/completions",
       apiToken: "secret",
       fetchImpl,
     });
@@ -123,7 +131,7 @@ describe("Ollama collection relationship model", () => {
       },
     ]);
 
-    expect(model.id).toBe("ollama:qwen3:8b");
+    expect(model.id).toBe("openrouter:google/gemini-3.5-flash-lite");
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const request = fetchImpl.mock.calls[0]?.[1];
     expect(request?.headers).toEqual({
@@ -131,22 +139,29 @@ describe("Ollama collection relationship model", () => {
       "content-type": "application/json",
     });
     expect(JSON.parse(String(request?.body))).toMatchObject({
-      model: "qwen3:8b",
+      model: "google/gemini-3.5-flash-lite",
       stream: false,
-      think: false,
-      options: { temperature: 0, seed: 42 },
+      temperature: 0,
+      max_tokens: 640,
+      reasoning: { effort: "minimal" },
+      provider: { require_parameters: true, data_collection: "deny" },
+      response_format: {
+        type: "json_schema",
+        json_schema: { name: "collection_summary", strict: true },
+      },
     });
     const summaryRequest = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
-    expect(summaryRequest.options).toMatchObject({ num_ctx: 4_096, num_predict: 640 });
-    expect(summaryRequest.format.properties.evidenceIds.items.enum).toEqual([
-      "node:decision_checkout",
-    ]);
-    expect(summaryRequest.format.properties.digest).toMatchObject({ minLength: 80 });
+    expect(
+      summaryRequest.response_format.json_schema.schema.properties.evidenceIds.items.enum,
+    ).toEqual(["node:decision_checkout"]);
+    expect(summaryRequest.response_format.json_schema.schema.properties.digest).toMatchObject({
+      minLength: 80,
+    });
     expect(summaryRequest.messages[1].content).toContain('"kind":"product-decisions"');
     expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
     expect(summaryRequest.messages[1].content).toContain("Never return only a collection name");
     const relationshipRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
-    expect(relationshipRequest.options).toMatchObject({ num_ctx: 8_192, num_predict: 768 });
+    expect(relationshipRequest.max_tokens).toBe(768);
     expect(relationshipRequest.messages[0].content).toContain("every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain("Evaluate every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain(
@@ -158,31 +173,32 @@ describe("Ollama collection relationship model", () => {
     expect(relationshipRequest.messages[1].content).toContain(
       "Return only from, to, type, and confidence",
     );
-    expect(relationshipRequest.format.properties.relationships.maxItems).toBe(8);
+    expect(
+      relationshipRequest.response_format.json_schema.schema.properties.relationships.maxItems,
+    ).toBe(8);
     expect(relationshipRequest.messages[1].content).toContain("existing-code baseline");
     expect(relationshipRequest.messages[1].content).toContain(
       "translation → codebase is derived_from",
     );
-    expect(relationshipRequest.format.properties.relationships.items.properties.from.enum).toEqual([
-      "collection_code",
-      "collection_product",
-    ]);
-    expect(relationshipRequest.format.properties.relationships.items.required).toEqual([
-      "from",
-      "to",
-      "type",
-      "confidence",
-    ]);
     expect(
-      relationshipRequest.format.properties.relationships.items.properties.evidence,
+      relationshipRequest.response_format.json_schema.schema.properties.relationships.items
+        .properties.from.enum,
+    ).toEqual(["collection_code", "collection_product"]);
+    expect(
+      relationshipRequest.response_format.json_schema.schema.properties.relationships.items
+        .required,
+    ).toEqual(["from", "to", "type", "confidence"]);
+    expect(
+      relationshipRequest.response_format.json_schema.schema.properties.relationships.items
+        .properties.evidence,
     ).toBeUndefined();
   });
 
   it("bounds stored summaries before building the full-workspace inference request", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
-      .mockResolvedValue(ollamaResponse({ relationships: [] }));
-    const model = new OllamaCollectionRelationshipModel({ fetchImpl });
+      .mockResolvedValue(openRouterResponse({ relationships: [] }));
+    const model = new OpenRouterCollectionRelationshipModel({ fetchImpl });
     const evidenceIds = Array.from({ length: 6 }, (_, index) => `node:evidence_${index + 1}`);
 
     await model.infer({
@@ -204,12 +220,12 @@ describe("Ollama collection relationship model", () => {
     expect(request.messages[1].content).not.toContain(evidenceIds[4]);
   });
 
-  it("runs a focused Qwen pass when the workspace pass misses code-derived translations", async () => {
+  it("runs a focused Gemini pass when the workspace pass misses code-derived translations", async () => {
     const fetchImpl = vi
       .fn<typeof fetch>()
-      .mockResolvedValueOnce(ollamaResponse({ relationships: [] }))
+      .mockResolvedValueOnce(openRouterResponse({ relationships: [] }))
       .mockResolvedValueOnce(
-        ollamaResponse({
+        openRouterResponse({
           relationships: [
             {
               from: "collection_code",
@@ -232,7 +248,7 @@ describe("Ollama collection relationship model", () => {
           ],
         }),
       );
-    const model = new OllamaCollectionRelationshipModel({ fetchImpl });
+    const model = new OpenRouterCollectionRelationshipModel({ fetchImpl });
 
     await expect(
       model.infer({
@@ -294,16 +310,16 @@ describe("Ollama collection relationship model", () => {
     );
     expect(focusedRequest.messages[1].content).toContain("existing-code baseline");
     expect(focusedRequest.messages[1].content).not.toContain("collection_product");
-    expect(focusedRequest.format.properties.relationships.items.properties.from.enum).toEqual([
-      "collection_code",
-      "collection_translations",
-    ]);
+    expect(
+      focusedRequest.response_format.json_schema.schema.properties.relationships.items.properties
+        .from.enum,
+    ).toEqual(["collection_code", "collection_translations"]);
   });
 
   it("rejects summary evidence the model was not shown", async () => {
-    const model = new OllamaCollectionRelationshipModel({
+    const model = new OpenRouterCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
-        ollamaResponse({
+        openRouterResponse({
           digest:
             "The collection documents a concrete checkout workflow through the payment service before confirming an order.",
           evidenceIds: ["node:not-supplied"],
@@ -322,9 +338,12 @@ describe("Ollama collection relationship model", () => {
   });
 
   it("replaces identifier-only output with an extractive summary", async () => {
-    const model = new OllamaCollectionRelationshipModel({
+    const model = new OpenRouterCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
-        ollamaResponse({ digest: "doco_01M46A3A7QZ1FSSN1DDY18K5CM", evidenceIds: ["node:real"] }),
+        openRouterResponse({
+          digest: "doco_01M46A3A7QZ1FSSN1DDY18K5CM",
+          evidenceIds: ["node:real"],
+        }),
       ),
     });
 
@@ -351,9 +370,9 @@ describe("Ollama collection relationship model", () => {
   });
 
   it("replaces identifier lists padded past the summary minimum", async () => {
-    const model = new OllamaCollectionRelationshipModel({
+    const model = new OpenRouterCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
-        ollamaResponse({
+        openRouterResponse({
           digest:
             "doco_01M3T6V5JN0RZAEH05RND2ZT90#torre-codebase#code:torre-labs/api-gateway:CHANGELOG.md#code:torre-labs/api-gateway:docs/public-api/index.md",
           evidenceIds: ["node:real"],
@@ -384,9 +403,9 @@ describe("Ollama collection relationship model", () => {
   });
 
   it("replaces malformed model JSON with an extractive summary", async () => {
-    const model = new OllamaCollectionRelationshipModel({
+    const model = new OpenRouterCollectionRelationshipModel({
       fetchImpl: vi.fn(async () =>
-        Response.json({ message: { content: '{"digest":"unfinished' } }),
+        Response.json({ choices: [{ message: { content: '{"digest":"unfinished' } }] }),
       ),
     });
 

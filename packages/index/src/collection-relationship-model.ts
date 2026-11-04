@@ -7,12 +7,11 @@ import {
   collectionRelationshipCandidatesResponseSchemaFor,
 } from "./collection-relationship-validation.js";
 
-export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "qwen3:8b";
-export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/chat";
+export const DEFAULT_COLLECTION_RELATIONSHIP_MODEL = "google/gemini-3.5-flash-lite";
+export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "https://openrouter.ai/api/v1/chat/completions";
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
-export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
-export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
-  "workspace-graph-v8-single-translation-provenance-edge";
+export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v5-gemini-summaries";
+export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v9-gemini-generate-audit";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 4;
@@ -51,7 +50,7 @@ export interface CollectionRelationshipModel {
   }): Promise<unknown[]>;
 }
 
-interface OllamaCollectionRelationshipModelOptions {
+interface OpenRouterCollectionRelationshipModelOptions {
   model?: string;
   url?: string;
   apiToken?: string;
@@ -197,8 +196,8 @@ function extractiveSummary(input: {
   };
 }
 
-/** One zero-temperature Ollama-compatible Qwen client for both pipeline stages. */
-export class OllamaCollectionRelationshipModel implements CollectionRelationshipModel {
+/** One strict-schema Gemini client for both pipeline stages. */
+export class OpenRouterCollectionRelationshipModel implements CollectionRelationshipModel {
   readonly id: string;
   private readonly model: string;
   private readonly url: string;
@@ -206,9 +205,9 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
   private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
-  constructor(options: OllamaCollectionRelationshipModelOptions = {}) {
+  constructor(options: OpenRouterCollectionRelationshipModelOptions = {}) {
     this.model = options.model?.trim() || DEFAULT_COLLECTION_RELATIONSHIP_MODEL;
-    this.id = `ollama:${this.model}`;
+    this.id = `openrouter:${this.model}`;
     this.url = options.url?.trim() || DEFAULT_COLLECTION_RELATIONSHIP_URL;
     this.apiToken = options.apiToken?.trim() || undefined;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS;
@@ -217,9 +216,10 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
 
   private async request(
     prompt: string,
-    format: object,
+    schema: object,
+    schemaName: string,
     system: string,
-    options: { numCtx: number; numPredict: number },
+    maxTokens: number,
   ): Promise<unknown> {
     const response = await this.fetchImpl(this.url, {
       method: "POST",
@@ -231,14 +231,20 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       body: JSON.stringify({
         model: this.model,
         stream: false,
-        think: false,
-        format,
-        keep_alive: "10m",
-        options: {
-          temperature: 0,
-          seed: 42,
-          num_ctx: options.numCtx,
-          num_predict: options.numPredict,
+        temperature: 0,
+        max_tokens: maxTokens,
+        reasoning: { effort: "minimal" },
+        provider: {
+          require_parameters: true,
+          data_collection: "deny",
+        },
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: schemaName,
+            strict: true,
+            schema,
+          },
         },
         messages: [
           { role: "system", content: system },
@@ -247,18 +253,22 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       }),
     });
     if (!response.ok) {
-      throw new Error(`Ollama collection relationship request failed with HTTP ${response.status}`);
+      throw new Error(
+        `OpenRouter collection relationship request failed with HTTP ${response.status}`,
+      );
     }
     const envelope: unknown = await response.json();
-    if (!isObject(envelope) || !isObject(envelope.message)) {
-      throw new Error("Ollama returned an invalid collection relationship envelope");
+    const choice =
+      isObject(envelope) && Array.isArray(envelope.choices) ? envelope.choices[0] : undefined;
+    if (!isObject(choice) || !isObject(choice.message)) {
+      throw new Error("OpenRouter returned an invalid collection relationship envelope");
     }
     try {
-      return typeof envelope.message.content === "string"
-        ? JSON.parse(envelope.message.content)
-        : envelope.message.content;
+      return typeof choice.message.content === "string"
+        ? JSON.parse(choice.message.content)
+        : choice.message.content;
     } catch {
-      throw new Error("Ollama returned invalid JSON for collection relationships");
+      throw new Error("OpenRouter returned invalid JSON for collection relationships");
     }
   }
 
@@ -277,13 +287,14 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
       decoded = await this.request(
         summaryPrompt(input),
         summaryResponseSchemaFor(input.sources),
+        "collection_summary",
         "You write one compact, evidence-grounded paragraph (at most 180 words) about an enterprise knowledge collection for a later relationship classifier. Preserve concrete subjects and collection roles; precision is more important than coverage.",
-        { numCtx: 4_096, numPredict: 640 },
+        640,
       );
     } catch (error) {
       if (
         error instanceof Error &&
-        error.message === "Ollama returned invalid JSON for collection relationships"
+        error.message === "OpenRouter returned invalid JSON for collection relationships"
       ) {
         return extractiveSummary(input);
       }
@@ -301,7 +312,7 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     }
     const allowedEvidence = new Set(input.sources.map((source) => source.evidenceId));
     if (decoded.evidenceIds.some((id) => !allowedEvidence.has(id))) {
-      throw new Error("Ollama collection summary cited unknown evidence");
+      throw new Error("Gemini collection summary cited unknown evidence");
     }
     return {
       digest: decoded.digest.trim(),
@@ -324,11 +335,12 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     const decoded = await this.request(
       buildCollectionRelationsPrompt(summaries),
       collectionRelationshipCandidatesResponseSchemaFor(summaries),
+      "collection_relationships",
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-      { numCtx: 8_192, numPredict: 768 },
+      768,
     );
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
-      throw new Error("Ollama returned an invalid collection relationship result");
+      throw new Error("Gemini returned an invalid collection relationship result");
     }
     const missingPairs = missingCodeTranslationPairs(fullSummaries, decoded.relationships);
     if (missingPairs.length === 0) {
@@ -342,11 +354,12 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     const focused = await this.request(
       buildCollectionRelationsPrompt(focusedSummaries, { requiredPairs: missingPairs }),
       collectionRelationshipCandidatesResponseSchemaFor(focusedSummaries),
+      "focused_collection_relationships",
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-      { numCtx: 4_096, numPredict: 256 },
+      256,
     );
     if (!isObject(focused) || !Array.isArray(focused.relationships)) {
-      throw new Error("Ollama returned an invalid focused collection relationship result");
+      throw new Error("Gemini returned an invalid focused collection relationship result");
     }
     const allowedEdges = new Set(
       missingPairs.map(
@@ -366,23 +379,19 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
   }
 }
 
-/** The relationship pipeline is explicitly off until its shared Qwen model is configured. */
+/** The relationship pipeline is explicitly off until OpenRouter is configured. */
 export function configuredCollectionRelationshipModel(
   env: Record<string, string | undefined> = process.env,
 ): CollectionRelationshipModel | null {
-  const model = env.DOCO_GRAPH_EXTRACTION_MODEL?.trim();
-  if (!model) return null;
-  return new OllamaCollectionRelationshipModel({
-    model,
-    url: env.DOCO_GRAPH_EXTRACTION_URL?.trim() || DEFAULT_COLLECTION_RELATIONSHIP_URL,
-    ...(env.DOCO_GRAPH_EXTRACTION_API_TOKEN
-      ? { apiToken: env.DOCO_GRAPH_EXTRACTION_API_TOKEN }
-      : {}),
+  const apiToken = env.OPENROUTER_API_KEY?.trim();
+  if (!apiToken) return null;
+  return new OpenRouterCollectionRelationshipModel({
+    apiToken,
     timeoutMs: Math.min(
       parsePositiveInteger(
-        env.DOCO_GRAPH_EXTRACTION_TIMEOUT_MS,
+        env.DOCO_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
         DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
-        "DOCO_GRAPH_EXTRACTION_TIMEOUT_MS",
+        "DOCO_COLLECTION_RELATIONSHIP_TIMEOUT_MS",
       ),
       DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS,
     ),

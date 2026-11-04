@@ -2,8 +2,8 @@
 
 ## Collection relationship inference
 
-`collection-relations-bench.mjs` measures how well the configured local Qwen
-model infers a sparse, directed graph from increasingly large batches of
+`collection-relations-bench.mjs` compares Ollama and OpenRouter models on the same
+sparse, directed graph inference task using increasingly large batches of
 evidence-linked collection digests. It is evaluation-only: it writes a JSON
 report and never writes collection relationships to Doco or Postgres.
 
@@ -11,24 +11,42 @@ The committed fixture contains eight similar four-collection product groups.
 Nested batches add complete groups, so larger batches add both gold edges and
 same-role hard negatives. The report includes exact precision/recall/F1,
 endpoint discovery, relationship-type and direction accuracy, unsupported
-evidence rate, invalid edges, token counts, and latency. Anchored runs pass
+evidence rate, invalid edges, token counts, and latency. `recallCeiling` shows
+the maximum recall possible under production's eight-edge response budget;
+`budgetRecall` measures how much of that available budget the model used
+correctly. Anchored runs pass
 model output through the production validator and record every rejected edge
 with a machine-readable reason alongside both the raw and accepted output.
 
 ```sh
 pnpm --filter @doco/index eval:collection-relations -- \
+  --provider ollama \
   --model qwen3:8b \
   --batch-sizes 8,16,24,32 \
   --num-ctx 8192 \
   --output /tmp/collection-relations-benchmark.json
 ```
 
+Run the identical prompts, structured-output schema, validation, and scoring
+through the production OpenRouter path with Gemini 3.5 Flash-Lite:
+
+```sh
+OPENROUTER_API_KEY='…' pnpm --filter @doco/index eval:collection-relations -- \
+  --provider openrouter \
+  --model google/gemini-3.5-flash-lite \
+  --batch-sizes 8,16,24,32 \
+  --output /tmp/gemini-collection-relations-benchmark.json
+```
+
+OpenRouter requests require native JSON Schema support, deny data-collecting
+providers, use minimal thinking, and retry transient 429/503 capacity responses.
+
 Use `--repeats N` to measure stability. `DOCO_GRAPH_EXTRACTION_URL` and
 `DOCO_GRAPH_EXTRACTION_API_TOKEN` select a remote Ollama-compatible endpoint;
 otherwise the runner uses `http://127.0.0.1:11434/api/chat`. Keep the JSON
 report outside git when it contains summaries derived from private collections.
 
-Production summarizes every changed collection first, then asks Qwen for one
+Production summarizes every changed collection first, then asks its configured model for one
 complete workspace graph only when every summary is current. The default
 unanchored benchmark exercises that path. Use `--anchor <collection-id>` for a
 focused diagnostic that scores only edges involving one collection while the

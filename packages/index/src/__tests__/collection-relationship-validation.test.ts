@@ -260,6 +260,10 @@ describe("collection relationship validation", () => {
     expect(prompt).toContain("FROM must be the concrete implementation");
     expect(prompt).toContain("codebase → architectural-decisions");
     expect(prompt).toContain("notion → architectural-decisions");
+    expect(prompt).toContain("Use two private passes before returning JSON");
+    expect(prompt).toContain("Pass 1 is recall-oriented");
+    expect(prompt).toContain("Pass 2 is precision-oriented");
+    expect(prompt).toContain("recheck every required pair once for a missed behavioral match");
     expect(
       collectionRelationshipCandidatesResponseSchema.properties.relationships.items.required,
     ).toEqual(["from", "to", "type", "confidence"]);

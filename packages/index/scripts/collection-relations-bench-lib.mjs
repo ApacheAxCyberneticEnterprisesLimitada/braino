@@ -2,6 +2,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   COLLECTION_RELATIONSHIP_TYPES,
+  MAX_COLLECTION_RELATIONSHIPS,
   attachCollectionRelationshipEvidence,
   normalizeCollectionRelationshipDirections,
   validateCollectionRelationships,
@@ -31,9 +32,10 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
   const parsed = {
     fixture: resolve(HERE, "eval-fixtures/collection-relations.json"),
     output: resolve("collection-relations-benchmark.json"),
-    model: env.DOCO_GRAPH_EXTRACTION_MODEL?.trim() || "qwen3:8b",
-    url: env.DOCO_GRAPH_EXTRACTION_URL?.trim() || "http://127.0.0.1:11434/api/chat",
-    apiToken: env.DOCO_GRAPH_EXTRACTION_API_TOKEN?.trim() || "",
+    provider: env.DOCO_COLLECTION_RELATIONSHIP_BENCH_PROVIDER?.trim() || "openrouter",
+    model: "",
+    url: "",
+    apiToken: "",
     anchor: "",
     batchSizes: [8, 16, 24, 32],
     numCtx: 8192,
@@ -50,6 +52,7 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
     };
     if (arg === "--fixture") parsed.fixture = resolve(next());
     else if (arg === "--output") parsed.output = resolve(next());
+    else if (arg === "--provider") parsed.provider = next();
     else if (arg === "--model") parsed.model = next();
     else if (arg === "--url") parsed.url = next();
     else if (arg === "--anchor") parsed.anchor = next();
@@ -62,11 +65,138 @@ export function parseCollectionRelationsArgs(argv, env = process.env) {
       parsed.timeoutMs = positiveInteger(next(), "--timeout-ms", { min: 1_000, max: 900_000 });
     } else throw new Error(`Unknown argument: ${arg}`);
   }
+  if (!new Set(["ollama", "openrouter"]).has(parsed.provider)) {
+    throw new Error("--provider must be ollama or openrouter");
+  }
+  const openRouter = parsed.provider === "openrouter";
+  if (!parsed.model) {
+    parsed.model = openRouter
+      ? "google/gemini-3.5-flash-lite"
+      : env.DOCO_GRAPH_EXTRACTION_MODEL?.trim() || "qwen3:8b";
+  }
   if (!parsed.model.trim()) throw new Error("--model cannot be blank");
+  if (!parsed.url) {
+    parsed.url = openRouter
+      ? "https://openrouter.ai/api/v1/chat/completions"
+      : env.DOCO_GRAPH_EXTRACTION_URL?.trim() || "http://127.0.0.1:11434/api/chat";
+  }
+  parsed.apiToken = openRouter
+    ? env.OPENROUTER_API_KEY?.trim() || ""
+    : env.DOCO_GRAPH_EXTRACTION_API_TOKEN?.trim() || "";
+  if (openRouter && !parsed.apiToken) {
+    throw new Error("OpenRouter benchmarks require OPENROUTER_API_KEY");
+  }
   if (!parsed.anchor.trim() && argv.includes("--anchor")) {
     throw new Error("--anchor cannot be blank");
   }
   return parsed;
+}
+
+function jsonContent(content, provider) {
+  try {
+    return typeof content === "string" ? JSON.parse(content) : content;
+  } catch {
+    throw new Error(`${provider} returned invalid JSON for collection relationships`);
+  }
+}
+
+export function buildCollectionRelationsBenchmarkRequest(
+  options,
+  { systemPrompt, prompt, schema },
+) {
+  if (options.provider === "openrouter") {
+    return {
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${options.apiToken}`,
+      },
+      body: {
+        model: options.model,
+        stream: false,
+        temperature: 0,
+        max_tokens: 4096,
+        reasoning: { effort: "minimal" },
+        provider: { require_parameters: true, data_collection: "deny" },
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "collection_relationships", strict: true, schema },
+        },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: prompt },
+        ],
+      },
+    };
+  }
+  return {
+    headers: {
+      "content-type": "application/json",
+      ...(options.apiToken ? { authorization: `Bearer ${options.apiToken}` } : {}),
+    },
+    body: {
+      model: options.model,
+      stream: false,
+      think: false,
+      format: schema,
+      keep_alive: "10m",
+      options: {
+        temperature: 0,
+        seed: 42,
+        num_ctx: options.numCtx,
+        num_predict: 4096,
+      },
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: prompt },
+      ],
+    },
+  };
+}
+
+export function decodeCollectionRelationsBenchmarkResponse(provider, envelope) {
+  let decoded;
+  let promptTokens;
+  let outputTokens;
+  let providerDurationMs = 0;
+  if (provider === "openrouter") {
+    const content = envelope?.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error("openrouter returned an invalid collection relationship envelope");
+    }
+    decoded = jsonContent(content, provider);
+    promptTokens = Number(envelope.usage?.prompt_tokens ?? 0);
+    outputTokens = Number(envelope.usage?.completion_tokens ?? 0);
+  } else {
+    if (!envelope || typeof envelope !== "object" || !envelope.message) {
+      throw new Error("ollama returned an invalid collection relationship envelope");
+    }
+    decoded = jsonContent(envelope.message.content, provider);
+    promptTokens = Number(envelope.prompt_eval_count ?? 0);
+    outputTokens = Number(envelope.eval_count ?? 0);
+    providerDurationMs = Number(envelope.total_duration ?? 0) / 1_000_000;
+  }
+  if (!decoded || !Array.isArray(decoded.relationships)) {
+    throw new Error(`${provider} returned an invalid collection relationship result`);
+  }
+  return { relationships: decoded.relationships, promptTokens, outputTokens, providerDurationMs };
+}
+
+export async function fetchCollectionRelationsBenchmark(
+  url,
+  init,
+  {
+    fetchModel = fetch,
+    sleep = (delayMs) => new Promise((resolveDelay) => setTimeout(resolveDelay, delayMs)),
+    retries = 6,
+  } = {},
+) {
+  for (let attempt = 0; ; attempt++) {
+    const response = await fetchModel(url, init);
+    if (response.ok || !new Set([429, 503]).has(response.status) || attempt >= retries) {
+      return response;
+    }
+    await sleep(Math.min(10_000, 1_000 * 2 ** attempt));
+  }
 }
 
 export function validateBenchmarkRelationships(collections, relationships, anchor = "") {
@@ -200,6 +330,8 @@ export function scoreCollectionRelationships(fixture, predictions) {
   const precision =
     predicted.length === 0 ? (gold === 0 ? 1 : 0) : exactTruePositives / predicted.length;
   const recall = gold === 0 ? 1 : exactTruePositives / gold;
+  const recallCeiling = gold === 0 ? 1 : Math.min(1, MAX_COLLECTION_RELATIONSHIPS / gold);
+  const budgetRecall = recallCeiling === 0 ? 1 : Math.min(1, recall / recallCeiling);
   const f1 = precision + recall === 0 ? 0 : (2 * precision * recall) / (precision + recall);
 
   let endpointMatches = 0;
@@ -231,6 +363,8 @@ export function scoreCollectionRelationships(fixture, predictions) {
     exactTruePositives,
     precision,
     recall,
+    recallCeiling,
+    budgetRecall,
     f1,
     endpointPairRecall: gold === 0 ? 1 : endpointMatches / goldByPair.size,
     typeAccuracy: endpointMatches === 0 ? (gold === 0 ? 1 : 0) : correctType / endpointMatches,

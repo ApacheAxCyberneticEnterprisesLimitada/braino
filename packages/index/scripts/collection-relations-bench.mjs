@@ -8,6 +8,9 @@ import {
   collectionRelationshipCandidatesResponseSchemaFor,
 } from "../dist/collection-relationship-validation.js";
 import {
+  buildCollectionRelationsBenchmarkRequest,
+  decodeCollectionRelationsBenchmarkResponse,
+  fetchCollectionRelationsBenchmark,
   parseCollectionRelationsArgs,
   scoreCollectionRelationships,
   validateBenchmarkRelationships,
@@ -15,64 +18,35 @@ import {
   visibleBenchmarkFixture,
 } from "./collection-relations-bench-lib.mjs";
 
-function decodedContent(envelope) {
-  if (!envelope || typeof envelope !== "object" || !envelope.message) {
-    throw new Error("Ollama returned an invalid collection relationship envelope");
-  }
-  const content = envelope.message.content;
-  try {
-    return typeof content === "string" ? JSON.parse(content) : content;
-  } catch {
-    throw new Error("Ollama returned invalid JSON for collection relationships");
-  }
-}
-
 async function inferRelationships(options, collections) {
   const prompt = buildCollectionRelationsPrompt(collections, { anchorId: options.anchor });
+  const request = buildCollectionRelationsBenchmarkRequest(options, {
+    systemPrompt: COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
+    prompt,
+    schema: collectionRelationshipCandidatesResponseSchemaFor(collections),
+  });
   const startedAt = performance.now();
-  const response = await fetch(options.url, {
+  const response = await fetchCollectionRelationsBenchmark(options.url, {
     method: "POST",
-    headers: {
-      "content-type": "application/json",
-      ...(options.apiToken ? { authorization: `Bearer ${options.apiToken}` } : {}),
-    },
+    headers: request.headers,
     signal: AbortSignal.timeout(options.timeoutMs),
-    body: JSON.stringify({
-      model: options.model,
-      stream: false,
-      think: false,
-      format: collectionRelationshipCandidatesResponseSchemaFor(collections),
-      keep_alive: "10m",
-      options: {
-        temperature: 0,
-        seed: 42,
-        num_ctx: options.numCtx,
-        num_predict: 4096,
-      },
-      messages: [
-        {
-          role: "system",
-          content: COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-        },
-        { role: "user", content: prompt },
-      ],
-    }),
+    body: JSON.stringify(request.body),
   });
   const latencyMs = performance.now() - startedAt;
   if (!response.ok) {
-    throw new Error(`Ollama collection relationship inference failed with HTTP ${response.status}`);
+    const detail = (await response.text()).slice(0, 500);
+    throw new Error(
+      `${options.provider} collection relationship inference failed with HTTP ${response.status}: ${detail}`,
+    );
   }
   const envelope = await response.json();
-  const decoded = decodedContent(envelope);
-  if (!decoded || !Array.isArray(decoded.relationships)) {
-    throw new Error("Ollama returned an invalid collection relationship result");
-  }
+  const decoded = decodeCollectionRelationsBenchmarkResponse(options.provider, envelope);
   return {
     relationships: decoded.relationships,
     latencyMs,
-    promptTokens: Number(envelope.prompt_eval_count ?? 0),
-    outputTokens: Number(envelope.eval_count ?? 0),
-    ollamaDurationMs: Number(envelope.total_duration ?? 0) / 1_000_000,
+    promptTokens: decoded.promptTokens,
+    outputTokens: decoded.outputTokens,
+    providerDurationMs: decoded.providerDurationMs,
   };
 }
 
@@ -92,6 +66,8 @@ function aggregateBatch(runs) {
     rejected: mean(runs.map((run) => run.rejections.length)),
     precision: metric("precision"),
     recall: metric("recall"),
+    recallCeiling: metric("recallCeiling"),
+    budgetRecall: metric("budgetRecall"),
     f1: metric("f1"),
     endpointPairRecall: metric("endpointPairRecall"),
     typeAccuracy: metric("typeAccuracy"),
@@ -117,6 +93,8 @@ function printSummary(summary) {
     rejected: row.rejected.toFixed(1),
     precision: percent(row.precision),
     recall: percent(row.recall),
+    recallCeiling: percent(row.recallCeiling),
+    budgetRecall: percent(row.budgetRecall),
     F1: percent(row.f1),
     pairRecall: percent(row.endpointPairRecall),
     type: percent(row.typeAccuracy),
@@ -172,7 +150,7 @@ async function main() {
           latencyMs: inferred.latencyMs,
           promptTokens: inferred.promptTokens,
           outputTokens: inferred.outputTokens,
-          ollamaDurationMs: inferred.ollamaDurationMs,
+          providerDurationMs: inferred.providerDurationMs,
           metrics,
           rawPredictions: inferred.relationships,
           predictions: validation.accepted,
@@ -197,6 +175,7 @@ async function main() {
     benchmark: fixture.name ?? "collection relationships",
     fixtureVersion: fixture.version ?? null,
     generatedAt: new Date().toISOString(),
+    provider: options.provider,
     model: options.model,
     anchor: options.anchor || null,
     url: options.url,
