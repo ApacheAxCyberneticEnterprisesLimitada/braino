@@ -3232,6 +3232,20 @@ BEGIN
   END IF;
 END $$;
 
+-- Who asked for an invite at /request-invite, one row per address, and how
+-- the admins answered from /admin/invite-requests (lib/invite-requests.server.ts):
+-- `code` is the invite code of their own that Send invite emailed them, which
+-- /sign-up takes once (`code_used_at`); whether they then signed up is read
+-- from users by the address (decision_01M6HZ6BS1JA3DPP4TBAAP3AX7).
+CREATE TABLE IF NOT EXISTS invite_requests (
+  email         text PRIMARY KEY,
+  requested_at  timestamptz NOT NULL DEFAULT now(),
+  invited_at    timestamptz,
+  invited_by    text REFERENCES users(id) ON DELETE SET NULL,
+  code          text UNIQUE,
+  code_used_at  timestamptz
+);
+
 -- Expiring ownership for the long-running background sweeps. A Vercel hard
 -- timeout cannot run a finally block, so session advisory locks can strand a
 -- job forever; these rows make every abandoned claim recover by itself.
