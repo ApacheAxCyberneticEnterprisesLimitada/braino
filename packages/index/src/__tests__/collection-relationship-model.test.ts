@@ -24,7 +24,7 @@ describe("Ollama collection relationship model", () => {
   it("invalidates graph inference without rebuilding unchanged semantic summaries", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v4-semantic-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v7-full-summary-translation-coverage",
+      "workspace-graph-v8-single-translation-provenance-edge",
     );
   });
 
@@ -212,10 +212,22 @@ describe("Ollama collection relationship model", () => {
         ollamaResponse({
           relationships: [
             {
+              from: "collection_code",
+              to: "collection_translations",
+              type: "depends_on",
+              confidence: 0.99,
+            },
+            {
               from: "collection_translations",
               to: "collection_code",
               type: "derived_from",
               confidence: 0.96,
+            },
+            {
+              from: "collection_translations",
+              to: "collection_code",
+              type: "documents",
+              confidence: 0.98,
             },
           ],
         }),

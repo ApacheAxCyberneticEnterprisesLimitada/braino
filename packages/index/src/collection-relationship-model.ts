@@ -12,7 +12,7 @@ export const DEFAULT_COLLECTION_RELATIONSHIP_URL = "http://127.0.0.1:11434/api/c
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v4-semantic-summaries";
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
-  "workspace-graph-v7-full-summary-translation-coverage";
+  "workspace-graph-v8-single-translation-provenance-edge";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 4;
@@ -348,10 +348,16 @@ export class OllamaCollectionRelationshipModel implements CollectionRelationship
     if (!isObject(focused) || !Array.isArray(focused.relationships)) {
       throw new Error("Ollama returned an invalid focused collection relationship result");
     }
-    const allowedPairs = new Set(missingPairs.map(([left, right]) => pairKey(left, right)));
+    const allowedEdges = new Set(
+      missingPairs.map(
+        ([translationId, codebaseId]) => `${translationId}\u0000derived_from\u0000${codebaseId}`,
+      ),
+    );
     const focusedRelationships = focused.relationships.filter((relationship) => {
-      const key = relationshipPairKey(relationship);
-      return key !== null && allowedPairs.has(key);
+      if (!isObject(relationship)) return false;
+      return allowedEdges.has(
+        `${String(relationship.from)}\u0000${String(relationship.type)}\u0000${String(relationship.to)}`,
+      );
     });
     return attachCollectionRelationshipEvidence(
       fullSummaries,
