@@ -289,9 +289,10 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Gemini returned an invalid collection relationship result");
     }
-    const missingPairs = missingCodeTranslationPairs(fullSummaries, decoded.relationships);
+    const relationships = uniqueRelationshipCandidates(decoded.relationships);
+    const missingPairs = missingCodeTranslationPairs(fullSummaries, relationships);
     if (missingPairs.length === 0) {
-      return attachCollectionRelationshipEvidence(fullSummaries, decoded.relationships);
+      return attachCollectionRelationshipEvidence(fullSummaries, relationships);
     }
 
     const focusedIds = new Set(missingPairs.flat());
@@ -321,7 +322,7 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
     });
     return attachCollectionRelationshipEvidence(
       fullSummaries,
-      uniqueRelationshipCandidates([...focusedRelationships, ...decoded.relationships]),
+      uniqueRelationshipCandidates([...focusedRelationships, ...relationships]),
     );
   }
 }

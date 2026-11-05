@@ -154,6 +154,9 @@ describe("OpenRouter collection relationship model", () => {
     expect(
       summaryRequest.response_format.json_schema.schema.properties.evidenceIds.items.enum,
     ).toEqual(["node:decision_checkout"]);
+    expect(
+      summaryRequest.response_format.json_schema.schema.properties.evidenceIds.maxItems,
+    ).toBeUndefined();
     expect(summaryRequest.response_format.json_schema.schema.properties.digest).not.toHaveProperty(
       "minLength",
     );
@@ -181,7 +184,7 @@ describe("OpenRouter collection relationship model", () => {
     );
     expect(
       relationshipRequest.response_format.json_schema.schema.properties.relationships.maxItems,
-    ).toBe(8);
+    ).toBeUndefined();
     expect(relationshipRequest.messages[1].content).toContain("existing-code baseline");
     expect(relationshipRequest.messages[1].content).toContain(
       "translation → codebase is derived_from",
@@ -224,6 +227,43 @@ describe("OpenRouter collection relationship model", () => {
     expect(request.messages[1].content).not.toContain("TAIL_MARKER");
     expect(request.messages[1].content).toContain(evidenceIds[3]);
     expect(request.messages[1].content).not.toContain(evidenceIds[4]);
+  });
+
+  it("enforces the relationship limit after Gemini returns structured output", async () => {
+    const candidates = [
+      { from: "collection_one", to: "collection_two", type: "implements", confidence: 0.91 },
+      { from: "collection_two", to: "collection_one", type: "depends_on", confidence: 0.9 },
+      { from: "collection_one", to: "collection_three", type: "documents", confidence: 0.89 },
+      { from: "collection_three", to: "collection_one", type: "derived_from", confidence: 0.88 },
+      { from: "collection_two", to: "collection_three", type: "implements", confidence: 0.87 },
+      { from: "collection_three", to: "collection_two", type: "depends_on", confidence: 0.86 },
+      { from: "collection_one", to: "collection_two", type: "documents", confidence: 0.85 },
+      { from: "collection_two", to: "collection_one", type: "derived_from", confidence: 0.84 },
+      { from: "collection_one", to: "collection_three", type: "implements", confidence: 0.83 },
+      { from: "collection_three", to: "collection_one", type: "depends_on", confidence: 0.82 },
+    ];
+    const model = new OpenRouterCollectionRelationshipModel({
+      fetchImpl: vi.fn(async () => openRouterResponse({ relationships: candidates })),
+    });
+
+    const relationships = await model.infer({
+      summaries: ["one", "two", "three"].map((name) => ({
+        collectionId: `collection_${name}`,
+        name,
+        kind: "product-decisions",
+        digest: `${name} provides concrete evidence for a shared checkout system and payment flow.`,
+        summaryVersion: `${name}-v1`,
+        evidenceIds: [`decision:${name}`],
+      })),
+    });
+
+    expect(relationships).toHaveLength(8);
+    expect(relationships).toEqual(
+      candidates.slice(0, 8).map((candidate) => ({
+        ...candidate,
+        evidence: expect.any(Array),
+      })),
+    );
   });
 
   it("runs a focused Gemini pass when the workspace pass misses code-derived translations", async () => {

@@ -22,6 +22,8 @@ const GEMINI_UNSUPPORTED_SCHEMA_KEYS = new Set([
   "default",
   "exclusiveMaximum",
   "exclusiveMinimum",
+  // Gemini 3.5 Flash-Lite rejects otherwise valid structured-output schemas containing this.
+  "maxItems",
   "maxLength",
   "minLength",
   "multipleOf",
