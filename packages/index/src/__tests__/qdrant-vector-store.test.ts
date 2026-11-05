@@ -23,6 +23,31 @@ function json(body: unknown, status = 200): Response {
 }
 
 describe("QdrantVectorStore", () => {
+  it("checks Qdrant readiness with the configured API key", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("all shards are ready"));
+    const store = new QdrantVectorStore({
+      url: "http://qdrant:6333/",
+      apiKey: "secret",
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await store.assertReady();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://qdrant:6333/readyz", {
+      headers: { "api-key": "secret", "content-type": "application/json" },
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it("rejects a failed Qdrant readiness response", async () => {
+    const store = new QdrantVectorStore({
+      url: "http://qdrant:6333",
+      fetch: vi.fn().mockResolvedValue(new Response("not ready", { status: 503 })) as typeof fetch,
+    });
+
+    await expect(store.assertReady()).rejects.toThrow("Qdrant GET /readyz failed (503)");
+  });
+
   it("uses a stable UUID per collection/entity/chunk and replaces model changes in place", () => {
     const first = qdrantPointId(record());
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);

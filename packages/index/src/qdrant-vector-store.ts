@@ -182,6 +182,17 @@ export class QdrantVectorStore implements RetrievalStore {
     };
   }
 
+  /** Verify that Qdrant can accept traffic without touching collection data. */
+  async assertReady(): Promise<void> {
+    const response = await this.fetchImpl(`${this.url}/readyz`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(5_000),
+    });
+    if (!response.ok) {
+      throw new Error(`Qdrant GET /readyz failed (${response.status})`);
+    }
+  }
+
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const response = await this.fetchImpl(`${this.url}${path}`, {
       ...init,
