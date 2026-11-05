@@ -13,10 +13,12 @@ import {
 
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v5-gemini-summaries";
-export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION = "workspace-graph-v9-gemini-generate-audit";
+export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
+  "workspace-graph-v10-cited-evidence-context";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
-const RELATIONSHIP_EVIDENCE_IDS = 4;
+const RELATIONSHIP_EVIDENCE_IDS = 8;
+const RELATIONSHIP_EVIDENCE_CONTEXT_CHARS = 4_800;
 const TRANSLATION_EVIDENCE = /\b(?:english|locali[sz](?:ation|ed)|spanish|translation)\b/iu;
 const CODE_PROVENANCE_EVIDENCE =
   /\b(?:existing-code baseline|extracted from (?:the )?code|fetched (?:default )?branches|imported from (?:the )?code)\b/iu;
@@ -273,6 +275,13 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
     const fullSummaries = input.summaries.map((summary) => ({
       ...summary,
       digest: summary.digest.slice(0, 1_200).trim(),
+      ...(summary.evidenceContext
+        ? {
+            evidenceContext: summary.evidenceContext
+              .slice(0, RELATIONSHIP_EVIDENCE_CONTEXT_CHARS)
+              .trim(),
+          }
+        : {}),
       evidenceIds: summary.evidenceIds.slice(0, RELATIONSHIP_EVIDENCE_IDS),
     }));
     const summaries = fullSummaries.map((summary) => ({

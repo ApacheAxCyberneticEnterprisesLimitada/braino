@@ -29,7 +29,7 @@ describe("OpenRouter collection relationship model", () => {
   it("invalidates previous summaries and graph inference after the Gemini migration", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v5-gemini-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v9-gemini-generate-audit",
+      "workspace-graph-v10-cited-evidence-context",
     );
   });
 
@@ -217,6 +217,7 @@ describe("OpenRouter collection relationship model", () => {
           name: "Long",
           kind: "documents",
           digest: `Concrete relationship evidence ${"detail ".repeat(140)}TAIL_MARKER`,
+          evidenceContext: `CITED_SOURCE ${"context ".repeat(800)}CONTEXT_TAIL_MARKER`,
           summaryVersion: "long-v1",
           evidenceIds,
         },
@@ -225,8 +226,10 @@ describe("OpenRouter collection relationship model", () => {
 
     const request = JSON.parse(String(fetchImpl.mock.calls[0]?.[1]?.body));
     expect(request.messages[1].content).not.toContain("TAIL_MARKER");
-    expect(request.messages[1].content).toContain(evidenceIds[3]);
-    expect(request.messages[1].content).not.toContain(evidenceIds[4]);
+    expect(request.messages[1].content).toContain("CITED_SOURCE");
+    expect(request.messages[1].content).not.toContain("CONTEXT_TAIL_MARKER");
+    expect(request.messages[1].content).toContain("Use those excerpts to recover concrete overlap");
+    expect(request.messages[1].content).toContain(evidenceIds[5]);
   });
 
   it("enforces the relationship limit after Gemini returns structured output", async () => {

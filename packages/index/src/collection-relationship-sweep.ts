@@ -86,6 +86,7 @@ interface SummaryRow {
   summary_version: string;
   digest: string;
   evidence_ids: string[] | string;
+  evidence_context: string | null;
 }
 
 interface SourceRow {
@@ -382,11 +383,25 @@ async function workspaceSummaries(
   workspaceId: string,
 ): Promise<CollectionSummaryDigest[]> {
   const rows = await c.query<SummaryRow>(
-    `SELECT cs.collection_id, c.handle,
+    `WITH ${COLLECTION_SUMMARY_SOURCES_CTE}, cited_context AS (
+       SELECT cs.collection_id,
+              string_agg(
+                s.source || ':' || s.external_id || E'\n' || s.content,
+                E'\n\n' ORDER BY s.summary_rank
+              ) AS evidence_context
+         FROM collection_summaries cs
+         JOIN collection_summary_sources s
+           ON s.collection_id = cs.collection_id
+          AND (s.source || ':' || s.external_id) = ANY(cs.evidence_ids)
+        WHERE cs.workspace_id = $1
+        GROUP BY cs.collection_id
+     )
+     SELECT cs.collection_id, c.handle,
             coalesce(nullif(c.data->>'template_handle', ''), 'generic') AS kind,
-            cs.summary_version, cs.digest, cs.evidence_ids
+            cs.summary_version, cs.digest, cs.evidence_ids, context.evidence_context
        FROM collection_summaries cs
        JOIN collections c ON c.id = cs.collection_id AND c.deleted_at IS NULL
+       LEFT JOIN cited_context context ON context.collection_id = cs.collection_id
       WHERE cs.workspace_id = $1
         AND cardinality(cs.evidence_ids) > 0
       ORDER BY c.handle, c.id`,
@@ -397,6 +412,7 @@ async function workspaceSummaries(
     name: row.handle,
     kind: row.kind,
     digest: row.digest,
+    ...(row.evidence_context ? { evidenceContext: row.evidence_context } : {}),
     summaryVersion: row.summary_version,
     evidenceIds: textArray(row.evidence_ids),
   }));

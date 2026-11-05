@@ -142,6 +142,18 @@ describe("collection relationship sweep", () => {
     expect(inferred).toMatchObject({ summarized: 0, accepted: 2, rejected: 0, pending: 0 });
     expect(model.infer).toHaveBeenCalledTimes(1);
     expect(vi.mocked(model.infer).mock.calls[0]?.[0].summaries).toHaveLength(3);
+    expect(vi.mocked(model.infer).mock.calls[0]?.[0].summaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          collectionId: "collection_code",
+          evidenceContext: expect.stringContaining("The application implements checkout"),
+        }),
+        expect.objectContaining({
+          collectionId: "collection_notion",
+          evidenceContext: expect.stringContaining("documents the approved checkout architecture"),
+        }),
+      ]),
+    );
     await expect(
       listCollectionRelationships(client(), {
         workspaceId: "workspace_one",
