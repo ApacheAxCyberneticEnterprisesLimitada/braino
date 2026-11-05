@@ -19,6 +19,7 @@ const SOURCES_PER_KIND = 8;
 const SOURCES_PER_SUMMARY = 8;
 const SOURCE_EXCERPT_CHARS = 600;
 const COLLECTION_GOAL_CHARS = 600;
+const SOURCE_INVENTORY_ITEMS = 256;
 const FAILURE_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
 // A hot source may delay, but never indefinitely block, a complete graph snapshot.
 const GRAPH_MAX_STALENESS_MS = 15 * 60 * 1_000;
@@ -87,6 +88,7 @@ interface SummaryRow {
   digest: string;
   evidence_ids: string[] | string;
   evidence_context: string | null;
+  source_inventory: string[] | string | null;
 }
 
 interface SourceRow {
@@ -395,13 +397,31 @@ async function workspaceSummaries(
           AND (s.source || ':' || s.external_id) = ANY(cs.evidence_ids)
         WHERE cs.workspace_id = $1
         GROUP BY cs.collection_id
+     ), source_inventory AS (
+       SELECT collection_id,
+              (array_agg(scope ORDER BY scope))[1:${SOURCE_INVENTORY_ITEMS}] AS source_inventory
+         FROM (
+           SELECT DISTINCT d.collection_id,
+                  CASE
+                    WHEN d.source = 'code'
+                    THEN d.source || ':' || split_part(d.external_id, ':', 1)
+                    ELSE d.source
+                  END AS scope
+             FROM retrieval_source_documents d
+             JOIN collections c ON c.id = d.collection_id
+            WHERE c.workspace_id = $1
+              AND c.deleted_at IS NULL
+         ) scopes
+        GROUP BY collection_id
      )
      SELECT cs.collection_id, c.handle,
             coalesce(nullif(c.data->>'template_handle', ''), 'generic') AS kind,
-            cs.summary_version, cs.digest, cs.evidence_ids, context.evidence_context
+            cs.summary_version, cs.digest, cs.evidence_ids, context.evidence_context,
+            inventory.source_inventory
        FROM collection_summaries cs
        JOIN collections c ON c.id = cs.collection_id AND c.deleted_at IS NULL
        LEFT JOIN cited_context context ON context.collection_id = cs.collection_id
+       LEFT JOIN source_inventory inventory ON inventory.collection_id = cs.collection_id
       WHERE cs.workspace_id = $1
         AND cardinality(cs.evidence_ids) > 0
       ORDER BY c.handle, c.id`,
@@ -413,6 +433,7 @@ async function workspaceSummaries(
     kind: row.kind,
     digest: row.digest,
     ...(row.evidence_context ? { evidenceContext: row.evidence_context } : {}),
+    ...(row.source_inventory ? { sourceInventory: textArray(row.source_inventory) } : {}),
     summaryVersion: row.summary_version,
     evidenceIds: textArray(row.evidence_ids),
   }));

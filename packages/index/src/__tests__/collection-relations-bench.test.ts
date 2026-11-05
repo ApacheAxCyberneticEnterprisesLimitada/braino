@@ -239,7 +239,7 @@ describe("collection relationship benchmark", () => {
     });
   });
 
-  it("separates model misses from the eight-edge response budget", () => {
+  it("does not blame a model miss on the expanded response budget", () => {
     const collections = Array.from({ length: 10 }, (_, index) => ({
       collectionId: `collection-${index}`,
       name: `Collection ${index}`,
@@ -265,8 +265,8 @@ describe("collection relationship benchmark", () => {
     expect(scoreCollectionRelationships({ collections, relationships }, predictions)).toMatchObject(
       {
         recall: 8 / 9,
-        recallCeiling: 8 / 9,
-        budgetRecall: 1,
+        recallCeiling: 1,
+        budgetRecall: 8 / 9,
       },
     );
   });

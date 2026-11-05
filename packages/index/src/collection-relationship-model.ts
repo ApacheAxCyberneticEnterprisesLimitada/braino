@@ -14,11 +14,12 @@ import {
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v5-gemini-summaries";
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
-  "workspace-graph-v10-cited-evidence-context";
+  "workspace-graph-v11-source-inventory-capacity";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 8;
 const RELATIONSHIP_EVIDENCE_CONTEXT_CHARS = 4_800;
+const RELATIONSHIP_SOURCE_INVENTORY_ITEMS = 256;
 const TRANSLATION_EVIDENCE = /\b(?:english|locali[sz](?:ation|ed)|spanish|translation)\b/iu;
 const CODE_PROVENANCE_EVIDENCE =
   /\b(?:existing-code baseline|extracted from (?:the )?code|fetched (?:default )?branches|imported from (?:the )?code)\b/iu;
@@ -282,6 +283,9 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
               .trim(),
           }
         : {}),
+      ...(summary.sourceInventory
+        ? { sourceInventory: summary.sourceInventory.slice(0, RELATIONSHIP_SOURCE_INVENTORY_ITEMS) }
+        : {}),
       evidenceIds: summary.evidenceIds.slice(0, RELATIONSHIP_EVIDENCE_IDS),
     }));
     const summaries = fullSummaries.map((summary) => ({
@@ -293,7 +297,7 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
       collectionRelationshipCandidatesResponseSchemaFor(summaries),
       "collection_relationships",
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-      768,
+      1_536,
     );
     if (!isObject(decoded) || !Array.isArray(decoded.relationships)) {
       throw new Error("Gemini returned an invalid collection relationship result");

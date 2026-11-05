@@ -29,7 +29,7 @@ describe("OpenRouter collection relationship model", () => {
   it("invalidates previous summaries and graph inference after the Gemini migration", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v5-gemini-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v10-cited-evidence-context",
+      "workspace-graph-v11-source-inventory-capacity",
     );
   });
 
@@ -97,6 +97,7 @@ describe("OpenRouter collection relationship model", () => {
             name: "Code",
             kind: "codebase",
             digest: "Implements checkout.",
+            sourceInventory: ["code:torre-labs/proxima"],
             summaryVersion: "code-v1",
             evidenceIds: ["node:reference_checkout"],
           },
@@ -170,14 +171,14 @@ describe("OpenRouter collection relationship model", () => {
     expect(summaryRequest.messages[1].content).toContain("Preserve concrete overlap");
     expect(summaryRequest.messages[1].content).toContain("Never return only a collection name");
     const relationshipRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
-    expect(relationshipRequest.max_tokens).toBe(768);
+    expect(relationshipRequest.max_tokens).toBe(1_536);
     expect(relationshipRequest.messages[0].content).toContain("every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain("Evaluate every unordered pair");
     expect(relationshipRequest.messages[1].content).toContain(
       "A codebase can implement architectural decisions",
     );
     expect(relationshipRequest.messages[1].content).toContain(
-      "Return at most 8 strongest relationships",
+      "Return at most 24 strongest relationships",
     );
     expect(relationshipRequest.messages[1].content).toContain(
       "Return only from, to, type, and confidence",
@@ -186,6 +187,10 @@ describe("OpenRouter collection relationship model", () => {
       relationshipRequest.response_format.json_schema.schema.properties.relationships.maxItems,
     ).toBeUndefined();
     expect(relationshipRequest.messages[1].content).toContain("existing-code baseline");
+    expect(relationshipRequest.messages[1].content).toContain("code:torre-labs/proxima");
+    expect(relationshipRequest.messages[1].content).toContain(
+      "sourceInventory is authoritative collection coverage",
+    );
     expect(relationshipRequest.messages[1].content).toContain(
       "translation → codebase is derived_from",
     );
@@ -209,6 +214,7 @@ describe("OpenRouter collection relationship model", () => {
       .mockResolvedValue(openRouterResponse({ relationships: [] }));
     const model = new OpenRouterCollectionRelationshipModel({ fetchImpl });
     const evidenceIds = Array.from({ length: 6 }, (_, index) => `node:evidence_${index + 1}`);
+    const sourceInventory = Array.from({ length: 300 }, (_, index) => `code:scope_${index}`);
 
     await model.infer({
       summaries: [
@@ -218,6 +224,7 @@ describe("OpenRouter collection relationship model", () => {
           kind: "documents",
           digest: `Concrete relationship evidence ${"detail ".repeat(140)}TAIL_MARKER`,
           evidenceContext: `CITED_SOURCE ${"context ".repeat(800)}CONTEXT_TAIL_MARKER`,
+          sourceInventory,
           summaryVersion: "long-v1",
           evidenceIds,
         },
@@ -230,27 +237,31 @@ describe("OpenRouter collection relationship model", () => {
     expect(request.messages[1].content).not.toContain("CONTEXT_TAIL_MARKER");
     expect(request.messages[1].content).toContain("Use those excerpts to recover concrete overlap");
     expect(request.messages[1].content).toContain(evidenceIds[5]);
+    expect(request.messages[1].content).toContain("code:scope_255");
+    expect(request.messages[1].content).not.toContain("code:scope_256");
   });
 
   it("enforces the relationship limit after Gemini returns structured output", async () => {
-    const candidates = [
-      { from: "collection_one", to: "collection_two", type: "implements", confidence: 0.91 },
-      { from: "collection_two", to: "collection_one", type: "depends_on", confidence: 0.9 },
-      { from: "collection_one", to: "collection_three", type: "documents", confidence: 0.89 },
-      { from: "collection_three", to: "collection_one", type: "derived_from", confidence: 0.88 },
-      { from: "collection_two", to: "collection_three", type: "implements", confidence: 0.87 },
-      { from: "collection_three", to: "collection_two", type: "depends_on", confidence: 0.86 },
-      { from: "collection_one", to: "collection_two", type: "documents", confidence: 0.85 },
-      { from: "collection_two", to: "collection_one", type: "derived_from", confidence: 0.84 },
-      { from: "collection_one", to: "collection_three", type: "implements", confidence: 0.83 },
-      { from: "collection_three", to: "collection_one", type: "depends_on", confidence: 0.82 },
-    ];
+    const names = ["one", "two", "three", "four"];
+    const types = ["implements", "documents", "depends_on", "derived_from"] as const;
+    const candidates = names.flatMap((from) =>
+      names.flatMap((to) =>
+        from === to
+          ? []
+          : types.map((type, index) => ({
+              from: `collection_${from}`,
+              to: `collection_${to}`,
+              type,
+              confidence: 0.99 - index / 100,
+            })),
+      ),
+    );
     const model = new OpenRouterCollectionRelationshipModel({
       fetchImpl: vi.fn(async () => openRouterResponse({ relationships: candidates })),
     });
 
     const relationships = await model.infer({
-      summaries: ["one", "two", "three"].map((name) => ({
+      summaries: names.map((name) => ({
         collectionId: `collection_${name}`,
         name,
         kind: "product-decisions",
@@ -260,9 +271,9 @@ describe("OpenRouter collection relationship model", () => {
       })),
     });
 
-    expect(relationships).toHaveLength(8);
+    expect(relationships).toHaveLength(24);
     expect(relationships).toEqual(
-      candidates.slice(0, 8).map((candidate) => ({
+      candidates.slice(0, 24).map((candidate) => ({
         ...candidate,
         evidence: expect.any(Array),
       })),

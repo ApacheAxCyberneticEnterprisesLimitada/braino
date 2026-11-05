@@ -93,6 +93,12 @@ describe("collection relationship sweep", () => {
         'The Notion handbook documents the approved checkout architecture.',
         '2026-01-01T00:00:00Z'
       );
+      INSERT INTO code_files (collection_id, repo, path, sha, size, content, synced_at)
+      VALUES
+        ('collection_code', 'torre-labs/proxima', 'conf/templates/opportunity-template.mustache',
+         'sha-proxima', 42, 'Localized opportunity copy.', '2026-01-01T00:00:00Z'),
+        ('collection_code', 'torre-labs/vader', 'pages/search-candidates/index.ts',
+         'sha-vader', 42, 'Candidate search translations.', '2026-01-01T00:00:00Z');
     `);
     const model: CollectionRelationshipModel = {
       id: "openrouter:google/gemini-3.5-flash-lite",
@@ -147,6 +153,7 @@ describe("collection relationship sweep", () => {
         expect.objectContaining({
           collectionId: "collection_code",
           evidenceContext: expect.stringContaining("The application implements checkout"),
+          sourceInventory: ["code:torre-labs/proxima", "code:torre-labs/vader", "node"],
         }),
         expect.objectContaining({
           collectionId: "collection_notion",
