@@ -19,7 +19,7 @@ const SOURCES_PER_KIND = 8;
 const SOURCES_PER_SUMMARY = 8;
 const SOURCE_EXCERPT_CHARS = 600;
 const COLLECTION_GOAL_CHARS = 600;
-const SUMMARY_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
+const FAILURE_RETRY_COOLDOWN_MS = 5 * 60 * 1_000;
 // A hot source may delay, but never indefinitely block, a complete graph snapshot.
 const GRAPH_MAX_STALENESS_MS = 15 * 60 * 1_000;
 
@@ -218,10 +218,10 @@ async function collectionStates(c: QueryClient, modelId: string): Promise<Collec
   });
 }
 
-function summaryRetryReady(state: CollectionState, now: number): boolean {
-  if (state.summary_failed_at === null) return true;
-  const failedAt = new Date(state.summary_failed_at).getTime();
-  return Number.isNaN(failedAt) || failedAt <= now - SUMMARY_RETRY_COOLDOWN_MS;
+function retryReady(failedAtValue: string | Date | null, now: number): boolean {
+  if (failedAtValue === null) return true;
+  const failedAt = new Date(failedAtValue).getTime();
+  return Number.isNaN(failedAt) || failedAt <= now - FAILURE_RETRY_COOLDOWN_MS;
 }
 
 function staleWorkspaceGraphs(
@@ -458,12 +458,10 @@ export async function sweepCollectionRelationships(
   const initialStates = await collectionStates(c, args.model.id);
   const now = Date.now();
   const pendingSummaries = initialStates.filter(
-    (collection) => collection.needsSummary && summaryRetryReady(collection, now),
+    (collection) => collection.needsSummary && retryReady(collection.summary_failed_at, now),
   );
   const staleGraphs = staleWorkspaceGraphs(initialStates, args.model.id, now);
-  const graphToRefresh =
-    staleGraphs.find((graph) => graph.failedAt === null) ??
-    (pendingSummaries.length === 0 ? staleGraphs[0] : undefined);
+  const graphToRefresh = staleGraphs.find((graph) => retryReady(graph.failedAt, now));
 
   if (graphToRefresh) {
     result.processed++;

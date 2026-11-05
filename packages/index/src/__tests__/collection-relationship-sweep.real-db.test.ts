@@ -587,6 +587,11 @@ describe("collection relationship sweep", () => {
     expect(vi.mocked(model.infer).mock.calls[1]?.[0].summaries[0]?.collectionId).toBe(
       "collection_two_a",
     );
+    await db.exec(`
+      UPDATE collection_relationship_failures
+         SET failed_at = now() - interval '10 minutes'
+       WHERE workspace_id = 'workspace_one'
+    `);
     const retried = await sweepCollectionRelationships(client(), { model, limit: 1 });
     expect(retried).toMatchObject({ processed: 1, summarized: 0, failures: [] });
     expect(vi.mocked(model.infer).mock.calls[2]?.[0].summaries[0]?.collectionId).toBe(
@@ -594,5 +599,40 @@ describe("collection relationship sweep", () => {
     );
     expect(model.summarize).toHaveBeenCalledTimes(4);
     expect(model.infer).toHaveBeenCalledTimes(3);
+  });
+
+  it("retries a cooled-down graph failure while unrelated summaries remain pending", async () => {
+    const model = fakeModel();
+    await sweepCollectionRelationships(client(), { model, limit: 10 });
+
+    await db.exec(`
+      INSERT INTO collection_relationship_failures (workspace_id, failed_at, error)
+      VALUES ('workspace_one', now() - interval '10 minutes', 'Gemini unavailable');
+      INSERT INTO workspaces (id, handle, name)
+      VALUES ('workspace_two', 'two', 'Two');
+      INSERT INTO collections (id, handle, owner_id, workspace_id, visibility, goal, data)
+      VALUES (
+        'collection_two_a', 'two-a', 'workspace_two', 'workspace_two', 'private', 'A', '{}'
+      );
+      INSERT INTO nodes (id, collection_id, node_type, lifecycle, prose, updated_at)
+      VALUES (
+        'reference_two_a', 'collection_two_a', 'reference', 'active',
+        'Unrelated summary work.', '2026-01-01T00:00:00Z'
+      );
+    `);
+    vi.mocked(model.summarize).mockClear();
+
+    const retried = await sweepCollectionRelationships(client(), { model, limit: 1 });
+
+    expect(retried).toMatchObject({
+      processed: 1,
+      summarized: 0,
+      accepted: 1,
+      failures: [],
+    });
+    expect(model.summarize).not.toHaveBeenCalled();
+    expect(vi.mocked(model.infer).mock.calls[0]?.[0].summaries[0]?.collectionId).toBe(
+      "collection_code",
+    );
   });
 });
