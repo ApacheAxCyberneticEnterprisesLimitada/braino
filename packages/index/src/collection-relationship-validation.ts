@@ -191,6 +191,7 @@ export function buildCollectionRelationsPrompt(
       : []),
     ...(requiredPairs.length > 0
       ? [
+          "A required pair may have been selected because both endpoints cite the same concrete external identifier. That establishes a cross-reference worth auditing, but the semantic text must still support the relationship type and direction.",
           `Evaluate only these required coverage pairs: ${requiredPairs.map(([left, right]) => `${left} ↔ ${right}`).join(", ")}. Do not return relationships outside these pairs.`,
         ]
       : []),

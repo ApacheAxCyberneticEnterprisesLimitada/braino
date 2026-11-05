@@ -14,12 +14,13 @@ import {
 export const DEFAULT_COLLECTION_RELATIONSHIP_TIMEOUT_MS = 180_000;
 export const COLLECTION_SUMMARY_PIPELINE_VERSION = "workspace-graph-v5-gemini-summaries";
 export const COLLECTION_RELATIONSHIP_PIPELINE_VERSION =
-  "workspace-graph-v11-source-inventory-capacity";
+  "workspace-graph-v12-shared-identifier-audit";
 
 const RELATIONSHIP_DIGEST_CHARS = 700;
 const RELATIONSHIP_EVIDENCE_IDS = 8;
 const RELATIONSHIP_EVIDENCE_CONTEXT_CHARS = 4_800;
 const RELATIONSHIP_SOURCE_INVENTORY_ITEMS = 256;
+const MAX_IDENTIFIER_AUDIT_PAIRS = 12;
 const TRANSLATION_EVIDENCE = /\b(?:english|locali[sz](?:ation|ed)|spanish|translation)\b/iu;
 const CODE_PROVENANCE_EVIDENCE =
   /\b(?:existing-code baseline|extracted from (?:the )?code|fetched (?:default )?branches|imported from (?:the )?code)\b/iu;
@@ -114,6 +115,52 @@ function missingCodeTranslationPairs(
       .map((codebase) => [translation.collectionId, codebase.collectionId] as const)
       .filter(([left, right]) => !coveredPairs.has(pairKey(left, right))),
   );
+}
+
+function concreteIdentifiers(summary: CollectionSummaryDigest): Set<string> {
+  const text = [summary.digest, summary.evidenceContext ?? "", ...summary.evidenceIds].join(" ");
+  return new Set(
+    (text.match(/[a-z0-9]{8,}/giu) ?? [])
+      .map((identifier) => identifier.toLowerCase())
+      .filter((identifier) => /[a-z]/u.test(identifier) && /[0-9]/u.test(identifier)),
+  );
+}
+
+function missingIdentifierOverlapPairs(
+  summaries: readonly CollectionSummaryDigest[],
+  relationships: readonly unknown[],
+): Array<readonly [string, string]> {
+  const coveredPairs = new Set(relationships.map(relationshipPairKey).filter(Boolean));
+  const identifiers = new Map(
+    summaries.map((summary) => [summary.collectionId, concreteIdentifiers(summary)]),
+  );
+  const missing: Array<readonly [string, string]> = [];
+  for (let leftIndex = 0; leftIndex < summaries.length; leftIndex++) {
+    const left = summaries[leftIndex];
+    if (!left) continue;
+    for (let rightIndex = leftIndex + 1; rightIndex < summaries.length; rightIndex++) {
+      const right = summaries[rightIndex];
+      if (!right || coveredPairs.has(pairKey(left.collectionId, right.collectionId))) continue;
+      const leftIdentifiers = identifiers.get(left.collectionId) ?? new Set<string>();
+      const rightIdentifiers = identifiers.get(right.collectionId) ?? new Set<string>();
+      if (![...leftIdentifiers].some((identifier) => rightIdentifiers.has(identifier))) continue;
+      missing.push([left.collectionId, right.collectionId]);
+      if (missing.length === MAX_IDENTIFIER_AUDIT_PAIRS) return missing;
+    }
+  }
+  return missing;
+}
+
+function uniquePairs(
+  pairs: readonly (readonly [string, string])[],
+): Array<readonly [string, string]> {
+  const seen = new Set<string>();
+  return pairs.filter(([left, right]) => {
+    const key = pairKey(left, right);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function uniqueRelationshipCandidates(relationships: readonly unknown[]): unknown[] {
@@ -303,7 +350,9 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
       throw new Error("Gemini returned an invalid collection relationship result");
     }
     const relationships = uniqueRelationshipCandidates(decoded.relationships);
-    const missingPairs = missingCodeTranslationPairs(fullSummaries, relationships);
+    const missingTranslationPairs = missingCodeTranslationPairs(fullSummaries, relationships);
+    const missingIdentifierPairs = missingIdentifierOverlapPairs(fullSummaries, relationships);
+    const missingPairs = uniquePairs([...missingTranslationPairs, ...missingIdentifierPairs]);
     if (missingPairs.length === 0) {
       return attachCollectionRelationshipEvidence(fullSummaries, relationships);
     }
@@ -317,20 +366,32 @@ export class OpenRouterCollectionRelationshipModel implements CollectionRelation
       collectionRelationshipCandidatesResponseSchemaFor(focusedSummaries),
       "focused_collection_relationships",
       COLLECTION_RELATIONSHIP_SYSTEM_PROMPT,
-      256,
+      768,
     );
     if (!isObject(focused) || !Array.isArray(focused.relationships)) {
       throw new Error("Gemini returned an invalid focused collection relationship result");
     }
-    const allowedEdges = new Set(
-      missingPairs.map(
+    const allowedTranslationEdges = new Set(
+      missingTranslationPairs.map(
         ([translationId, codebaseId]) => `${translationId}\u0000derived_from\u0000${codebaseId}`,
       ),
     );
+    const allowedIdentifierPairs = new Set(
+      missingIdentifierPairs.map(([left, right]) => pairKey(left, right)),
+    );
     const focusedRelationships = focused.relationships.filter((relationship) => {
-      if (!isObject(relationship)) return false;
-      return allowedEdges.has(
-        `${String(relationship.from)}\u0000${String(relationship.type)}\u0000${String(relationship.to)}`,
+      if (
+        !isObject(relationship) ||
+        typeof relationship.from !== "string" ||
+        typeof relationship.to !== "string"
+      ) {
+        return false;
+      }
+      return (
+        allowedIdentifierPairs.has(pairKey(relationship.from, relationship.to)) ||
+        allowedTranslationEdges.has(
+          `${relationship.from}\u0000${String(relationship.type)}\u0000${relationship.to}`,
+        )
       );
     });
     return attachCollectionRelationshipEvidence(

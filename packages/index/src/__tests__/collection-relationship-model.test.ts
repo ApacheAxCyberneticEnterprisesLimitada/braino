@@ -29,7 +29,7 @@ describe("OpenRouter collection relationship model", () => {
   it("invalidates previous summaries and graph inference after the Gemini migration", () => {
     expect(COLLECTION_SUMMARY_PIPELINE_VERSION).toBe("workspace-graph-v5-gemini-summaries");
     expect(COLLECTION_RELATIONSHIP_PIPELINE_VERSION).toBe(
-      "workspace-graph-v11-source-inventory-capacity",
+      "workspace-graph-v12-shared-identifier-audit",
     );
   });
 
@@ -374,6 +374,87 @@ describe("OpenRouter collection relationship model", () => {
       focusedRequest.response_format.json_schema.schema.properties.relationships.items.properties
         .from.enum,
     ).toEqual(["collection_code", "collection_translations"]);
+  });
+
+  it("audits a missed pair whose evidence shares a concrete external identifier", async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(openRouterResponse({ relationships: [] }))
+      .mockResolvedValueOnce(
+        openRouterResponse({
+          relationships: [
+            {
+              from: "collection_agent_chats",
+              to: "collection_notion",
+              type: "derived_from",
+              confidence: 0.93,
+            },
+          ],
+        }),
+      );
+    const model = new OpenRouterCollectionRelationshipModel({ fetchImpl });
+
+    await expect(
+      model.infer({
+        summaries: [
+          {
+            collectionId: "collection_agent_chats",
+            name: "Torre agent chats",
+            kind: "agents-chats",
+            digest:
+              "Gus asked an agent to investigate Notion bug card 40f0dc7a and the work produced a merged production fix.",
+            summaryVersion: "chats-v1",
+            evidenceIds: ["node:log_notion_fix"],
+          },
+          {
+            collectionId: "collection_notion",
+            name: "Torre Notion",
+            kind: "notion",
+            digest:
+              "The shared Notion workspace contains product specifications and roadmap chores for the team.",
+            evidenceContext:
+              "notion:40f0dc7a-971a-80c1-b5ca-cb230bc415e2\nJob-sharing product specification.",
+            summaryVersion: "notion-v1",
+            evidenceIds: ["notion:40f0dc7a-971a-80c1-b5ca-cb230bc415e2"],
+          },
+          {
+            collectionId: "collection_unrelated",
+            name: "Unrelated",
+            kind: "documents",
+            digest: "Operational notes about an independent payroll export process.",
+            summaryVersion: "unrelated-v1",
+            evidenceIds: ["node:reference_payroll"],
+          },
+        ],
+      }),
+    ).resolves.toEqual([
+      {
+        from: "collection_agent_chats",
+        to: "collection_notion",
+        type: "derived_from",
+        confidence: 0.93,
+        evidence: [
+          {
+            collectionId: "collection_agent_chats",
+            summaryVersion: "chats-v1",
+            evidenceIds: ["node:log_notion_fix"],
+          },
+          {
+            collectionId: "collection_notion",
+            summaryVersion: "notion-v1",
+            evidenceIds: ["notion:40f0dc7a-971a-80c1-b5ca-cb230bc415e2"],
+          },
+        ],
+      },
+    ]);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    const focusedRequest = JSON.parse(String(fetchImpl.mock.calls[1]?.[1]?.body));
+    expect(focusedRequest.messages[1].content).toContain(
+      "collection_agent_chats ↔ collection_notion",
+    );
+    expect(focusedRequest.messages[1].content).toContain("same concrete external identifier");
+    expect(focusedRequest.messages[1].content).not.toContain("collection_unrelated");
   });
 
   it("rejects summary evidence the model was not shown", async () => {
