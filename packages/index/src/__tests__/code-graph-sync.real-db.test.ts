@@ -6,6 +6,7 @@ import {
   type CodeGraphClient,
   HttpCodeGraphClient,
   configuredCodeGraphClient,
+  syncCodeGraphCollection,
   syncCodeGraphRepository,
 } from "../code-graph-sync.js";
 
@@ -20,7 +21,10 @@ const connected = JSON.stringify({
   github_integration: { connections: [{ repo: REPO, installation_id: 9 }] },
 });
 
-function graphClient(): CodeGraphClient & { createGraph: ReturnType<typeof vi.fn> } {
+function graphClient(): CodeGraphClient & {
+  createGraph: ReturnType<typeof vi.fn>;
+  createRepositoryLinks: ReturnType<typeof vi.fn>;
+} {
   return {
     id: "code-graph:test-v1",
     createGraph: vi.fn(async ({ language }) => ({
@@ -44,6 +48,25 @@ function graphClient(): CodeGraphClient & { createGraph: ReturnType<typeof vi.fn
           type: "CALLS",
           label: "run",
           confidence: "exact",
+        },
+      ],
+    })),
+    createRepositoryLinks: vi.fn(async () => ({
+      stats: { repositories: 2, source_files: 2, links: 1, build_ms: 1 },
+      links: [
+        {
+          from: "acme/app",
+          to: "acme/payments",
+          relation: "CALLS_SERVICE",
+          confidence: "exact",
+          evidence: [
+            {
+              file: "src/PaymentsClient.java",
+              line: 3,
+              kind: "java_annotation",
+              text: '@GrpcChannel(name = "payments")',
+            },
+          ],
         },
       ],
     })),
@@ -227,6 +250,136 @@ describe("code graph repository sync", () => {
   });
 });
 
+describe("code graph collection sync", () => {
+  beforeEach(async () => {
+    await db.query(
+      `UPDATE collections
+          SET data = jsonb_set(
+            data,
+            '{github_integration,connections}',
+            '[{"repo":"acme/app","installation_id":9},{"repo":"acme/payments","installation_id":9}]'
+          )
+        WHERE id = $1`,
+      [COLLECTION_ID],
+    );
+    await db.exec(`
+      INSERT INTO code_files (collection_id, repo, path, sha, size, content) VALUES
+        ('${COLLECTION_ID}', '${REPO}', 'src/PaymentsClient.java', 'sha_client_1', 80,
+         '@GrpcChannel(name = "payments")\ninterface PaymentsClient {}'),
+        ('${COLLECTION_ID}', '${REPO}', 'src/unrelated.ts', 'sha_unrelated_1', 20,
+         'export const x = 1'),
+        ('${COLLECTION_ID}', 'acme/payments', 'README.md', 'sha_payments_1', 40,
+         'See https://github.com/acme/app');
+    `);
+  });
+
+  it("persists exact inter-repository relationships with their source evidence", async () => {
+    const client = graphClient();
+
+    const result = await syncCodeGraphCollection(db as unknown as QueryClient, {
+      collectionId: COLLECTION_ID,
+      client,
+    });
+
+    expect(result).toEqual({ status: "indexed", files: 2, edges: 1 });
+    expect(client.createRepositoryLinks).toHaveBeenCalledWith({
+      repositories: [
+        {
+          id: "acme/app",
+          files: [
+            {
+              path: "src/PaymentsClient.java",
+              content: '@GrpcChannel(name = "payments")\ninterface PaymentsClient {}',
+            },
+          ],
+        },
+        {
+          id: "acme/payments",
+          files: [{ path: "README.md", content: "See https://github.com/acme/app" }],
+        },
+      ],
+    });
+    expect(
+      (
+        await db.query<{ external_id: string; extraction_id: string }>(
+          `SELECT external_id, extraction_id
+             FROM retrieval_documents
+            WHERE collection_id = $1 AND source = 'code_graph'`,
+          [COLLECTION_ID],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        external_id: "__repositories__",
+        extraction_id: "code-graph:test-v1:repository-links-v1",
+      },
+    ]);
+    expect(
+      (
+        await db.query<{ name: string; entity_type: string }>(
+          `SELECT name, entity_type FROM retrieval_entities
+            WHERE collection_id = $1 ORDER BY name`,
+          [COLLECTION_ID],
+        )
+      ).rows,
+    ).toEqual([
+      { name: "acme/app", entity_type: "code_repository" },
+      { name: "acme/payments", entity_type: "code_repository" },
+    ]);
+    expect(
+      (
+        await db.query<{ relation_type: string; fact: string; confidence: number }>(
+          `SELECT relation_type, fact, confidence FROM retrieval_relations
+            WHERE collection_id = $1`,
+          [COLLECTION_ID],
+        )
+      ).rows,
+    ).toEqual([
+      {
+        relation_type: "CALLS_SERVICE",
+        fact: 'acme/app CALLS_SERVICE acme/payments. Evidence: acme/app/src/PaymentsClient.java:3 — @GrpcChannel(name = "payments")',
+        confidence: 1,
+      },
+    ]);
+  });
+
+  it("skips an unchanged collection and removes the map when connections change", async () => {
+    const client = graphClient();
+    await syncCodeGraphCollection(db as unknown as QueryClient, {
+      collectionId: COLLECTION_ID,
+      client,
+    });
+
+    expect(
+      await syncCodeGraphCollection(db as unknown as QueryClient, {
+        collectionId: COLLECTION_ID,
+        client,
+      }),
+    ).toEqual({ status: "unchanged", files: 2, edges: 1 });
+    expect(client.createRepositoryLinks).toHaveBeenCalledOnce();
+
+    await db.query(
+      `UPDATE collections
+          SET data = jsonb_set(
+            data,
+            '{github_integration,connections}',
+            '[{"repo":"acme/app","installation_id":9}]'
+          )
+        WHERE id = $1`,
+      [COLLECTION_ID],
+    );
+    expect(
+      (
+        await db.query<{ count: number }>(
+          `SELECT count(*)::int AS count FROM retrieval_documents
+            WHERE collection_id = $1 AND external_id = '__repositories__'`,
+          [COLLECTION_ID],
+        )
+      ).rows[0]?.count,
+    ).toBe(0);
+  });
+});
+
 describe("configured code graph client", () => {
   it("is optional but rejects half-configured service credentials", () => {
     expect(configuredCodeGraphClient({})).toBeNull();
@@ -276,6 +429,58 @@ describe("configured code graph client", () => {
     ).rejects.toThrow(/unknown file/i);
     expect(fetch).toHaveBeenCalledWith(
       "https://graph.example/v1/graphs",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({ authorization: "Bearer test-token" }),
+      }),
+    );
+  });
+
+  it("sends collection snapshots to the repository-link endpoint and validates evidence", async () => {
+    const fetch = vi.fn(async () =>
+      Response.json({
+        stats: { repositories: 2, source_files: 1, links: 1, build_ms: 1 },
+        links: [
+          {
+            from: "acme/app",
+            to: "acme/missing",
+            relation: "CALLS_SERVICE",
+            confidence: "exact",
+            evidence: [
+              {
+                file: "src/Client.java",
+                line: 1,
+                kind: "java_annotation",
+                text: '@GrpcChannel(name = "missing")',
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    vi.stubGlobal("fetch", fetch);
+    const client = new HttpCodeGraphClient({
+      url: "https://graph.example/",
+      apiToken: "test-token",
+    });
+    const input = {
+      repositories: [
+        {
+          id: "acme/app",
+          files: [
+            {
+              path: "src/Client.java",
+              content: '@GrpcChannel(name = "payments")',
+            },
+          ],
+        },
+        { id: "acme/payments", files: [] },
+      ],
+    };
+
+    await expect(client.createRepositoryLinks(input)).rejects.toThrow(/unknown repository/i);
+    expect(fetch).toHaveBeenCalledWith(
+      "https://graph.example/v1/repository-links",
       expect.objectContaining({
         method: "POST",
         headers: expect.objectContaining({ authorization: "Bearer test-token" }),

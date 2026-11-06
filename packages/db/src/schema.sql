@@ -2199,7 +2199,8 @@ BEGIN
   DELETE FROM retrieval_documents
    WHERE collection_id = NEW.id
      AND source = 'code_graph'
-     AND NOT code_repo_connected(NEW.data->'github_integration', external_id);
+     AND (external_id = '__repositories__'
+       OR NOT code_repo_connected(NEW.data->'github_integration', external_id));
   DELETE FROM retrieval_entities e
    WHERE e.collection_id = NEW.id
      AND NOT EXISTS (SELECT 1 FROM retrieval_mentions m WHERE m.entity_id = e.id)

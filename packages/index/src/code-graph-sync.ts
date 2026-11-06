@@ -33,10 +33,39 @@ export interface CodeGraphOutput {
   }>;
 }
 
+export interface RepositoryLinksRequest {
+  repositories: Array<{
+    id: string;
+    files: CodeGraphSourceFile[];
+  }>;
+}
+
+export interface RepositoryLinksOutput {
+  stats: {
+    repositories: number;
+    source_files: number;
+    links: number;
+    build_ms: number;
+  };
+  links: Array<{
+    from: string;
+    to: string;
+    relation: "CALLS_SERVICE" | "REPOSITORY";
+    confidence: "exact";
+    evidence: Array<{
+      file: string;
+      line: number;
+      kind: string;
+      text: string;
+    }>;
+  }>;
+}
+
 export interface CodeGraphClient {
   /** Changes force an unchanged repository snapshot through extraction again. */
   readonly id: string;
   createGraph(input: CodeGraphRequest): Promise<CodeGraphOutput>;
+  createRepositoryLinks(input: RepositoryLinksRequest): Promise<RepositoryLinksOutput>;
 }
 
 export interface CodeGraphSyncResult {
@@ -52,6 +81,9 @@ const CODE_GRAPH_RELATIONSHIPS = new Set([
   "EXTENDS",
   "ROUTES_TO",
 ]);
+const REPOSITORY_RELATIONSHIPS = new Set(["CALLS_SERVICE", "REPOSITORY"]);
+const REPOSITORY_GRAPH_EXTERNAL_ID = "__repositories__";
+const REPOSITORY_LINKS_EXTRACTION_VERSION = "repository-links-v1";
 const DEFAULT_TIMEOUT_MS = 120_000;
 
 function positiveInteger(value: string | undefined, fallback: number, name: string): number {
@@ -142,6 +174,81 @@ function graphOutput(value: unknown, request: CodeGraphRequest): CodeGraphOutput
   };
 }
 
+function repositoryLinksOutput(
+  value: unknown,
+  request: RepositoryLinksRequest,
+): RepositoryLinksOutput {
+  if (!value || typeof value !== "object") throw new Error("Invalid repository links response");
+  const raw = value as Record<string, unknown>;
+  if (!raw.stats || typeof raw.stats !== "object") {
+    throw new Error("Invalid repository links stats");
+  }
+  if (!Array.isArray(raw.links)) throw new Error("Invalid repository links collection");
+  const stats = raw.stats as Record<string, unknown>;
+  const repositories = new Map(
+    request.repositories.map((repository) => [
+      repository.id,
+      new Set(repository.files.map((file) => file.path)),
+    ]),
+  );
+  const links = raw.links.map((link, index) => {
+    if (!link || typeof link !== "object") throw new Error(`Invalid repository link ${index}`);
+    const item = link as Record<string, unknown>;
+    const from = string(item.from, `repository link ${index} source`);
+    const to = string(item.to, `repository link ${index} target`);
+    const relation = string(item.relation, `repository link ${index} relation`);
+    const confidence = string(item.confidence, `repository link ${index} confidence`);
+    if (!repositories.has(from) || !repositories.has(to)) {
+      throw new Error(`Repository link ${index} references an unknown repository`);
+    }
+    if (!REPOSITORY_RELATIONSHIPS.has(relation)) {
+      throw new Error(`Repository link ${index} has unsupported relation ${relation}`);
+    }
+    if (confidence !== "exact") {
+      throw new Error(`Repository link ${index} has invalid confidence`);
+    }
+    if (!Array.isArray(item.evidence) || item.evidence.length === 0) {
+      throw new Error(`Repository link ${index} has no evidence`);
+    }
+    const evidence = item.evidence.map((rawEvidence, evidenceIndex) => {
+      if (!rawEvidence || typeof rawEvidence !== "object") {
+        throw new Error(`Invalid evidence ${evidenceIndex} for repository link ${index}`);
+      }
+      const candidate = rawEvidence as Record<string, unknown>;
+      const file = string(candidate.file, `repository link ${index} evidence file`);
+      const line = number(candidate.line, `repository link ${index} evidence line`);
+      if (!repositories.get(from)?.has(file)) {
+        throw new Error(`Repository link ${index} evidence references an unknown file`);
+      }
+      if (!Number.isInteger(line) || line < 1) {
+        throw new Error(`Repository link ${index} evidence has an invalid line`);
+      }
+      return {
+        file,
+        line,
+        kind: string(candidate.kind, `repository link ${index} evidence kind`),
+        text: string(candidate.text, `repository link ${index} evidence text`),
+      };
+    });
+    return {
+      from,
+      to,
+      relation: relation as RepositoryLinksOutput["links"][number]["relation"],
+      confidence: confidence as "exact",
+      evidence,
+    };
+  });
+  return {
+    stats: {
+      repositories: number(stats.repositories, "repositories"),
+      source_files: number(stats.source_files, "source_files"),
+      links: number(stats.links, "links"),
+      build_ms: number(stats.build_ms, "build_ms"),
+    },
+    links,
+  };
+}
+
 export class HttpCodeGraphClient implements CodeGraphClient {
   readonly id = "code-graph:tree-sitter-v1";
   readonly #url: string;
@@ -170,6 +277,23 @@ export class HttpCodeGraphClient implements CodeGraphClient {
       throw new Error(`Code graph service failed with HTTP ${response.status}: ${message}`);
     }
     return graphOutput(await response.json(), input);
+  }
+
+  async createRepositoryLinks(input: RepositoryLinksRequest): Promise<RepositoryLinksOutput> {
+    const response = await fetch(`${this.#url}/v1/repository-links`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${this.#apiToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(input),
+      signal: AbortSignal.timeout(this.#timeoutMs),
+    });
+    if (!response.ok) {
+      const message = (await response.text()).slice(0, 500);
+      throw new Error(`Code graph service failed with HTTP ${response.status}: ${message}`);
+    }
+    return repositoryLinksOutput(await response.json(), input);
   }
 }
 
@@ -200,6 +324,10 @@ interface StoredCodeFile {
   content: string;
 }
 
+interface StoredCollectionCodeFile extends StoredCodeFile {
+  repo: string;
+}
+
 function language(path: string): CodeGraphLanguage | null {
   if (path.endsWith(".py")) return "python";
   if (path.endsWith(".scala")) return "scala";
@@ -208,6 +336,15 @@ function language(path: string): CodeGraphLanguage | null {
 
 function snapshotManifest(files: StoredCodeFile[]): string {
   return files.map((file) => `${file.path}\t${file.sha}`).join("\n");
+}
+
+function repositoryLinkSource(file: StoredCodeFile): boolean {
+  const extension = file.path.toLowerCase().split(".").pop() ?? "";
+  return (
+    extension === "java" ||
+    ["conf", "env", "json", "properties", "toml", "xml", "yaml", "yml"].includes(extension) ||
+    /https?:\/\/github\.com\//i.test(file.content)
+  );
 }
 
 function hash(value: string): string {
@@ -379,4 +516,132 @@ export async function syncCodeGraphRepository(
     report.documentId,
   ]);
   return { status: "indexed", files: files.length, edges: relationships.length };
+}
+
+/**
+ * Build the collection-wide repository map from the same durable code mirror.
+ * Only files that can provide exact repository evidence cross the service
+ * boundary; every repository identity remains present so aliases resolve.
+ */
+export async function syncCodeGraphCollection(
+  c: QueryClient,
+  args: { collectionId: string; client: CodeGraphClient },
+): Promise<CodeGraphSyncResult> {
+  const stored = (
+    await c.query<StoredCollectionCodeFile>(
+      `SELECT repo, path, sha, content
+         FROM code_files
+        WHERE collection_id = $1 AND omitted IS NULL
+        ORDER BY repo, path`,
+      [args.collectionId],
+    )
+  ).rows;
+  const repositories = new Map<string, StoredCodeFile[]>();
+  for (const file of stored) {
+    const files = repositories.get(file.repo) ?? [];
+    if (repositoryLinkSource(file)) {
+      files.push({ path: file.path, sha: file.sha, content: file.content });
+    }
+    repositories.set(file.repo, files);
+  }
+
+  if (repositories.size < 2) {
+    await deleteCodeGraphDocument(c, args.collectionId, REPOSITORY_GRAPH_EXTERNAL_ID);
+    return { status: "deleted", files: 0, edges: 0 };
+  }
+
+  const snapshots = [...repositories]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([id, files]) => ({
+      id,
+      files: files.map(({ path, content }) => ({ path, content })),
+    }));
+  const sourceFiles = [...repositories.values()].flat();
+  const manifest = snapshots
+    .flatMap((repository) => [
+      `repository\t${repository.id}`,
+      ...(repositories.get(repository.id) ?? []).map(
+        (file) => `file\t${repository.id}\t${file.path}\t${file.sha}`,
+      ),
+    ])
+    .join("\n");
+  const extractionId = `${args.client.id}:${REPOSITORY_LINKS_EXTRACTION_VERSION}`;
+  const current = (
+    await c.query<{ content_hash: string; extraction_id: string; edges: number }>(
+      `SELECT d.content_hash, d.extraction_id, count(r.id)::int AS edges
+         FROM retrieval_documents d
+         LEFT JOIN retrieval_chunks ch ON ch.document_id = d.id
+         LEFT JOIN retrieval_relations r ON r.source_chunk_id = ch.id
+        WHERE d.collection_id = $1 AND d.source = 'code_graph' AND d.external_id = $2
+        GROUP BY d.id, d.content_hash, d.extraction_id`,
+      [args.collectionId, REPOSITORY_GRAPH_EXTERNAL_ID],
+    )
+  ).rows[0];
+  if (current?.content_hash === hash(manifest) && current.extraction_id === extractionId) {
+    return { status: "unchanged", files: sourceFiles.length, edges: current.edges };
+  }
+
+  const output = await args.client.createRepositoryLinks({ repositories: snapshots });
+  const entityByRepository = new Map<
+    string,
+    {
+      key: string;
+      name: string;
+      type: string;
+      description: string;
+      mentions: Array<{ chunkIndex: number }>;
+    }
+  >();
+  const relationships = output.links.map((link, chunkIndex) => {
+    for (const repository of [link.from, link.to]) {
+      const entity = entityByRepository.get(repository) ?? {
+        key: repository,
+        name: repository,
+        type: "code_repository",
+        description: "Code repository",
+        mentions: [],
+      };
+      entity.mentions.push({ chunkIndex });
+      entityByRepository.set(repository, entity);
+    }
+    const evidence = link.evidence
+      .map((item) => `${link.from}/${item.file}:${item.line} — ${item.text}`)
+      .join("; ");
+    return {
+      fromKey: link.from,
+      toKey: link.to,
+      type: link.relation,
+      fact: `${link.from} ${link.relation} ${link.to}. Evidence: ${evidence}`,
+      chunkIndex,
+      confidence: 1,
+    };
+  });
+  const chunks =
+    relationships.length > 0
+      ? relationships.map((relationship) => ({
+          text: relationship.fact,
+          breadcrumb: "Repository code graph",
+        }))
+      : [
+          {
+            text: "No exact inter-repository relationships were resolved.",
+            breadcrumb: "Repository code graph",
+          },
+        ];
+
+  const report = await ingestRetrievalDocument(c, {
+    collectionId: args.collectionId,
+    source: "code_graph",
+    externalId: REPOSITORY_GRAPH_EXTERNAL_ID,
+    title: "Repository code graph",
+    content: manifest,
+    accessScopes: ["workspace"],
+    chunks,
+    extraction: { entities: [...entityByRepository.values()], relationships },
+  });
+  await c.query("UPDATE retrieval_documents SET extraction_id = $1 WHERE id = $2", [
+    extractionId,
+    report.documentId,
+  ]);
+  return { status: "indexed", files: sourceFiles.length, edges: relationships.length };
 }
