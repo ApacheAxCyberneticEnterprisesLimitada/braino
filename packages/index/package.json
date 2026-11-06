@@ -26,6 +26,7 @@
     "eval:collection-relations": "pnpm build && node scripts/collection-relations-bench.mjs",
     "eval:retrieval": "node scripts/eval-retrieval.mjs",
     "eval:enterprise-rag": "node scripts/enterprise-rag-bench.mjs",
+    "eval:locomo": "node scripts/locomo-bench.mjs",
     "backfill:qdrant": "node scripts/backfill-qdrant.mjs",
     "smoke:qdrant": "node scripts/smoke-qdrant-vector-store.mjs"
   },

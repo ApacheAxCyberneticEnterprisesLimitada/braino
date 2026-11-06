@@ -85,6 +85,39 @@ The answer file can be passed unchanged to the benchmark's official
 `metrics_based_eval` command. A sibling `<output>.summary.json` records the
 dataset version, model, corpus counts, retrieval metrics, and latency.
 
+## LoCoMo pilot
+
+`locomo-bench.mjs` runs Doco's production ingestion, graph extraction,
+embedding, multi-path retrieval, and reranking over LoCoMo's ten isolated
+conversations. It selects a deterministic, category-stratified sample, then
+uses OmniMemEval's answer and judge prompts. The default 10% run contains 154
+of the 1,540 non-adversarial questions and is a calibration pilot, not a public
+leaderboard submission.
+
+LoCoMo is CC BY-NC 4.0. Download `locomo10.json` from the upstream repository,
+review that license, and pass `--accept-noncommercial-license`. Use a dedicated
+database: the runner refuses an ordinary database name. It resumes indexing,
+search, answers, and judgments from its persisted database and output files.
+
+```sh
+DOCO_BENCHMARK_DATABASE_URL='postgresql://localhost/doco_locomo_benchmark' \
+OPENROUTER_API_KEY='…' VOYAGE_API_KEY='…' DOCO_EMBEDDING_PROVIDER=voyage \
+pnpm --filter @doco/index eval:locomo -- \
+  --dataset /path/to/locomo10.json \
+  --output /path/to/locomo-pilot-results \
+  --sample-rate 0.1 \
+  --seed doco-locomo-pilot-v1 \
+  --accept-noncommercial-license
+```
+
+The output directory contains the frozen sample manifest, retrieved contexts,
+per-question answers and judgments, and a summary with accuracy, Wilson 95%
+intervals, annotated-evidence recall, latency, token use, and answer/judge API
+cost. Extraction, embedding, and reranking costs are not included. The default
+answer/judge model routes are `openai/gpt-4.1-mini` and
+`openai/gpt-4o-mini` through OpenRouter; the summary records both requested and
+resolved model IDs. `--no-graph` and `--no-rerank` are explicit ablations.
+
 `eval-retrieval.mjs` compares candidate embedding models — and measures the
 lift from **asymmetric** query/document hints and from a **reranker** — over a
 labeled fixture, so a model choice can be made on measured recall/nDCG rather
