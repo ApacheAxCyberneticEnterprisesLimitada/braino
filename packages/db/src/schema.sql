@@ -126,6 +126,21 @@ CREATE TABLE IF NOT EXISTS authenticator_recovery_codes (
   PRIMARY KEY (user_id, code_hash)
 );
 
+-- A sign-in waiting for the person to approve it from their phone
+-- (lib/phone-approval.server.ts): the computer that just took their password
+-- shows a QR code linking to `code`, and the phone approves it with one of the
+-- account's passkeys. `browser` and `place` say where the sign-in comes from,
+-- for the phone to show. A row lasts five minutes; the next one started clears
+-- those older.
+CREATE TABLE IF NOT EXISTS phone_approvals (
+  code          text PRIMARY KEY,
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  browser       text NOT NULL,
+  place         text,
+  approved_at   timestamptz,
+  created_at    timestamptz NOT NULL DEFAULT now()
+);
+
 
 CREATE TABLE IF NOT EXISTS workspaces (
   id          text PRIMARY KEY,
