@@ -10,7 +10,8 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "build": "pnpm --workspace-concurrency=1 -r build",
+    "build": "pnpm run build:packages && pnpm --filter @doco/web build",
+    "build:packages": "pnpm --workspace-concurrency=1 --filter='./packages/*' --filter='!@doco/web' build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "lint": "biome check .",

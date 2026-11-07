@@ -1,0 +1,37 @@
+{
+  "name": "@doco/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Single-workspace Doco web application.",
+  "license": "MPL-2.0",
+  "scripts": {
+    "dev": "react-router dev --port 5173",
+    "build": "react-router build",
+    "start": "react-router-serve ./build/server/index.js",
+    "typecheck": "react-router typegen && tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@doco/db": "workspace:*",
+    "@doco/host": "workspace:*",
+    "@doco/shared": "workspace:*",
+    "@react-router/node": "7.18.5",
+    "@react-router/serve": "7.18.5",
+    "pg": "^8.13.1",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router": "7.18.5",
+    "isbot": "^5"
+  },
+  "devDependencies": {
+    "@react-router/dev": "7.18.5",
+    "@types/pg": "^8.11.10",
+    "@types/react": "^19.0.1",
+    "@types/react-dom": "^19.0.2",
+    "happy-dom": "^20.10.2",
+    "vite": "^6.0.3",
+    "vite-tsconfig-paths": "^5.1.4",
+    "yaml": "^2.6.1"
+  }
+}

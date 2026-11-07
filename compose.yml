@@ -1,0 +1,86 @@
+name: doco
+
+services:
+  app:
+    image: ${DOCO_IMAGE:-doco:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        DOCO_VERSION: ${DOCO_VERSION:-local}
+    restart: unless-stopped
+    environment:
+      DOCO_DATABASE_URL: postgresql://doco:${DOCO_POSTGRES_PASSWORD:?set DOCO_POSTGRES_PASSWORD in .env}@postgres:5432/doco
+      DOCO_ENCRYPTION_KEY: ${DOCO_ENCRYPTION_KEY:?set DOCO_ENCRYPTION_KEY in .env}
+      DOCO_PUBLIC_HOST: ${DOCO_PUBLIC_HOST:-http://localhost:3000}
+      QDRANT_URL: http://qdrant:6333
+    ports:
+      - "${DOCO_HTTP_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/healthz').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 4
+    networks: [private]
+
+  postgres:
+    image: postgres:16.10-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: doco
+      POSTGRES_USER: doco
+      POSTGRES_PASSWORD: ${DOCO_POSTGRES_PASSWORD:?set DOCO_POSTGRES_PASSWORD in .env}
+    volumes:
+      - doco-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doco -d doco"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+
+  qdrant:
+    image: qdrant/qdrant:v1.20.0
+    restart: unless-stopped
+    volumes:
+      - doco-qdrant:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c ': >/dev/tcp/127.0.0.1/6333'"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+
+  caddy:
+    image: caddy:2.10-alpine
+    profiles: ["tls"]
+    restart: unless-stopped
+    environment:
+      DOCO_HOST: ${DOCO_HOST:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - doco-caddy-data:/data
+      - doco-caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    networks: [private]
+
+networks:
+  private:
+
+volumes:
+  doco-postgres:
+  doco-qdrant:
+  doco-caddy-data:
+  doco-caddy-config:

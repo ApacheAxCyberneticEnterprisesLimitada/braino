@@ -1,3 +1,4 @@
+import type { PoolClient } from "@doco/db";
 import {
   DEFAULT_WORKSPACE_CONSTITUTION,
   type EntityId,
@@ -71,12 +72,15 @@ function assertWorkspaceHandleAllowed(handle: string): void {
   }
 }
 
-export async function findAvailableWorkspaceHandle(requested: string): Promise<string> {
+export async function findAvailableWorkspaceHandle(
+  requested: string,
+  client?: PoolClient,
+): Promise<string> {
   const base = requested.trim().toLowerCase();
   if (!base) throw new Error("Workspace handle is required.");
   assertWorkspaceHandleAllowed(base);
   const { withClient } = await import("@doco/db");
-  return withClient(async (c) => {
+  const find = async (c: PoolClient) => {
     let candidate = base;
     let n = 2;
     while (true) {
@@ -88,7 +92,8 @@ export async function findAvailableWorkspaceHandle(requested: string): Promise<s
       n += 1;
       if (n > 1000) throw new Error("Could not find an available handle.");
     }
-  });
+  };
+  return client ? find(client) : withClient(find);
 }
 
 export async function findAvailableCollectionHandle(requestedHandle: string): Promise<string> {
@@ -133,35 +138,44 @@ export const DEFAULT_WORKSPACE_COLLECTION_TEMPLATES = [
  * Create a workspace owned by `ownerUserId` and seed it with the
  * `DEFAULT_WORKSPACE_COLLECTION_TEMPLATES` Collections.
  */
-export async function addWorkspaceByHandle(opts: {
-  handle: string;
-  ownerUserId: string;
-  autoSuffix?: boolean;
-}): Promise<{ id: EntityId<"workspace">; handle: string }> {
-  const workspace = await insertWorkspace(opts);
+export async function addWorkspaceByHandle(
+  opts: {
+    handle: string;
+    ownerUserId: string;
+    autoSuffix?: boolean;
+  },
+  client?: PoolClient,
+): Promise<{ id: EntityId<"workspace">; handle: string }> {
+  const workspace = await insertWorkspace(opts, client);
   for (const templateHandle of DEFAULT_WORKSPACE_COLLECTION_TEMPLATES) {
-    await createCollectionInWorkspace({
-      workspaceId: workspace.id,
-      requestedHandle: `${workspace.handle}-${templateHandle}`,
-      createdByUserId: opts.ownerUserId,
-      templateHandle,
-      autoSuffix: true,
-    });
+    await createCollectionInWorkspace(
+      {
+        workspaceId: workspace.id,
+        requestedHandle: `${workspace.handle}-${templateHandle}`,
+        createdByUserId: opts.ownerUserId,
+        templateHandle,
+        autoSuffix: true,
+      },
+      client,
+    );
   }
   return workspace;
 }
 
-async function insertWorkspace(opts: {
-  handle: string;
-  ownerUserId: string;
-  autoSuffix?: boolean;
-}): Promise<{ id: EntityId<"workspace">; handle: string }> {
+async function insertWorkspace(
+  opts: {
+    handle: string;
+    ownerUserId: string;
+    autoSuffix?: boolean;
+  },
+  client?: PoolClient,
+): Promise<{ id: EntityId<"workspace">; handle: string }> {
   assertWorkspaceHandleAllowed(opts.handle);
   const { withClient } = await import("@doco/db");
   const finalHandle = opts.autoSuffix
-    ? await findAvailableWorkspaceHandle(opts.handle)
+    ? await findAvailableWorkspaceHandle(opts.handle, client)
     : opts.handle;
-  return withClient(async (c) => {
+  const insert = async (c: PoolClient) => {
     if (!opts.autoSuffix) {
       const taken = await c.query("SELECT 1 FROM workspaces WHERE handle = $1 LIMIT 1", [
         finalHandle,
@@ -183,24 +197,28 @@ async function insertWorkspace(opts: {
       [id, opts.ownerUserId, created],
     );
     return { id, handle: finalHandle };
-  });
+  };
+  return client ? insert(client) : withClient(insert);
 }
 
-export async function createCollectionInWorkspace(opts: {
-  workspaceId: string;
-  requestedHandle: string;
-  createdByUserId: string;
-  visibility?: "private" | "public";
-  /** The template the collection is made from. Every new collection has one. */
-  templateHandle: string;
-  autoSuffix?: boolean;
-  /**
-   * Project-owner-authored sentence describing what this collection is for.
-   * When omitted, defaults to the template's `description`. Pass an explicit
-   * string — including the empty string — to override it.
-   */
-  goal?: string;
-}): Promise<{
+export async function createCollectionInWorkspace(
+  opts: {
+    workspaceId: string;
+    requestedHandle: string;
+    createdByUserId: string;
+    visibility?: "private" | "public";
+    /** The template the collection is made from. Every new collection has one. */
+    templateHandle: string;
+    autoSuffix?: boolean;
+    /**
+     * Project-owner-authored sentence describing what this collection is for.
+     * When omitted, defaults to the template's `description`. Pass an explicit
+     * string — including the empty string — to override it.
+     */
+    goal?: string;
+  },
+  client?: PoolClient,
+): Promise<{
   collectionId: EntityId<"collection">;
   workspaceId: string;
   workspaceHandle: string;
@@ -214,7 +232,7 @@ export async function createCollectionInWorkspace(opts: {
   if (!template) throw new Error(`Unknown template "${opts.templateHandle}".`);
 
   const { withClient } = await import("@doco/db");
-  return withClient(async (c) => {
+  const create = async (c: PoolClient) => {
     const workspaceRow = await c.query<{ id: string; handle: string }>(
       "SELECT id, handle FROM workspaces WHERE id = $1",
       [opts.workspaceId],
@@ -368,7 +386,8 @@ export async function createCollectionInWorkspace(opts: {
     }
 
     return { collectionId, workspaceId: opts.workspaceId, workspaceHandle, handle, goal };
-  });
+  };
+  return client ? create(client) : withClient(create);
 }
 
 export interface UpdateCollectionOptions {
