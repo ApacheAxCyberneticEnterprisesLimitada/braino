@@ -4,6 +4,8 @@
   "files": {
     "ignore": [
       "dist",
+      "build",
+      ".react-router",
       "node_modules",
       "*.md",
       "*.yaml",

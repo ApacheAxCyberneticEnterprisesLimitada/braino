@@ -4,16 +4,32 @@ Doco is an open knowledge system for durable decisions, rules, evidence, and
 their relationships. This repository is the sole upstream for the open product.
 
 The extraction from Doco Cloud is in progress. The current tree contains the
-foundational data, domain, and retrieval packages with their original history:
+foundational data, domain, retrieval, and first single-workspace runtime:
 
 - `@doco/shared` — entity types, identifiers, policies, and URL conventions
 - `@doco/db` — PostgreSQL schema and source-of-truth storage
 - `@doco/host` — workspace, collection, person, and template services
 - `@doco/index` — retrieval, ranking, embeddings, and Qdrant integration
+- `@doco/web` — first-run setup, owner sign-in, workspace home, and collection reader
 
-The target is a complete single-workspace product that boots from a Docker image
-and Compose file. Until the web runtime lands, this repository is a migration
-foundation rather than a self-hostable release.
+The supported deployment is one application, one PostgreSQL source of truth,
+and one rebuildable Qdrant index. The current runtime is an early self-hosting
+preview; the remaining authoring and agent surfaces are still moving here.
+
+## Self-hosting preview
+
+```sh
+cp .env.example .env
+# Fill both secrets in .env with independent `openssl rand -base64 32` values.
+docker compose up -d --build
+curl --fail http://localhost:3000/healthz
+```
+
+Open `http://localhost:3000` and create the owner and sole workspace. PostgreSQL
+and Qdrant use named volumes and are not exposed on host ports. Plain HTTP on
+port 3000 is the default. For a public DNS name with automatic HTTPS, set
+`DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
+`docker compose --profile tls up -d --build`.
 
 ## Development
 
