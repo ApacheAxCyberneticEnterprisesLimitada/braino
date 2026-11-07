@@ -80,11 +80,11 @@ describe("quieting from Slack becomes the switches on doco.to", () => {
         ('collection_slack', 'C_PRODUCT', 'product', true);
       ALTER TABLE group_chat_conversations RENAME COLUMN closed_at TO quiet_at;
       INSERT INTO group_chat_conversations (provider, workspace_id, conversation_id, introduced_at, quiet_at)
-      VALUES ('slack', 'T1', 'C_TIMES', '2026-10-01', '2026-10-31'),
-             ('slack', 'T1', 'C_ENG', NULL, '2026-10-31'),
-             ('slack', 'T1', 'U_ANA', '2026-10-01', '2026-10-31'),
-             ('slack', 'T1', 'C_PRODUCT/1700000000.000100', '2026-10-02', '2026-10-03'),
-             ('slack', 'T1', 'C_PRODUCT/1700000000.000200', '2026-10-02', NULL);
+      VALUES ('slack', 'T1', 'C_TIMES', '2026-10-01T00:00:00Z', '2026-10-31T00:00:00Z'),
+             ('slack', 'T1', 'C_ENG', NULL, '2026-10-31T00:00:00Z'),
+             ('slack', 'T1', 'U_ANA', '2026-10-01T00:00:00Z', '2026-10-31T00:00:00Z'),
+             ('slack', 'T1', 'C_PRODUCT/1700000000.000100', '2026-10-02T00:00:00Z', '2026-10-03T00:00:00Z'),
+             ('slack', 'T1', 'C_PRODUCT/1700000000.000200', '2026-10-02T00:00:00Z', NULL);
     `);
 
     await db.exec(schemaSql);

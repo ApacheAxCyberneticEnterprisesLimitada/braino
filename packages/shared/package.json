@@ -1,10 +1,9 @@
 {
   "name": "@doco/shared",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
   "description": "Shared types, ULID generation, time helpers used across all collection packages.",
-  "license": "UNLICENSED",
+  "license": "MPL-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

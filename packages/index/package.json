@@ -1,10 +1,9 @@
 {
   "name": "@doco/index",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
   "description": "PG-backed search indexer, PageRank, and embedding provider.",
-  "license": "UNLICENSED",
+  "license": "MPL-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {

@@ -1,10 +1,9 @@
 {
   "name": "@doco/db",
   "version": "0.0.1",
-  "private": true,
   "type": "module",
   "description": "Postgres adapter for Doco source-of-truth storage.",
-  "license": "UNLICENSED",
+  "license": "MPL-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
