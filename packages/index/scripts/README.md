@@ -184,8 +184,8 @@ content.
 
 ## Local vector index
 
-With `compose.local.yml` running, copy the authoritative local PostgreSQL
-embedding rows into Qdrant:
+With `docker compose up -d postgres qdrant` running, copy the authoritative
+local PostgreSQL embedding rows into Qdrant:
 
 ```sh
 pnpm --filter @doco/index build
