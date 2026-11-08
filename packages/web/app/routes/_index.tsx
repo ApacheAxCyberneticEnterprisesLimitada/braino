@@ -1,15 +1,28 @@
 import { withClient } from "@doco/db";
 import { getSingleWorkspaceState, initializeSingleWorkspace } from "@doco/host";
-import { Form, redirect, useActionData, useLoaderData } from "react-router";
-import { getCurrentUser } from "~/lib/current-user.server.js";
-import { hashPassword, passwordError, verifyPassword } from "~/lib/password.server.js";
-import { clearSessionCookie, createSessionCookie } from "~/lib/session.server.js";
+import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/card";
+import { CollectionTypeIcon } from "~/components/collection-type-icon";
+import { PageHeader } from "~/components/page-header";
+import { NarrowPageMain, PageMain } from "~/components/page-main";
+import { getCurrentUser } from "~/lib/current-user.server";
+import { hashPassword, passwordError, verifyPassword } from "~/lib/password.server";
+import { clearSessionCookie, createSessionCookie } from "~/lib/session.server";
 
 interface DashboardCollection {
   id: string;
   handle: string;
   goal: string;
   template_handle: string;
+  items: number;
+  last_updated_at: string | null;
+}
+
+interface WorkspaceView {
+  id: string;
+  handle: string;
+  name: string;
+  constitution: string;
 }
 
 type LoaderData =
@@ -17,7 +30,7 @@ type LoaderData =
   | { screen: "signin"; workspaceName: string }
   | {
       screen: "dashboard";
-      workspace: { id: string; handle: string; name: string };
+      workspace: WorkspaceView;
       user: { id: string; email: string; username: string; name: string };
       collections: DashboardCollection[];
     };
@@ -31,18 +44,28 @@ export async function loader({ request }: { request: Request }): Promise<LoaderD
   if (!state.initialized) return { screen: "setup" };
   const user = await getCurrentUser(request);
   if (!user) return { screen: "signin", workspaceName: state.workspace.name };
-  const collections = await withClient(async (client) => {
+  return withClient(async (client) => {
+    const workspaceResult = await client.query<WorkspaceView>(
+      "SELECT id, handle, name, constitution FROM workspaces WHERE id = $1",
+      [state.workspace.id],
+    );
+    const workspace = workspaceResult.rows[0];
+    if (!workspace) throw new Error("The Doco workspace is missing.");
     const result = await client.query<DashboardCollection>(
-      `SELECT c.id, c.handle, c.goal, coalesce(c.data->>'template_handle', '') AS template_handle
+      `SELECT c.id, c.handle, c.goal,
+              coalesce(c.data->>'template_handle', '') AS template_handle,
+              count(n.id)::int AS items,
+              max(n.updated_at)::text AS last_updated_at
          FROM collections c
          JOIN workspace_users wu ON wu.workspace_id = c.workspace_id
+         LEFT JOIN nodes n ON n.collection_id = c.id
         WHERE c.workspace_id = $1 AND wu.user_id = $2 AND c.deleted_at IS NULL
+        GROUP BY c.id, c.handle, c.goal, c.data
         ORDER BY c.handle`,
-      [state.workspace.id, user.id],
+      [workspace.id, user.id],
     );
-    return result.rows;
+    return { screen: "dashboard", workspace, user, collections: result.rows };
   });
-  return { screen: "dashboard", workspace: state.workspace, user, collections };
 }
 
 function text(form: FormData, name: string): string {
@@ -118,105 +141,227 @@ export default function Home() {
   const data = useLoaderData() as LoaderData;
   const actionData = useActionData() as { error?: string } | undefined;
 
-  if (data.screen === "setup") {
-    return (
-      <main className="shell narrow">
-        <p className="eyebrow">First run</p>
-        <h1>Make this Doco yours.</h1>
-        <p className="lede">Create the owner and the one workspace served by this deployment.</p>
-        <section className="panel">
-          <Form method="post">
-            <input type="hidden" name="intent" value="setup" />
-            {actionData?.error ? <p className="error">{actionData.error}</p> : null}
-            <div className="fields">
-              <label>
-                Workspace name
-                <input name="workspace_name" required />
-              </label>
-              <label>
-                Workspace handle
-                <input name="workspace_handle" required pattern="[a-z0-9][a-z0-9_-]*" />
-              </label>
-              <label>
-                Your name
-                <input name="owner_name" required />
-              </label>
-              <label>
-                Username
-                <input name="owner_username" required pattern="[a-z0-9][a-z0-9_-]*" />
-              </label>
-              <label>
-                Email
-                <input name="owner_email" type="email" required />
-              </label>
-              <span />
-              <label>
-                Password
-                <input name="password" type="password" minLength={12} required />
-              </label>
-              <label>
-                Confirm password
-                <input name="password_confirmation" type="password" minLength={12} required />
-              </label>
-            </div>
-            <button type="submit">Create Doco</button>
-          </Form>
-        </section>
-      </main>
-    );
-  }
-
+  if (data.screen === "setup") return <Setup error={actionData?.error} />;
   if (data.screen === "signin") {
-    return (
-      <main className="shell narrow">
-        <p className="eyebrow">{data.workspaceName}</p>
-        <h1>Welcome back.</h1>
-        <section className="panel">
-          <Form method="post">
-            <input type="hidden" name="intent" value="signin" />
-            {actionData?.error ? <p className="error">{actionData.error}</p> : null}
-            <label>
-              Email
-              <input name="email" type="email" required />
-            </label>
-            <label>
-              Password
-              <input name="password" type="password" required />
-            </label>
-            <button type="submit">Sign in</button>
-          </Form>
-        </section>
-      </main>
-    );
+    return <SignIn workspaceName={data.workspaceName} error={actionData?.error} />;
   }
+  return <WorkspaceHome data={data} />;
+}
 
+function Breadcrumb({ children }: { children: React.ReactNode }) {
   return (
-    <main className="shell">
-      <header className="header">
-        <div>
-          <p className="eyebrow">Doco · {data.workspace.handle}</p>
-          <h1>{data.workspace.name}</h1>
-          <p className="lede">The decisions, rules, and evidence your team keeps aligned.</p>
-          <div className="stats">
-            <span>{data.collections.length} collections</span>
-            <span>Signed in as {data.user.name}</span>
+    <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+      <Link to="/" className="hover:underline">
+        Doco
+      </Link>
+      <span aria-hidden>›</span>
+      <span>{children}</span>
+    </nav>
+  );
+}
+
+function Field({
+  label,
+  ...input
+}: { label: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <label className="block text-xs">
+      <span className="mb-1 block text-muted-foreground">{label}</span>
+      <input
+        {...input}
+        className="w-full rounded-md px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
+      />
+    </label>
+  );
+}
+
+function ErrorMessage({ error }: { error?: string }) {
+  return error ? (
+    <p className="text-xs text-destructive" role="alert">
+      {error}
+    </p>
+  ) : null;
+}
+
+function Setup({ error }: { error?: string }) {
+  return (
+    <PageMain className="space-y-4 py-6">
+      <PageHeader breadcrumb={<Breadcrumb>First run</Breadcrumb>} title="Set up Doco">
+        <p className="text-xs text-muted-foreground">
+          Create the owner and the one workspace served by this deployment.
+        </p>
+      </PageHeader>
+      <Card>
+        <CardContent className="pt-4">
+          <Form method="post" className="space-y-4">
+            <input type="hidden" name="intent" value="setup" />
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field label="Workspace name" name="workspace_name" required />
+              <Field
+                label="Workspace handle"
+                name="workspace_handle"
+                required
+                pattern="[a-z0-9][a-z0-9_-]*"
+                placeholder="my-workspace"
+              />
+              <Field label="Your name" name="owner_name" required />
+              <Field
+                label="Username"
+                name="owner_username"
+                required
+                pattern="[a-z0-9][a-z0-9_-]*"
+              />
+              <Field label="Email" name="owner_email" type="email" required />
+              <span className="hidden sm:block" />
+              <Field label="Password" name="password" type="password" minLength={12} required />
+              <Field
+                label="Confirm password"
+                name="password_confirmation"
+                type="password"
+                minLength={12}
+                required
+              />
+            </div>
+            <ErrorMessage error={error} />
+            <button
+              type="submit"
+              className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            >
+              Create workspace
+            </button>
+          </Form>
+        </CardContent>
+      </Card>
+    </PageMain>
+  );
+}
+
+function SignIn({ workspaceName, error }: { workspaceName: string; error?: string }) {
+  return (
+    <NarrowPageMain className="space-y-4 py-10">
+      <Breadcrumb>Sign in</Breadcrumb>
+      <Card>
+        <CardHeader>
+          <CardTitle>Sign in</CardTitle>
+          <CardDescription>Type the email and password of your Doco account.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form method="post" className="space-y-3">
+            <input type="hidden" name="intent" value="signin" />
+            <Field label="Email" name="email" type="email" autoComplete="username" required />
+            <Field
+              label="Password"
+              name="password"
+              type="password"
+              autoComplete="current-password"
+              required
+            />
+            <button
+              type="submit"
+              className="neu-button flex w-full items-center justify-center rounded-md bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:opacity-90"
+            >
+              Sign in
+            </button>
+            <ErrorMessage error={error} />
+          </Form>
+          <p className="mt-4 font-mono text-[11px] text-muted-foreground">{workspaceName}</p>
+        </CardContent>
+      </Card>
+    </NarrowPageMain>
+  );
+}
+
+function WorkspaceHome({ data }: { data: Extract<LoaderData, { screen: "dashboard" }> }) {
+  const paragraphs = data.workspace.constitution
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean);
+  return (
+    <PageMain className="space-y-6 py-6">
+      <PageHeader
+        breadcrumb={<Breadcrumb>Workspaces › {data.workspace.handle}</Breadcrumb>}
+        title={data.workspace.handle}
+      >
+        <p className="font-mono text-xs text-muted-foreground">{data.workspace.id}</p>
+      </PageHeader>
+
+      <Card>
+        <CardContent className="space-y-3 pt-4">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {data.collections.map((collection) => (
+              <Link
+                to={`/${collection.handle}`}
+                title={collection.handle}
+                aria-label={collection.handle}
+                className="neu-button neu-small flex h-7 w-7 items-center justify-center rounded-md"
+                key={collection.id}
+              >
+                <CollectionTypeIcon template={collection.template_handle} />
+              </Link>
+            ))}
           </div>
-        </div>
-        <Form method="post">
-          <input type="hidden" name="intent" value="signout" />
-          <button className="secondary" type="submit">
-            Sign out
-          </button>
-        </Form>
-      </header>
-      <section className="grid">
-        {data.collections.map((collection) => (
-          <a className="card" href={`/${collection.handle}`} key={collection.id}>
-            <strong>{collection.handle}</strong>
-            <span>{collection.goal || collection.template_handle || "Collection"}</span>
-          </a>
-        ))}
+          <p className="text-xs text-muted-foreground">
+            {data.collections.length} collections · Signed in as {data.user.name}
+          </p>
+        </CardContent>
+      </Card>
+
+      <section className="neu-surface rounded-lg bg-card px-4 py-3">
+        <h2 className="text-sm font-semibold">Collections in this workspace</h2>
+        <ul className="mt-3 space-y-1.5">
+          {data.collections.map((collection) => (
+            <li className="flex min-w-0 items-baseline gap-2" key={collection.id}>
+              <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-muted-foreground" />
+              <Link
+                to={`/${collection.handle}`}
+                className="min-w-0 truncate text-sm font-semibold text-primary hover:underline"
+              >
+                {collection.handle}
+              </Link>
+              <span className="text-[11px] text-muted-foreground">
+                ({collection.items} {collection.items === 1 ? "record" : "records"})
+              </span>
+              <span className="ml-auto hidden text-[11px] text-muted-foreground sm:block">
+                {collection.last_updated_at ? "has activity" : "no activity yet"}
+              </span>
+            </li>
+          ))}
+        </ul>
       </section>
-    </main>
+
+      <Card>
+        <CardContent className="px-6 py-7 sm:px-10 sm:py-9">
+          <article>
+            <h2 className="text-center text-lg font-semibold uppercase tracking-[0.2em] sm:text-2xl sm:tracking-[0.25em]">
+              Constitution
+            </h2>
+            <p className="mt-1 text-center font-mono text-[11px] uppercase tracking-[0.3em] text-muted-foreground">
+              of {data.workspace.handle}
+            </p>
+            <div className="mx-auto mt-4 h-px w-24 bg-border" />
+            {paragraphs.length ? (
+              <div className="mt-6 space-y-4 hyphens-auto text-sm leading-7">
+                {paragraphs.map((paragraph, index) => (
+                  <p
+                    key={paragraph}
+                    className={
+                      index === 0
+                        ? "flow-root first-letter:float-left first-letter:mr-2 first-letter:mt-1 first-letter:text-5xl first-letter:font-semibold first-letter:leading-none"
+                        : undefined
+                    }
+                  >
+                    {paragraph}
+                  </p>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-6 text-center text-sm italic text-muted-foreground">
+                No constitution has been written yet.
+              </p>
+            )}
+          </article>
+        </CardContent>
+      </Card>
+    </PageMain>
   );
 }

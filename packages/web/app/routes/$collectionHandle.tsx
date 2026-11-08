@@ -1,5 +1,8 @@
 import { withClient } from "@doco/db";
-import { redirect, useLoaderData } from "react-router";
+import { Link, redirect, useLoaderData } from "react-router";
+import { Card, CardContent } from "~/components/card";
+import { PageHeader } from "~/components/page-header";
+import { PageMain } from "~/components/page-main";
 import { getCurrentUser } from "~/lib/current-user.server.js";
 
 interface CollectionNode {
@@ -27,7 +30,8 @@ export async function loader({
     const found = collection.rows[0];
     if (!found) return null;
     const nodes = await client.query<CollectionNode>(
-      `SELECT id, node_type, coalesce(data->>'title', data->>'name', id) AS title,
+      `SELECT id, node_type,
+              coalesce(nullif(extra->>'title', ''), nullif(extra->>'name', ''), nullif(prose, ''), id) AS title,
               lifecycle, updated_at::text
          FROM nodes
         WHERE collection_id = $1
@@ -44,30 +48,42 @@ export async function loader({
 export default function CollectionPage() {
   const data = useLoaderData() as Awaited<ReturnType<typeof loader>>;
   return (
-    <main className="shell narrow">
-      <p className="eyebrow">
-        <a href="/">Doco</a> · Collection
-      </p>
-      <h1>{data.collection.handle}</h1>
-      <p className="lede">{data.collection.goal}</p>
-      <section className="panel">
-        <h2>Recent records</h2>
-        {data.nodes.length ? (
-          <ul className="node-list">
-            {data.nodes.map((node) => (
-              <li key={node.id}>
-                <strong>{node.title}</strong>
-                <br />
-                <span className="muted">
-                  {node.node_type} · {node.lifecycle}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <p className="muted">This collection has no records yet.</p>
-        )}
-      </section>
-    </main>
+    <PageMain className="space-y-6 py-6">
+      <PageHeader
+        breadcrumb={
+          <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
+            <Link to="/" className="hover:underline">
+              Doco
+            </Link>
+            <span aria-hidden>›</span>
+            <span>Collection</span>
+          </nav>
+        }
+        title={data.collection.handle}
+      >
+        <p className="max-w-3xl text-sm text-muted-foreground">{data.collection.goal}</p>
+      </PageHeader>
+      <Card>
+        <CardContent className="pt-4">
+          <h2 className="text-sm font-semibold">Recent records</h2>
+          {data.nodes.length ? (
+            <ul className="mt-3 divide-y divide-border">
+              {data.nodes.map((node) => (
+                <li className="py-3 first:pt-0 last:pb-0" key={node.id}>
+                  <strong className="text-sm">{node.title}</strong>
+                  <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
+                    {node.node_type} · {node.lifecycle}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-3 text-xs italic text-muted-foreground">
+              This collection has no records yet.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+    </PageMain>
   );
 }
