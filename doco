@@ -105,11 +105,19 @@ restore() {
   doctor >/dev/null
   compose stop app qdrant >/dev/null 2>&1 || true
   compose up -d --wait postgres >/dev/null
+  compose exec -T postgres psql \
+    --username doco \
+    --dbname postgres \
+    --set ON_ERROR_STOP=1 \
+    -c 'DROP DATABASE doco WITH (FORCE)'
+  compose exec -T postgres psql \
+    --username doco \
+    --dbname postgres \
+    --set ON_ERROR_STOP=1 \
+    -c 'CREATE DATABASE doco OWNER doco'
   compose exec -T postgres pg_restore \
     --username doco \
     --dbname doco \
-    --clean \
-    --if-exists \
     --no-owner \
     --no-privileges <"$working_directory/postgres.dump"
 

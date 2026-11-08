@@ -48,6 +48,9 @@ describe("the supported self-hosted stack", () => {
     expect(statSync(commandPath).mode & 0o111).not.toBe(0);
     expect(command).toContain("pg_dump");
     expect(command).toContain("pg_restore");
+    expect(command).toContain("DROP DATABASE doco WITH (FORCE)");
+    expect(command).toContain("CREATE DATABASE doco OWNER doco");
+    expect(command).not.toContain("--clean");
     expect(command).toContain("doctor)");
     expect(command).toContain("upgrade)");
     expect(command).toContain("/qdrant/storage");
@@ -64,5 +67,38 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain("provenance: mode=max");
     expect(workflow).toContain("sbom: true");
     expect(workflow).toContain("cosign sign --yes");
+  });
+
+  it("gates releases on the executable v0.1 conformance contract", () => {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const script = readFileSync(resolve(root, "scripts/conformance.sh"), "utf8");
+    const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
+    const contract = readFileSync(resolve(root, "docs/v0.1-conformance.md"), "utf8");
+
+    expect(packageJson.scripts.conformance).toBe("bash scripts/conformance.sh");
+    for (const proof of [
+      "single-workspace.real-db.test.ts",
+      "collaborators.real-db.test.ts",
+      "changesets.real-db.test.ts",
+      "workspace-search.real-db.test.ts",
+      "mcp-core.real-db.test.ts",
+      "incoming-webhooks.real-db.test.ts",
+      "github-connections.real-db.test.ts",
+      "self-hosted-compose.test.ts",
+      "design-language.test.ts",
+    ]) {
+      expect(script).toContain(proof);
+      expect(contract).toContain(proof);
+    }
+    expect(script).toContain("docker compose");
+    expect(script).toContain("./doco backup");
+    expect(script).toContain("./doco restore");
+    expect(script).toContain("600");
+    expect(workflow.indexOf("pnpm conformance")).toBeGreaterThan(0);
+    expect(workflow.indexOf("pnpm conformance")).toBeLessThan(
+      workflow.indexOf("docker/build-push-action"),
+    );
   });
 });

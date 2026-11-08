@@ -3,8 +3,7 @@
 Doco is an open knowledge system for durable decisions, rules, evidence, and
 their relationships. This repository is the sole upstream for the open product.
 
-The extraction from Doco Cloud is in progress. The current tree contains the
-foundational data, domain, retrieval, and first single-workspace runtime:
+This tree contains the supported single-workspace, self-hosted product:
 
 - `@doco/shared` — entity types, identifiers, policies, and URL conventions
 - `@doco/db` — PostgreSQL schema and source-of-truth storage
@@ -13,10 +12,11 @@ foundational data, domain, retrieval, and first single-workspace runtime:
 - `@doco/web` — first-run setup, owner sign-in, workspace home, collection reader, and record authoring
 
 The supported deployment is one application, one PostgreSQL source of truth,
-and one rebuildable Qdrant index. The current runtime is an early self-hosting
-preview; the remaining authoring and agent surfaces are still moving here.
+and one rebuildable Qdrant index. Core authoring, team access, deterministic
+search, MCP, generic webhooks, GitHub import, and operations work without a
+model provider.
 
-## Self-hosting preview
+## Self-hosting
 
 ```sh
 cp .env.example .env
@@ -70,6 +70,11 @@ upgrade commands:
 PostgreSQL is the source of truth; Qdrant is cleared and rebuilt after a
 restore. Backups include deployment configuration and are written with mode
 `0600`. See [Operating Doco](docs/operations.md) for the full procedure.
+
+The executable [v0.1 conformance contract](docs/v0.1-conformance.md) covers a
+clean Docker boot in under ten minutes, the core product surfaces, and a
+destructive backup/restore drill. Version-tag releases cannot publish until it
+passes.
 
 ## Development
 
