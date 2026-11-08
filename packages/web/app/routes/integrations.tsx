@@ -1,16 +1,22 @@
 import { withClient } from "@doco/db";
 import {
+  type ConnectorConnectionSummary,
   type GithubConnectionSummary,
+  connectConnector,
   connectGithubRepository,
   createIncomingWebhook,
+  disconnectConnector,
   disconnectGithubRepository,
   getSingleWorkspaceState,
+  listConnectorConnections,
   listGithubConnections,
   listIncomingWebhooks,
   revokeIncomingWebhook,
+  slackConnector,
+  syncConnectorConnection,
   syncGithubConnection,
 } from "@doco/host";
-import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData, useNavigation } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/card";
 import { PageHeader } from "~/components/page-header";
 import { PageMain } from "~/components/page-main";
@@ -46,6 +52,7 @@ export async function loader({ request }: { request: Request }) {
     );
     return {
       collections: collections.rows,
+      connectorConnections: await listConnectorConnections(client, state.workspace.id, user.id),
       githubConnections: await listGithubConnections(client, state.workspace.id, user.id),
       webhooks: await listIncomingWebhooks(client, {
         workspaceId: state.workspace.id,
@@ -80,6 +87,65 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   if (!state.initialized) return Response.json({ error: "Finish setup first." }, { status: 409 });
   const form = await request.formData();
   const intent = text(form, "intent");
+
+  if (intent === "connect_slack") {
+    try {
+      const connected = await withClient((client) =>
+        connectConnector(client, {
+          workspaceId: state.workspace.id,
+          userId: user.id,
+          credential: text(form, "bot_token"),
+          encryptionKey: encryptionKey(),
+          adapter: slackConnector,
+        }),
+      );
+      const synced = await withClient((client) =>
+        syncConnectorConnection(client, {
+          connectionId: connected.id,
+          encryptionKey: encryptionKey(),
+          userId: user.id,
+          adapter: slackConnector,
+        }),
+      );
+      return {
+        message: `Connected ${connected.sourceName}. Imported ${synced.created} Slack messages.`,
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not connect Slack." };
+    }
+  }
+
+  if (intent === "sync_connector") {
+    try {
+      const synced = await withClient((client) =>
+        syncConnectorConnection(client, {
+          connectionId: text(form, "connection_id"),
+          encryptionKey: encryptionKey(),
+          userId: user.id,
+          adapter: slackConnector,
+        }),
+      );
+      return {
+        message: `Slack sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.retired} retired, ${synced.unchanged} unchanged.`,
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not sync Slack." };
+    }
+  }
+
+  if (intent === "disconnect_connector") {
+    try {
+      await withClient((client) =>
+        disconnectConnector(client, {
+          connectionId: text(form, "connection_id"),
+          userId: user.id,
+        }),
+      );
+      return { message: "Slack disconnected. Imported messages and history were kept." };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not disconnect Slack." };
+    }
+  }
 
   if (intent === "connect_github") {
     try {
@@ -165,6 +231,94 @@ export async function action({ request }: { request: Request }): Promise<ActionD
     return redirect("/integrations");
   }
   return Response.json({ error: "Unknown integration action." }, { status: 400 });
+}
+
+function SlackConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
+  const navigation = useNavigation();
+  const connecting =
+    navigation.state !== "idle" && navigation.formData?.get("intent") === "connect_slack";
+  return (
+    <Form method="post" className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="intent" value="connect_slack" />
+      <label className="text-xs sm:col-span-2">
+        <span className="mb-1 block text-muted-foreground">Slack bot token</span>
+        <input
+          name="bot_token"
+          type="password"
+          required
+          autoComplete="new-password"
+          placeholder="xoxb-…"
+          className="w-full rounded-md px-3 py-2 font-mono text-sm"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground sm:col-span-2">
+        Use a bot token with channels:read, channels:history, and users:read. Doco copies public,
+        non-shared channels only and encrypts the token with this deployment&apos;s encryption key.
+      </p>
+      <div className="sm:col-span-2 sm:text-right">
+        <button
+          type="submit"
+          disabled={connecting}
+          className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+        >
+          {connecting ? "Connecting…" : reconnect ? "Reconnect Slack" : "Connect and sync"}
+        </button>
+      </div>
+    </Form>
+  );
+}
+
+function SlackConnection({ connection }: { connection: ConnectorConnectionSummary }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold">{connection.sourceName}</p>
+          <p className="font-mono text-xs text-muted-foreground">
+            {connection.active
+              ? connection.lastSyncedAt
+                ? `Last synced ${new Date(connection.lastSyncedAt).toLocaleString()}`
+                : "Connected; first sync pending"
+              : "Disconnected"}
+          </p>
+          {connection.lastError ? (
+            <p className="mt-1 text-xs text-destructive">{connection.lastError}</p>
+          ) : null}
+        </div>
+        {connection.active ? (
+          <div className="flex gap-2">
+            <Form method="post">
+              <input type="hidden" name="intent" value="sync_connector" />
+              <input type="hidden" name="connection_id" value={connection.id} />
+              <button
+                type="submit"
+                className="neu-button rounded-md px-3 py-2 text-xs font-semibold"
+              >
+                Sync now
+              </button>
+            </Form>
+            <Form method="post">
+              <input type="hidden" name="intent" value="disconnect_connector" />
+              <input type="hidden" name="connection_id" value={connection.id} />
+              <button
+                type="submit"
+                className="neu-button rounded-md px-3 py-2 text-xs font-semibold text-destructive"
+              >
+                Disconnect
+              </button>
+            </Form>
+          </div>
+        ) : null}
+      </div>
+      <Link
+        className="neu-button inline-flex rounded-md px-3 py-2 text-xs font-semibold"
+        to={`/${connection.collectionHandle}`}
+      >
+        Slack messages
+      </Link>
+      {!connection.active ? <SlackConnectionForm reconnect /> : null}
+    </div>
+  );
 }
 
 function GithubConnectionForm({
@@ -322,6 +476,29 @@ export default function IntegrationsPage() {
       ) : null}
       {actionData?.message ? <p className="text-sm text-foreground">{actionData.message}</p> : null}
       {actionData?.error ? <p className="text-sm text-destructive">{actionData.error}</p> : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Slack</CardTitle>
+          <CardDescription>
+            Copy one Slack workspace&apos;s public channels into a private Doco collection. Private,
+            archived, and Slack Connect channels are never imported.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {data.connectorConnections.find((connection) => connection.provider === "slack") ? (
+            <SlackConnection
+              connection={
+                data.connectorConnections.find(
+                  (connection) => connection.provider === "slack",
+                ) as ConnectorConnectionSummary
+              }
+            />
+          ) : (
+            <SlackConnectionForm />
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

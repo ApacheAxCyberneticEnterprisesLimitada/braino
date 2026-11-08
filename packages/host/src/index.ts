@@ -7,3 +7,5 @@ export * from "./workspace-search.js";
 export * from "./incoming-webhooks.js";
 export * from "./mcp-core.js";
 export * from "./github-connections.js";
+export * from "./connectors.js";
+export * from "./connectors/slack.js";

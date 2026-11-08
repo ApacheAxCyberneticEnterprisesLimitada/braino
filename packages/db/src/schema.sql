@@ -1459,6 +1459,45 @@ CREATE TABLE IF NOT EXISTS incoming_webhook_deliveries (
   PRIMARY KEY (webhook_token, idempotency_key)
 );
 
+-- Operator-managed knowledge connectors for the single-workspace host. Every
+-- provider has the same durable lifecycle: one encrypted credential, one
+-- external source identity, one private collection, and one sync status. The
+-- provider/source uniqueness is the database-level guarantee that an external
+-- source can feed only one Doco workspace on a host.
+CREATE TABLE IF NOT EXISTS connector_connections (
+  id                    text PRIMARY KEY,
+  workspace_id          text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  provider              text NOT NULL CHECK (provider IN ('slack','notion','google_drive')),
+  source_id             text NOT NULL,
+  source_name           text NOT NULL,
+  credential_sealed     text,
+  collection_id         text NOT NULL UNIQUE REFERENCES collections(id) ON DELETE CASCADE,
+  created_by_user_id    text NOT NULL REFERENCES users(id),
+  config                jsonb NOT NULL DEFAULT '{}'::jsonb,
+  active                boolean NOT NULL DEFAULT true,
+  created_at            timestamptz NOT NULL DEFAULT now(),
+  last_synced_at        timestamptz,
+  last_error            text,
+  UNIQUE (workspace_id, provider),
+  UNIQUE (provider, source_id)
+);
+
+-- A connector document is an ordinary Reference node, so it appears in the
+-- same collections, search, API, history, and audit stream as authored
+-- knowledge. This small identity ledger maps the provider's stable id to that
+-- node and records which complete snapshot last saw it. A missing document is
+-- retired through the normal immutable-history path instead of being deleted.
+CREATE TABLE IF NOT EXISTS connector_documents (
+  connection_id  text NOT NULL REFERENCES connector_connections(id) ON DELETE CASCADE,
+  external_id    text NOT NULL,
+  node_id        text NOT NULL UNIQUE REFERENCES nodes(id) ON DELETE CASCADE,
+  seen_run_id    text NOT NULL,
+  last_seen_at   timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (connection_id, external_id)
+);
+CREATE INDEX IF NOT EXISTS connector_documents_seen_idx
+  ON connector_documents (connection_id, seen_run_id);
+
 -- One operator-managed GitHub source for the single workspace. The personal
 -- access token is encrypted with DOCO_ENCRYPTION_KEY; it is never returned by
 -- list APIs or written into collection metadata. Imported issues and pull
