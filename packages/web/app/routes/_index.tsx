@@ -282,7 +282,15 @@ function WorkspaceHome({ data }: { data: Extract<LoaderData, { screen: "dashboar
         breadcrumb={<Breadcrumb>Workspaces › {data.workspace.handle}</Breadcrumb>}
         title={data.workspace.handle}
       >
-        <p className="font-mono text-xs text-muted-foreground">{data.workspace.id}</p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="font-mono text-xs text-muted-foreground">{data.workspace.id}</p>
+          <Link
+            to="/collaborators"
+            className="neu-button rounded-md px-3 py-1.5 text-xs font-semibold"
+          >
+            Collaborators
+          </Link>
+        </div>
       </PageHeader>
 
       <Card>
