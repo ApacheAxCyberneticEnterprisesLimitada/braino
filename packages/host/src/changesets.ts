@@ -7,6 +7,7 @@ import {
   createChangeset,
   createEdge,
   nodeRowFromFields,
+  retireActiveEdgesForNode,
   upsertNode,
 } from "@doco/db";
 import {
@@ -49,12 +50,14 @@ export interface CreateOperation {
 
 export interface ChangesetOperationResult {
   op_index: number;
-  op: "create" | "relate" | "relate_many";
+  op: "create" | "relate" | "relate_many" | "activate" | "queue" | "retire" | "supersede";
   ok: true;
   id?: string;
   alias?: string;
   relation?: RelationResult;
   relations?: RelationResult[];
+  retired_edges?: string[];
+  skipped?: boolean;
   warnings?: { policy_id: string; reason: string }[];
 }
 
@@ -128,7 +131,27 @@ interface PreparedRelateMany {
   relations: PreparedRelation[];
 }
 
-type PreparedOperation = PreparedCreate | PreparedRelate | PreparedRelateMany;
+interface PreparedTransition {
+  op: "activate" | "queue" | "retire";
+  target: string;
+  lifecycle: "active" | "queued" | "retired";
+  retireActiveEdges: boolean;
+}
+
+interface PreparedSupersede {
+  op: "supersede";
+  target: string;
+  replacement: PreparedCreate;
+  relation: PreparedRelation;
+  retireActiveEdges: boolean;
+}
+
+type PreparedOperation =
+  | PreparedCreate
+  | PreparedRelate
+  | PreparedRelateMany
+  | PreparedTransition
+  | PreparedSupersede;
 
 const RETIRED_POLICY_KINDS = new Set([
   "requires_entity_type",
@@ -146,6 +169,21 @@ function grantAllows(rawRole: string | null, rawTypes: string[] | null, type: Wr
   const writeTypes = normalizeWriteTypes(rawTypes);
   if (grantRole === "writer" && writeTypes.length === 0) writeTypes.push("*");
   return canWriteType(grantRole, writeTypes, type);
+}
+
+function requireWriteGrant(collection: CollectionAccess, type: WritableType, index: number) {
+  if (
+    grantAllows(collection.collection_role, collection.collection_write_types, type) ||
+    grantAllows(collection.workspace_role, collection.workspace_write_types, type)
+  ) {
+    return;
+  }
+  throw new ChangesetError(
+    `You do not have permission to write ${type} records in this collection.`,
+    "write_forbidden",
+    403,
+    index,
+  );
 }
 
 function plainObject(value: unknown): value is Record<string, unknown> {
@@ -175,87 +213,50 @@ function cleanAlias(value: unknown, index: number): string | undefined {
   return alias;
 }
 
-function prepareOperation(
-  raw: unknown,
+function prepareCreate(
+  raw: Record<string, unknown>,
   index: number,
   collection: CollectionAccess,
   actorId: string,
   aliases: Map<string, string>,
-): PreparedOperation {
-  if (!plainObject(raw)) {
-    throw new ChangesetError(
-      'Operation must be an object with op "create", "relate", or "relate_many".',
-      "unsupported_operation",
-      400,
-      index,
-    );
-  }
-  if (raw.op === "relate") {
-    return { op: "relate", ...prepareRelation(raw, index, collection, aliases) };
-  }
-  if (raw.op === "relate_many") {
-    if (!Array.isArray(raw.relations) || raw.relations.length === 0) {
-      throw new ChangesetError(
-        "relate_many.relations must be a non-empty array.",
-        "invalid_relations",
-        400,
-        index,
-      );
-    }
-    if (raw.relations.length > 50) {
-      throw new ChangesetError(
-        "relate_many accepts at most 50 relations.",
-        "too_many_relations",
-        400,
-        index,
-      );
-    }
-    return {
-      op: "relate_many",
-      relations: raw.relations.map((relation) =>
-        prepareRelation(relation, index, collection, aliases),
-      ),
-    };
-  }
-  if (raw.op !== "create") {
-    throw new ChangesetError(
-      `Unsupported operation "${String(raw.op)}". This release supports create, relate, and relate_many operations.`,
-      "unsupported_operation",
-      400,
-      index,
-    );
-  }
+  operationName: "create" | "supersede" = "create",
+): PreparedCreate {
   const nodeTypeValue = typeof raw.node_type === "string" ? raw.node_type.trim().toLowerCase() : "";
   const schema = CAPTURE_SCHEMAS[nodeTypeValue as GenericNodeType];
   if (!schema) {
     throw new ChangesetError(
-      `Unsupported create node_type "${String(raw.node_type)}".`,
+      `Unsupported ${operationName} node_type "${String(raw.node_type)}".`,
       "unsupported_node_type",
       400,
       index,
     );
   }
   const nodeType = nodeTypeValue as GenericNodeType;
-  if (
-    !grantAllows(collection.collection_role, collection.collection_write_types, nodeType) &&
-    !grantAllows(collection.workspace_role, collection.workspace_write_types, nodeType)
-  ) {
+  requireWriteGrant(collection, nodeType, index);
+  if (!plainObject(raw.body)) {
     throw new ChangesetError(
-      `You do not have permission to write ${nodeType} records in this collection.`,
-      "write_forbidden",
-      403,
+      `${operationName}.body must be an object.`,
+      "invalid_body",
+      400,
       index,
     );
   }
-  if (!plainObject(raw.body)) {
-    throw new ChangesetError("create.body must be an object.", "invalid_body", 400, index);
-  }
   const prose = typeof raw.body.prose === "string" ? raw.body.prose.trim() : "";
   if (!prose) {
-    throw new ChangesetError("create.body.prose is required.", "prose_required", 400, index);
+    throw new ChangesetError(
+      `${operationName}.body.prose is required.`,
+      "prose_required",
+      400,
+      index,
+    );
   }
   if (raw.body.extra !== undefined && !plainObject(raw.body.extra)) {
-    throw new ChangesetError("create.body.extra must be an object.", "invalid_extra", 400, index);
+    throw new ChangesetError(
+      `${operationName}.body.extra must be an object.`,
+      "invalid_extra",
+      400,
+      index,
+    );
   }
   const extra: Record<string, unknown> = {
     ...(raw.body.extra as Record<string, unknown> | undefined),
@@ -314,11 +315,128 @@ function prepareOperation(
   };
 }
 
+function prepareOperation(
+  raw: unknown,
+  index: number,
+  collection: CollectionAccess,
+  actorId: string,
+  aliases: Map<string, string>,
+): PreparedOperation {
+  if (!plainObject(raw)) {
+    throw new ChangesetError("Operation must be an object.", "unsupported_operation", 400, index);
+  }
+  if (raw.op === "create") {
+    return prepareCreate(raw, index, collection, actorId, aliases);
+  }
+  if (raw.op === "relate") {
+    return { op: "relate", ...prepareRelation(raw, index, collection, aliases) };
+  }
+  if (raw.op === "relate_many") {
+    if (!Array.isArray(raw.relations) || raw.relations.length === 0) {
+      throw new ChangesetError(
+        "relate_many.relations must be a non-empty array.",
+        "invalid_relations",
+        400,
+        index,
+      );
+    }
+    if (raw.relations.length > 50) {
+      throw new ChangesetError(
+        "relate_many accepts at most 50 relations.",
+        "too_many_relations",
+        400,
+        index,
+      );
+    }
+    return {
+      op: "relate_many",
+      relations: raw.relations.map((relation) =>
+        prepareRelation(relation, index, collection, aliases),
+      ),
+    };
+  }
+  if (raw.op === "activate" || raw.op === "queue" || raw.op === "retire") {
+    if (raw.retire_active_edges !== undefined && typeof raw.retire_active_edges !== "boolean") {
+      throw new ChangesetError(
+        `${raw.op}.retire_active_edges must be a boolean.`,
+        "invalid_retire_active_edges",
+        400,
+        index,
+      );
+    }
+    return {
+      op: raw.op,
+      target: resolveNodeReference(raw.target, aliases, index, `${raw.op}.target`),
+      lifecycle: raw.op === "activate" ? "active" : raw.op === "queue" ? "queued" : "retired",
+      retireActiveEdges: raw.op !== "activate" && raw.retire_active_edges === true,
+    };
+  }
+  if (raw.op === "supersede") {
+    if (raw.retire_active_edges !== undefined && typeof raw.retire_active_edges !== "boolean") {
+      throw new ChangesetError(
+        "supersede.retire_active_edges must be a boolean.",
+        "invalid_retire_active_edges",
+        400,
+        index,
+      );
+    }
+    const target = resolveNodeReference(raw.target, aliases, index, "supersede.target");
+    const replacement = prepareCreate(raw, index, collection, actorId, aliases, "supersede");
+    const replacementId = String(replacement.fields.id);
+    return {
+      op: "supersede",
+      target,
+      replacement,
+      relation: prepareRelation(
+        { relation_kind: "replaces", from: replacementId, to: target },
+        index,
+        collection,
+        aliases,
+      ),
+      retireActiveEdges: raw.retire_active_edges === true,
+    };
+  }
+  throw new ChangesetError(
+    `Unsupported operation "${String(raw.op)}". This release supports create, relate, relate_many, activate, queue, retire, and supersede operations.`,
+    "unsupported_operation",
+    400,
+    index,
+  );
+}
+
 function resolveReference(value: unknown, aliases: Map<string, string>, index: number): string {
   if (typeof value !== "string" || !value.trim()) {
     throw new ChangesetError(
       "Relation endpoints must be node ids or $aliases.",
       "invalid_relation_endpoint",
+      400,
+      index,
+    );
+  }
+  const reference = value.trim();
+  if (!reference.startsWith("$")) return reference;
+  const resolved = aliases.get(reference.slice(1));
+  if (!resolved) {
+    throw new ChangesetError(
+      `Unknown or forward alias "${reference}".`,
+      "unknown_alias",
+      400,
+      index,
+    );
+  }
+  return resolved;
+}
+
+function resolveNodeReference(
+  value: unknown,
+  aliases: Map<string, string>,
+  index: number,
+  field: string,
+): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ChangesetError(
+      `${field} must be a node id or $alias.`,
+      "invalid_node_target",
       400,
       index,
     );
@@ -362,17 +480,7 @@ function prepareRelation(
     );
   }
   const kind = kindValue as CatalogRelationKind;
-  if (
-    !grantAllows(collection.collection_role, collection.collection_write_types, kind) &&
-    !grantAllows(collection.workspace_role, collection.workspace_write_types, kind)
-  ) {
-    throw new ChangesetError(
-      `You do not have permission to write ${kind} relations in this collection.`,
-      "write_forbidden",
-      403,
-      index,
-    );
-  }
+  requireWriteGrant(collection, kind, index);
   const lifecycle = raw.lifecycle;
   if (
     lifecycle !== undefined &&
@@ -635,6 +743,224 @@ async function applyRelation(
   }
 }
 
+type PolicyWarning = { policy_id: string; reason: string };
+
+async function applyCreate(
+  client: PoolClient,
+  txId: number,
+  collection: CollectionAccess,
+  actorId: string,
+  operationIndex: number,
+  operation: PreparedCreate,
+  reason: string | null,
+): Promise<{ id: string; warnings: PolicyWarning[] }> {
+  const violations = await evaluateDeterministicPolicies(
+    client,
+    collection.id,
+    operation.fields as CandidateFields,
+  );
+  const blocking = violations.find((violation) => violation.on_violation === "block");
+  if (blocking) {
+    throw new ChangesetError(blocking.reason, "authoring_policy_failed", 422, operationIndex);
+  }
+  await upsertNode(nodeRowFromFields(operation.nodeType, operation.fields), client);
+  await appendNodeVersion(client, {
+    entityId: String(operation.fields.id),
+    entityType: operation.nodeType,
+    op: "create",
+    payload: operation.fields,
+    txId,
+    actor: actorId,
+  });
+  await appendAuditEventRow(
+    {
+      event_id: `evt_${generateUlid()}`,
+      at: String(operation.fields.created_at),
+      by_user: actorId,
+      collection_id: collection.id,
+      workspace_id: collection.workspace_id,
+      entity_type: operation.nodeType,
+      entity_id: String(operation.fields.id),
+      op: "entity.create",
+      after_json: operation.fields,
+      reason,
+    },
+    client,
+  );
+  return {
+    id: String(operation.fields.id),
+    warnings: violations
+      .filter((violation) => violation.on_violation === "warn")
+      .map(({ policy_id, reason: warningReason }) => ({
+        policy_id,
+        reason: warningReason,
+      })),
+  };
+}
+
+interface StoredNode {
+  id: string;
+  collection_id: string;
+  node_type: string;
+  lifecycle: Lifecycle;
+  prose: string;
+  extra: Record<string, unknown> | null;
+  kind: string | null;
+  locator: string | null;
+  proposer_id: string | null;
+  created_at: string;
+  created_by: string | null;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+function transitionedFields(
+  node: StoredNode,
+  lifecycle: "queued" | "active" | "retired",
+  actorId: string,
+): Record<string, unknown> {
+  return {
+    ...(node.extra ?? {}),
+    id: node.id,
+    collection_id: node.collection_id,
+    node_type: node.node_type,
+    lifecycle,
+    prose: node.prose,
+    ...(node.kind ? { kind: node.kind } : {}),
+    ...(node.locator ? { locator: node.locator } : {}),
+    ...(node.proposer_id ? { proposer_id: node.proposer_id } : {}),
+    created_at: isoTimestamp(node.created_at),
+    created_by: node.created_by,
+    updated_at: new Date().toISOString(),
+    updated_by: actorId,
+  };
+}
+
+async function applyTransition(
+  client: PoolClient,
+  txId: number,
+  collection: CollectionAccess,
+  actorId: string,
+  operationIndex: number,
+  operation: PreparedTransition,
+  reason: string | null,
+): Promise<{ id: string; retiredEdges: string[]; skipped: boolean; warnings: PolicyWarning[] }> {
+  const found = await client.query<StoredNode>(
+    `SELECT id, collection_id, node_type, lifecycle, prose, extra, kind, locator, proposer_id,
+            created_at, created_by, updated_at, updated_by
+       FROM nodes
+      WHERE collection_id = $1 AND id = $2
+      FOR UPDATE`,
+    [collection.id, operation.target],
+  );
+  const node = found.rows[0];
+  if (!node) {
+    throw new ChangesetError(
+      `Node not found in this collection: ${operation.target}.`,
+      "node_not_found",
+      404,
+      operationIndex,
+    );
+  }
+  requireWriteGrant(collection, node.node_type as WritableType, operationIndex);
+  if (node.lifecycle === operation.lifecycle) {
+    return { id: node.id, retiredEdges: [], skipped: true, warnings: [] };
+  }
+
+  let retiredEdges: Awaited<ReturnType<typeof retireActiveEdgesForNode>> = [];
+  if (operation.lifecycle !== "active") {
+    const activeEdges = await client.query<{ id: string; edge_type: string }>(
+      `SELECT id, edge_type FROM edges
+        WHERE collection_id = $1 AND lifecycle = 'active' AND (from_id = $2 OR to_id = $2)`,
+      [collection.id, node.id],
+    );
+    if (activeEdges.rows.length > 0 && !operation.retireActiveEdges) {
+      throw new ChangesetError(
+        `Cannot ${operation.op} ${node.id} while it has active edges. Pass retire_active_edges:true to retire them atomically.`,
+        "active_edges_require_cascade",
+        422,
+        operationIndex,
+      );
+    }
+    for (const edge of activeEdges.rows) {
+      requireWriteGrant(collection, edge.edge_type as WritableType, operationIndex);
+    }
+    if (operation.retireActiveEdges) {
+      retiredEdges = await retireActiveEdgesForNode(client, txId, {
+        collectionId: collection.id,
+        nodeId: node.id,
+        actor: actorId,
+      });
+      for (const edge of retiredEdges) {
+        requireWriteGrant(collection, edge.edge_type as WritableType, operationIndex);
+        await appendAuditEventRow(
+          {
+            event_id: `evt_${generateUlid()}`,
+            at: isoTimestamp(edge.updated_at),
+            by_user: actorId,
+            collection_id: collection.id,
+            workspace_id: collection.workspace_id,
+            entity_type: edge.edge_type,
+            entity_id: edge.id,
+            op: "lifecycle.transition",
+            before_json: { lifecycle: "active" },
+            after_json: edge as unknown as Record<string, unknown>,
+            reason,
+          },
+          client,
+        );
+      }
+    }
+  }
+
+  const fields = transitionedFields(node, operation.lifecycle, actorId);
+  const violations = await evaluateDeterministicPolicies(
+    client,
+    collection.id,
+    fields as CandidateFields,
+  );
+  const blocking = violations.find((violation) => violation.on_violation === "block");
+  if (blocking) {
+    throw new ChangesetError(blocking.reason, "authoring_policy_failed", 422, operationIndex);
+  }
+  await upsertNode(nodeRowFromFields(node.node_type, fields), client);
+  await appendNodeVersion(client, {
+    entityId: node.id,
+    entityType: node.node_type,
+    op: operation.lifecycle === "retired" ? "retire" : "update",
+    payload: fields,
+    txId,
+    actor: actorId,
+  });
+  await appendAuditEventRow(
+    {
+      event_id: `evt_${generateUlid()}`,
+      at: String(fields.updated_at),
+      by_user: actorId,
+      collection_id: collection.id,
+      workspace_id: collection.workspace_id,
+      entity_type: node.node_type,
+      entity_id: node.id,
+      op: "lifecycle.transition",
+      before_json: { lifecycle: node.lifecycle },
+      after_json: { lifecycle: operation.lifecycle },
+      reason,
+    },
+    client,
+  );
+  return {
+    id: node.id,
+    retiredEdges: retiredEdges.map((edge) => edge.id),
+    skipped: false,
+    warnings: violations
+      .filter((violation) => violation.on_violation === "warn")
+      .map(({ policy_id, reason: warningReason }) => ({
+        policy_id,
+        reason: warningReason,
+      })),
+  };
+}
+
 /**
  * Apply the public changeset contract through one transaction. The immutable
  * versions and audit rows are committed with the current-state projection, so
@@ -728,52 +1054,92 @@ export async function applyChangeset(
         });
         continue;
       }
-      const violations = await evaluateDeterministicPolicies(
-        client,
-        collection.id,
-        operation.fields as CandidateFields,
-      );
-      const blocking = violations.find((violation) => violation.on_violation === "block");
-      if (blocking) {
-        throw new ChangesetError(blocking.reason, "authoring_policy_failed", 422, index);
+      if (operation.op === "activate" || operation.op === "queue" || operation.op === "retire") {
+        const applied = await applyTransition(
+          client,
+          txId,
+          collection,
+          input.actorId,
+          index,
+          operation,
+          input.reason ?? null,
+        );
+        results.push({
+          op_index: index,
+          op: operation.op,
+          ok: true,
+          id: applied.id,
+          ...(applied.skipped ? { skipped: true } : {}),
+          ...(applied.retiredEdges.length > 0 ? { retired_edges: applied.retiredEdges } : {}),
+          ...(applied.warnings.length > 0 ? { warnings: applied.warnings } : {}),
+        });
+        continue;
       }
-      await upsertNode(nodeRowFromFields(operation.nodeType, operation.fields), client);
-      await appendNodeVersion(client, {
-        entityId: String(operation.fields.id),
-        entityType: operation.nodeType,
-        op: "create",
-        payload: operation.fields,
-        txId,
-        actor: input.actorId,
-      });
-      await appendAuditEventRow(
-        {
-          event_id: `evt_${generateUlid()}`,
-          at: String(operation.fields.created_at),
-          by_user: input.actorId,
-          collection_id: collection.id,
-          workspace_id: collection.workspace_id,
-          entity_type: operation.nodeType,
-          entity_id: String(operation.fields.id),
-          op: "entity.create",
-          after_json: operation.fields,
-          reason: input.reason ?? null,
-        },
+      if (operation.op === "supersede") {
+        const created = await applyCreate(
+          client,
+          txId,
+          collection,
+          input.actorId,
+          index,
+          operation.replacement,
+          input.reason ?? null,
+        );
+        const retired = await applyTransition(
+          client,
+          txId,
+          collection,
+          input.actorId,
+          index,
+          {
+            op: "retire",
+            target: operation.target,
+            lifecycle: "retired",
+            retireActiveEdges: operation.retireActiveEdges,
+          },
+          input.reason ?? null,
+        );
+        const related = await applyRelation(
+          client,
+          txId,
+          collection,
+          input.actorId,
+          index,
+          operation.relation,
+          input.reason ?? null,
+        );
+        const warnings = [...created.warnings, ...retired.warnings, ...related.warnings];
+        results.push({
+          op_index: index,
+          op: "supersede",
+          ok: true,
+          id: created.id,
+          ...(operation.replacement.alias ? { alias: operation.replacement.alias } : {}),
+          relation: related.relation,
+          ...(retired.retiredEdges.length > 0 ? { retired_edges: retired.retiredEdges } : {}),
+          ...(warnings.length > 0 ? { warnings } : {}),
+        });
+        continue;
+      }
+      if (operation.op !== "create") {
+        throw new Error(`Unhandled prepared operation: ${operation.op}`);
+      }
+      const applied = await applyCreate(
         client,
+        txId,
+        collection,
+        input.actorId,
+        index,
+        operation,
+        input.reason ?? null,
       );
       results.push({
         op_index: index,
         op: "create",
         ok: true,
-        id: String(operation.fields.id),
+        id: applied.id,
         ...(operation.alias ? { alias: operation.alias } : {}),
-        ...(violations.some((violation) => violation.on_violation === "warn")
-          ? {
-              warnings: violations
-                .filter((violation) => violation.on_violation === "warn")
-                .map(({ policy_id, reason }) => ({ policy_id, reason })),
-            }
-          : {}),
+        ...(applied.warnings.length > 0 ? { warnings: applied.warnings } : {}),
       });
     }
     await client.query("COMMIT");

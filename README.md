@@ -26,9 +26,10 @@ curl --fail http://localhost:3000/healthz
 ```
 
 Open `http://localhost:3000` and create the owner and sole workspace. Records
-can be captured from a collection page or created and related through its compatible
-`/<collection-handle>/api/changesets.json` endpoint; the adjacent
-`api/authoring-contract.json` endpoint describes the supported create shapes.
+can be captured from a collection page or created, related, transitioned, and
+superseded through its compatible `/<collection-handle>/api/changesets.json`
+endpoint; the adjacent `api/authoring-contract.json` endpoint describes the
+supported operations and shapes.
 PostgreSQL and Qdrant use named volumes and are not exposed on host ports. Plain
 HTTP on port 3000 is the default. For a public DNS name with automatic HTTPS,
 set `DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with

@@ -70,6 +70,37 @@ export async function loader({
         },
         note: "Creates up to 50 edges as one operation. Any invalid relation rolls back the whole changeset.",
       },
+      activate: {
+        shape: { op: "activate", target: "node_id_or_$alias" },
+        note: "Transitions a node to active. Policies evaluate the graph produced by earlier operations in the same atomic changeset. Repeating an already-satisfied transition succeeds as a no-op.",
+      },
+      queue: {
+        shape: {
+          op: "queue",
+          target: "node_id_or_$alias",
+          retire_active_edges: false,
+        },
+        note: "Transitions a node to queued. An active node with active edges is rejected unless retire_active_edges:true retires those edges in the same changeset.",
+      },
+      retire: {
+        shape: {
+          op: "retire",
+          target: "node_id_or_$alias",
+          retire_active_edges: false,
+        },
+        note: "Soft-retires a node while preserving history. An active node with active edges is rejected unless retire_active_edges:true retires those edges atomically.",
+      },
+      supersede: {
+        shape: {
+          op: "supersede",
+          target: "old_node_id_or_$alias",
+          node_type: "decision",
+          alias: "optional_replacement_name",
+          body: { prose: "The replacement record", lifecycle: "drafting" },
+          retire_active_edges: false,
+        },
+        note: "Creates the replacement, retires the old node, and adds a first-class replaces edge in one changeset. Set retire_active_edges:true when the old active node still has active edges.",
+      },
     },
   });
 }
