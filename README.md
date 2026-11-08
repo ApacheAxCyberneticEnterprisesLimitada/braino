@@ -30,6 +30,13 @@ can be captured from a collection page or created, related, transitioned, and
 superseded through its compatible `/<collection-handle>/api/changesets.json`
 endpoint; the adjacent `api/authoring-contract.json` endpoint describes the
 supported operations and shapes.
+
+Agents can connect over stateless MCP. Open **MCP** on the workspace page,
+create a named token, and copy the generated client configuration. The `/mcp`
+endpoint serves deterministic briefs and search, record reads, feedback, and atomic
+changesets without requiring a model provider; tokens are stored only as
+SHA-256 digests and remain bound to their creator's live workspace membership.
+
 PostgreSQL and Qdrant use named volumes and are not exposed on host ports. Plain
 HTTP on port 3000 is the default. For a public DNS name with automatic HTTPS,
 set `DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
@@ -60,8 +67,8 @@ pnpm install
 pnpm verify
 ```
 
-Development follows trunk-based delivery: make a short-lived branch, open a PR
-against `main`, keep the required checks green, and squash-merge it promptly.
+Development changes land through focused pull requests with the required checks
+green and are squash-merged into `main`.
 
 ## License
 
