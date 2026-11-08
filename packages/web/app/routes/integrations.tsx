@@ -1,9 +1,14 @@
 import { withClient } from "@doco/db";
 import {
+  type GithubConnectionSummary,
+  connectGithubRepository,
   createIncomingWebhook,
+  disconnectGithubRepository,
   getSingleWorkspaceState,
+  listGithubConnections,
   listIncomingWebhooks,
   revokeIncomingWebhook,
+  syncGithubConnection,
 } from "@doco/host";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/card";
@@ -13,6 +18,7 @@ import { getCurrentUser } from "~/lib/current-user.server";
 
 interface ActionData {
   webhookUrl?: string;
+  message?: string;
   error?: string;
 }
 
@@ -30,8 +36,9 @@ export async function loader({ request }: { request: Request }) {
       "SELECT role FROM workspace_users WHERE workspace_id = $1 AND user_id = $2",
       [state.workspace.id, user.id],
     );
-    if (membership.rows[0]?.role !== "owner")
+    if (membership.rows[0]?.role !== "owner") {
       throw new Response("Owner access required", { status: 403 });
+    }
     const collections = await client.query<{ id: string; handle: string }>(
       `SELECT id, handle FROM collections
         WHERE workspace_id = $1 AND deleted_at IS NULL ORDER BY handle`,
@@ -39,6 +46,7 @@ export async function loader({ request }: { request: Request }) {
     );
     return {
       collections: collections.rows,
+      githubConnections: await listGithubConnections(client, state.workspace.id, user.id),
       webhooks: await listIncomingWebhooks(client, {
         workspaceId: state.workspace.id,
         userId: user.id,
@@ -57,6 +65,14 @@ function text(form: FormData, name: string) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function encryptionKey(): string {
+  const value = process.env.DOCO_ENCRYPTION_KEY?.trim();
+  if (!value || value.length < 32) {
+    throw new Error("DOCO_ENCRYPTION_KEY must contain at least 32 characters.");
+  }
+  return value;
+}
+
 export async function action({ request }: { request: Request }): Promise<ActionData | Response> {
   const user = await getCurrentUser(request);
   if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
@@ -64,6 +80,64 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   if (!state.initialized) return Response.json({ error: "Finish setup first." }, { status: 409 });
   const form = await request.formData();
   const intent = text(form, "intent");
+
+  if (intent === "connect_github") {
+    try {
+      const connected = await withClient((client) =>
+        connectGithubRepository(client, {
+          workspaceId: state.workspace.id,
+          userId: user.id,
+          repository: text(form, "repository"),
+          accessToken: text(form, "access_token"),
+          encryptionKey: encryptionKey(),
+        }),
+      );
+      const synced = await withClient((client) =>
+        syncGithubConnection(client, {
+          connectionId: connected.id,
+          encryptionKey: encryptionKey(),
+          userId: user.id,
+        }),
+      );
+      return {
+        message: `Connected ${connected.repository}. Imported ${synced.created} and updated ${synced.updated} records.`,
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not connect GitHub." };
+    }
+  }
+
+  if (intent === "sync_github") {
+    try {
+      const synced = await withClient((client) =>
+        syncGithubConnection(client, {
+          connectionId: text(form, "connection_id"),
+          encryptionKey: encryptionKey(),
+          userId: user.id,
+        }),
+      );
+      return {
+        message: `GitHub sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.unchanged} unchanged.`,
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not sync GitHub." };
+    }
+  }
+
+  if (intent === "disconnect_github") {
+    try {
+      await withClient((client) =>
+        disconnectGithubRepository(client, {
+          connectionId: text(form, "connection_id"),
+          userId: user.id,
+        }),
+      );
+      return { message: "GitHub disconnected. Imported records and history were kept." };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not disconnect GitHub." };
+    }
+  }
+
   if (intent === "create_webhook") {
     try {
       const created = await withClient((client) =>
@@ -83,6 +157,7 @@ export async function action({ request }: { request: Request }): Promise<ActionD
       return { error: error instanceof Error ? error.message : "Could not create webhook." };
     }
   }
+
   if (intent === "revoke_webhook") {
     await withClient((client) =>
       revokeIncomingWebhook(client, { tokenId: text(form, "token_id"), userId: user.id }),
@@ -90,6 +165,115 @@ export async function action({ request }: { request: Request }): Promise<ActionD
     return redirect("/integrations");
   }
   return Response.json({ error: "Unknown integration action." }, { status: 400 });
+}
+
+function GithubConnectionForm({
+  repository,
+  submitLabel,
+}: {
+  repository?: string;
+  submitLabel: string;
+}) {
+  return (
+    <Form method="post" className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="intent" value="connect_github" />
+      <label className="text-xs">
+        <span className="mb-1 block text-muted-foreground">Repository</span>
+        <input
+          name="repository"
+          required
+          defaultValue={repository}
+          readOnly={Boolean(repository)}
+          placeholder="owner/repository"
+          className="w-full rounded-md px-3 py-2 font-mono text-sm"
+        />
+      </label>
+      <label className="text-xs">
+        <span className="mb-1 block text-muted-foreground">Fine-grained personal access token</span>
+        <input
+          name="access_token"
+          type="password"
+          required
+          autoComplete="new-password"
+          className="w-full rounded-md px-3 py-2 font-mono text-sm"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground sm:col-span-2">
+        Grant read access to Metadata, Issues, and Pull requests for this repository only.
+      </p>
+      <div className="sm:col-span-2 sm:text-right">
+        <button
+          type="submit"
+          className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+        >
+          {submitLabel}
+        </button>
+      </div>
+    </Form>
+  );
+}
+
+function GithubConnection({ connection }: { connection: GithubConnectionSummary }) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-sm font-semibold">{connection.repository}</p>
+          <p className="text-xs text-muted-foreground">
+            {connection.active
+              ? connection.lastSyncedAt
+                ? `Last synced ${new Date(connection.lastSyncedAt).toLocaleString()}`
+                : "Connected; first sync pending"
+              : "Disconnected"}
+          </p>
+          {connection.lastError ? (
+            <p className="mt-1 text-xs text-destructive">{connection.lastError}</p>
+          ) : null}
+        </div>
+        {connection.active ? (
+          <div className="flex gap-2">
+            <Form method="post">
+              <input type="hidden" name="intent" value="sync_github" />
+              <input type="hidden" name="connection_id" value={connection.id} />
+              <button
+                type="submit"
+                className="neu-button rounded-md px-3 py-2 text-xs font-semibold"
+              >
+                Sync now
+              </button>
+            </Form>
+            <Form method="post">
+              <input type="hidden" name="intent" value="disconnect_github" />
+              <input type="hidden" name="connection_id" value={connection.id} />
+              <button
+                type="submit"
+                className="neu-button rounded-md px-3 py-2 text-xs font-semibold text-destructive"
+              >
+                Disconnect
+              </button>
+            </Form>
+          </div>
+        ) : null}
+      </div>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <Link
+          className="neu-button rounded-md px-3 py-2 font-semibold"
+          to={`/${connection.issuesCollectionHandle}`}
+        >
+          GitHub issues
+        </Link>
+        <Link
+          className="neu-button rounded-md px-3 py-2 font-semibold"
+          to={`/${connection.pullRequestsCollectionHandle}`}
+        >
+          GitHub pull requests
+        </Link>
+      </div>
+      {!connection.active ? (
+        <GithubConnectionForm repository={connection.repository} submitLabel="Reconnect GitHub" />
+      ) : null}
+    </div>
+  );
 }
 
 export default function IntegrationsPage() {
@@ -136,7 +320,27 @@ export default function IntegrationsPage() {
           </CardContent>
         </Card>
       ) : null}
+      {actionData?.message ? <p className="text-sm text-foreground">{actionData.message}</p> : null}
       {actionData?.error ? <p className="text-sm text-destructive">{actionData.error}</p> : null}
+
+      <Card>
+        <CardHeader>
+          <CardTitle>GitHub</CardTitle>
+          <CardDescription>
+            Import one repository&apos;s issues and pull requests into dedicated Doco collections.
+            The token is encrypted with this deployment&apos;s encryption key.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {data.githubConnections.length ? (
+            data.githubConnections.map((connection) => (
+              <GithubConnection key={connection.id} connection={connection} />
+            ))
+          ) : (
+            <GithubConnectionForm submitLabel="Connect and sync" />
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

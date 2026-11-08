@@ -6,3 +6,4 @@ export * from "./collaborators.js";
 export * from "./workspace-search.js";
 export * from "./incoming-webhooks.js";
 export * from "./mcp-core.js";
+export * from "./github-connections.js";

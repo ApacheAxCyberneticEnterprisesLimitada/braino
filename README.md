@@ -48,6 +48,13 @@ send a unique `Idempotency-Key` header. Deliveries use the same authoring
 policies, history, permissions, and changeset response as Doco's API; retrying
 the same key returns the original response without writing twice.
 
+Owners can also connect one GitHub repository from **Integrations** with a
+fine-grained personal access token scoped to that repository. Grant read access
+to Metadata, Issues, and Pull requests. Doco encrypts the token with
+`DOCO_ENCRYPTION_KEY`, imports into dedicated GitHub issues and pull-request
+collections, and records every source change in the same immutable history.
+Use **Sync now** to refresh the mirror; unchanged items do not create versions.
+
 ## Operations
 
 The supported deployment includes preflight, backup, restore, and controlled
