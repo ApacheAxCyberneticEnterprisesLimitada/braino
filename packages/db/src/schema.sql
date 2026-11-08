@@ -1514,10 +1514,35 @@ CREATE TABLE IF NOT EXISTS github_connections (
   active                       boolean NOT NULL DEFAULT true,
   created_at                   timestamptz NOT NULL DEFAULT now(),
   last_synced_at               timestamptz,
-  last_error                   text
+  last_error                   text,
+  webhook_id                   bigint,
+  webhook_secret_sealed        text,
+  webhook_url                  text,
+  webhook_created_at           timestamptz,
+  webhook_last_delivery_at     timestamptz
 );
 CREATE UNIQUE INDEX IF NOT EXISTS github_connections_repository_idx
   ON github_connections (lower(repository));
+ALTER TABLE github_connections
+  ADD COLUMN IF NOT EXISTS webhook_id bigint,
+  ADD COLUMN IF NOT EXISTS webhook_secret_sealed text,
+  ADD COLUMN IF NOT EXISTS webhook_url text,
+  ADD COLUMN IF NOT EXISTS webhook_created_at timestamptz,
+  ADD COLUMN IF NOT EXISTS webhook_last_delivery_at timestamptz;
+
+-- GitHub names every webhook request with a globally unique delivery id. This
+-- ledger makes redelivery safe: a completed refresh is returned verbatim and
+-- a concurrent duplicate cannot start a second full repository sync.
+CREATE TABLE IF NOT EXISTS github_webhook_deliveries (
+  connection_id  text NOT NULL REFERENCES github_connections(id) ON DELETE CASCADE,
+  delivery_id    text NOT NULL,
+  event          text NOT NULL,
+  status         text NOT NULL CHECK (status IN ('processing', 'completed')),
+  response       jsonb,
+  received_at    timestamptz NOT NULL DEFAULT now(),
+  completed_at   timestamptz,
+  PRIMARY KEY (connection_id, delivery_id)
+);
 
 -- ──────────────────────────────────────────────────────────────────────────
 -- Visualization perspectives and the per-collection attachment join. Ownership is

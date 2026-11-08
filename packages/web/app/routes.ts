@@ -12,6 +12,7 @@ export default [
   route("api/v1/workspaces.json", "routes/api.v1.workspaces[.]json.ts"),
   route("api/v1/collections.json", "routes/api.v1.collections[.]json.ts"),
   route("api/v1/webhooks/:token", "routes/api.v1.webhooks.$token.ts"),
+  route("api/v1/github/webhooks/:connectionId", "routes/api.v1.github.webhooks.$connectionId.ts"),
   route(
     ":collectionHandle/api/authoring-contract.json",
     "routes/$collectionHandle.api.authoring-contract[.]json.ts",
