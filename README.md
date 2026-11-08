@@ -61,10 +61,13 @@ and text files while ignoring binary files.
 
 Owners can also connect one GitHub repository from **Integrations** with a
 fine-grained personal access token scoped to that repository. Grant read access
-to Metadata, Issues, and Pull requests. Doco encrypts the token with
-`DOCO_ENCRYPTION_KEY`, imports into dedicated GitHub issues and pull-request
-collections, and records every source change in the same immutable history.
-Use **Sync now** to refresh the mirror; unchanged items do not create versions.
+to Metadata, Issues, and Pull requests, plus Webhooks write access. Doco
+encrypts the token with `DOCO_ENCRYPTION_KEY`, imports into dedicated GitHub
+issues and pull-request collections, and records every source change in the
+same immutable history. When `DOCO_PUBLIC_HOST` is public HTTPS, Doco registers
+a signed repository webhook and refreshes automatically on issue and pull
+request events; delivery IDs make retries idempotent. **Sync now** remains the
+fallback, and unchanged items do not create versions.
 
 ## Operations
 

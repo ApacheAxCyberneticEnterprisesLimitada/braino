@@ -2,6 +2,7 @@ import { withClient } from "@doco/db";
 import {
   type ConnectorConnectionSummary,
   type GithubConnectionSummary,
+  configureGithubWebhook,
   connectConnector,
   connectGithubRepository,
   createIncomingWebhook,
@@ -239,11 +240,56 @@ export async function action({ request }: { request: Request }): Promise<ActionD
           userId: user.id,
         }),
       );
+      const publicHost = (process.env.DOCO_PUBLIC_HOST ?? new URL(request.url).origin).replace(
+        /\/$/,
+        "",
+      );
+      let webhookError: string | undefined;
+      if (publicHost.startsWith("https://")) {
+        try {
+          await withClient((client) =>
+            configureGithubWebhook(client, {
+              connectionId: connected.id,
+              userId: user.id,
+              publicHost,
+              encryptionKey: encryptionKey(),
+            }),
+          );
+        } catch (error) {
+          webhookError = error instanceof Error ? error.message : "Automatic sync setup failed.";
+        }
+      } else {
+        webhookError =
+          "Automatic sync needs DOCO_PUBLIC_HOST set to this deployment's public HTTPS URL.";
+      }
       return {
         message: `Connected ${connected.repository}. Imported ${synced.created} and updated ${synced.updated} records.`,
+        ...(webhookError ? { error: webhookError } : {}),
       };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Could not connect GitHub." };
+    }
+  }
+
+  if (intent === "configure_github_webhook") {
+    try {
+      const publicHost = (process.env.DOCO_PUBLIC_HOST ?? new URL(request.url).origin).replace(
+        /\/$/,
+        "",
+      );
+      await withClient((client) =>
+        configureGithubWebhook(client, {
+          connectionId: text(form, "connection_id"),
+          userId: user.id,
+          publicHost,
+          encryptionKey: encryptionKey(),
+        }),
+      );
+      return { message: "Automatic GitHub sync is enabled." };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error.message : "Could not enable automatic GitHub sync.",
+      };
     }
   }
 
@@ -491,6 +537,9 @@ function GithubConnectionForm({
   repository?: string;
   submitLabel: string;
 }) {
+  const navigation = useNavigation();
+  const connecting =
+    navigation.state !== "idle" && navigation.formData?.get("intent") === "connect_github";
   return (
     <Form method="post" className="grid gap-3 sm:grid-cols-2">
       <input type="hidden" name="intent" value="connect_github" />
@@ -516,14 +565,16 @@ function GithubConnectionForm({
         />
       </label>
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        Grant read access to Metadata, Issues, and Pull requests for this repository only.
+        Grant read access to Metadata, Issues, and Pull requests, plus Webhooks write access for
+        automatic sync. Scope the token to this repository only.
       </p>
       <div className="sm:col-span-2 sm:text-right">
         <button
           type="submit"
-          className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+          disabled={connecting}
+          className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
         >
-          {submitLabel}
+          {connecting ? "Connecting…" : submitLabel}
         </button>
       </div>
     </Form>
@@ -543,12 +594,31 @@ function GithubConnection({ connection }: { connection: GithubConnectionSummary 
                 : "Connected; first sync pending"
               : "Disconnected"}
           </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {connection.webhookConfigured
+              ? connection.webhookLastDeliveryAt
+                ? `Automatic sync · last delivery ${new Date(connection.webhookLastDeliveryAt).toLocaleString()}`
+                : "Automatic sync enabled"
+              : "Manual sync only"}
+          </p>
           {connection.lastError ? (
             <p className="mt-1 text-xs text-destructive">{connection.lastError}</p>
           ) : null}
         </div>
         {connection.active ? (
           <div className="flex gap-2">
+            {!connection.webhookConfigured ? (
+              <Form method="post">
+                <input type="hidden" name="intent" value="configure_github_webhook" />
+                <input type="hidden" name="connection_id" value={connection.id} />
+                <button
+                  type="submit"
+                  className="neu-button rounded-md px-3 py-2 text-xs font-semibold"
+                >
+                  Enable automatic sync
+                </button>
+              </Form>
+            ) : null}
             <Form method="post">
               <input type="hidden" name="intent" value="sync_github" />
               <input type="hidden" name="connection_id" value={connection.id} />
@@ -717,7 +787,8 @@ export default function IntegrationsPage() {
           <CardTitle>GitHub</CardTitle>
           <CardDescription>
             Import one repository&apos;s issues and pull requests into dedicated Doco collections.
-            The token is encrypted with this deployment&apos;s encryption key.
+            Signed GitHub webhooks refresh changes automatically when DOCO_PUBLIC_HOST is public
+            HTTPS; Sync now remains available as a fallback.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
