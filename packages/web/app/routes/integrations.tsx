@@ -8,6 +8,7 @@ import {
   disconnectConnector,
   disconnectGithubRepository,
   getSingleWorkspaceState,
+  googleDriveConnector,
   listConnectorConnections,
   listGithubConnections,
   listIncomingWebhooks,
@@ -84,12 +85,14 @@ function encryptionKey(): string {
 function connectorAdapter(provider: string) {
   if (provider === "slack") return slackConnector;
   if (provider === "notion") return notionConnector;
+  if (provider === "google_drive") return googleDriveConnector;
   throw new Error("Unknown connector provider.");
 }
 
 function connectorLabel(provider: string): string {
   if (provider === "slack") return "Slack";
   if (provider === "notion") return "Notion";
+  if (provider === "google_drive") return "Google Drive";
   return "Connector";
 }
 
@@ -152,6 +155,33 @@ export async function action({ request }: { request: Request }): Promise<ActionD
       };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Could not connect Notion." };
+    }
+  }
+
+  if (intent === "connect_google_drive") {
+    try {
+      const connected = await withClient((client) =>
+        connectConnector(client, {
+          workspaceId: state.workspace.id,
+          userId: user.id,
+          credential: text(form, "service_account_json"),
+          encryptionKey: encryptionKey(),
+          adapter: googleDriveConnector,
+        }),
+      );
+      const synced = await withClient((client) =>
+        syncConnectorConnection(client, {
+          connectionId: connected.id,
+          encryptionKey: encryptionKey(),
+          userId: user.id,
+          adapter: googleDriveConnector,
+        }),
+      );
+      return {
+        message: `Connected ${connected.sourceName}. Imported ${synced.created} Google Drive files.`,
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not connect Google Drive." };
     }
   }
 
@@ -312,6 +342,42 @@ function NotionConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
   );
 }
 
+function GoogleDriveConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
+  const navigation = useNavigation();
+  const connecting =
+    navigation.state !== "idle" && navigation.formData?.get("intent") === "connect_google_drive";
+  return (
+    <Form method="post" className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="intent" value="connect_google_drive" />
+      <label className="text-xs sm:col-span-2">
+        <span className="mb-1 block text-muted-foreground">Google service-account JSON</span>
+        <textarea
+          name="service_account_json"
+          required
+          rows={7}
+          autoComplete="off"
+          placeholder={'{"type":"service_account", …}'}
+          className="w-full rounded-md px-3 py-2 font-mono text-xs"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground sm:col-span-2">
+        Enable the Google Drive API, create a service-account key, and share the folders or files
+        with its client_email address. Doco imports Google Docs, Sheets, Slides, and text files; the
+        private key is encrypted at rest.
+      </p>
+      <div className="sm:col-span-2 sm:text-right">
+        <button
+          type="submit"
+          disabled={connecting}
+          className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+        >
+          {connecting ? "Connecting…" : reconnect ? "Reconnect Google Drive" : "Connect and sync"}
+        </button>
+      </div>
+    </Form>
+  );
+}
+
 function SlackConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
   const navigation = useNavigation();
   const connecting =
@@ -354,7 +420,7 @@ function ConnectorConnection({
 }: {
   connection: ConnectorConnectionSummary;
   collectionLabel: string;
-  reconnect: "slack" | "notion";
+  reconnect: "slack" | "notion" | "google_drive";
 }) {
   return (
     <div className="space-y-3">
@@ -408,8 +474,10 @@ function ConnectorConnection({
       {!connection.active ? (
         reconnect === "slack" ? (
           <SlackConnectionForm reconnect />
-        ) : (
+        ) : reconnect === "notion" ? (
           <NotionConnectionForm reconnect />
+        ) : (
+          <GoogleDriveConnectionForm reconnect />
         )
       ) : null}
     </div>
@@ -534,6 +602,9 @@ export default function IntegrationsPage() {
   const notionConnection = data.connectorConnections.find(
     (connection) => connection.provider === "notion",
   );
+  const googleDriveConnection = data.connectorConnections.find(
+    (connection) => connection.provider === "google_drive",
+  );
   return (
     <PageMain className="space-y-6 py-6">
       <PageHeader
@@ -616,6 +687,27 @@ export default function IntegrationsPage() {
             />
           ) : (
             <NotionConnectionForm />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Google Drive</CardTitle>
+          <CardDescription>
+            Copy the Workspace documents and text files shared with one service account into a
+            private Doco collection. Binary files and folders are ignored.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {googleDriveConnection ? (
+            <ConnectorConnection
+              connection={googleDriveConnection}
+              collectionLabel="Google Drive files"
+              reconnect="google_drive"
+            />
+          ) : (
+            <GoogleDriveConnectionForm />
           )}
         </CardContent>
       </Card>
