@@ -10,7 +10,7 @@ foundational data, domain, retrieval, and first single-workspace runtime:
 - `@doco/db` — PostgreSQL schema and source-of-truth storage
 - `@doco/host` — workspace, collection, person, and template services
 - `@doco/index` — retrieval, ranking, embeddings, and Qdrant integration
-- `@doco/web` — first-run setup, owner sign-in, workspace home, and collection reader
+- `@doco/web` — first-run setup, owner sign-in, workspace home, collection reader, and record authoring
 
 The supported deployment is one application, one PostgreSQL source of truth,
 and one rebuildable Qdrant index. The current runtime is an early self-hosting
@@ -25,10 +25,13 @@ docker compose up -d --build
 curl --fail http://localhost:3000/healthz
 ```
 
-Open `http://localhost:3000` and create the owner and sole workspace. PostgreSQL
-and Qdrant use named volumes and are not exposed on host ports. Plain HTTP on
-port 3000 is the default. For a public DNS name with automatic HTTPS, set
-`DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
+Open `http://localhost:3000` and create the owner and sole workspace. Records
+can be captured from a collection page or through its compatible
+`/<collection-handle>/api/changesets.json` endpoint; the adjacent
+`api/authoring-contract.json` endpoint describes the supported create shapes.
+PostgreSQL and Qdrant use named volumes and are not exposed on host ports. Plain
+HTTP on port 3000 is the default. For a public DNS name with automatic HTTPS,
+set `DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
 `docker compose --profile tls up -d --build`.
 
 ## Development
