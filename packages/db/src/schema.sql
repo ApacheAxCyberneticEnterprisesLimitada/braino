@@ -1434,6 +1434,31 @@ UPDATE hook_tokens
    SET token = encode(sha256(convert_to(token, 'UTF8')), 'hex')
  WHERE token LIKE 'doco\_ht\_%';
 
+-- Generic incoming webhooks. The secret URL carries a random token; only its
+-- SHA-256 digest is stored. Every delivery is an ordinary policy-checked
+-- changeset, and an explicit idempotency key makes provider retries safe.
+CREATE TABLE IF NOT EXISTS incoming_webhooks (
+  token               text PRIMARY KEY,
+  collection_id       text NOT NULL REFERENCES collections(id) ON DELETE CASCADE,
+  created_by_user_id  text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  label               text NOT NULL,
+  revoked             boolean NOT NULL DEFAULT false,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  last_used_at        timestamptz
+);
+CREATE INDEX IF NOT EXISTS incoming_webhooks_collection_idx
+  ON incoming_webhooks (collection_id) WHERE NOT revoked;
+
+CREATE TABLE IF NOT EXISTS incoming_webhook_deliveries (
+  webhook_token    text NOT NULL REFERENCES incoming_webhooks(token) ON DELETE CASCADE,
+  idempotency_key  text NOT NULL,
+  status           text NOT NULL CHECK (status IN ('processing', 'completed')),
+  response         jsonb,
+  received_at      timestamptz NOT NULL DEFAULT now(),
+  completed_at     timestamptz,
+  PRIMARY KEY (webhook_token, idempotency_key)
+);
+
 -- ──────────────────────────────────────────────────────────────────────────
 -- Visualization perspectives and the per-collection attachment join. Ownership is
 -- tracked by `owner_handle`.

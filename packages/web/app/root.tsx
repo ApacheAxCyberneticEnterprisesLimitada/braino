@@ -99,6 +99,12 @@ function SiteHeader({ data }: { data: RootData }) {
           {data.user ? (
             <>
               <Link
+                to="/integrations"
+                className="neu-button rounded-md px-2.5 py-1.5 font-semibold"
+              >
+                Integrations
+              </Link>
+              <Link
                 to="/"
                 className="neu-button neu-pressed rounded-md px-2.5 py-1.5 font-semibold"
               >

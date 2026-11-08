@@ -42,6 +42,12 @@ HTTP on port 3000 is the default. For a public DNS name with automatic HTTPS,
 set `DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
 `docker compose --profile tls up -d --build`.
 
+Workspace owners can create generic incoming webhooks from **Integrations**.
+POST `{"operations":[...],"reason":"..."}` to the one-time secret URL and
+send a unique `Idempotency-Key` header. Deliveries use the same authoring
+policies, history, permissions, and changeset response as Doco's API; retrying
+the same key returns the original response without writing twice.
+
 ## Operations
 
 The supported deployment includes preflight, backup, restore, and controlled
