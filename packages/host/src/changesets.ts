@@ -1,9 +1,11 @@
 import {
   type CommitSource,
+  EDGE_ENDPOINTS_NOT_ACTIVE,
   type PoolClient,
   appendAuditEventRow,
   appendNodeVersion,
   createChangeset,
+  createEdge,
   nodeRowFromFields,
   upsertNode,
 } from "@doco/db";
@@ -12,10 +14,14 @@ import {
   CAPTURE_SCHEMAS,
   type CandidateFields,
   type CatalogNodeType,
+  type CatalogRelationKind,
   type EngineEdge,
   type Lifecycle,
   type LoadedPolicy,
+  RELATION_CATALOG,
+  type WritableType,
   canWriteType,
+  evaluateEdgePolicies,
   evaluatePolicies,
   generateUlid,
   isDeterministicPredicate,
@@ -43,11 +49,20 @@ export interface CreateOperation {
 
 export interface ChangesetOperationResult {
   op_index: number;
-  op: "create";
+  op: "create" | "relate" | "relate_many";
   ok: true;
-  id: string;
+  id?: string;
   alias?: string;
+  relation?: RelationResult;
+  relations?: RelationResult[];
   warnings?: { policy_id: string; reason: string }[];
+}
+
+export interface RelationResult {
+  kind: CatalogRelationKind;
+  from: string;
+  to: string;
+  edge_id: string;
 }
 
 export interface ApplyChangesetResult {
@@ -88,10 +103,32 @@ interface CollectionAccess {
 }
 
 interface PreparedCreate {
+  op: "create";
   nodeType: GenericNodeType;
   alias?: string;
   fields: Record<string, unknown>;
 }
+
+interface PreparedRelation {
+  kind: CatalogRelationKind;
+  from: string;
+  to: string;
+  lifecycle?: "drafting" | "queued" | "active";
+  label: string | null;
+  condition: string | null;
+  kindMetadata: string | null;
+}
+
+interface PreparedRelate extends PreparedRelation {
+  op: "relate";
+}
+
+interface PreparedRelateMany {
+  op: "relate_many";
+  relations: PreparedRelation[];
+}
+
+type PreparedOperation = PreparedCreate | PreparedRelate | PreparedRelateMany;
 
 const RETIRED_POLICY_KINDS = new Set([
   "requires_entity_type",
@@ -104,15 +141,21 @@ function role(value: string | null): "owner" | "writer" | "reader" | null {
   return value === "owner" || value === "writer" || value === "reader" ? value : null;
 }
 
-function grantAllows(rawRole: string | null, rawTypes: string[] | null, nodeType: GenericNodeType) {
+function grantAllows(rawRole: string | null, rawTypes: string[] | null, type: WritableType) {
   const grantRole = role(rawRole);
   const writeTypes = normalizeWriteTypes(rawTypes);
   if (grantRole === "writer" && writeTypes.length === 0) writeTypes.push("*");
-  return canWriteType(grantRole, writeTypes, nodeType);
+  return canWriteType(grantRole, writeTypes, type);
 }
 
 function plainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function isoTimestamp(value: unknown): string {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string") return new Date(value).toISOString();
+  return new Date().toISOString();
 }
 
 function cleanAlias(value: unknown, index: number): string | undefined {
@@ -137,11 +180,46 @@ function prepareOperation(
   index: number,
   collection: CollectionAccess,
   actorId: string,
-  aliases: Set<string>,
-): PreparedCreate {
-  if (!plainObject(raw) || raw.op !== "create") {
+  aliases: Map<string, string>,
+): PreparedOperation {
+  if (!plainObject(raw)) {
     throw new ChangesetError(
-      `Unsupported operation "${plainObject(raw) ? String(raw.op) : "invalid"}". This release supports create operations.`,
+      'Operation must be an object with op "create", "relate", or "relate_many".',
+      "unsupported_operation",
+      400,
+      index,
+    );
+  }
+  if (raw.op === "relate") {
+    return { op: "relate", ...prepareRelation(raw, index, collection, aliases) };
+  }
+  if (raw.op === "relate_many") {
+    if (!Array.isArray(raw.relations) || raw.relations.length === 0) {
+      throw new ChangesetError(
+        "relate_many.relations must be a non-empty array.",
+        "invalid_relations",
+        400,
+        index,
+      );
+    }
+    if (raw.relations.length > 50) {
+      throw new ChangesetError(
+        "relate_many accepts at most 50 relations.",
+        "too_many_relations",
+        400,
+        index,
+      );
+    }
+    return {
+      op: "relate_many",
+      relations: raw.relations.map((relation) =>
+        prepareRelation(relation, index, collection, aliases),
+      ),
+    };
+  }
+  if (raw.op !== "create") {
+    throw new ChangesetError(
+      `Unsupported operation "${String(raw.op)}". This release supports create, relate, and relate_many operations.`,
       "unsupported_operation",
       400,
       index,
@@ -212,10 +290,11 @@ function prepareOperation(
   if (alias && aliases.has(alias)) {
     throw new ChangesetError(`Duplicate alias "${alias}".`, "duplicate_alias", 400, index);
   }
-  if (alias) aliases.add(alias);
   const now = new Date().toISOString();
   const id = `${nodeType}_${generateUlid()}`;
+  if (alias) aliases.set(alias, id);
   return {
+    op: "create",
     nodeType,
     ...(alias ? { alias } : {}),
     fields: {
@@ -232,6 +311,105 @@ function prepareOperation(
       updated_at: now,
       updated_by: actorId,
     },
+  };
+}
+
+function resolveReference(value: unknown, aliases: Map<string, string>, index: number): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new ChangesetError(
+      "Relation endpoints must be node ids or $aliases.",
+      "invalid_relation_endpoint",
+      400,
+      index,
+    );
+  }
+  const reference = value.trim();
+  if (!reference.startsWith("$")) return reference;
+  const resolved = aliases.get(reference.slice(1));
+  if (!resolved) {
+    throw new ChangesetError(
+      `Unknown or forward alias "${reference}".`,
+      "unknown_alias",
+      400,
+      index,
+    );
+  }
+  return resolved;
+}
+
+function prepareRelation(
+  raw: unknown,
+  index: number,
+  collection: CollectionAccess,
+  aliases: Map<string, string>,
+): PreparedRelation {
+  if (!plainObject(raw)) {
+    throw new ChangesetError("Relation must be an object.", "invalid_relation", 400, index);
+  }
+  const kindValue =
+    typeof raw.relation_kind === "string"
+      ? raw.relation_kind.trim()
+      : typeof raw.kind === "string"
+        ? raw.kind.trim()
+        : "";
+  const spec = RELATION_CATALOG[kindValue as CatalogRelationKind];
+  if (!spec) {
+    throw new ChangesetError(
+      `Unknown relation_kind "${kindValue}".`,
+      "unknown_relation_kind",
+      400,
+      index,
+    );
+  }
+  const kind = kindValue as CatalogRelationKind;
+  if (
+    !grantAllows(collection.collection_role, collection.collection_write_types, kind) &&
+    !grantAllows(collection.workspace_role, collection.workspace_write_types, kind)
+  ) {
+    throw new ChangesetError(
+      `You do not have permission to write ${kind} relations in this collection.`,
+      "write_forbidden",
+      403,
+      index,
+    );
+  }
+  const lifecycle = raw.lifecycle;
+  if (
+    lifecycle !== undefined &&
+    lifecycle !== "drafting" &&
+    lifecycle !== "queued" &&
+    lifecycle !== "active"
+  ) {
+    throw new ChangesetError(
+      `Unknown edge lifecycle "${String(lifecycle)}".`,
+      "invalid_edge_lifecycle",
+      400,
+      index,
+    );
+  }
+  if (raw.relation_props !== undefined && !plainObject(raw.relation_props)) {
+    throw new ChangesetError(
+      "relation_props must be an object.",
+      "invalid_relation_props",
+      400,
+      index,
+    );
+  }
+  const props = (raw.relation_props ?? {}) as Record<string, unknown>;
+  const accepted = new Set(spec.acceptsProps ?? []);
+  const stringProp = (name: string, explicit?: unknown): string | null => {
+    if (!accepted.has(name)) return null;
+    const value = explicit ?? props[name];
+    return typeof value === "string" && value.trim() ? value.trim() : null;
+  };
+  return {
+    kind,
+    from: resolveReference(raw.from, aliases, index),
+    to: resolveReference(raw.to, aliases, index),
+    ...(lifecycle ? { lifecycle } : {}),
+    label: stringProp("label", raw.label),
+    condition: stringProp("condition", raw.condition),
+    kindMetadata: stringProp("kind"),
   };
 }
 
@@ -334,6 +512,129 @@ async function evaluateDeterministicPolicies(
   }).map(({ policy_id, reason, on_violation }) => ({ policy_id, reason, on_violation }));
 }
 
+interface EdgeEndpoint {
+  id: string;
+  node_type: string;
+  lifecycle: string;
+}
+
+async function applyRelation(
+  client: PoolClient,
+  txId: number,
+  collection: CollectionAccess,
+  actorId: string,
+  operationIndex: number,
+  relation: PreparedRelation,
+  reason: string | null,
+): Promise<{ relation: RelationResult; warnings: { policy_id: string; reason: string }[] }> {
+  const endpointResult = await client.query<EdgeEndpoint>(
+    `SELECT id, node_type, lifecycle
+       FROM nodes
+      WHERE collection_id = $1 AND id = ANY($2::text[])`,
+    [collection.id, [relation.from, relation.to]],
+  );
+  const endpoints = new Map(endpointResult.rows.map((endpoint) => [endpoint.id, endpoint]));
+  const from = endpoints.get(relation.from);
+  const to = endpoints.get(relation.to);
+  if (!from || !to) {
+    const missing = [...(!from ? [relation.from] : []), ...(!to ? [relation.to] : [])];
+    throw new ChangesetError(
+      `Relation endpoint${missing.length === 1 ? "" : "s"} not found in this collection: ${missing.join(", ")}.`,
+      "relation_endpoint_not_found",
+      404,
+      operationIndex,
+    );
+  }
+  const spec = RELATION_CATALOG[relation.kind];
+  const invalidFrom = spec.endpointTypes?.from && !spec.endpointTypes.from.includes(from.node_type);
+  const invalidTo = spec.endpointTypes?.to && !spec.endpointTypes.to.includes(to.node_type);
+  if (invalidFrom || invalidTo) {
+    throw new ChangesetError(
+      `${relation.kind} does not accept ${from.node_type} -> ${to.node_type}.`,
+      "invalid_relation_endpoint_type",
+      422,
+      operationIndex,
+    );
+  }
+  const policies = await loadDeterministicPolicies(client, collection.id);
+  const violations = evaluateEdgePolicies({
+    edge: {
+      edge_type: relation.kind,
+      from_node_type: from.node_type,
+      to_node_type: to.node_type,
+    },
+    policies,
+    includeProbabilistic: false,
+  });
+  const blocking = violations.find((violation) => violation.on_violation === "block");
+  if (blocking) {
+    throw new ChangesetError(blocking.reason, "authoring_policy_failed", 422, operationIndex);
+  }
+  const lifecycle =
+    relation.lifecycle ??
+    (from.lifecycle === "active" && to.lifecycle === "active" ? "active" : "drafting");
+  try {
+    const edge = await createEdge(client, txId, {
+      collectionId: collection.id,
+      edgeType: relation.kind,
+      fromId: from.id,
+      fromNodeType: from.node_type,
+      toId: to.id,
+      toNodeType: to.node_type,
+      label: relation.label,
+      condition: relation.condition,
+      kind: relation.kindMetadata,
+      lifecycle,
+      actor: actorId,
+    });
+    await appendAuditEventRow(
+      {
+        event_id: `evt_${generateUlid()}`,
+        at: isoTimestamp(edge.created_at),
+        by_user: actorId,
+        collection_id: collection.id,
+        workspace_id: collection.workspace_id,
+        entity_type: relation.kind,
+        entity_id: edge.id,
+        op: "edge.add",
+        after_json: edge as unknown as Record<string, unknown>,
+        reason,
+      },
+      client,
+    );
+    return {
+      relation: {
+        kind: relation.kind,
+        from: relation.from,
+        to: relation.to,
+        edge_id: edge.id,
+      },
+      warnings: violations
+        .filter((violation) => violation.on_violation === "warn")
+        .map(({ policy_id, reason: warningReason }) => ({
+          policy_id,
+          reason: warningReason,
+        })),
+    };
+  } catch (error) {
+    if (error instanceof ChangesetError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith(EDGE_ENDPOINTS_NOT_ACTIVE)) {
+      throw new ChangesetError(message, EDGE_ENDPOINTS_NOT_ACTIVE, 422, operationIndex);
+    }
+    const pgError = error as { code?: string; constraint?: string };
+    if (pgError.code === "23505" && pgError.constraint === "edges_live_uniq") {
+      throw new ChangesetError(
+        "That live relation already exists.",
+        "relation_already_exists",
+        409,
+        operationIndex,
+      );
+    }
+    throw error;
+  }
+}
+
 /**
  * Apply the public changeset contract through one transaction. The immutable
  * versions and audit rows are committed with the current-state projection, so
@@ -367,7 +668,7 @@ export async function applyChangeset(
     throw new ChangesetError("Collection not found.", "collection_not_found", 404);
   }
 
-  const aliases = new Set<string>();
+  const aliases = new Map<string, string>();
   const prepared = input.operations.map((operation, index) =>
     prepareOperation(operation, index, collection, input.actorId, aliases),
   );
@@ -383,6 +684,50 @@ export async function applyChangeset(
     });
     const results: ChangesetOperationResult[] = [];
     for (const [index, operation] of prepared.entries()) {
+      if (operation.op === "relate") {
+        const applied = await applyRelation(
+          client,
+          txId,
+          collection,
+          input.actorId,
+          index,
+          operation,
+          input.reason ?? null,
+        );
+        results.push({
+          op_index: index,
+          op: "relate",
+          ok: true,
+          relation: applied.relation,
+          ...(applied.warnings.length > 0 ? { warnings: applied.warnings } : {}),
+        });
+        continue;
+      }
+      if (operation.op === "relate_many") {
+        const relations: RelationResult[] = [];
+        const warnings: { policy_id: string; reason: string }[] = [];
+        for (const relation of operation.relations) {
+          const applied = await applyRelation(
+            client,
+            txId,
+            collection,
+            input.actorId,
+            index,
+            relation,
+            input.reason ?? null,
+          );
+          relations.push(applied.relation);
+          warnings.push(...applied.warnings);
+        }
+        results.push({
+          op_index: index,
+          op: "relate_many",
+          ok: true,
+          relations,
+          ...(warnings.length > 0 ? { warnings } : {}),
+        });
+        continue;
+      }
       const violations = await evaluateDeterministicPolicies(
         client,
         collection.id,
@@ -435,9 +780,7 @@ export async function applyChangeset(
     return {
       ok: true,
       results,
-      aliases: Object.fromEntries(
-        results.flatMap((result) => (result.alias ? [[result.alias, result.id]] : [])),
-      ),
+      aliases: Object.fromEntries(aliases),
     };
   } catch (error) {
     await client.query("ROLLBACK");
