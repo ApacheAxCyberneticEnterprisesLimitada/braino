@@ -1,4 +1,4 @@
-import { CAPTURE_SCHEMAS } from "@doco/shared";
+import { CAPTURE_SCHEMAS, RELATION_CATALOG } from "@doco/shared";
 import { getCollectionForUser } from "~/lib/collection-access.server.js";
 import { getCurrentUser } from "~/lib/current-user.server.js";
 
@@ -23,6 +23,12 @@ export async function loader({
       default_lifecycle: collection.default_node_lifecycle ?? schema.defaultLifecycle,
       fields: schema.fields,
     })),
+    relation_kinds: Object.values(RELATION_CATALOG).map((relation) => ({
+      kind: relation.kind,
+      description: relation.description,
+      accepts_props: relation.acceptsProps ?? [],
+      endpoint_types: relation.endpointTypes ?? {},
+    })),
     changeset_endpoint: `/${collection.handle}/api/changesets.json`,
     operations: {
       create: {
@@ -37,6 +43,32 @@ export async function loader({
           },
         },
         note: "Creates a node with immutable version history and an audit event. Aliases are returned for use by clients.",
+      },
+      relate: {
+        shape: {
+          op: "relate",
+          relation_kind: "relates_to",
+          from: "node_id_or_$alias",
+          to: "node_id_or_$alias",
+          lifecycle: "optional: drafting | queued | active",
+          label: "optional when accepted by the relation kind",
+          condition: "optional when accepted by the relation kind",
+          relation_props: { kind: "optional relation-specific metadata" },
+        },
+        note: "Creates a first-class edge. It defaults to active only when both endpoints are active; otherwise it defaults to drafting.",
+      },
+      relate_many: {
+        shape: {
+          op: "relate_many",
+          relations: [
+            {
+              relation_kind: "relates_to",
+              from: "node_id_or_$alias",
+              to: "node_id_or_$alias",
+            },
+          ],
+        },
+        note: "Creates up to 50 edges as one operation. Any invalid relation rolls back the whole changeset.",
       },
     },
   });

@@ -26,7 +26,7 @@ curl --fail http://localhost:3000/healthz
 ```
 
 Open `http://localhost:3000` and create the owner and sole workspace. Records
-can be captured from a collection page or through its compatible
+can be captured from a collection page or created and related through its compatible
 `/<collection-handle>/api/changesets.json` endpoint; the adjacent
 `api/authoring-contract.json` endpoint describes the supported create shapes.
 PostgreSQL and Qdrant use named volumes and are not exposed on host ports. Plain

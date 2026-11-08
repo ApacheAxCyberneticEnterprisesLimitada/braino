@@ -249,4 +249,232 @@ describe("changeset authoring", () => {
       extra: {},
     });
   });
+
+  it("creates first-class edges between aliases in the same atomic changeset", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+
+    const result = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      reason: "Connect the related decisions",
+      operations: [
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "first",
+          body: { prose: "First decision" },
+        },
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "second",
+          body: { prose: "Second decision" },
+        },
+        {
+          op: "relate",
+          relation_kind: "relates_to",
+          from: "$first",
+          to: "$second",
+        },
+      ],
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      aliases: {
+        first: expect.stringMatching(/^decision_/),
+        second: expect.stringMatching(/^decision_/),
+      },
+      results: [
+        { op_index: 0, op: "create", ok: true },
+        { op_index: 1, op: "create", ok: true },
+        {
+          op_index: 2,
+          op: "relate",
+          ok: true,
+          relation: {
+            kind: "relates_to",
+            from: expect.stringMatching(/^decision_/),
+            to: expect.stringMatching(/^decision_/),
+            edge_id: expect.stringMatching(/^edge_/),
+          },
+        },
+      ],
+    });
+
+    const edge = await db.query<{
+      id: string;
+      edge_type: string;
+      from_id: string;
+      to_id: string;
+      lifecycle: string;
+      origin: string;
+    }>("SELECT id, edge_type, from_id, to_id, lifecycle, origin FROM edges");
+    expect(edge.rows[0]).toEqual({
+      id: result.results[2]?.relation?.edge_id,
+      edge_type: "relates_to",
+      from_id: result.aliases.first,
+      to_id: result.aliases.second,
+      lifecycle: "drafting",
+      origin: "authored",
+    });
+
+    const history = await db.query<{ tx_ids: number; edge_versions: number; audit_events: number }>(
+      `SELECT
+         (SELECT count(DISTINCT tx_id)::int FROM (
+            SELECT tx_id FROM node_versions
+            UNION ALL
+            SELECT tx_id FROM edge_versions
+          ) versions) AS tx_ids,
+         (SELECT count(*)::int FROM edge_versions) AS edge_versions,
+         (SELECT count(*)::int FROM audit_events WHERE collection_id = $1) AS audit_events`,
+      [productDecisions.id],
+    );
+    expect(history.rows[0]).toEqual({ tx_ids: 1, edge_versions: 1, audit_events: 3 });
+  });
+
+  it("rolls back relate_many when one relation violates the collection edge policy", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+
+    await expect(
+      applyChangeset(client(), {
+        collectionHandle: productDecisions.handle,
+        actorId: initialized.owner.id,
+        operations: [
+          {
+            op: "create",
+            node_type: "decision",
+            alias: "first",
+            body: { prose: "First decision" },
+          },
+          {
+            op: "create",
+            node_type: "decision",
+            alias: "second",
+            body: { prose: "Second decision" },
+          },
+          {
+            op: "relate_many",
+            relations: [
+              { relation_kind: "relates_to", from: "$first", to: "$second" },
+              { relation_kind: "flows_to", from: "$first", to: "$second" },
+            ],
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "authoring_policy_failed", status: 422, operationIndex: 2 });
+
+    const counts = await db.query<{ nodes: number; edges: number; changesets: number }>(
+      `SELECT
+         (SELECT count(*)::int FROM nodes WHERE collection_id = $1) AS nodes,
+         (SELECT count(*)::int FROM edges WHERE collection_id = $1) AS edges,
+         (SELECT count(*)::int FROM changesets WHERE collection_id = $1) AS changesets`,
+      [productDecisions.id],
+    );
+    expect(counts.rows[0]).toEqual({ nodes: 0, edges: 0, changesets: 0 });
+  });
+
+  it("rejects an active edge when either endpoint is still drafting", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+
+    await expect(
+      applyChangeset(client(), {
+        collectionHandle: productDecisions.handle,
+        actorId: initialized.owner.id,
+        operations: [
+          {
+            op: "create",
+            node_type: "decision",
+            alias: "first",
+            body: { prose: "First decision" },
+          },
+          {
+            op: "create",
+            node_type: "decision",
+            alias: "second",
+            body: { prose: "Second decision" },
+          },
+          {
+            op: "relate",
+            relation_kind: "relates_to",
+            from: "$first",
+            to: "$second",
+            lifecycle: "active",
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "edge_endpoints_not_active", status: 422 });
+
+    const edges = await db.query<{ count: number }>("SELECT count(*)::int AS count FROM edges");
+    expect(edges.rows[0]?.count).toBe(0);
+  });
+
+  it("requires an edge-specific write grant", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+    const readerId = "user_01J00000000000000000000001";
+    await db.query(
+      `INSERT INTO users (id, username, name, email, password_hash, data)
+       VALUES ($1, 'decision-writer', 'Decision Writer', 'writer@example.com', 'hash', '{}'::jsonb)`,
+      [readerId],
+    );
+    await db.query(
+      `INSERT INTO workspace_users (workspace_id, user_id, role, write_types)
+       VALUES ($1, $2, 'reader', ARRAY['decision'])`,
+      [initialized.workspace.id, readerId],
+    );
+
+    await expect(
+      applyChangeset(client(), {
+        collectionHandle: productDecisions.handle,
+        actorId: readerId,
+        operations: [
+          { op: "create", node_type: "decision", alias: "first", body: { prose: "First" } },
+          { op: "create", node_type: "decision", alias: "second", body: { prose: "Second" } },
+          { op: "relate", relation_kind: "relates_to", from: "$first", to: "$second" },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "write_forbidden", status: 403, operationIndex: 2 });
+
+    const nodes = await db.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM nodes WHERE collection_id = $1",
+      [productDecisions.id],
+    );
+    expect(nodes.rows[0]?.count).toBe(0);
+  });
+
+  it("does not relate a collection node to an endpoint from another collection", async () => {
+    const { initialized, productDecisions, ideas } = await initializedCollections();
+    const external = await applyChangeset(client(), {
+      collectionHandle: ideas.handle,
+      actorId: initialized.owner.id,
+      operations: [{ op: "create", node_type: "idea", body: { prose: "External idea" } }],
+    });
+
+    await expect(
+      applyChangeset(client(), {
+        collectionHandle: productDecisions.handle,
+        actorId: initialized.owner.id,
+        operations: [
+          {
+            op: "create",
+            node_type: "decision",
+            alias: "local",
+            body: { prose: "Local decision" },
+          },
+          {
+            op: "relate",
+            relation_kind: "relates_to",
+            from: "$local",
+            to: external.results[0]?.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "relation_endpoint_not_found", status: 404 });
+
+    const localNodes = await db.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM nodes WHERE collection_id = $1",
+      [productDecisions.id],
+    );
+    expect(localNodes.rows[0]?.count).toBe(0);
+  });
 });
