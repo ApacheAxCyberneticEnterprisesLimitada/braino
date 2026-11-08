@@ -4,3 +4,4 @@ export * from "./single-workspace.js";
 export * from "./changesets.js";
 export * from "./collaborators.js";
 export * from "./workspace-search.js";
+export * from "./mcp-core.js";

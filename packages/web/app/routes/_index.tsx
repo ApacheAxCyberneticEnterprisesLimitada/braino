@@ -284,12 +284,20 @@ function WorkspaceHome({ data }: { data: Extract<LoaderData, { screen: "dashboar
       >
         <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="font-mono text-xs text-muted-foreground">{data.workspace.id}</p>
-          <Link
-            to="/collaborators"
-            className="neu-button rounded-md px-3 py-1.5 text-xs font-semibold"
-          >
-            Collaborators
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              to="/mcp-tokens"
+              className="neu-button rounded-md px-3 py-1.5 text-xs font-semibold"
+            >
+              MCP
+            </Link>
+            <Link
+              to="/collaborators"
+              className="neu-button rounded-md px-3 py-1.5 text-xs font-semibold"
+            >
+              Collaborators
+            </Link>
+          </div>
         </div>
       </PageHeader>
 
