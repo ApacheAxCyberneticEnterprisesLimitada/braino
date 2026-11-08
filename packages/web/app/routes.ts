@@ -4,6 +4,8 @@ export default [
   index("routes/_index.tsx"),
   route("collaborators", "routes/collaborators.tsx"),
   route("integrations", "routes/integrations.tsx"),
+  route("mcp-tokens", "routes/mcp-tokens.tsx"),
+  route("mcp", "routes/mcp.ts"),
   route("healthz", "routes/healthz.ts"),
   route("search", "routes/search.tsx"),
   route("api/v1/search.json", "routes/api.v1.search[.]json.ts"),
