@@ -11,6 +11,7 @@ import {
   listConnectorConnections,
   listGithubConnections,
   listIncomingWebhooks,
+  notionConnector,
   revokeIncomingWebhook,
   slackConnector,
   syncConnectorConnection,
@@ -80,6 +81,18 @@ function encryptionKey(): string {
   return value;
 }
 
+function connectorAdapter(provider: string) {
+  if (provider === "slack") return slackConnector;
+  if (provider === "notion") return notionConnector;
+  throw new Error("Unknown connector provider.");
+}
+
+function connectorLabel(provider: string): string {
+  if (provider === "slack") return "Slack";
+  if (provider === "notion") return "Notion";
+  return "Connector";
+}
+
 export async function action({ request }: { request: Request }): Promise<ActionData | Response> {
   const user = await getCurrentUser(request);
   if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
@@ -115,35 +128,66 @@ export async function action({ request }: { request: Request }): Promise<ActionD
     }
   }
 
+  if (intent === "connect_notion") {
+    try {
+      const connected = await withClient((client) =>
+        connectConnector(client, {
+          workspaceId: state.workspace.id,
+          userId: user.id,
+          credential: text(form, "notion_token"),
+          encryptionKey: encryptionKey(),
+          adapter: notionConnector,
+        }),
+      );
+      const synced = await withClient((client) =>
+        syncConnectorConnection(client, {
+          connectionId: connected.id,
+          encryptionKey: encryptionKey(),
+          userId: user.id,
+          adapter: notionConnector,
+        }),
+      );
+      return {
+        message: `Connected ${connected.sourceName}. Imported ${synced.created} Notion pages.`,
+      };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : "Could not connect Notion." };
+    }
+  }
+
   if (intent === "sync_connector") {
     try {
+      const provider = text(form, "provider");
       const synced = await withClient((client) =>
         syncConnectorConnection(client, {
           connectionId: text(form, "connection_id"),
           encryptionKey: encryptionKey(),
           userId: user.id,
-          adapter: slackConnector,
+          adapter: connectorAdapter(provider),
         }),
       );
       return {
-        message: `Slack sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.retired} retired, ${synced.unchanged} unchanged.`,
+        message: `${connectorLabel(provider)} sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.retired} retired, ${synced.unchanged} unchanged.`,
       };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : "Could not sync Slack." };
+      return { error: error instanceof Error ? error.message : "Could not sync connector." };
     }
   }
 
   if (intent === "disconnect_connector") {
     try {
+      const provider = text(form, "provider");
       await withClient((client) =>
         disconnectConnector(client, {
           connectionId: text(form, "connection_id"),
           userId: user.id,
         }),
       );
-      return { message: "Slack disconnected. Imported messages and history were kept." };
+      return {
+        message: `${connectorLabel(provider)} disconnected. Imported records and history were kept.`,
+      };
     } catch (error) {
-      return { error: error instanceof Error ? error.message : "Could not disconnect Slack." };
+      return { error: error instanceof Error ? error.message : "Could not disconnect connector." };
     }
   }
 
@@ -233,6 +277,41 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   return Response.json({ error: "Unknown integration action." }, { status: 400 });
 }
 
+function NotionConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
+  const navigation = useNavigation();
+  const connecting =
+    navigation.state !== "idle" && navigation.formData?.get("intent") === "connect_notion";
+  return (
+    <Form method="post" className="grid gap-3 sm:grid-cols-2">
+      <input type="hidden" name="intent" value="connect_notion" />
+      <label className="text-xs sm:col-span-2">
+        <span className="mb-1 block text-muted-foreground">Notion integration token</span>
+        <input
+          name="notion_token"
+          type="password"
+          required
+          autoComplete="new-password"
+          placeholder="ntn_… or secret_…"
+          className="w-full rounded-md px-3 py-2 font-mono text-sm"
+        />
+      </label>
+      <p className="text-xs text-muted-foreground sm:col-span-2">
+        Create an internal Notion integration with read content access, share the pages you want
+        with it, then paste its token here. Only pages shared with that integration are copied.
+      </p>
+      <div className="sm:col-span-2 sm:text-right">
+        <button
+          type="submit"
+          disabled={connecting}
+          className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+        >
+          {connecting ? "Connecting…" : reconnect ? "Reconnect Notion" : "Connect and sync"}
+        </button>
+      </div>
+    </Form>
+  );
+}
+
 function SlackConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
   const navigation = useNavigation();
   const connecting =
@@ -268,7 +347,15 @@ function SlackConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
   );
 }
 
-function SlackConnection({ connection }: { connection: ConnectorConnectionSummary }) {
+function ConnectorConnection({
+  connection,
+  collectionLabel,
+  reconnect,
+}: {
+  connection: ConnectorConnectionSummary;
+  collectionLabel: string;
+  reconnect: "slack" | "notion";
+}) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-start gap-3">
@@ -290,6 +377,7 @@ function SlackConnection({ connection }: { connection: ConnectorConnectionSummar
             <Form method="post">
               <input type="hidden" name="intent" value="sync_connector" />
               <input type="hidden" name="connection_id" value={connection.id} />
+              <input type="hidden" name="provider" value={connection.provider} />
               <button
                 type="submit"
                 className="neu-button rounded-md px-3 py-2 text-xs font-semibold"
@@ -300,6 +388,7 @@ function SlackConnection({ connection }: { connection: ConnectorConnectionSummar
             <Form method="post">
               <input type="hidden" name="intent" value="disconnect_connector" />
               <input type="hidden" name="connection_id" value={connection.id} />
+              <input type="hidden" name="provider" value={connection.provider} />
               <button
                 type="submit"
                 className="neu-button rounded-md px-3 py-2 text-xs font-semibold text-destructive"
@@ -314,9 +403,15 @@ function SlackConnection({ connection }: { connection: ConnectorConnectionSummar
         className="neu-button inline-flex rounded-md px-3 py-2 text-xs font-semibold"
         to={`/${connection.collectionHandle}`}
       >
-        Slack messages
+        {collectionLabel}
       </Link>
-      {!connection.active ? <SlackConnectionForm reconnect /> : null}
+      {!connection.active ? (
+        reconnect === "slack" ? (
+          <SlackConnectionForm reconnect />
+        ) : (
+          <NotionConnectionForm reconnect />
+        )
+      ) : null}
     </div>
   );
 }
@@ -433,6 +528,12 @@ function GithubConnection({ connection }: { connection: GithubConnectionSummary 
 export default function IntegrationsPage() {
   const data = useLoaderData() as Awaited<ReturnType<typeof loader>>;
   const actionData = useActionData() as ActionData | undefined;
+  const slackConnection = data.connectorConnections.find(
+    (connection) => connection.provider === "slack",
+  );
+  const notionConnection = data.connectorConnections.find(
+    (connection) => connection.provider === "notion",
+  );
   return (
     <PageMain className="space-y-6 py-6">
       <PageHeader
@@ -486,16 +587,35 @@ export default function IntegrationsPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {data.connectorConnections.find((connection) => connection.provider === "slack") ? (
-            <SlackConnection
-              connection={
-                data.connectorConnections.find(
-                  (connection) => connection.provider === "slack",
-                ) as ConnectorConnectionSummary
-              }
+          {slackConnection ? (
+            <ConnectorConnection
+              connection={slackConnection}
+              collectionLabel="Slack messages"
+              reconnect="slack"
             />
           ) : (
             <SlackConnectionForm />
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Notion</CardTitle>
+          <CardDescription>
+            Copy the pages shared with one Notion integration into a private Doco collection,
+            including nested block content and page properties.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {notionConnection ? (
+            <ConnectorConnection
+              connection={notionConnection}
+              collectionLabel="Notion pages"
+              reconnect="notion"
+            />
+          ) : (
+            <NotionConnectionForm />
           )}
         </CardContent>
       </Card>
