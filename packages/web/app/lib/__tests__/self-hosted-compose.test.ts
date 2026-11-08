@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
@@ -38,5 +38,31 @@ describe("the supported self-hosted stack", () => {
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
     expect(dockerfile).toContain("USER node");
+  });
+
+  it("ships executable backup, restore, preflight, and upgrade commands", () => {
+    const commandPath = resolve(root, "doco");
+    const command = readFileSync(commandPath, "utf8");
+    const readme = readFileSync(resolve(root, "README.md"), "utf8");
+
+    expect(statSync(commandPath).mode & 0o111).not.toBe(0);
+    expect(command).toContain("pg_dump");
+    expect(command).toContain("pg_restore");
+    expect(command).toContain("doctor)");
+    expect(command).toContain("upgrade)");
+    expect(command).toContain("/qdrant/storage");
+    expect(readme).toContain("./doco backup");
+    expect(readme).toContain("./doco restore");
+    expect(readme).toContain("./doco upgrade");
+  });
+
+  it("publishes signed AMD64 and ARM64 images from version tags", () => {
+    const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
+
+    expect(workflow).toContain("linux/amd64,linux/arm64");
+    expect(workflow).toContain("type=ref,event=tag");
+    expect(workflow).toContain("provenance: mode=max");
+    expect(workflow).toContain("sbom: true");
+    expect(workflow).toContain("cosign sign --yes");
   });
 });

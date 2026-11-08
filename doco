@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+command_name=${1:-help}
+
+compose() {
+  docker compose "$@"
+}
+
+fail() {
+  echo "doco: $*" >&2
+  exit 1
+}
+
+temporary_directory() {
+  mktemp -d "${TMPDIR:-/tmp}/doco.XXXXXX"
+}
+
+remove_temporary_directory() {
+  if [[ -n "${working_directory:-}" && -d "$working_directory" ]]; then
+    find "$working_directory" -mindepth 1 -delete
+    rmdir "$working_directory"
+  fi
+}
+
+doctor() {
+  command -v docker >/dev/null || fail "Docker is required."
+  docker compose version >/dev/null || fail "Docker Compose v2 is required."
+  compose config --quiet
+  echo "Doco configuration is valid."
+}
+
+backup() {
+  doctor >/dev/null
+  local timestamp destination destination_directory
+  timestamp=$(date -u +%Y%m%dT%H%M%SZ)
+  destination=${1:-"backups/doco-${timestamp}.tar.gz"}
+  destination_directory=$(dirname "$destination")
+  mkdir -p "$destination_directory"
+
+  working_directory=$(temporary_directory)
+  trap remove_temporary_directory EXIT
+  umask 077
+
+  compose up -d --wait postgres >/dev/null
+  compose exec -T postgres pg_dump \
+    --username doco \
+    --dbname doco \
+    --format=custom \
+    --no-owner \
+    --no-privileges >"$working_directory/postgres.dump"
+
+  if [[ -f .env ]]; then
+    cp .env "$working_directory/doco.env"
+  elif [[ -n "${DOCO_ENCRYPTION_KEY:-}" && -n "${DOCO_POSTGRES_PASSWORD:-}" ]]; then
+    {
+      printf 'DOCO_ENCRYPTION_KEY=%s\n' "$DOCO_ENCRYPTION_KEY"
+      printf 'DOCO_POSTGRES_PASSWORD=%s\n' "$DOCO_POSTGRES_PASSWORD"
+      [[ -z "${DOCO_IMAGE:-}" ]] || printf 'DOCO_IMAGE=%s\n' "$DOCO_IMAGE"
+      [[ -z "${DOCO_PUBLIC_HOST:-}" ]] || printf 'DOCO_PUBLIC_HOST=%s\n' "$DOCO_PUBLIC_HOST"
+      [[ -z "${DOCO_HTTP_PORT:-}" ]] || printf 'DOCO_HTTP_PORT=%s\n' "$DOCO_HTTP_PORT"
+      [[ -z "${DOCO_HOST:-}" ]] || printf 'DOCO_HOST=%s\n' "$DOCO_HOST"
+    } >"$working_directory/doco.env"
+  fi
+  {
+    echo "created_at=$timestamp"
+    echo "format=1"
+    echo "postgres=source-of-truth"
+    echo "qdrant=rebuildable"
+    compose config --images | sed 's/^/image=/'
+  } >"$working_directory/manifest"
+
+  tar -czf "$destination" -C "$working_directory" .
+  chmod 600 "$destination"
+  echo "Backup written to $destination"
+}
+
+restore() {
+  local archive=${1:-}
+  local force=${2:-}
+  [[ -n "$archive" ]] || fail "Usage: ./doco restore <backup.tar.gz> [--force]"
+  [[ -f "$archive" ]] || fail "Backup not found: $archive"
+  [[ -z "$force" || "$force" == "--force" ]] || fail "Unknown restore option: $force"
+
+  working_directory=$(temporary_directory)
+  trap remove_temporary_directory EXIT
+  if tar -tzf "$archive" | grep -Eq '(^/|(^|/)\.\.(/|$))'; then
+    fail "Backup contains an unsafe path."
+  fi
+  tar -xzf "$archive" -C "$working_directory"
+  [[ -s "$working_directory/postgres.dump" ]] || fail "Backup has no PostgreSQL dump."
+  [[ -s "$working_directory/manifest" ]] || fail "Backup has no manifest."
+  grep -qx "format=1" "$working_directory/manifest" || fail "Unsupported backup format."
+
+  if [[ -f "$working_directory/doco.env" ]]; then
+    if [[ -f .env ]] && ! cmp -s .env "$working_directory/doco.env"; then
+      [[ "$force" == "--force" ]] || fail ".env differs from the backup; retry with --force to replace it."
+      cp .env ".env.before-restore.$(date -u +%Y%m%dT%H%M%SZ)"
+    fi
+    cp "$working_directory/doco.env" .env
+    chmod 600 .env
+  fi
+
+  doctor >/dev/null
+  compose stop app qdrant >/dev/null 2>&1 || true
+  compose up -d --wait postgres >/dev/null
+  compose exec -T postgres pg_restore \
+    --username doco \
+    --dbname doco \
+    --clean \
+    --if-exists \
+    --no-owner \
+    --no-privileges <"$working_directory/postgres.dump"
+
+  # Qdrant is a projection of PostgreSQL. Never keep vectors from the database
+  # that existed before this restore; the application repopulates the empty
+  # volume from the restored source of truth.
+  compose run --rm --no-deps --entrypoint sh qdrant \
+    -c 'find /qdrant/storage -mindepth 1 -maxdepth 1 -exec rm -rf -- {} +'
+  compose up -d --wait
+  echo "Restore completed from $archive"
+}
+
+upgrade() {
+  doctor >/dev/null
+  local configured_image
+  configured_image=$(compose config --images | head -n 1)
+  [[ "$configured_image" != "doco:local" ]] || fail "Set DOCO_IMAGE to a released ghcr.io/docoinc/doco tag before upgrading."
+
+  backup "${1:-backups/pre-upgrade-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}"
+  compose pull
+  compose up -d --wait
+  echo "Upgrade completed with $configured_image"
+}
+
+help_text() {
+  cat <<'EOF'
+Usage: ./doco <command>
+
+Commands:
+  doctor                         Validate Docker and the Compose configuration.
+  backup [archive]               Back up PostgreSQL and the deployment config.
+  restore <archive> [--force]    Restore PostgreSQL and clear rebuildable vectors.
+  upgrade [backup-archive]       Back up, pull configured images, and upgrade.
+EOF
+}
+
+case "$command_name" in
+  doctor) doctor ;;
+  backup) backup "${2:-}" ;;
+  restore) restore "${2:-}" "${3:-}" ;;
+  upgrade) upgrade "${2:-}" ;;
+  help | --help | -h) help_text ;;
+  *) fail "Unknown command: $command_name. Run ./doco help." ;;
+esac

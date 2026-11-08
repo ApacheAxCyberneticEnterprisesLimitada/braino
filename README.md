@@ -35,6 +35,22 @@ HTTP on port 3000 is the default. For a public DNS name with automatic HTTPS,
 set `DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
 `docker compose --profile tls up -d --build`.
 
+## Operations
+
+The supported deployment includes preflight, backup, restore, and controlled
+upgrade commands:
+
+```sh
+./doco doctor
+./doco backup
+./doco restore backups/doco-2026-11-08.tar.gz
+./doco upgrade
+```
+
+PostgreSQL is the source of truth; Qdrant is cleared and rebuilt after a
+restore. Backups include deployment configuration and are written with mode
+`0600`. See [Operating Doco](docs/operations.md) for the full procedure.
+
 ## Development
 
 Requirements: Node.js 22+, pnpm 10.33.2, and Git.
