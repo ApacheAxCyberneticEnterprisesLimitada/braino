@@ -477,4 +477,309 @@ describe("changeset authoring", () => {
     );
     expect(localNodes.rows[0]?.count).toBe(0);
   });
+
+  it("activates a node after earlier operations satisfy its committed-stage policies", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+    const deciderId = "principal_01J00000000000000000000000";
+    await db.query(
+      `INSERT INTO nodes
+         (id, collection_id, node_type, lifecycle, prose, extra, created_by, updated_by)
+       VALUES ($1, $2, 'principal', 'active', 'The accountable decider', '{}'::jsonb, $3, $3)`,
+      [deciderId, productDecisions.id, initialized.owner.id],
+    );
+
+    const result = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      operations: [
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "launch",
+          body: {
+            prose: "Launch the public core",
+            lifecycle: "drafting",
+            extra: { chosen: "Ship the independently useful product" },
+          },
+        },
+        {
+          op: "relate",
+          relation_kind: "attributed_to",
+          from: "$launch",
+          to: deciderId,
+        },
+        { op: "activate", target: "$launch" },
+      ],
+    });
+
+    expect(result.results[2]).toMatchObject({
+      op_index: 2,
+      op: "activate",
+      ok: true,
+      id: result.aliases.launch,
+    });
+    const activated = await db.query<{ lifecycle: string }>(
+      "SELECT lifecycle FROM nodes WHERE id = $1",
+      [result.aliases.launch],
+    );
+    expect(activated.rows[0]?.lifecycle).toBe("active");
+  });
+
+  it("keeps demotion graph-safe and cascades active edges in the same commit when requested", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+    await db.query("UPDATE policies SET lifecycle = 'retired' WHERE collection_id = $1", [
+      productDecisions.id,
+    ]);
+    const created = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      operations: [
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "first",
+          body: { prose: "First", lifecycle: "active" },
+        },
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "second",
+          body: { prose: "Second", lifecycle: "active" },
+        },
+        {
+          op: "relate",
+          relation_kind: "relates_to",
+          from: "$first",
+          to: "$second",
+          lifecycle: "active",
+        },
+      ],
+    });
+    const edgeId = created.results[2]?.relation?.edge_id;
+
+    await expect(
+      applyChangeset(client(), {
+        collectionHandle: productDecisions.handle,
+        actorId: initialized.owner.id,
+        operations: [{ op: "retire", target: created.aliases.first }],
+      }),
+    ).rejects.toMatchObject({
+      code: "active_edges_require_cascade",
+      status: 422,
+      operationIndex: 0,
+    });
+
+    const result = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      reason: "Withdraw the first decision",
+      operations: [
+        {
+          op: "retire",
+          target: created.aliases.first,
+          retire_active_edges: true,
+        },
+      ],
+    });
+    expect(result.results[0]).toMatchObject({
+      op_index: 0,
+      op: "retire",
+      ok: true,
+      id: created.aliases.first,
+      retired_edges: [edgeId],
+    });
+
+    const current = await db.query<{ node_lifecycle: string; edge_lifecycle: string }>(
+      `SELECT n.lifecycle AS node_lifecycle, e.lifecycle AS edge_lifecycle
+         FROM nodes n JOIN edges e ON e.id = $2
+        WHERE n.id = $1`,
+      [created.aliases.first, edgeId],
+    );
+    expect(current.rows[0]).toEqual({ node_lifecycle: "retired", edge_lifecycle: "retired" });
+
+    const versionCommit = await db.query<{ tx_ids: number }>(
+      `SELECT count(DISTINCT tx_id)::int AS tx_ids
+         FROM (
+           SELECT tx_id FROM node_versions WHERE entity_id = $1 AND version = 2
+           UNION ALL
+           SELECT tx_id FROM edge_versions WHERE entity_id = $2 AND version = 2
+         ) versions`,
+      [created.aliases.first, edgeId],
+    );
+    expect(versionCommit.rows[0]?.tx_ids).toBe(1);
+    const audit = await db.query<{ count: number }>(
+      `SELECT count(*)::int AS count FROM audit_events
+        WHERE op = 'lifecycle.transition' AND entity_id = ANY($1::text[])`,
+      [[created.aliases.first, edgeId]],
+    );
+    expect(audit.rows[0]?.count).toBe(2);
+  });
+
+  it("requires write access to every edge type retired by a lifecycle cascade", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+    await db.query("UPDATE policies SET lifecycle = 'retired' WHERE collection_id = $1", [
+      productDecisions.id,
+    ]);
+    const created = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      operations: [
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "first",
+          body: { prose: "First", lifecycle: "active" },
+        },
+        {
+          op: "create",
+          node_type: "decision",
+          alias: "second",
+          body: { prose: "Second", lifecycle: "active" },
+        },
+        {
+          op: "relate",
+          relation_kind: "relates_to",
+          from: "$first",
+          to: "$second",
+          lifecycle: "active",
+        },
+      ],
+    });
+    const decisionWriter = "user_01J00000000000000000000002";
+    await db.query(
+      `INSERT INTO users (id, username, name, email, password_hash, data)
+       VALUES ($1, 'lifecycle-writer', 'Lifecycle Writer', 'lifecycle@example.com', 'hash', '{}'::jsonb)`,
+      [decisionWriter],
+    );
+    await db.query(
+      `INSERT INTO workspace_users (workspace_id, user_id, role, write_types)
+       VALUES ($1, $2, 'reader', ARRAY['decision'])`,
+      [initialized.workspace.id, decisionWriter],
+    );
+
+    await expect(
+      applyChangeset(client(), {
+        collectionHandle: productDecisions.handle,
+        actorId: decisionWriter,
+        operations: [{ op: "retire", target: created.aliases.first, retire_active_edges: true }],
+      }),
+    ).rejects.toMatchObject({ code: "write_forbidden", status: 403, operationIndex: 0 });
+
+    const unchanged = await db.query<{ node_lifecycle: string; edge_lifecycle: string }>(
+      `SELECT n.lifecycle AS node_lifecycle, e.lifecycle AS edge_lifecycle
+         FROM nodes n JOIN edges e ON e.id = $2
+        WHERE n.id = $1`,
+      [created.aliases.first, created.results[2]?.relation?.edge_id],
+    );
+    expect(unchanged.rows[0]).toEqual({ node_lifecycle: "active", edge_lifecycle: "active" });
+  });
+
+  it("treats an already-satisfied lifecycle transition as a successful no-op", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+    await db.query("UPDATE policies SET lifecycle = 'retired' WHERE collection_id = $1", [
+      productDecisions.id,
+    ]);
+    const created = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      operations: [
+        {
+          op: "create",
+          node_type: "decision",
+          body: { prose: "Already queued", lifecycle: "queued" },
+        },
+      ],
+    });
+    const id = created.results[0]?.id;
+
+    const result = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      operations: [{ op: "queue", target: id }],
+    });
+
+    expect(result.results[0]).toMatchObject({ op: "queue", ok: true, id, skipped: true });
+    const versions = await db.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM node_versions WHERE entity_id = $1",
+      [id],
+    );
+    expect(versions.rows[0]?.count).toBe(1);
+  });
+
+  it("supersedes a node with one replacement, retirement, and replaces edge commit", async () => {
+    const { initialized, productDecisions } = await initializedCollections();
+    const original = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      operations: [
+        {
+          op: "create",
+          node_type: "decision",
+          body: { prose: "Use the hosted-only architecture", lifecycle: "drafting" },
+        },
+      ],
+    });
+    const oldId = original.results[0]?.id;
+
+    const result = await applyChangeset(client(), {
+      collectionHandle: productDecisions.handle,
+      actorId: initialized.owner.id,
+      reason: "Move to the public core",
+      operations: [
+        {
+          op: "supersede",
+          target: oldId,
+          node_type: "decision",
+          alias: "public_core",
+          body: { prose: "Use the public core architecture", lifecycle: "drafting" },
+        },
+      ],
+    });
+
+    expect(result.results[0]).toMatchObject({
+      op_index: 0,
+      op: "supersede",
+      ok: true,
+      id: result.aliases.public_core,
+      alias: "public_core",
+      relation: {
+        kind: "replaces",
+        from: result.aliases.public_core,
+        to: oldId,
+        edge_id: expect.stringMatching(/^edge_/),
+      },
+    });
+    const relationId = result.results[0]?.relation?.edge_id;
+    const current = await db.query<{
+      old_lifecycle: string;
+      new_lifecycle: string;
+      edge_lifecycle: string;
+    }>(
+      `SELECT old.lifecycle AS old_lifecycle, replacement.lifecycle AS new_lifecycle,
+              edge.lifecycle AS edge_lifecycle
+         FROM nodes old
+         JOIN nodes replacement ON replacement.id = $2
+         JOIN edges edge ON edge.id = $3
+        WHERE old.id = $1`,
+      [oldId, result.aliases.public_core, relationId],
+    );
+    expect(current.rows[0]).toEqual({
+      old_lifecycle: "retired",
+      new_lifecycle: "drafting",
+      edge_lifecycle: "drafting",
+    });
+
+    const versionCommit = await db.query<{ tx_ids: number }>(
+      `SELECT count(DISTINCT tx_id)::int AS tx_ids
+         FROM (
+           SELECT tx_id FROM node_versions WHERE entity_id = $1 AND version = 2
+           UNION ALL
+           SELECT tx_id FROM node_versions WHERE entity_id = $2
+           UNION ALL
+           SELECT tx_id FROM edge_versions WHERE entity_id = $3
+         ) versions`,
+      [oldId, result.aliases.public_core, relationId],
+    );
+    expect(versionCommit.rows[0]?.tx_ids).toBe(1);
+  });
 });
