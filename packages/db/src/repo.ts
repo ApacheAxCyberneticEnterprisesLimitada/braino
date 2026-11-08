@@ -1194,8 +1194,11 @@ export interface AuditEventRow {
   reason?: string | null;
 }
 
-export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
-  await withClient(async (c) => {
+export async function appendAuditEventRow(
+  evt: AuditEventRow,
+  client?: pg.PoolClient,
+): Promise<void> {
+  const append = async (c: pg.PoolClient) => {
     await c.query(
       `INSERT INTO audit_events (event_id, at, by_user, collection_id, workspace_id, entity_type, entity_id, op, before_json, after_json, reason)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
@@ -1213,7 +1216,9 @@ export async function appendAuditEventRow(evt: AuditEventRow): Promise<void> {
         evt.reason ?? null,
       ],
     );
-  });
+  };
+  if (client) await append(client);
+  else await withClient(append);
 }
 
 export async function readAuditEventRows(filters: {
