@@ -4,6 +4,8 @@ export default [
   index("routes/_index.tsx"),
   route("collaborators", "routes/collaborators.tsx"),
   route("healthz", "routes/healthz.ts"),
+  route("search", "routes/search.tsx"),
+  route("api/v1/search.json", "routes/api.v1.search[.]json.ts"),
   route("api/v1/workspaces.json", "routes/api.v1.workspaces[.]json.ts"),
   route("api/v1/collections.json", "routes/api.v1.collections[.]json.ts"),
   route(
@@ -15,4 +17,5 @@ export default [
     "routes/$collectionHandle.api.changesets[.]json.ts",
   ),
   route(":collectionHandle", "routes/$collectionHandle.tsx"),
+  route(":collectionHandle/:nodeId", "routes/$collectionHandle.$nodeId.tsx"),
 ] satisfies RouteConfig;

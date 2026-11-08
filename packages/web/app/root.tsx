@@ -71,7 +71,31 @@ function SiteHeader({ data }: { data: RootData }) {
         <Link to="/" className="inline-flex items-center hover:opacity-80" aria-label="Doco home">
           <DocoMark height={28} />
         </Link>
-        <div className="ml-auto flex shrink-0 items-center gap-2 text-xs">
+        {data.user ? (
+          <Form
+            method="get"
+            action="/search"
+            className="ml-auto hidden min-w-0 max-w-md flex-1 sm:flex"
+          >
+            <label className="sr-only" htmlFor="workspace-search">
+              Search workspace records
+            </label>
+            <input
+              id="workspace-search"
+              name="q"
+              type="search"
+              placeholder="Search workspace"
+              className="min-w-0 flex-1 rounded-l-md px-3 py-1.5 text-xs"
+            />
+            <button
+              type="submit"
+              className="neu-button rounded-r-md px-3 py-1.5 text-xs font-semibold"
+            >
+              Search
+            </button>
+          </Form>
+        ) : null}
+        <div className={`${data.user ? "" : "ml-auto"} flex shrink-0 items-center gap-2 text-xs`}>
           {data.user ? (
             <>
               <Link
