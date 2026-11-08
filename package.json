@@ -17,6 +17,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
+    "conformance": "bash scripts/conformance.sh",
     "verify": "pnpm run build && pnpm run typecheck && pnpm run test && pnpm run lint"
   },
   "devDependencies": {
