@@ -48,13 +48,16 @@ send a unique `Idempotency-Key` header. Deliveries use the same authoring
 policies, history, permissions, and changeset response as Doco's API; retrying
 the same key returns the original response without writing twice.
 
-Owners can connect Slack and Notion from the same page. Each external source
-is bound to this Doco workspace, its credential is encrypted with
+Owners can connect Slack, Notion, and Google Drive from the same page. Each
+external source is bound to this Doco workspace, its credential is encrypted with
 `DOCO_ENCRYPTION_KEY`, and its read-only records land in a private collection
 with ordinary search, history, and audit behavior. For Slack, create a bot
 token with `channels:read`, `channels:history`, and `users:read`; only public,
 non-shared channels are copied. For Notion, create an internal integration with
-read-content access and explicitly share the pages Doco should copy.
+read-content access and explicitly share the pages Doco should copy. For Google
+Drive, enable the Drive API, create a service-account JSON key, and share the
+folders or files with that service account; Doco imports Docs, Sheets, Slides,
+and text files while ignoring binary files.
 
 Owners can also connect one GitHub repository from **Integrations** with a
 fine-grained personal access token scoped to that repository. Grant read access
