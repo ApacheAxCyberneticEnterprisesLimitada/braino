@@ -12,3 +12,5 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env.before-restore.*
+backups/
