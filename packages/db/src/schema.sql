@@ -1459,6 +1459,27 @@ CREATE TABLE IF NOT EXISTS incoming_webhook_deliveries (
   PRIMARY KEY (webhook_token, idempotency_key)
 );
 
+-- One operator-managed GitHub source for the single workspace. The personal
+-- access token is encrypted with DOCO_ENCRYPTION_KEY; it is never returned by
+-- list APIs or written into collection metadata. Imported issues and pull
+-- requests live in dedicated collections and use the ordinary immutable
+-- node/history/audit spine.
+CREATE TABLE IF NOT EXISTS github_connections (
+  id                           text PRIMARY KEY,
+  workspace_id                 text NOT NULL UNIQUE REFERENCES workspaces(id) ON DELETE CASCADE,
+  repository                   text NOT NULL,
+  token_sealed                 text,
+  issues_collection_id         text NOT NULL REFERENCES collections(id),
+  pull_requests_collection_id  text NOT NULL REFERENCES collections(id),
+  created_by_user_id           text NOT NULL REFERENCES users(id),
+  active                       boolean NOT NULL DEFAULT true,
+  created_at                   timestamptz NOT NULL DEFAULT now(),
+  last_synced_at               timestamptz,
+  last_error                   text
+);
+CREATE UNIQUE INDEX IF NOT EXISTS github_connections_repository_idx
+  ON github_connections (lower(repository));
+
 -- ──────────────────────────────────────────────────────────────────────────
 -- Visualization perspectives and the per-collection attachment join. Ownership is
 -- tracked by `owner_handle`.
