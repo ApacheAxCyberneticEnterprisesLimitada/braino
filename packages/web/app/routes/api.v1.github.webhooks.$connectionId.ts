@@ -31,16 +31,14 @@ export async function action({
     throw error;
   }
   try {
-    const result = await withClient((client) =>
-      deliverGithubWebhook(client, {
-        connectionId,
-        deliveryId: request.headers.get("x-github-delivery") ?? "",
-        event: request.headers.get("x-github-event") ?? "",
-        signature: request.headers.get("x-hub-signature-256") ?? "",
-        body,
-        encryptionKey: encryptionKey(),
-      }),
-    );
+    const result = await deliverGithubWebhook(withClient, {
+      connectionId,
+      deliveryId: request.headers.get("x-github-delivery") ?? "",
+      event: request.headers.get("x-github-event") ?? "",
+      signature: request.headers.get("x-hub-signature-256") ?? "",
+      body,
+      encryptionKey: encryptionKey(),
+    });
     return Response.json(result);
   } catch (error) {
     if (error instanceof GithubConnectionError) {

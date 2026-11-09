@@ -1599,7 +1599,9 @@ CREATE TABLE IF NOT EXISTS github_connections (
   webhook_secret_sealed        text,
   webhook_url                  text,
   webhook_created_at           timestamptz,
-  webhook_last_delivery_at     timestamptz
+  webhook_last_delivery_at     timestamptz,
+  sync_token                   text,
+  sync_started_at              timestamptz
 );
 CREATE UNIQUE INDEX IF NOT EXISTS github_connections_repository_idx
   ON github_connections (lower(repository));
@@ -1608,7 +1610,9 @@ ALTER TABLE github_connections
   ADD COLUMN IF NOT EXISTS webhook_secret_sealed text,
   ADD COLUMN IF NOT EXISTS webhook_url text,
   ADD COLUMN IF NOT EXISTS webhook_created_at timestamptz,
-  ADD COLUMN IF NOT EXISTS webhook_last_delivery_at timestamptz;
+  ADD COLUMN IF NOT EXISTS webhook_last_delivery_at timestamptz,
+  ADD COLUMN IF NOT EXISTS sync_token text,
+  ADD COLUMN IF NOT EXISTS sync_started_at timestamptz;
 
 -- GitHub names every webhook request with a globally unique delivery id. This
 -- ledger makes redelivery safe: a completed refresh is returned verbatim and
