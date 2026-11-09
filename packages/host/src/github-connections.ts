@@ -13,6 +13,7 @@ import { openSecret, sealSecret } from "./secret-box.js";
 
 const API = "https://api.github.com";
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
+const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 
 export class GithubConnectionError extends Error {
   constructor(
@@ -129,12 +130,28 @@ function headers(accessToken: string): Record<string, string> {
   };
 }
 
+async function githubFetch(fetcher: Fetcher, url: string, init: RequestInit): Promise<Response> {
+  const timeout = AbortSignal.timeout(GITHUB_REQUEST_TIMEOUT_MS);
+  try {
+    return await fetcher(url, { ...init, signal: timeout });
+  } catch (error) {
+    if (timeout.aborted) {
+      throw new GithubConnectionError(
+        "GitHub did not respond within 30 seconds.",
+        "github_timeout",
+        504,
+      );
+    }
+    throw error;
+  }
+}
+
 async function githubJson(
   fetcher: Fetcher,
   url: string,
   accessToken: string,
 ): Promise<{ value: unknown; response: Response }> {
-  const response = await fetcher(url, { headers: headers(accessToken) });
+  const response = await githubFetch(fetcher, url, { headers: headers(accessToken) });
   if (!response.ok) {
     const message =
       response.status === 401 || response.status === 403
@@ -246,13 +263,24 @@ async function githubMutation(
   accessToken: string,
   method: "POST" | "PATCH" | "DELETE",
   body?: Record<string, unknown>,
+  operation: "configure" | "delete" = "configure",
 ): Promise<unknown> {
-  const response = await fetcher(url, {
+  const response = await githubFetch(fetcher, url, {
     method,
     headers: { ...headers(accessToken), "Content-Type": "application/json" },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
+  if (operation === "delete" && response.status === 404) return null;
   if (!response.ok) {
+    if (operation === "delete") {
+      throw new GithubConnectionError(
+        response.status === 401 || response.status === 403
+          ? "GitHub rejected webhook deletion. Keep Webhooks repository write access until disconnect completes."
+          : `GitHub returned ${response.status} while deleting the repository webhook.`,
+        "github_webhook_delete_failed",
+        502,
+      );
+    }
     const message =
       response.status === 401 || response.status === 403
         ? "GitHub rejected webhook setup. Grant the token Webhooks repository write access."
@@ -592,18 +620,51 @@ export async function listGithubConnections(
 
 export async function disconnectGithubRepository(
   client: PoolClient,
-  input: { connectionId: string; userId: string },
+  input: {
+    connectionId: string;
+    userId: string;
+    encryptionKey: string;
+    fetcher?: Fetcher;
+  },
 ): Promise<void> {
-  const connection = await client.query<{ workspace_id: string }>(
-    "SELECT workspace_id FROM github_connections WHERE id = $1",
+  const connection = await client.query<ConnectionRow>(
+    "SELECT * FROM github_connections WHERE id = $1",
     [input.connectionId],
   );
   const row = connection.rows[0];
   if (!row)
     throw new GithubConnectionError("GitHub connection not found.", "connection_not_found", 404);
   await requireOwner(client, row.workspace_id, input.userId);
+  if (row.webhook_id !== null) {
+    if (!row.token_sealed) {
+      throw new GithubConnectionError(
+        "The GitHub token is unavailable, so the repository webhook cannot be removed.",
+        "token_unavailable",
+        409,
+      );
+    }
+    try {
+      await githubMutation(
+        input.fetcher ?? fetch,
+        `${API}/repos/${row.repository}/hooks/${row.webhook_id}`,
+        openSecret(row.token_sealed, input.encryptionKey),
+        "DELETE",
+        undefined,
+        "delete",
+      );
+    } catch (error) {
+      await client.query("UPDATE github_connections SET last_error = $2 WHERE id = $1", [
+        row.id,
+        error instanceof Error ? error.message.slice(0, 500) : "GitHub webhook deletion failed.",
+      ]);
+      throw error;
+    }
+  }
   await client.query(
-    "UPDATE github_connections SET active = false, token_sealed = NULL WHERE id = $1",
+    `UPDATE github_connections
+        SET active = false, token_sealed = NULL, webhook_id = NULL,
+            webhook_secret_sealed = NULL, webhook_url = NULL, last_error = NULL
+      WHERE id = $1`,
     [input.connectionId],
   );
 }

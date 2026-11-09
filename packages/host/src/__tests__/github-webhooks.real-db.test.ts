@@ -7,6 +7,7 @@ import {
   configureGithubWebhook,
   connectGithubRepository,
   deliverGithubWebhook,
+  disconnectGithubRepository,
   listGithubConnections,
 } from "../github-connections.js";
 import { initializeSingleWorkspace } from "../single-workspace.js";
@@ -32,10 +33,16 @@ async function fixture() {
   });
 }
 
-function fakeGithub(capture: { webhookSecret?: string; webhookUrl?: string }): typeof fetch {
+function fakeGithub(capture: {
+  webhookSecret?: string;
+  webhookUrl?: string;
+  deletedWebhookId?: string;
+  deleteStatus?: number;
+}): typeof fetch {
   return (async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
     expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
     if (url.pathname === "/repos/acme/widgets" && (!init?.method || init.method === "GET")) {
       return Response.json({ full_name: "acme/widgets", default_branch: "main" });
     }
@@ -53,6 +60,10 @@ function fakeGithub(capture: { webhookSecret?: string; webhookUrl?: string }): t
         active: true,
       });
       return Response.json({ id: 4242, active: true }, { status: 201 });
+    }
+    if (url.pathname === "/repos/acme/widgets/hooks/4242" && init?.method === "DELETE") {
+      capture.deletedWebhookId = "4242";
+      return new Response(null, { status: capture.deleteStatus ?? 204 });
     }
     if (url.pathname === "/repos/acme/widgets/issues") {
       return Response.json([
@@ -176,5 +187,76 @@ describe("automatic GitHub sync", () => {
         fetcher,
       }),
     ).rejects.toMatchObject({ code: "signature_invalid", status: 401 });
+
+    await disconnectGithubRepository(client(), {
+      connectionId: connection.id,
+      userId: setup.owner.id,
+      encryptionKey,
+      fetcher,
+    });
+    expect(capture.deletedWebhookId).toBe("4242");
+    expect(
+      (
+        await db.query<{
+          active: boolean;
+          token_sealed: string | null;
+          webhook_id: string | null;
+          webhook_secret_sealed: string | null;
+        }>(
+          `SELECT active, token_sealed, webhook_id::text, webhook_secret_sealed
+             FROM github_connections WHERE id = $1`,
+          [connection.id],
+        )
+      ).rows[0],
+    ).toEqual({
+      active: false,
+      token_sealed: null,
+      webhook_id: null,
+      webhook_secret_sealed: null,
+    });
+  });
+
+  it("keeps the token and local webhook state when GitHub rejects deletion", async () => {
+    const setup = await fixture();
+    const capture: {
+      webhookSecret?: string;
+      webhookUrl?: string;
+      deletedWebhookId?: string;
+      deleteStatus?: number;
+    } = { deleteStatus: 500 };
+    const fetcher = fakeGithub(capture);
+    const connection = await connectGithubRepository(client(), {
+      workspaceId: setup.workspace.id,
+      userId: setup.owner.id,
+      repository: "acme/widgets",
+      accessToken,
+      encryptionKey,
+      fetcher,
+    });
+    await configureGithubWebhook(client(), {
+      connectionId: connection.id,
+      userId: setup.owner.id,
+      publicHost: "https://doco.example.test",
+      encryptionKey,
+      fetcher,
+    });
+
+    await expect(
+      disconnectGithubRepository(client(), {
+        connectionId: connection.id,
+        userId: setup.owner.id,
+        encryptionKey,
+        fetcher,
+      }),
+    ).rejects.toMatchObject({ code: "github_webhook_delete_failed", status: 502 });
+    expect(
+      (
+        await db.query<{ active: boolean; has_token: boolean; webhook_id: string | null }>(
+          `SELECT active, token_sealed IS NOT NULL AS has_token, webhook_id::text
+             FROM github_connections WHERE id = $1`,
+          [connection.id],
+        )
+      ).rows[0],
+    ).toEqual({ active: true, has_token: true, webhook_id: "4242" });
   });
 });
