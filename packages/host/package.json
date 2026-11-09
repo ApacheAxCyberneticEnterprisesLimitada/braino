@@ -21,6 +21,7 @@
   },
   "dependencies": {
     "@doco/db": "workspace:*",
+    "@doco/index": "workspace:*",
     "@doco/shared": "workspace:*"
   }
 }

@@ -110,6 +110,8 @@ describe("the supported self-hosted stack", () => {
       expect(contract).toContain(proof);
     }
     expect(script).toContain("docker compose");
+    expect(script).toContain("doco_records");
+    expect(script).toContain("/collections/doco_records");
     expect(script).toContain("./doco backup");
     expect(script).toContain("./doco restore");
     expect(script).toContain("600");

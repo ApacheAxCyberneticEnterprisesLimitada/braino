@@ -50,6 +50,7 @@ export interface VectorPointKey {
 
 /** Derived vector-index boundary. PostgreSQL remains the source of truth. */
 export interface VectorStore {
+  ensureCollection?(): Promise<{ created: boolean }>;
   upsert(records: VectorRecord[]): Promise<void>;
   delete(args: VectorDeleteArgs): Promise<void>;
   deletePoints(points: VectorPointKey[]): Promise<void>;
@@ -67,6 +68,7 @@ export interface QdrantVectorStoreOptions {
   apiKey?: string;
   collection?: string;
   dimensions?: number;
+  timeoutMs?: number;
   fetch?: typeof fetch;
 }
 
@@ -160,18 +162,24 @@ export class QdrantVectorStore implements RetrievalStore {
   private readonly apiKey: string | undefined;
   private readonly collection: string;
   private readonly dimensions: number;
+  private readonly timeoutMs: number;
   private readonly fetchImpl: typeof fetch;
-  private ready?: Promise<void>;
+  private ready: Promise<void> | undefined;
+  private collectionCreated = false;
 
   constructor(options: QdrantVectorStoreOptions) {
     this.url = options.url.replace(/\/$/, "");
     this.apiKey = options.apiKey;
     this.collection = options.collection ?? DEFAULT_COLLECTION;
     this.dimensions = options.dimensions ?? DEFAULT_DIMENSIONS;
+    this.timeoutMs = options.timeoutMs ?? 5_000;
     this.fetchImpl = options.fetch ?? fetch;
     if (!this.url) throw new Error("Qdrant URL is required.");
     if (!Number.isInteger(this.dimensions) || this.dimensions < 1) {
       throw new Error("Qdrant vector dimensions must be a positive integer.");
+    }
+    if (!Number.isInteger(this.timeoutMs) || this.timeoutMs < 1) {
+      throw new Error("Qdrant request timeout must be a positive integer.");
     }
   }
 
@@ -186,7 +194,7 @@ export class QdrantVectorStore implements RetrievalStore {
   async assertReady(): Promise<void> {
     const response = await this.fetchImpl(`${this.url}/readyz`, {
       headers: this.headers(),
-      signal: AbortSignal.timeout(5_000),
+      signal: AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {
       throw new Error(`Qdrant GET /readyz failed (${response.status})`);
@@ -197,6 +205,7 @@ export class QdrantVectorStore implements RetrievalStore {
     const response = await this.fetchImpl(`${this.url}${path}`, {
       ...init,
       headers: { ...this.headers(), ...init.headers },
+      signal: init.signal ?? AbortSignal.timeout(this.timeoutMs),
     });
     if (!response.ok) {
       throw new Error(
@@ -207,14 +216,32 @@ export class QdrantVectorStore implements RetrievalStore {
   }
 
   private async ensureReady(): Promise<void> {
-    this.ready ??= this.initialize();
+    if (!this.ready) {
+      const initializing = this.initialize();
+      this.ready = initializing;
+      void initializing.catch(() => {
+        if (this.ready === initializing) this.ready = undefined;
+      });
+    }
     return this.ready;
+  }
+
+  /** Ensure indexes exist and report a newly created/incomplete collection once. */
+  async ensureCollection(): Promise<{ created: boolean }> {
+    await this.ensureReady();
+    const created = this.collectionCreated;
+    this.collectionCreated = false;
+    return { created };
   }
 
   private async initialize(): Promise<void> {
     const path = `/collections/${encodeURIComponent(this.collection)}`;
-    const response = await this.fetchImpl(`${this.url}${path}`, { headers: this.headers() });
+    const response = await this.fetchImpl(`${this.url}${path}`, {
+      headers: this.headers(),
+      signal: AbortSignal.timeout(this.timeoutMs),
+    });
     let info: QdrantCollectionInfo;
+    let created = false;
     if (response.status === 404) {
       await this.request(path, {
         method: "PUT",
@@ -225,6 +252,7 @@ export class QdrantVectorStore implements RetrievalStore {
         }),
       });
       info = { payload_schema: {} };
+      created = true;
     } else {
       if (!response.ok) {
         throw new Error(`Qdrant GET ${path} failed (${response.status}): ${await response.text()}`);
@@ -254,6 +282,7 @@ export class QdrantVectorStore implements RetrievalStore {
       },
     };
     const existing = info.payload_schema ?? {};
+    created ||= !("entity_key" in existing) || !("chunk_text" in existing);
     for (const [fieldName, fieldSchema] of Object.entries(schemas)) {
       if (fieldName in existing) continue;
       await this.request(`${path}/index?wait=true`, {
@@ -261,6 +290,7 @@ export class QdrantVectorStore implements RetrievalStore {
         body: JSON.stringify({ field_name: fieldName, field_schema: fieldSchema }),
       });
     }
+    this.collectionCreated ||= created;
   }
 
   async upsert(records: VectorRecord[]): Promise<void> {

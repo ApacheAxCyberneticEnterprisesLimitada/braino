@@ -107,6 +107,12 @@ grep -q '"ok":true' "$runtime/changeset.json"
 curl --fail --silent --show-error -b "$cookies" \
   "$origin/api/v1/search.json?q=v0.1%20conformance" >"$runtime/search.json"
 grep -q 'Doco v0.1 conformance record' "$runtime/search.json"
+docker compose exec -T app node --input-type=module -e '
+  const response = await fetch("http://qdrant:6333/collections/doco_records");
+  if (!response.ok) process.exit(1);
+  const body = await response.json();
+  if (Number(body.result?.points_count ?? 0) < 1) process.exit(1);
+'
 
 ./doco doctor >/dev/null
 ./doco backup "$runtime/conformance-backup.tar.gz" >/dev/null

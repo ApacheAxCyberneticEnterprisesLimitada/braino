@@ -14,6 +14,10 @@
     "./qdrant-vector-store": {
       "types": "./dist/qdrant-vector-store.d.ts",
       "import": "./dist/qdrant-vector-store.js"
+    },
+    "./qdrant-record-projection": {
+      "types": "./dist/qdrant-record-projection.d.ts",
+      "import": "./dist/qdrant-record-projection.js"
     }
   },
   "files": ["dist"],
