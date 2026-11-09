@@ -8,6 +8,7 @@ import {
 
 const API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2026-03-11";
+const MAX_PAGE_CHARACTERS = 10 * 1024 * 1024;
 
 interface NotionList<T> {
   object?: string;
@@ -237,12 +238,11 @@ function renderBlock(block: NotionBlock): string {
   }
 }
 
-async function blockChildren(
+async function* blockChildren(
   fetcher: ConnectorFetcher,
   credential: string,
   blockId: string,
-): Promise<NotionBlock[]> {
-  const blocks: NotionBlock[] = [];
+): AsyncGenerator<NotionBlock> {
   let cursor: string | null = null;
   for (let page = 0; page < 1_000; page += 1) {
     const query = new URLSearchParams({ page_size: "100" });
@@ -255,9 +255,9 @@ async function blockChildren(
     if (!Array.isArray(value.results)) {
       throw new ConnectorError("Notion returned an invalid block list.", "source_invalid", 502);
     }
-    blocks.push(...value.results);
+    for (const block of value.results) yield block;
     cursor = value.has_more && value.next_cursor ? value.next_cursor : null;
-    if (!cursor) return blocks;
+    if (!cursor) return;
   }
   throw new ConnectorError("A Notion page exceeded 100,000 blocks.", "source_too_large", 422);
 }
@@ -267,6 +267,7 @@ async function renderChildren(
   credential: string,
   blockId: string,
   depth = 0,
+  budget = { characters: 0 },
 ): Promise<string[]> {
   if (depth > 32) {
     throw new ConnectorError(
@@ -276,11 +277,21 @@ async function renderChildren(
     );
   }
   const rendered: string[] = [];
-  for (const block of await blockChildren(fetcher, credential, blockId)) {
+  for await (const block of blockChildren(fetcher, credential, blockId)) {
     const line = renderBlock(block).trim();
-    if (line) rendered.push(line);
+    if (line) {
+      budget.characters += line.length;
+      if (budget.characters > MAX_PAGE_CHARACTERS) {
+        throw new ConnectorError(
+          "A Notion page exceeds the 10 MB connector limit.",
+          "source_too_large",
+          422,
+        );
+      }
+      rendered.push(line);
+    }
     if (block.has_children && block.id) {
-      rendered.push(...(await renderChildren(fetcher, credential, block.id, depth + 1)));
+      rendered.push(...(await renderChildren(fetcher, credential, block.id, depth + 1, budget)));
     }
   }
   return rendered;
@@ -309,8 +320,7 @@ async function verify(input: {
   };
 }
 
-async function listPages(fetcher: ConnectorFetcher, credential: string): Promise<NotionPage[]> {
-  const pages: NotionPage[] = [];
+async function* pages(fetcher: ConnectorFetcher, credential: string): AsyncGenerator<NotionPage> {
   let cursor: string | null = null;
   for (let page = 0; page < 1_000; page += 1) {
     const value: NotionList<NotionPage> = await notionJson<NotionList<NotionPage>>(
@@ -330,20 +340,19 @@ async function listPages(fetcher: ConnectorFetcher, credential: string): Promise
     if (!Array.isArray(value.results)) {
       throw new ConnectorError("Notion returned an invalid page list.", "source_invalid", 502);
     }
-    pages.push(...value.results);
+    for (const result of value.results) yield result;
     cursor = value.has_more && value.next_cursor ? value.next_cursor : null;
-    if (!cursor) return pages;
+    if (!cursor) return;
   }
   throw new ConnectorError("Notion pagination exceeded 100,000 pages.", "source_too_large", 422);
 }
 
-async function listDocuments(input: {
+async function* documents(input: {
   credential: string;
   source: ConnectorSource;
   fetcher: ConnectorFetcher;
-}): Promise<ConnectorDocument[]> {
-  const documents: ConnectorDocument[] = [];
-  for (const page of await listPages(input.fetcher, input.credential)) {
+}): AsyncGenerator<ConnectorDocument> {
+  for await (const page of pages(input.fetcher, input.credential)) {
     if (
       page.object !== "page" ||
       !page.id ||
@@ -358,7 +367,7 @@ async function listDocuments(input: {
     const title = pageTitle(page);
     const properties = pageProperties(page);
     const blocks = await renderChildren(input.fetcher, input.credential, page.id);
-    documents.push({
+    yield {
       externalId: page.id,
       title,
       content: [...properties, ...blocks].join("\n\n").trim() || title,
@@ -366,13 +375,12 @@ async function listDocuments(input: {
       createdAt: page.created_time,
       updatedAt: page.last_edited_time,
       metadata: { property_names: Object.keys(page.properties ?? {}).sort() },
-    });
+    };
   }
-  return documents.sort((left, right) => left.externalId.localeCompare(right.externalId));
 }
 
 export const notionConnector: ConnectorAdapter = {
   provider: "notion",
   verify,
-  listDocuments,
+  documents,
 };

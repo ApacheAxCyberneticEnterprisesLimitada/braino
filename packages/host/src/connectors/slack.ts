@@ -73,15 +73,15 @@ async function slackJson<T extends SlackResponse>(
   return value;
 }
 
-async function paged<T extends SlackResponse, Item>(
+async function* paged<T extends SlackResponse, Item>(
   fetcher: ConnectorFetcher,
   method: string,
   credential: string,
   field: keyof T,
   params: Record<string, string> = {},
-): Promise<Item[]> {
-  const result: unknown[] = [];
+): AsyncGenerator<Item> {
   let cursor = "";
+  let count = 0;
   for (let page = 0; page < 500; page += 1) {
     const value = await slackJson<T>(fetcher, method, credential, {
       ...params,
@@ -96,9 +96,19 @@ async function paged<T extends SlackResponse, Item>(
         502,
       );
     }
-    result.push(...items);
+    for (const item of items) {
+      count += 1;
+      if (count > 100_000) {
+        throw new ConnectorError(
+          "Slack pagination exceeded 100,000 records.",
+          "source_too_large",
+          422,
+        );
+      }
+      yield item as Item;
+    }
     cursor = value.response_metadata?.next_cursor?.trim() ?? "";
-    if (!cursor) return result as Item[];
+    if (!cursor) return;
   }
   throw new ConnectorError("Slack pagination exceeded 100,000 records.", "source_too_large", 422);
 }
@@ -142,98 +152,113 @@ async function verify(input: {
   };
 }
 
-async function listDocuments(input: {
+function messageDocument(
+  input: { source: ConnectorSource },
+  channel: SlackChannel & { id: string; name: string },
+  message: SlackMessage,
+  names: Map<string, string>,
+): ConnectorDocument | null {
+  const text = message.text?.trim();
+  if (!message.ts || !text) return null;
+  const externalId = `${channel.id}:${message.ts}`;
+  const authorId = message.user ?? message.bot_id ?? message.username ?? "unknown";
+  const author = names.get(authorId) ?? message.username ?? authorId;
+  const postedAt = slackTime(message.ts);
+  const updatedAt = message.edited?.ts ? slackTime(message.edited.ts) : postedAt;
+  return {
+    externalId,
+    title: `#${channel.name} · ${author} · ${postedAt}`,
+    content: `${author}: ${text}`,
+    url: `${teamUrl(input.source)}/archives/${channel.id}/p${message.ts.replace(".", "")}`,
+    createdAt: postedAt,
+    updatedAt,
+    metadata: {
+      channel_id: channel.id,
+      channel_name: channel.name,
+      author_id: authorId,
+      author_name: author,
+      thread_ts: message.thread_ts ?? null,
+    },
+  };
+}
+
+async function* documents(input: {
   credential: string;
   source: ConnectorSource;
   fetcher: ConnectorFetcher;
-}): Promise<ConnectorDocument[]> {
+}): AsyncGenerator<ConnectorDocument> {
   type UsersResponse = SlackResponse & { members?: SlackUser[] };
   type ChannelsResponse = SlackResponse & { channels?: SlackChannel[] };
   type MessagesResponse = SlackResponse & { messages?: SlackMessage[] };
-  const [users, allChannels] = await Promise.all([
-    paged<UsersResponse, SlackUser>(input.fetcher, "users.list", input.credential, "members"),
-    paged<ChannelsResponse, SlackChannel>(
-      input.fetcher,
-      "conversations.list",
-      input.credential,
-      "channels",
-      { types: "public_channel", exclude_archived: "true" },
-    ),
-  ]);
-  const names = new Map(
-    users
-      .filter((user): user is SlackUser & { id: string } => typeof user.id === "string")
-      .map((user) => [
+  const names = new Map<string, string>();
+  for await (const user of paged<UsersResponse, SlackUser>(
+    input.fetcher,
+    "users.list",
+    input.credential,
+    "members",
+  )) {
+    if (!user.id) continue;
+    names.set(
+      user.id,
+      user.profile?.display_name?.trim() ||
+        user.profile?.real_name?.trim() ||
+        user.real_name?.trim() ||
         user.id,
-        user.profile?.display_name?.trim() ||
-          user.profile?.real_name?.trim() ||
-          user.real_name?.trim() ||
-          user.id,
-      ]),
-  );
-  const channels = allChannels.filter(
-    (channel): channel is SlackChannel & { id: string; name: string } =>
-      Boolean(channel.id && channel.name) &&
-      channel.is_channel !== false &&
-      !channel.is_private &&
-      !channel.is_archived &&
-      !channel.is_shared &&
-      !channel.is_ext_shared,
-  );
-  const documents = new Map<string, ConnectorDocument>();
-  for (const channel of channels) {
-    const history = await paged<MessagesResponse, SlackMessage>(
+    );
+  }
+
+  const seen = new Set<string>();
+  for await (const channel of paged<ChannelsResponse, SlackChannel>(
+    input.fetcher,
+    "conversations.list",
+    input.credential,
+    "channels",
+    { types: "public_channel", exclude_archived: "true" },
+  )) {
+    if (
+      !channel.id ||
+      !channel.name ||
+      channel.is_channel === false ||
+      channel.is_private ||
+      channel.is_archived ||
+      channel.is_shared ||
+      channel.is_ext_shared
+    ) {
+      continue;
+    }
+    const publicChannel = channel as SlackChannel & { id: string; name: string };
+    for await (const root of paged<MessagesResponse, SlackMessage>(
       input.fetcher,
       "conversations.history",
       input.credential,
       "messages",
-      { channel: channel.id, inclusive: "true" },
-    );
-    const messages = [...history];
-    for (const root of history) {
+      { channel: publicChannel.id, inclusive: "true" },
+    )) {
+      const rootDocument = messageDocument(input, publicChannel, root, names);
+      if (rootDocument && !seen.has(rootDocument.externalId)) {
+        seen.add(rootDocument.externalId);
+        yield rootDocument;
+      }
       if (!root.ts || !root.reply_count || root.reply_count < 1) continue;
-      const replies = await paged<MessagesResponse, SlackMessage>(
+      for await (const reply of paged<MessagesResponse, SlackMessage>(
         input.fetcher,
         "conversations.replies",
         input.credential,
         "messages",
-        { channel: channel.id, ts: root.ts, inclusive: "true" },
-      );
-      messages.push(...replies);
-    }
-    for (const message of messages) {
-      const text = message.text?.trim();
-      if (!message.ts || !text) continue;
-      const externalId = `${channel.id}:${message.ts}`;
-      if (documents.has(externalId)) continue;
-      const authorId = message.user ?? message.bot_id ?? message.username ?? "unknown";
-      const author = names.get(authorId) ?? message.username ?? authorId;
-      const postedAt = slackTime(message.ts);
-      const updatedAt = message.edited?.ts ? slackTime(message.edited.ts) : postedAt;
-      documents.set(externalId, {
-        externalId,
-        title: `#${channel.name} · ${author} · ${postedAt}`,
-        content: `${author}: ${text}`,
-        url: `${teamUrl(input.source)}/archives/${channel.id}/p${message.ts.replace(".", "")}`,
-        createdAt: postedAt,
-        updatedAt,
-        metadata: {
-          channel_id: channel.id,
-          channel_name: channel.name,
-          author_id: authorId,
-          author_name: author,
-          thread_ts: message.thread_ts ?? null,
-        },
-      });
+        { channel: publicChannel.id, ts: root.ts, inclusive: "true" },
+      )) {
+        const replyDocument = messageDocument(input, publicChannel, reply, names);
+        if (replyDocument && !seen.has(replyDocument.externalId)) {
+          seen.add(replyDocument.externalId);
+          yield replyDocument;
+        }
+      }
     }
   }
-  return [...documents.values()].sort((left, right) =>
-    left.externalId.localeCompare(right.externalId),
-  );
 }
 
 export const slackConnector: ConnectorAdapter = {
   provider: "slack",
   verify,
-  listDocuments,
+  documents,
 };

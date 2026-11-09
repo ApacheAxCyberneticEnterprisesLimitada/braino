@@ -13,6 +13,7 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
+const scope = <T>(operation: (client: PoolClient) => Promise<T>) => operation(client());
 const encryptionKey = "notion-connector-test-key-with-more-than-thirty-two-characters";
 const accessToken = "ntn_test-only-never-store-plaintext";
 
@@ -141,7 +142,7 @@ describe("Notion connector", () => {
   it("imports shared pages with nested block content, then updates and retires them", async () => {
     const setup = await fixture();
     const state: NotionState = { includePage: true, edited: false };
-    const connection = await connectConnector(client(), {
+    const connection = await connectConnector(scope, {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
       credential: accessToken,
@@ -157,7 +158,7 @@ describe("Notion connector", () => {
     });
 
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: notionConnector,
@@ -180,7 +181,7 @@ describe("Notion connector", () => {
 
     state.edited = true;
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: notionConnector,
@@ -190,7 +191,7 @@ describe("Notion connector", () => {
 
     state.includePage = false;
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: notionConnector,

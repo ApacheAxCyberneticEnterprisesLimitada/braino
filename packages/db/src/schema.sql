@@ -1554,9 +1554,13 @@ CREATE TABLE IF NOT EXISTS connector_connections (
   created_at            timestamptz NOT NULL DEFAULT now(),
   last_synced_at        timestamptz,
   last_error            text,
+  sync_token            text,
+  sync_started_at       timestamptz,
   UNIQUE (workspace_id, provider),
   UNIQUE (provider, source_id)
 );
+ALTER TABLE connector_connections ADD COLUMN IF NOT EXISTS sync_token text;
+ALTER TABLE connector_connections ADD COLUMN IF NOT EXISTS sync_started_at timestamptz;
 
 -- A connector document is an ordinary Reference node, so it appears in the
 -- same collections, search, API, history, and audit stream as authored

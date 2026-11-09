@@ -107,23 +107,19 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_slack") {
     try {
-      const connected = await withClient((client) =>
-        connectConnector(client, {
-          workspaceId: state.workspace.id,
-          userId: user.id,
-          credential: text(form, "bot_token"),
-          encryptionKey: encryptionKey(),
-          adapter: slackConnector,
-        }),
-      );
-      const synced = await withClient((client) =>
-        syncConnectorConnection(client, {
-          connectionId: connected.id,
-          encryptionKey: encryptionKey(),
-          userId: user.id,
-          adapter: slackConnector,
-        }),
-      );
+      const connected = await connectConnector(withClient, {
+        workspaceId: state.workspace.id,
+        userId: user.id,
+        credential: text(form, "bot_token"),
+        encryptionKey: encryptionKey(),
+        adapter: slackConnector,
+      });
+      const synced = await syncConnectorConnection(withClient, {
+        connectionId: connected.id,
+        encryptionKey: encryptionKey(),
+        userId: user.id,
+        adapter: slackConnector,
+      });
       return {
         message: `Connected ${connected.sourceName}. Imported ${synced.created} Slack messages.`,
       };
@@ -134,23 +130,19 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_notion") {
     try {
-      const connected = await withClient((client) =>
-        connectConnector(client, {
-          workspaceId: state.workspace.id,
-          userId: user.id,
-          credential: text(form, "notion_token"),
-          encryptionKey: encryptionKey(),
-          adapter: notionConnector,
-        }),
-      );
-      const synced = await withClient((client) =>
-        syncConnectorConnection(client, {
-          connectionId: connected.id,
-          encryptionKey: encryptionKey(),
-          userId: user.id,
-          adapter: notionConnector,
-        }),
-      );
+      const connected = await connectConnector(withClient, {
+        workspaceId: state.workspace.id,
+        userId: user.id,
+        credential: text(form, "notion_token"),
+        encryptionKey: encryptionKey(),
+        adapter: notionConnector,
+      });
+      const synced = await syncConnectorConnection(withClient, {
+        connectionId: connected.id,
+        encryptionKey: encryptionKey(),
+        userId: user.id,
+        adapter: notionConnector,
+      });
       return {
         message: `Connected ${connected.sourceName}. Imported ${synced.created} Notion pages.`,
       };
@@ -161,23 +153,19 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_google_drive") {
     try {
-      const connected = await withClient((client) =>
-        connectConnector(client, {
-          workspaceId: state.workspace.id,
-          userId: user.id,
-          credential: text(form, "service_account_json"),
-          encryptionKey: encryptionKey(),
-          adapter: googleDriveConnector,
-        }),
-      );
-      const synced = await withClient((client) =>
-        syncConnectorConnection(client, {
-          connectionId: connected.id,
-          encryptionKey: encryptionKey(),
-          userId: user.id,
-          adapter: googleDriveConnector,
-        }),
-      );
+      const connected = await connectConnector(withClient, {
+        workspaceId: state.workspace.id,
+        userId: user.id,
+        credential: text(form, "service_account_json"),
+        encryptionKey: encryptionKey(),
+        adapter: googleDriveConnector,
+      });
+      const synced = await syncConnectorConnection(withClient, {
+        connectionId: connected.id,
+        encryptionKey: encryptionKey(),
+        userId: user.id,
+        adapter: googleDriveConnector,
+      });
       return {
         message: `Connected ${connected.sourceName}. Imported ${synced.created} Google Drive files.`,
       };
@@ -189,14 +177,12 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   if (intent === "sync_connector") {
     try {
       const provider = text(form, "provider");
-      const synced = await withClient((client) =>
-        syncConnectorConnection(client, {
-          connectionId: text(form, "connection_id"),
-          encryptionKey: encryptionKey(),
-          userId: user.id,
-          adapter: connectorAdapter(provider),
-        }),
-      );
+      const synced = await syncConnectorConnection(withClient, {
+        connectionId: text(form, "connection_id"),
+        encryptionKey: encryptionKey(),
+        userId: user.id,
+        adapter: connectorAdapter(provider),
+      });
       return {
         message: `${connectorLabel(provider)} sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.retired} retired, ${synced.unchanged} unchanged.`,
       };
