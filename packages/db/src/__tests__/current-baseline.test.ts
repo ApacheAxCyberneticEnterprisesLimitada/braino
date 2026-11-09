@@ -19,7 +19,7 @@ function tableBlock(table: string): string {
 }
 
 describe("current database baseline", () => {
-  it("does not bundle historical SQL migrations", () => {
+  it("ships one current baseline plus ordered forward migrations", () => {
     const migrationsDir = join(dbRoot, "migrations");
     const migrations = existsSync(migrationsDir)
       ? readdirSync(migrationsDir)
@@ -27,8 +27,9 @@ describe("current database baseline", () => {
           .sort()
       : [];
 
-    expect(migrations).toEqual([]);
+    expect(migrations).toEqual(["001_github_operation_lease.sql"]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
+    expect(schemaSql).not.toMatch(/\bschema_applied\b/);
   });
 
   it("keeps users as human OAuth identities, not agent-user records", () => {

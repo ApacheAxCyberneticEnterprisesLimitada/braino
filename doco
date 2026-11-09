@@ -139,6 +139,8 @@ upgrade() {
 
   backup "${1:-backups/pre-upgrade-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}"
   compose pull
+  compose stop app
+  compose run --rm --no-deps app node node_modules/@doco/db/dist/migrate.js
   compose up -d --wait
   echo "Upgrade completed with $configured_image"
 }

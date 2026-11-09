@@ -70,10 +70,24 @@ describe("the supported self-hosted stack", () => {
     expect(command).not.toContain("--clean");
     expect(command).toContain("doctor)");
     expect(command).toContain("upgrade)");
+    expect(command.indexOf("compose stop app")).toBeLessThan(
+      command.indexOf("node_modules/@doco/db/dist/migrate.js"),
+    );
+    expect(command).toContain("node_modules/@doco/db/dist/migrate.js");
     expect(command).toContain("/qdrant/storage");
     expect(readme).toContain("./doco backup");
     expect(readme).toContain("./doco restore");
     expect(readme).toContain("./doco upgrade");
+  });
+
+  it("applies ordered migrations before the web server accepts traffic", () => {
+    const webPackage = JSON.parse(
+      readFileSync(resolve(root, "packages/web/package.json"), "utf8"),
+    ) as { scripts: Record<string, string> };
+
+    expect(webPackage.scripts.start).toMatch(
+      /^node node_modules\/@doco\/db\/dist\/migrate\.js && react-router-serve/,
+    );
   });
 
   it("publishes signed AMD64 and ARM64 images from version tags", () => {
@@ -103,6 +117,7 @@ describe("the supported self-hosted stack", () => {
       "mcp-core.real-db.test.ts",
       "incoming-webhooks.real-db.test.ts",
       "github-connections.real-db.test.ts",
+      "schema-apply-once.test.ts",
       "self-hosted-compose.test.ts",
       "design-language.test.ts",
     ]) {
