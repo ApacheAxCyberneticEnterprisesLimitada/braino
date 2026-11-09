@@ -104,6 +104,27 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain("pnpm run audit");
   });
 
+  it("pins every workflow action to an immutable commit", () => {
+    for (const name of ["ci.yml", "release.yml"]) {
+      const workflow = readFileSync(resolve(root, ".github/workflows", name), "utf8");
+      const actions = [...workflow.matchAll(/uses:\s+(\S+)/g)].map((match) => match[1]);
+      expect(actions.length).toBeGreaterThan(0);
+      expect(actions, name).toEqual(
+        actions.map((action) => expect.stringMatching(/@[0-9a-f]{40}$/)),
+      );
+    }
+  });
+
+  it("keeps pinned workflow actions on an automated update path", () => {
+    const dependabot = parse(readFileSync(resolve(root, ".github/dependabot.yml"), "utf8")) as {
+      updates: Array<Record<string, unknown>>;
+    };
+
+    expect(dependabot.updates).toContainEqual(
+      expect.objectContaining({ "package-ecosystem": "github-actions", directory: "/" }),
+    );
+  });
+
   it("ships executable backup, restore, preflight, and upgrade commands", () => {
     const commandPath = resolve(root, "doco");
     const command = readFileSync(commandPath, "utf8");
