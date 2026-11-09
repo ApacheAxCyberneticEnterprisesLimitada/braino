@@ -1,5 +1,11 @@
 import { withClient } from "@doco/db";
-import { getSingleWorkspaceState, initializeSingleWorkspace } from "@doco/host";
+import {
+  clearPasswordSignInAttempts,
+  getSingleWorkspaceState,
+  initializeSingleWorkspace,
+  reservePasswordSignInAttempt,
+  revokeUserSessions,
+} from "@doco/host";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/card";
 import { CollectionTypeIcon } from "~/components/collection-type-icon";
@@ -14,6 +20,7 @@ import {
 } from "~/lib/request-body.server";
 import { clearSessionCookie, createSessionCookie } from "~/lib/session.server";
 import { setupTokenError } from "~/lib/setup-token.server";
+import { passwordAttemptBuckets } from "~/lib/sign-in.server";
 
 interface DashboardCollection {
   id: string;
@@ -91,6 +98,8 @@ export async function action({ request }: { request: Request }) {
   }
   const intent = text(form, "intent");
   if (intent === "signout") {
+    const user = await getCurrentUser(request);
+    if (user) await withClient((client) => revokeUserSessions(client, user.id));
     return redirect("/", { headers: { "Set-Cookie": clearSessionCookie() } });
   }
 
@@ -119,7 +128,12 @@ export async function action({ request }: { request: Request }) {
         }),
       );
       return redirect("/", {
-        headers: { "Set-Cookie": createSessionCookie(initialized.owner.id) },
+        headers: {
+          "Set-Cookie": createSessionCookie({
+            userId: initialized.owner.id,
+            stamp: initialized.owner.stamp,
+          }),
+        },
       });
     } catch (caught) {
       return Response.json(
@@ -133,21 +147,49 @@ export async function action({ request }: { request: Request }) {
     if (!state.initialized) return Response.json({ error: "Finish setup first." }, { status: 409 });
     const email = text(form, "email").toLowerCase();
     const password = text(form, "password");
-    const account = await withClient(async (client) => {
-      const result = await client.query<{ id: string; password_hash: string | null }>(
-        `SELECT u.id, u.password_hash
+    const attemptBuckets = passwordAttemptBuckets(request, email);
+    const signIn = await withClient(async (client) => {
+      const result = await client.query<{
+        id: string;
+        password_hash: string | null;
+        stamp: string;
+      }>(
+        `SELECT u.id, u.password_hash, u.stamp
            FROM users u
            JOIN workspace_users wu ON wu.user_id = u.id
           WHERE lower(u.email) = $1 AND wu.workspace_id = $2 AND u.deactivated_at IS NULL
           LIMIT 1`,
         [email, state.workspace.id],
       );
-      return result.rows[0] ?? null;
+      return {
+        account: result.rows[0] ?? null,
+        reservation: await reservePasswordSignInAttempt(client, attemptBuckets),
+      };
     });
-    if (!(await verifyPassword(password, account?.password_hash ?? null)) || !account) {
+    if (!signIn.reservation.allowed) {
+      return Response.json(
+        { error: "Too many sign-in attempts. Try again later." },
+        {
+          status: 429,
+          headers: { "Retry-After": String(signIn.reservation.retryAfterSeconds) },
+        },
+      );
+    }
+    if (
+      !(await verifyPassword(password, signIn.account?.password_hash ?? null)) ||
+      !signIn.account
+    ) {
       return Response.json({ error: "Email or password is incorrect." }, { status: 400 });
     }
-    return redirect("/", { headers: { "Set-Cookie": createSessionCookie(account.id) } });
+    await withClient((client) => clearPasswordSignInAttempts(client, attemptBuckets));
+    return redirect("/", {
+      headers: {
+        "Set-Cookie": createSessionCookie({
+          userId: signIn.account.id,
+          stamp: signIn.account.stamp,
+        }),
+      },
+    });
   }
 
   return Response.json({ error: "Unknown action." }, { status: 400 });

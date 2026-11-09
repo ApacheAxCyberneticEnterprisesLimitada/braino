@@ -10,7 +10,13 @@ interface SessionEnvironment {
 
 interface SessionPayload {
   sub: string;
+  stamp: string;
   exp: number;
+}
+
+export interface SessionIdentity {
+  userId: string;
+  stamp: string;
 }
 
 function key(env: SessionEnvironment): string {
@@ -30,12 +36,13 @@ function secure(env: SessionEnvironment): boolean {
 }
 
 export function createSessionCookie(
-  userId: string,
+  identity: SessionIdentity,
   env: SessionEnvironment = process.env,
   now = new Date(),
 ): string {
   const data: SessionPayload = {
-    sub: userId,
+    sub: identity.userId,
+    stamp: identity.stamp,
     exp: Math.floor(now.getTime() / 1000) + SESSION_SECONDS,
   };
   const payload = Buffer.from(JSON.stringify(data)).toString("base64url");
@@ -69,11 +76,11 @@ function cookieValue(request: Request): string | null {
   return null;
 }
 
-export function readSessionUserId(
+export function readSessionIdentity(
   request: Request,
   env: SessionEnvironment = process.env,
   now = new Date(),
-): string | null {
+): SessionIdentity | null {
   try {
     const value = cookieValue(request);
     if (!value) return null;
@@ -83,9 +90,9 @@ export function readSessionUserId(
     const actual = Buffer.from(supplied);
     if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) return null;
     const parsed = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as SessionPayload;
-    if (!parsed.sub || !Number.isFinite(parsed.exp)) return null;
+    if (!parsed.sub || !parsed.stamp || !Number.isFinite(parsed.exp)) return null;
     if (parsed.exp <= Math.floor(now.getTime() / 1000)) return null;
-    return parsed.sub;
+    return { userId: parsed.sub, stamp: parsed.stamp };
   } catch {
     return null;
   }

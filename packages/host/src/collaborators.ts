@@ -238,6 +238,10 @@ export async function removeWorkspaceCollaborator(
     if (!removed.rows[0]) {
       throw new WorkspaceAccessError("Collaborator not found.", "collaborator_not_found", 404);
     }
+    await client.query(
+      "UPDATE users SET stamp = gen_random_uuid()::text, updated_at = now() WHERE id = $1",
+      [input.userId],
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");

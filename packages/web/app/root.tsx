@@ -119,7 +119,7 @@ function SiteHeader({ data }: { data: RootData }) {
               <Form method="post" action="/">
                 <input type="hidden" name="intent" value="signout" />
                 <button type="submit" className="neu-button rounded-md px-2.5 py-1.5 font-semibold">
-                  Sign out
+                  Sign out everywhere
                 </button>
               </Form>
             </>

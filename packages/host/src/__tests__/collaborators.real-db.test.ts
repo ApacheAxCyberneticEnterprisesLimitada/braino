@@ -134,18 +134,23 @@ describe("single-workspace collaborators", () => {
       writeTypes: [],
     });
 
+    const before = await db.query<{ stamp: string }>("SELECT stamp FROM users WHERE id = $1", [
+      added.id,
+    ]);
     await removeWorkspaceCollaborator(client(), {
       workspaceId: setup.workspace.id,
       actorId: setup.owner.id,
       userId: added.id,
     });
 
-    const rows = await db.query<{ users: number; memberships: number }>(
+    const rows = await db.query<{ users: number; memberships: number; stamp: string }>(
       `SELECT
          (SELECT count(*)::int FROM users WHERE id = $1) AS users,
-         (SELECT count(*)::int FROM workspace_users WHERE user_id = $1) AS memberships`,
+         (SELECT count(*)::int FROM workspace_users WHERE user_id = $1) AS memberships,
+         (SELECT stamp FROM users WHERE id = $1) AS stamp`,
       [added.id],
     );
-    expect(rows.rows[0]).toEqual({ users: 1, memberships: 0 });
+    expect(rows.rows[0]).toMatchObject({ users: 1, memberships: 0 });
+    expect(rows.rows[0]?.stamp).not.toBe(before.rows[0]?.stamp);
   });
 });

@@ -83,6 +83,20 @@ CREATE TABLE IF NOT EXISTS users (
 );
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
 
+-- Password verification is deliberately expensive, so rejected sign-ins must
+-- be stopped before scrypt runs. Keys are SHA-256 digests of normalized account
+-- and client buckets; raw email and network identifiers are never retained.
+CREATE TABLE IF NOT EXISTS password_sign_in_attempts (
+  key_hash           text PRIMARY KEY,
+  scope              text NOT NULL CHECK (scope IN ('account', 'client')),
+  attempt_count      integer NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+  window_started_at  timestamptz NOT NULL,
+  blocked_until      timestamptz,
+  updated_at         timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS password_sign_in_attempts_updated_idx
+  ON password_sign_in_attempts (updated_at);
+
 -- A person's passkeys, each the WebAuthn credential one passkey provider
 -- (iCloud Keychain, Google Password Manager, 1Password, …) keeps for them
 -- (decision_01M644H6QSMTTBBFT0JAR8TEDM). The provider names itself by `aaguid`, unsigned,
