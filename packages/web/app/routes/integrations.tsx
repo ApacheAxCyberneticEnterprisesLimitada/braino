@@ -316,6 +316,7 @@ export async function action({ request }: { request: Request }): Promise<ActionD
         disconnectGithubRepository(client, {
           connectionId: text(form, "connection_id"),
           userId: user.id,
+          encryptionKey: encryptionKey(),
         }),
       );
       return { message: "GitHub disconnected. Imported records and history were kept." };
