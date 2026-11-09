@@ -2571,18 +2571,12 @@ BEGIN
 END $$;
 
 -- ──────────────────────────────────────────────────────────────────────────
--- Column backfills. A column added inline to a `CREATE TABLE IF NOT EXISTS`
--- above does NOT alter a table that already exists — the CREATE is a no-op on
--- re-boot — so a column introduced after a table first shipped must be added
--- explicitly here. Idempotent (ADD COLUMN IF NOT EXISTS), re-asserted on every
--- cold start; a no-op once the column is present (incl. on a fresh DB, where
--- the CREATE TABLE already made it). The CHECK matches the inline definition.
+-- Column backfills retained in the current baseline for databases created by
+-- pre-v0.1 builds. New releases add ordered SQL files under migrations/ rather
+-- than replaying this complete baseline at startup.
 -- Soft-delete tombstone for collections created before the column shipped. The
 -- partial sweeper index lives HERE, after the ADD COLUMN — not in the collections
--- table block above — because schema.sql re-applies top-to-bottom after every
--- change: on a pre-existing collections table the inline CREATE TABLE is a no-op, so an
--- index that referenced `deleted_at` earlier in the file would hit a column
--- that this migration hasn't added yet and abort the entire schema-apply.
+-- table block above so it also follows the compatibility ADD COLUMN here.
 ALTER TABLE collections
   ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 ALTER TABLE workspaces
@@ -3475,14 +3469,4 @@ CREATE TABLE IF NOT EXISTS background_job_leases (
   name          text PRIMARY KEY,
   owner         text NOT NULL,
   leased_until  timestamptz NOT NULL
-);
-
--- The fingerprint of the schema.sql last applied (packages/db/src/client.ts):
--- a cold start applies this file only when it differs, so its every change
--- still reaches the database on the first boot after it deploys and its
--- migrations stay idempotent (decision_01M4CH63Z7SP3XZFNE8TY811BN).
-CREATE TABLE IF NOT EXISTS schema_applied (
-  one         boolean PRIMARY KEY DEFAULT true CHECK (one),
-  hash        text NOT NULL,
-  applied_at  timestamptz NOT NULL DEFAULT now()
 );

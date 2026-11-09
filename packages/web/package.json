@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "react-router dev --port 5173",
     "build": "react-router build",
-    "start": "react-router-serve ./build/server/index.js",
+    "start": "node node_modules/@doco/db/dist/migrate.js && react-router-serve ./build/server/index.js",
     "typecheck": "react-router typegen && tsc -p tsconfig.json --noEmit",
     "test": "vitest run"
   },

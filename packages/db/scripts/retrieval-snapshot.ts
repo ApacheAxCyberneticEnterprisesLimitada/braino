@@ -8,7 +8,7 @@ import {
   exportRetrievalSnapshot,
   restoreRetrievalSnapshot,
 } from "../src/retrieval-snapshot.js";
-import { SCHEMA_SQL } from "../src/schema-embedded.js";
+import { BASELINE_SQL } from "../src/schema-embedded.js";
 
 const gzipAsync = promisify(gzip);
 const gunzipAsync = promisify(gunzip);
@@ -143,7 +143,7 @@ async function restoreCommand(args: string[]): Promise<void> {
   const pool = new pg.Pool({ connectionString, max: 1 });
   const client = await pool.connect();
   try {
-    await client.query(SCHEMA_SQL);
+    await client.query(BASELINE_SQL);
     const grantUser = option(args, "--grant-user");
     const grantUserId = grantUser ? await localUserId(client, grantUser) : null;
     const result = await restoreRetrievalSnapshot(client, snapshot);

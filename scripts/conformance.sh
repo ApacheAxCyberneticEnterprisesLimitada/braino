@@ -6,6 +6,8 @@ root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$root"
 
 pnpm run build:packages
+pnpm --filter @doco/db exec vitest run \
+  src/__tests__/schema-apply-once.test.ts
 pnpm --filter @doco/host exec vitest run \
   src/__tests__/single-workspace.real-db.test.ts \
   src/__tests__/collaborators.real-db.test.ts \

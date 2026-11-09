@@ -13,12 +13,13 @@
     }
   },
   "sideEffects": false,
-  "files": ["dist", "src/schema.sql"],
+  "files": ["dist", "src/schema.sql", "migrations"],
   "scripts": {
-    "build": "node scripts/embed-schema.mjs && tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
+    "build": "node scripts/embed-migrations.mjs && tsc -p tsconfig.json && cp src/schema.sql dist/schema.sql",
+    "migrate": "node dist/migrate.js",
     "snapshot:retrieval": "tsx scripts/retrieval-snapshot.ts",
-    "typecheck": "node scripts/embed-schema.mjs && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json",
-    "test": "node scripts/embed-schema.mjs && vitest run --passWithNoTests"
+    "typecheck": "node scripts/embed-migrations.mjs && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.scripts.json",
+    "test": "node scripts/embed-migrations.mjs && vitest run --passWithNoTests"
   },
   "dependencies": {
     "@doco/shared": "workspace:*",

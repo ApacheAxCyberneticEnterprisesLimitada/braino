@@ -49,10 +49,10 @@ Set `DOCO_IMAGE` in `.env` to the exact release you intend to run, then:
 ```
 
 Upgrade validates the configuration, creates a pre-upgrade backup, pulls the
-configured images, and waits for every service to become healthy. The
-application applies its idempotent schema update transactionally on startup;
-a failed update prevents the new application from becoming healthy rather than
-leaving a partially applied schema.
+configured images, stops the old application, applies each pending database
+migration exactly once, and only then starts the new application. A failed
+migration rolls back and leaves the application stopped rather than serving
+code against the wrong database shape.
 
 Official `v*` tags publish signed, SBOM-attested Linux AMD64 and ARM64 images at
 `ghcr.io/docoinc/doco`.

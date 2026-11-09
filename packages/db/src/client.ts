@@ -3,15 +3,11 @@
 // DATABASE_URL reads from env (or override via opts). Defaults to the
 // Phase 2 dev container at postgres://postgres:doco@127.0.0.1:5433/doco.
 //
-// schema.sql is bundled into a JS string by scripts/embed-schema.mjs
-// (regenerated at build time into src/schema-embedded.ts). This
-// sidesteps Vercel's serverless function packaging dropping sibling
-// .sql files and avoids static node:fs imports that vite/rollup would
-// drag into browser graphs.
+// The fresh baseline and ordered forward migrations are embedded into the
+// server build, so a released image always carries the exact SQL it expects.
 
-import { createHash } from "node:crypto";
 import pg from "pg";
-import { SCHEMA_SQL } from "./schema-embedded.js";
+import { BASELINE_SQL, MIGRATIONS } from "./schema-embedded.js";
 
 const { Pool } = pg;
 
@@ -70,6 +66,7 @@ export async function closePool(): Promise<void> {
   if (!_pool) return;
   await _pool.end();
   _pool = null;
+  _schemaReady = null;
 }
 
 export async function withClient<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
@@ -98,115 +95,151 @@ export async function withTransaction<T>(fn: (c: pg.PoolClient) => Promise<T>): 
 
 type QueryClient = { query<T>(sql: string, params?: unknown[]): Promise<{ rows: T[] }> };
 
-/** schema.sql's fingerprint, recorded in schema_applied once it is applied. */
-const SCHEMA_HASH = createHash("sha256").update(SCHEMA_SQL).digest("hex");
+interface AppliedMigration {
+  version: number;
+  name: string;
+  checksum: string;
+}
 
-/** How long schema.sql waits for any one lock before it gives up. Its DROP and
- *  CREATE TRIGGERs lock the busiest tables, and every query on a table queues
- *  behind a lock request that waits: a short wait keeps live traffic moving,
- *  and the deploy tries again (applySchemaAtDeploy). */
-export const SCHEMA_LOCK_TIMEOUT_MS = 2_000;
+export const MIGRATION_LOCK_TIMEOUT_MS = 2_000;
+const BUSY = new Set(["55P03", "40P01"]);
 
-/**
- * Apply schema.sql unless it is the one last applied, and say whether it was
- * (decision_01M4CH63Z7SP3XZFNE8TY811BN): a cold start costs one read instead of
- * the whole file, its table scans and its DROP/CREATE TRIGGERs, which lock the
- * busiest tables. Instances starting together after a deploy take turns, since
- * applying it side by side deadlocks. A lock it can't get within
- * SCHEMA_LOCK_TIMEOUT_MS fails the whole file, which applies in one
- * transaction, so nothing is left half done.
- */
-export async function applySchemaIfChanged(c: QueryClient): Promise<boolean> {
-  if ((await appliedSchemaHash(c)) === SCHEMA_HASH) return false;
+async function appliedMigrations(c: QueryClient): Promise<AppliedMigration[]> {
+  const present = await c.query<{ present: boolean }>(
+    "SELECT to_regclass('public.schema_migrations') IS NOT NULL AS present",
+  );
+  if (!present.rows[0]?.present) return [];
+  return (
+    await c.query<AppliedMigration>(
+      "SELECT version, name, checksum FROM schema_migrations ORDER BY version",
+    )
+  ).rows;
+}
+
+function verifyAppliedMigrations(rows: AppliedMigration[]): void {
+  const expected = new Map(MIGRATIONS.map((migration) => [migration.version, migration]));
+  for (const row of rows) {
+    const migration = expected.get(row.version);
+    if (!migration) {
+      throw new Error(
+        `Database migration ${row.version} (${row.name}) is newer than this Doco image.`,
+      );
+    }
+    if (row.name !== migration.name || row.checksum !== migration.checksum) {
+      throw new Error(
+        `Database migration ${row.version} (${migration.name}) checksum does not match the released migration.`,
+      );
+    }
+  }
+}
+
+/** Apply every pending migration atomically before the application serves traffic. */
+export async function applyMigrations(c: QueryClient): Promise<string[]> {
+  const appliedNames: string[] = [];
   await c.query("BEGIN");
   try {
-    await c.query("SELECT pg_advisory_xact_lock(hashtext('doco_schema'))");
-    if ((await appliedSchemaHash(c)) === SCHEMA_HASH) {
-      await c.query("COMMIT");
-      return false;
-    }
-    await c.query(`SET LOCAL lock_timeout = ${SCHEMA_LOCK_TIMEOUT_MS}`);
-    await c.query(SCHEMA_SQL);
+    await c.query(`SET LOCAL lock_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);
+    await c.query("SELECT pg_advisory_xact_lock(hashtext('doco_schema_migrations'))");
     await c.query(
-      `INSERT INTO schema_applied (hash) VALUES ($1)
-       ON CONFLICT (one) DO UPDATE SET hash = EXCLUDED.hash, applied_at = now()`,
-      [SCHEMA_HASH],
+      `CREATE TABLE IF NOT EXISTS schema_migrations (
+         version integer PRIMARY KEY CHECK (version >= 0),
+         name text NOT NULL UNIQUE,
+         checksum text NOT NULL,
+         applied_at timestamptz NOT NULL DEFAULT now()
+       )`,
     );
+
+    const existing = await c.query<{ present: boolean }>(
+      "SELECT to_regclass('public.workspaces') IS NOT NULL AS present",
+    );
+    const fresh = !existing.rows[0]?.present;
+    if (fresh) {
+      await c.query(BASELINE_SQL);
+      appliedNames.push("000_baseline");
+      for (const migration of MIGRATIONS) {
+        await c.query(
+          "INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)",
+          [migration.version, migration.name, migration.checksum],
+        );
+      }
+    }
+
+    const rows = await appliedMigrations(c);
+    if (rows.length === 0) {
+      await c.query("DROP TABLE IF EXISTS schema_applied");
+    }
+
+    verifyAppliedMigrations(rows);
+    const appliedVersions = new Set(rows.map((row) => row.version));
+    for (const migration of MIGRATIONS) {
+      if (appliedVersions.has(migration.version)) continue;
+      await c.query(migration.sql);
+      await c.query("INSERT INTO schema_migrations (version, name, checksum) VALUES ($1, $2, $3)", [
+        migration.version,
+        migration.name,
+        migration.checksum,
+      ]);
+      appliedNames.push(migration.name);
+    }
     await c.query("COMMIT");
-    return true;
-  } catch (err) {
+    return appliedNames;
+  } catch (error) {
     try {
       await c.query("ROLLBACK");
     } catch {
-      // Preserve the schema failure when the connection itself also failed.
+      // Preserve the migration failure when the connection itself also failed.
     }
-    throw err;
+    throw error;
   }
 }
 
-/** Postgres's codes for a lock not had in time, and for a deadlock. */
-const BUSY = new Set(["55P03", "40P01"]);
-
-/**
- * Apply schema.sql while a deploy builds, before its code takes traffic, so
- * no request ever waits on it: production's build runs this
- * (scripts/apply-schema.mjs), and a cold start then finds it applied. While
- * the old deployment's traffic holds the tables it tries again, and fails
- * the build, which leaves the old deployment serving, if they stay busy.
- */
-export async function applySchemaAtDeploy(
-  c: QueryClient,
-  { attempts = 60, waitMs = 5_000 }: { attempts?: number; waitMs?: number } = {},
-): Promise<boolean> {
-  for (let attempt = 1; ; attempt++) {
-    try {
-      return await applySchemaIfChanged(c);
-    } catch (err) {
-      const code = (err as { code?: string }).code;
-      if (!code || !BUSY.has(code) || attempt >= attempts) throw err;
-      console.info(`[schema] tables busy (${code}), trying again (${attempt}/${attempts})`);
-      await new Promise((resolve) => setTimeout(resolve, waitMs));
-    }
+/** Fail closed when application code is newer or older than the database. */
+export async function assertMigrationsCurrent(c: QueryClient): Promise<void> {
+  const rows = await appliedMigrations(c);
+  verifyAppliedMigrations(rows);
+  if (
+    rows.length !== MIGRATIONS.length ||
+    MIGRATIONS.some((migration, index) => rows[index]?.version !== migration.version)
+  ) {
+    throw new Error("Doco database migrations are pending; run the migration command first.");
   }
 }
 
-async function appliedSchemaHash(c: QueryClient): Promise<string | null> {
-  const present = await c.query<{ present: boolean }>(
-    "SELECT to_regclass('public.schema_applied') IS NOT NULL AS present",
-  );
-  if (!present.rows[0]?.present) return null;
-  const { rows } = await c.query<{ hash: string }>("SELECT hash FROM schema_applied");
-  return rows[0]?.hash ?? null;
-}
-
-async function applySchema(): Promise<void> {
-  const c = await getPool().connect();
+/** Run the controlled startup/upgrade migration with bounded lock retries. */
+export async function migrateDatabase({
+  attempts = 60,
+  waitMs = 5_000,
+}: { attempts?: number; waitMs?: number } = {}): Promise<string[]> {
+  const client = await getPool().connect();
   try {
-    await applySchemaIfChanged(c);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await applyMigrations(client);
+      } catch (error) {
+        const code = (error as { code?: string }).code;
+        if (!code || !BUSY.has(code) || attempt >= attempts) throw error;
+        console.info(`[migrations] database busy (${code}); retrying ${attempt}/${attempts}`);
+        await new Promise((resolve) => setTimeout(resolve, waitMs));
+      }
+    }
   } finally {
-    c.release();
+    client.release();
   }
 }
 
-/** Whether the deploy applies schema.sql (scripts/apply-schema.mjs): in
- *  production, before its code takes traffic. */
-export function schemaAppliedAtDeploy(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.VERCEL_ENV === "production";
-}
-
-/**
- * Bring the database to schema.sql once per process (applySchemaIfChanged),
- * except where the deploy did: there a process that finds another schema.sql
- * applied belongs to an older deployment, which Vercel keeps serving to tabs
- * opened before the deploy, and applying its own file would undo the newer
- * one, deadlocking against live traffic on the way.
- */
-export async function ensureSchema(env: NodeJS.ProcessEnv = process.env): Promise<void> {
-  if (schemaAppliedAtDeploy(env)) return;
+/** Validate the database once per process; schema changes happen only at startup. */
+export async function ensureSchema(): Promise<void> {
   if (!_schemaReady) {
-    _schemaReady = applySchema().catch((err) => {
+    _schemaReady = (async () => {
+      const client = await getPool().connect();
+      try {
+        await assertMigrationsCurrent(client);
+      } finally {
+        client.release();
+      }
+    })().catch((error) => {
       _schemaReady = null;
-      throw err;
+      throw error;
     });
   }
   await _schemaReady;

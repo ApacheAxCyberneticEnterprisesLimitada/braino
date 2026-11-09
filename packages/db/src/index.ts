@@ -7,8 +7,10 @@ export {
   withClient,
   withTransaction,
   ensureSchema,
-  applySchemaAtDeploy,
-  schemaAppliedAtDeploy,
+  applyMigrations,
+  assertMigrationsCurrent,
+  migrateDatabase,
+  MIGRATION_LOCK_TIMEOUT_MS,
 } from "./client.js";
 
 export type { PoolClient } from "pg";
