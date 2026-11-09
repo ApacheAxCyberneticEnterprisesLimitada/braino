@@ -397,6 +397,12 @@ CREATE INDEX IF NOT EXISTS nodes_collection_life_idx  ON nodes (collection_id, l
 -- reads on it.
 DROP INDEX IF EXISTS nodes_ref_locator_idx;
 CREATE INDEX IF NOT EXISTS nodes_locator_idx ON nodes (collection_id, locator) WHERE locator IS NOT NULL;
+-- A GitHub connection has one canonical node for each imported issue or pull
+-- request. The connection row lock serializes syncs; this index is the final
+-- database guard against duplicate identities if a writer bypasses that path.
+CREATE UNIQUE INDEX IF NOT EXISTS nodes_github_locator_unique_idx
+  ON nodes (collection_id, locator)
+  WHERE locator IS NOT NULL AND extra ? 'github_repository';
 -- When a collection's GitHub import last wrote a pull request's Reference or an
 -- issue's Eval is one probe of this index; the predicate is the import's
 -- (the imported_items view).

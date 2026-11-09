@@ -16,6 +16,14 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
+function recordingClient(statements: string[]): PoolClient {
+  return {
+    query: async (sql: string, params?: unknown[]) => {
+      statements.push(sql);
+      return db.query(sql, params);
+    },
+  } as unknown as PoolClient;
+}
 const encryptionKey = "github-connection-test-key-with-more-than-thirty-two-characters";
 const accessToken = "github_pat_test-only-never-store-plaintext";
 
@@ -113,12 +121,23 @@ describe("self-hosted GitHub connections", () => {
       expect.objectContaining({ id: connection.id, repository: "acme/widgets" }),
     ]);
 
-    const first = await syncGithubConnection(client(), {
+    const statements: string[] = [];
+    const first = await syncGithubConnection(recordingClient(statements), {
       connectionId: connection.id,
       encryptionKey,
       fetcher: fakeGithub(state),
     });
     expect(first).toEqual({ created: 2, updated: 0, unchanged: 0 });
+    const transaction = statements.findIndex((sql) => sql === "BEGIN");
+    const connectionLock = statements.findIndex((sql) =>
+      /SELECT \* FROM github_connections WHERE id = \$1 FOR UPDATE/.test(sql),
+    );
+    expect(transaction).toBeGreaterThanOrEqual(0);
+    expect(connectionLock).toBeGreaterThan(transaction);
+    const githubLocatorIndex = await db.query<{ indexdef: string }>(
+      "SELECT indexdef FROM pg_indexes WHERE indexname = 'nodes_github_locator_unique_idx'",
+    );
+    expect(githubLocatorIndex.rows[0]?.indexdef).toContain("UNIQUE INDEX");
     const nodes = await db.query<{
       node_type: string;
       lifecycle: string;

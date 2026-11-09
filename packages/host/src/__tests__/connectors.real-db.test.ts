@@ -17,6 +17,14 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
+function recordingClient(statements: string[]): PoolClient {
+  return {
+    query: async (sql: string, params?: unknown[]) => {
+      statements.push(sql);
+      return db.query(sql, params);
+    },
+  } as unknown as PoolClient;
+}
 const encryptionKey = "connector-test-key-with-more-than-thirty-two-characters";
 const accessToken = "xoxb-test-only-never-store-plaintext";
 
@@ -160,13 +168,20 @@ describe("self-hosted connectors", () => {
       expect.objectContaining({ id: connection.id, provider: "slack" }),
     ]);
 
-    const first = await syncConnectorConnection(client(), {
+    const statements: string[] = [];
+    const first = await syncConnectorConnection(recordingClient(statements), {
       connectionId: connection.id,
       encryptionKey,
       adapter: slackConnector,
       fetcher: fakeSlack(state),
     });
     expect(first).toEqual({ created: 3, updated: 0, retired: 0, unchanged: 0 });
+    const transaction = statements.findIndex((sql) => sql === "BEGIN");
+    const connectionLock = statements.findIndex((sql) =>
+      /SELECT \* FROM connector_connections WHERE id = \$1 FOR UPDATE/.test(sql),
+    );
+    expect(transaction).toBeGreaterThanOrEqual(0);
+    expect(connectionLock).toBeGreaterThan(transaction);
     const nodes = await db.query<{
       lifecycle: string;
       prose: string;

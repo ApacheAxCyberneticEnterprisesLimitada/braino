@@ -555,16 +555,29 @@ export async function syncConnectorConnection(
     let txId: number | null = null;
     await client.query("BEGIN");
     try {
+      const locked = await client.query<ConnectionRow>(
+        "SELECT * FROM connector_connections WHERE id = $1 FOR UPDATE",
+        [connection.id],
+      );
+      const current = locked.rows[0];
+      if (!current || !current.active || !current.credential_sealed) {
+        throw new ConnectorError("Connector is not active.", "connection_inactive", 409);
+      }
       for (const document of documents) {
-        const written = await writeDocument(client, { connection, document, runId, txId });
+        const written = await writeDocument(client, {
+          connection: current,
+          document,
+          runId,
+          txId,
+        });
         txId = written.txId;
         counts[written.state] += 1;
       }
-      const retired = await retireMissing(client, { connection, runId, txId });
+      const retired = await retireMissing(client, { connection: current, runId, txId });
       counts.retired = retired.retired;
       await client.query(
         "UPDATE connector_connections SET last_synced_at = now(), last_error = NULL WHERE id = $1",
-        [connection.id],
+        [current.id],
       );
       await client.query("COMMIT");
       return counts;
