@@ -34,12 +34,27 @@ describe("the supported self-hosted stack", () => {
   it("documents the required secrets and builds a non-root web image", () => {
     const env = readFileSync(resolve(root, ".env.example"), "utf8");
     const dockerfile = readFileSync(resolve(root, "Dockerfile"), "utf8");
+    const dockerignore = readFileSync(resolve(root, ".dockerignore"), "utf8");
 
     expect(env).toContain("DOCO_ENCRYPTION_KEY=");
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
     expect(env).toContain("DOCO_SETUP_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
     expect(dockerfile).toContain("USER node");
+    expect(dockerignore).toContain(".env*");
+    expect(dockerignore).toContain("!.env.example");
+    expect(dockerignore).toContain("backups");
+    expect(dockerignore).toContain("*.tar.gz");
+  });
+
+  it("fails CI on high or critical dependency advisories", () => {
+    const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    const workflow = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8");
+
+    expect(packageJson.scripts.audit).toBe("pnpm audit --audit-level high");
+    expect(workflow).toContain("pnpm run audit");
   });
 
   it("ships executable backup, restore, preflight, and upgrade commands", () => {
