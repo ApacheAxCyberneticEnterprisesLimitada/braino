@@ -53,10 +53,11 @@ backup() {
 
   if [[ -f .env ]]; then
     cp .env "$working_directory/doco.env"
-  elif [[ -n "${DOCO_ENCRYPTION_KEY:-}" && -n "${DOCO_POSTGRES_PASSWORD:-}" ]]; then
+  elif [[ -n "${DOCO_ENCRYPTION_KEY:-}" && -n "${DOCO_POSTGRES_PASSWORD:-}" && -n "${DOCO_SETUP_TOKEN:-}" ]]; then
     {
       printf 'DOCO_ENCRYPTION_KEY=%s\n' "$DOCO_ENCRYPTION_KEY"
       printf 'DOCO_POSTGRES_PASSWORD=%s\n' "$DOCO_POSTGRES_PASSWORD"
+      printf 'DOCO_SETUP_TOKEN=%s\n' "$DOCO_SETUP_TOKEN"
       [[ -z "${DOCO_IMAGE:-}" ]] || printf 'DOCO_IMAGE=%s\n' "$DOCO_IMAGE"
       [[ -z "${DOCO_PUBLIC_HOST:-}" ]] || printf 'DOCO_PUBLIC_HOST=%s\n' "$DOCO_PUBLIC_HOST"
       [[ -z "${DOCO_HTTP_PORT:-}" ]] || printf 'DOCO_HTTP_PORT=%s\n' "$DOCO_HTTP_PORT"

@@ -15,6 +15,7 @@ import {
 import { DocoMark } from "~/components/doco-mark";
 import { PageMain } from "~/components/page-main";
 import { type CurrentUser, getCurrentUser } from "~/lib/current-user.server";
+import { securityHeaders } from "~/lib/security-headers.server";
 import "./app.css";
 
 interface RootData {
@@ -32,6 +33,10 @@ export async function loader({ request }: { request: Request }): Promise<RootDat
 
 export function links() {
   return [{ rel: "icon", type: "image/svg+xml", href: "/favicon.svg" }];
+}
+
+export function headers() {
+  return securityHeaders;
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {

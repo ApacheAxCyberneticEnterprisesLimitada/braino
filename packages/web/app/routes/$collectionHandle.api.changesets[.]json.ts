@@ -1,6 +1,11 @@
 import { withClient } from "@doco/db";
 import { ChangesetError, applyChangeset } from "@doco/host";
 import { getCurrentUser } from "~/lib/current-user.server.js";
+import {
+  MAX_JSON_BODY_BYTES,
+  RequestBodyError,
+  readBoundedJson,
+} from "~/lib/request-body.server.js";
 
 export function loader() {
   return Response.json(
@@ -24,17 +29,17 @@ export async function action({
   }
   const user = await getCurrentUser(request);
   if (!user) return Response.json({ error: "Authentication required." }, { status: 401 });
-  if (!(request.headers.get("content-type") ?? "").toLowerCase().includes("application/json")) {
-    return Response.json({ error: "Content-Type must be application/json." }, { status: 400 });
-  }
   let body: { operations?: unknown; reason?: unknown };
   try {
-    body = (await request.json()) as { operations?: unknown; reason?: unknown };
+    body = (await readBoundedJson(request, MAX_JSON_BODY_BYTES)) as {
+      operations?: unknown;
+      reason?: unknown;
+    };
   } catch (error) {
-    return Response.json(
-      { error: `Invalid JSON body: ${error instanceof Error ? error.message : "parse failed"}` },
-      { status: 400 },
-    );
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
   try {
     const result = await withClient((client) =>

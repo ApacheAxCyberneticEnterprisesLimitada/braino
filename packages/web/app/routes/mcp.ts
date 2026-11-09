@@ -1,6 +1,7 @@
 import { withClient } from "@doco/db";
 import { authenticateMcpToken } from "@doco/host";
 import { handleMcpMessage } from "~/lib/mcp-server";
+import { MAX_JSON_BODY_BYTES, RequestBodyError, readBoundedJson } from "~/lib/request-body.server";
 
 const jsonHeaders = { "Content-Type": "application/json" };
 
@@ -32,11 +33,18 @@ export async function action({ request }: { request: Request }) {
   }
   let message: unknown;
   try {
-    message = await request.json();
-  } catch {
+    message = await readBoundedJson(request, MAX_JSON_BODY_BYTES);
+  } catch (error) {
     return new Response(
-      JSON.stringify({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }),
-      { status: 400, headers: jsonHeaders },
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: null,
+        error: {
+          code: -32700,
+          message: error instanceof RequestBodyError ? error.message : "Parse error",
+        },
+      }),
+      { status: error instanceof RequestBodyError ? error.status : 400, headers: jsonHeaders },
     );
   }
   if (!message || typeof message !== "object" || Array.isArray(message)) {

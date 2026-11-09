@@ -1,7 +1,6 @@
 import { withClient } from "@doco/db";
 import { GithubConnectionError, deliverGithubWebhook } from "@doco/host";
-
-const MAX_BODY_BYTES = 2 * 1024 * 1024;
+import { MAX_JSON_BODY_BYTES, RequestBodyError, readBoundedText } from "~/lib/request-body.server";
 
 function encryptionKey(): string {
   const value = process.env.DOCO_ENCRYPTION_KEY?.trim();
@@ -22,13 +21,14 @@ export async function action({
   if (!connectionId) {
     return Response.json({ error: "GitHub connection is required." }, { status: 404 });
   }
-  const length = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(length) && length > MAX_BODY_BYTES) {
-    return Response.json({ error: "GitHub webhook payload is too large." }, { status: 413 });
-  }
-  const body = await request.text();
-  if (Buffer.byteLength(body, "utf8") > MAX_BODY_BYTES) {
-    return Response.json({ error: "GitHub webhook payload is too large." }, { status: 413 });
+  let body: string;
+  try {
+    body = await readBoundedText(request, MAX_JSON_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
   }
   try {
     const result = await withClient((client) =>

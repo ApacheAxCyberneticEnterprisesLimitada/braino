@@ -12,10 +12,11 @@ services:
     environment:
       DOCO_DATABASE_URL: postgresql://doco:${DOCO_POSTGRES_PASSWORD:?set DOCO_POSTGRES_PASSWORD in .env}@postgres:5432/doco
       DOCO_ENCRYPTION_KEY: ${DOCO_ENCRYPTION_KEY:?set DOCO_ENCRYPTION_KEY in .env}
+      DOCO_SETUP_TOKEN: ${DOCO_SETUP_TOKEN:?set DOCO_SETUP_TOKEN in .env}
       DOCO_PUBLIC_HOST: ${DOCO_PUBLIC_HOST:-http://localhost:3000}
       QDRANT_URL: http://qdrant:6333
     ports:
-      - "${DOCO_HTTP_PORT:-3000}:3000"
+      - "127.0.0.1:${DOCO_HTTP_PORT:-3000}:3000"
     depends_on:
       postgres:
         condition: service_healthy

@@ -7,7 +7,13 @@ import { PageHeader } from "~/components/page-header";
 import { NarrowPageMain, PageMain } from "~/components/page-main";
 import { getCurrentUser } from "~/lib/current-user.server";
 import { hashPassword, passwordError, verifyPassword } from "~/lib/password.server";
+import {
+  MAX_FORM_BODY_BYTES,
+  RequestBodyError,
+  readBoundedUrlEncodedForm,
+} from "~/lib/request-body.server";
 import { clearSessionCookie, createSessionCookie } from "~/lib/session.server";
+import { setupTokenError } from "~/lib/setup-token.server";
 
 interface DashboardCollection {
   id: string;
@@ -74,7 +80,15 @@ function text(form: FormData, name: string): string {
 }
 
 export async function action({ request }: { request: Request }) {
-  const form = await request.formData();
+  let form: FormData;
+  try {
+    form = await readBoundedUrlEncodedForm(request, MAX_FORM_BODY_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyError) {
+      return Response.json({ error: error.message }, { status: error.status });
+    }
+    throw error;
+  }
   const intent = text(form, "intent");
   if (intent === "signout") {
     return redirect("/", { headers: { "Set-Cookie": clearSessionCookie() } });
@@ -84,6 +98,8 @@ export async function action({ request }: { request: Request }) {
   if (intent === "setup") {
     if (state.initialized)
       return Response.json({ error: "Doco is already initialized." }, { status: 409 });
+    const invalidSetupToken = setupTokenError(text(form, "setup_token"));
+    if (invalidSetupToken) return Response.json({ error: invalidSetupToken }, { status: 403 });
     const password = text(form, "password");
     const error = passwordError(password);
     if (error) return Response.json({ error }, { status: 400 });
@@ -212,7 +228,13 @@ function Setup({ error }: { error?: string }) {
                 pattern="[a-z0-9][a-z0-9_-]*"
               />
               <Field label="Email" name="owner_email" type="email" required />
-              <span className="hidden sm:block" />
+              <Field
+                label="Setup token"
+                name="setup_token"
+                type="password"
+                autoComplete="off"
+                required
+              />
               <Field label="Password" name="password" type="password" minLength={12} required />
               <Field
                 label="Confirm password"
