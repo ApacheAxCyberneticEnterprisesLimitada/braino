@@ -1,6 +1,6 @@
-# Doco
+# Braino
 
-Doco is an open knowledge system for durable decisions, rules, evidence, and
+Braino is an open knowledge system for durable decisions, rules, evidence, and
 their relationships. This repository is the sole upstream for the open product.
 
 This tree contains the supported single-workspace, self-hosted product:
@@ -27,7 +27,7 @@ curl --fail http://localhost:3000/healthz
 
 Open `http://localhost:3000`, enter `DOCO_SETUP_TOKEN`, and create the owner and
 sole workspace. The application port binds to loopback; the optional Caddy
-profile is the supported way to expose Doco publicly. Records
+profile is the supported way to expose Braino publicly. Records
 can be captured from a collection page or created, related, transitioned, and
 superseded through its compatible `/<collection-handle>/api/changesets.json`
 endpoint; the adjacent `api/authoring-contract.json` endpoint describes the
@@ -47,26 +47,26 @@ set `DOCO_HOST` and `DOCO_PUBLIC_HOST`, then start with
 Workspace owners can create generic incoming webhooks from **Integrations**.
 POST `{"operations":[...],"reason":"..."}` to the one-time secret URL and
 send a unique `Idempotency-Key` header. Deliveries use the same authoring
-policies, history, permissions, and changeset response as Doco's API; retrying
+policies, history, permissions, and changeset response as Braino's API; retrying
 the same key returns the original response without writing twice.
 
 Owners can connect Slack, Notion, and Google Drive from the same page. Each
-external source is bound to this Doco workspace, its credential is encrypted with
+external source is bound to this Braino workspace, its credential is encrypted with
 `DOCO_ENCRYPTION_KEY`, and its read-only records land in a private collection
 with ordinary search, history, and audit behavior. For Slack, create a bot
 token with `channels:read`, `channels:history`, and `users:read`; only public,
 non-shared channels are copied. For Notion, create an internal integration with
-read-content access and explicitly share the pages Doco should copy. For Google
+read-content access and explicitly share the pages Braino should copy. For Google
 Drive, enable the Drive API, create a service-account JSON key, and share the
-folders or files with that service account; Doco imports Docs, Sheets, Slides,
+folders or files with that service account; Braino imports Docs, Sheets, Slides,
 and text files while ignoring binary files.
 
 Owners can also connect one GitHub repository from **Integrations** with a
 fine-grained personal access token scoped to that repository. Grant read access
-to Metadata, Issues, and Pull requests, plus Webhooks write access. Doco
+to Metadata, Issues, and Pull requests, plus Webhooks write access. Braino
 encrypts the token with `DOCO_ENCRYPTION_KEY`, imports into dedicated GitHub
 issues and pull-request collections, and records every source change in the
-same immutable history. When `DOCO_PUBLIC_HOST` is public HTTPS, Doco registers
+same immutable history. When `DOCO_PUBLIC_HOST` is public HTTPS, Braino registers
 a signed repository webhook and refreshes automatically on issue and pull
 request events; delivery IDs make retries idempotent. **Sync now** remains the
 fallback, and unchanged items do not create versions.
@@ -85,7 +85,7 @@ upgrade commands:
 
 PostgreSQL is the source of truth; Qdrant is cleared and rebuilt after a
 restore. Backups include deployment configuration and are written with mode
-`0600`. See [Operating Doco](docs/operations.md) for the full procedure.
+`0600`. See [Operating Braino](docs/operations.md) for the full procedure.
 
 The executable [v0.1 conformance contract](docs/v0.1-conformance.md) covers a
 clean Docker boot in under ten minutes, the core product surfaces, and a

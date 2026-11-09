@@ -45,7 +45,7 @@ export async function createMcpToken(
     await client.query(
       `INSERT INTO oauth_clients
          (client_id, client_name, redirect_uris, grant_types, response_types)
-       VALUES ($1, 'Doco self-hosted MCP tokens', ARRAY[]::text[], ARRAY[]::text[], ARRAY[]::text[])
+       VALUES ($1, 'Braino self-hosted MCP tokens', ARRAY[]::text[], ARRAY[]::text[], ARRAY[]::text[])
        ON CONFLICT (client_id) DO NOTHING`,
       [MCP_CLIENT_ID],
     );
@@ -290,7 +290,7 @@ export async function createWorkspaceBrief(
     decided,
     in_motion: inMotion,
     background,
-    display: { found: `Doco brief · ${resultIds.length} records · ${workspaceRow.handle}` },
+    display: { found: `Braino brief · ${resultIds.length} records · ${workspaceRow.handle}` },
   };
 }
 

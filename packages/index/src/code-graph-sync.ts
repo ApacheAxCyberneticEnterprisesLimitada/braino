@@ -382,9 +382,9 @@ async function deleteCodeGraphDocument(
 }
 
 /**
- * Build one repository-level derived document from Doco's durable code mirror.
+ * Build one repository-level derived document from Braino's durable code mirror.
  * The connector still owns GitHub access; the parser receives only normalized
- * source already stored by Doco. A SHA manifest makes unchanged pushes free.
+ * source already stored by Braino. A SHA manifest makes unchanged pushes free.
  */
 export async function syncCodeGraphRepository(
   c: QueryClient,

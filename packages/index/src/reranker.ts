@@ -7,7 +7,7 @@
  * precision@k lever for natural-language queries, which is exactly the
  * shape of agent traffic against a collection.
  *
- * This module is the building block: a `Reranker` interface and Doco's one
+ * This module is the building block: a `Reranker` interface and Braino's one
  * Voyage implementation. `VOYAGE_API_KEY` enables it; without the key,
  * reranking is off. The eval harness (scripts/eval-retrieval.mjs) exercises
  * the full embed → cosine → rerank pipeline.
@@ -121,7 +121,7 @@ export async function rerankItems<T>(
     .map((r) => ({ item: items[r.index], score: r.score }));
 }
 
-/** Resolve Doco's Voyage reranker, or undefined when its key is absent. */
+/** Resolve Braino's Voyage reranker, or undefined when its key is absent. */
 export function getDefaultReranker(): Reranker | undefined {
   const key = process.env.VOYAGE_API_KEY;
   if (!key) return undefined;

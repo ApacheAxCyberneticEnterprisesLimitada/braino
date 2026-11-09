@@ -12,7 +12,7 @@ import {
   useLoaderData,
   useRouteError,
 } from "react-router";
-import { DocoMark } from "~/components/doco-mark";
+import { BrainoMark } from "~/components/braino-mark";
 import { PageMain } from "~/components/page-main";
 import { type CurrentUser, getCurrentUser } from "~/lib/current-user.server";
 import { securityHeaders } from "~/lib/security-headers.server";
@@ -73,8 +73,8 @@ function SiteHeader({ data }: { data: RootData }) {
   return (
     <header className="h-14 border-b border-border bg-card">
       <div className="flex h-full w-full items-center gap-6 px-6">
-        <Link to="/" className="inline-flex items-center hover:opacity-80" aria-label="Doco home">
-          <DocoMark height={28} />
+        <Link to="/" className="inline-flex items-center hover:opacity-80" aria-label="Braino home">
+          <BrainoMark height={28} />
         </Link>
         {data.user ? (
           <Form
@@ -144,7 +144,7 @@ export function ErrorBoundary() {
       : "Unexpected error";
   return (
     <PageMain className="space-y-4 py-10">
-      <p className="font-mono text-xs text-muted-foreground">Doco</p>
+      <p className="font-mono text-xs text-muted-foreground">Braino</p>
       <div className="neu-surface rounded-lg bg-card p-5">
         <h1 className="text-2xl font-semibold text-destructive">{status}</h1>
         <p className="mt-2 text-sm text-muted-foreground">{message}</p>

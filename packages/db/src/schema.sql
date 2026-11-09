@@ -1,4 +1,4 @@
--- Doco Postgres schema (decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
+-- Braino Postgres schema (decision_01KRKEVEE3RQGPWHAPMZ0MS9G9).
 --
 -- Source-of-truth + read-side index in one database per host.
 --
@@ -35,7 +35,7 @@ ALTER TABLE hosts DROP COLUMN IF EXISTS external_vector_index_enabled;
 -- fresh install (every layout reads host config). Idempotent — the
 -- ON CONFLICT keeps existing host configs untouched.
 INSERT INTO hosts (id, name, visibility)
-VALUES ('host', 'Doco', 'public')
+VALUES ('host', 'Braino', 'public')
 ON CONFLICT (id) DO NOTHING;
 
 -- Identity layer.
@@ -51,7 +51,7 @@ ON CONFLICT (id) DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS users (
   id              text PRIMARY KEY,            -- user_<ulid>
-  -- The person's name in Doco, unique regardless of case
+  -- The person's name in Braino, unique regardless of case
   -- (decision_01M5EAAX2VT2MMRG0ZGKDJGMJZ).
   username        text,
   -- What they are called, as their profile (/users/<username>) says it:
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- The GitHub account the person is, for matching GitHub's events (a pull
   -- request's author) to them; nothing signs in with it.
   github_login    text,
-  -- Where Doco emails them, and the links that create their account or replace
+  -- Where Braino emails them, and the links that create their account or replace
   -- a lost password or second factor; unique regardless of case.
   email           text,
   -- Their password as `scrypt$<salt>$<key>`; they sign in with it, their
@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS users (
   -- Whether anyone, signed out too, may open their profile, with what they
   -- did in public collections and its share image. Off unless they turn it on.
   public_profile  boolean NOT NULL DEFAULT false,
-  -- Whether they are the host superadmin, whom Doco's admin pages answer.
+  -- Whether they are the host superadmin, whom Braino's admin pages answer.
   superadmin      boolean NOT NULL DEFAULT false
 );
 CREATE INDEX IF NOT EXISTS users_github_login_idx ON users (github_login);
@@ -176,7 +176,7 @@ CREATE TABLE IF NOT EXISTS workspaces (
   -- steps and gets no digest for it.
   personal_user_id text REFERENCES users(id) ON DELETE SET NULL,
   -- Whether agents end each pull request they write for this workspace with a
-  -- "Briefed by Doco" line linked to their brief (the standing orders ask for
+  -- "Briefed by Braino" line linked to their brief (the standing orders ask for
   -- it). Off unless an owner turns it on, so it never reads as spam.
   pr_brief_line boolean NOT NULL DEFAULT false,
   -- Whether anyone may read the web editions of its newspaper, The
@@ -531,7 +531,7 @@ CREATE INDEX IF NOT EXISTS changesets_recorded_idx ON changesets (collection_id,
 -- Query log — one row per query, the read-side twin of `changesets`: who
 -- (actor), how they came in (source + metadata, the same request context a
 -- changeset records, so reads and writes name the same agent), and when.
--- Every agent read of a collection (MCP, REST API, Señor Doco) and every search on
+-- Every agent read of a collection (MCP, REST API, Señor) and every search on
 -- the website is a query; opening a page on the website isn't. A search across
 -- a whole workspace has no `collection_id`.
 CREATE TABLE IF NOT EXISTS query_events (
@@ -551,7 +551,7 @@ CREATE INDEX IF NOT EXISTS query_events_actor_idx ON query_events (actor, at DES
 CREATE INDEX IF NOT EXISTS query_events_by_agent_idx ON query_events (workspace_id, actor)
   WHERE source = 'mcp' OR (source = 'api' AND metadata ? 'auth');
 
--- Information Doco returned to an agent, and the agent's optional judgment
+-- Information Braino returned to an agent, and the agent's optional judgment
 -- once it knows whether that information helped. One row is the whole
 -- feedback loop: the original question and ranked ids are the denominator;
 -- nullable feedback columns distinguish "not answered" from either answer.
@@ -1474,7 +1474,7 @@ CREATE TABLE IF NOT EXISTS times_editions (
 -- what its maker can read there (decision_01M4C2J610DPD028P55Q8X6VG2), with
 -- no expiry; revoking is the only kill switch. Any member mints their own; an
 -- agent gets its person's with the MCP tool doco_hook_token and saves it in
--- .doco/hook-tokens.json, out of git, where the Doco hook reads it. `token`
+-- .doco/hook-tokens.json, out of git, where the Braino hook reads it. `token`
 -- holds the token's SHA-256 (hex), matched against the digest of the bearer
 -- presented; `token_sealed` its sealed copy (lib/secret-box.server.ts), which
 -- doco_hook_token reads to hand the same token out again. They were
@@ -1539,7 +1539,7 @@ CREATE TABLE IF NOT EXISTS incoming_webhook_deliveries (
 -- provider has the same durable lifecycle: one encrypted credential, one
 -- external source identity, one private collection, and one sync status. The
 -- provider/source uniqueness is the database-level guarantee that an external
--- source can feed only one Doco workspace on a host.
+-- source can feed only one Braino workspace on a host.
 CREATE TABLE IF NOT EXISTS connector_connections (
   id                    text PRIMARY KEY,
   workspace_id          text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
@@ -1680,16 +1680,16 @@ CREATE TABLE IF NOT EXISTS chat_conversations (
   active_turn_started_at   timestamptz,
   active_turn_events       jsonb NOT NULL DEFAULT '[]'::jsonb,
   title                    text,
-  -- The Workspace this thread is scoped to. Señor Doco hard-scopes a thread's
+  -- The Workspace this thread is scoped to. Señor hard-scopes a thread's
   -- context (collections, policies, constitution) to this Workspace — mirroring an
   -- MCP token bound to one Workspace. Nullable: pre-existing threads (and any
   -- not yet assigned) stay workspace-less and fall back to the broad,
   -- all-reachable context. ON DELETE SET NULL so deleting a Workspace
   -- unassigns its threads rather than destroying chat history.
   workspace_id             text REFERENCES workspaces(id) ON DELETE SET NULL,
-  -- The collection this thread is attached to. Every in-app Señor Doco chat is
+  -- The collection this thread is attached to. Every in-app Señor chat is
   -- bound to exactly one collection (1:1 per user — see the unique index below):
-  -- opening Señor Doco while viewing a collection starts/opens that collection's chat.
+  -- opening Señor while viewing a collection starts/opens that collection's chat.
   -- workspace_id is derived from this collection's workspace at creation. Nullable
   -- so pre-existing (workspace-only) threads keep working, and ON DELETE SET
   -- NULL so deleting a collection preserves the chat history rather than destroying
@@ -1805,12 +1805,12 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   bot_scope                   text[] NOT NULL DEFAULT ARRAY[]::text[],
   installed_by_chat_user_id   text,
   installed_by_user_id        text REFERENCES users(id) ON DELETE SET NULL,
-  -- The single Doco workspace this chat team is bound to. The team's
+  -- The single Braino workspace this chat team is bound to. The team's
   -- assistant reaches at most this one workspace; null = unbound = no collection
   -- access (fail closed). This is what stops a linked user's account-wide
   -- permissions from leaking into chat.
   doco_workspace_id           text,
-  -- The channel Señor Doco speaks in unasked (lib/slack-conversations.server.ts):
+  -- The channel Señor speaks in unasked (lib/slack-conversations.server.ts):
   -- where he introduces himself, answers every message and posts the
   -- workspace's Times, picked by the owner at install, #doco unless they pick
   -- another, and changed in the team's Slack settings. He creates it when the
@@ -1820,7 +1820,7 @@ CREATE TABLE IF NOT EXISTS group_chat_installations (
   -- How often the Times goes to that channel (lib/activity-digest.ts), as
   -- workspace_users.digest is for each member's email.
   digest                      text NOT NULL DEFAULT 'daily' CHECK (digest IN ('daily', 'weekly', 'off')),
-  -- Whether the team's Slack members may join its Doco workspace on their own,
+  -- Whether the team's Slack members may join its Braino workspace on their own,
   -- and as what: off, or reader or writer. On, the Times post in the channel
   -- carries a Join button, and linking a Slack account makes the person a
   -- member (web lib/slack-join.server.ts).
@@ -1870,9 +1870,9 @@ CREATE TABLE IF NOT EXISTS group_chat_user_links (
   UNIQUE (provider, workspace_id, chat_user_id, user_id)
 );
 -- The Slack user who approved an install is the owner who started it, signed
--- in to Doco in the browser Slack sent back to, and each install links the two
+-- in to Braino in the browser Slack sent back to, and each install links the two
 -- (lib/slack.server.ts). Teams installed before that are linked here, so
--- their installer manages Señor Doco as an owner without linking first
+-- their installer manages Señor as an owner without linking first
 -- (Alexander, 2026-11-01). Every later boot finds them linked.
 INSERT INTO group_chat_user_links (id, provider, workspace_id, chat_user_id, user_id)
 SELECT 'gcul_' || replace(gen_random_uuid()::text, '-', ''), i.provider, i.workspace_id,
@@ -1880,7 +1880,7 @@ SELECT 'gcul_' || replace(gen_random_uuid()::text, '-', ''), i.provider, i.works
   FROM group_chat_installations i
  WHERE i.installed_by_chat_user_id IS NOT NULL AND i.installed_by_user_id IS NOT NULL
 ON CONFLICT (provider, workspace_id, chat_user_id, user_id) DO NOTHING;
--- What Señor Doco keeps about each conversation he speaks in unasked
+-- What Señor keeps about each conversation he speaks in unasked
 -- (lib/slack-conversations.server.ts): a channel, a person, by their chat
 -- user id, whose direct messages with him are where he speaks to them, or a
 -- thread ("<channel>/<thread ts>"). He introduces himself once in each (a
@@ -1898,7 +1898,7 @@ CREATE TABLE IF NOT EXISTS group_chat_conversations (
   PRIMARY KEY (provider, workspace_id, conversation_id)
 );
 ALTER TABLE group_chat_conversations ADD COLUMN IF NOT EXISTS home_opened_at timestamptz;
--- group_chat_channel_intros held the channels Señor Doco had spoken in, each
+-- group_chat_channel_intros held the channels Señor had spoken in, each
 -- of which had his first-reply introduction: they count as introduced.
 DO $$
 BEGIN
@@ -1952,7 +1952,7 @@ CREATE TABLE IF NOT EXISTS group_chat_channels (
   -- The owner opted this channel out: nothing from it is copied. Kept as a row
   -- so channel discovery doesn't add it back.
   excluded         boolean NOT NULL DEFAULT false,
-  -- An owner asked Señor Doco to watch for decisions here: he offers once per
+  -- An owner asked Señor to watch for decisions here: he offers once per
   -- thread to record what it settles, or the Decision that already answers
   -- its question (lib/slack-decisions.server.ts).
   decision_offers  boolean NOT NULL DEFAULT false,
@@ -2220,14 +2220,14 @@ BEGIN
 END $$;
 
 -- One row per mirroring collection: "this collection mirrors that company's
--- Drive". A Workspace admin of the company granted Doco's service account
+-- Drive". A Workspace admin of the company granted Braino's service account
 -- domain-wide, read-only access (lib/google-api.server.ts), then signed in
--- with Google so Doco could check they are an admin of the domain.
+-- with Google so Braino could check they are an admin of the domain.
 CREATE TABLE IF NOT EXISTS google_drive_mirrors (
   collection_id      text PRIMARY KEY REFERENCES collections(id) ON DELETE CASCADE,
   -- The company's Google Workspace domain: a file shared with it is copied.
   domain             text NOT NULL,
-  -- The admin who bound the company: Doco lists its people and shared drives
+  -- The admin who bound the company: Braino lists its people and shared drives
   -- as them.
   admin_email        text NOT NULL,
   -- Who confirmed, on behalf of their organization, that the collection may
@@ -2263,7 +2263,7 @@ CREATE TABLE IF NOT EXISTS google_drive_roots (
   kind                  text NOT NULL CHECK (kind IN ('person', 'drive')),
   -- The person's full name, or the drive's.
   name                  text NOT NULL,
-  -- Who Doco reads the root as: the person, or a member of the drive.
+  -- Who Braino reads the root as: the person, or a member of the drive.
   reads_as              text NOT NULL,
   -- The root's changes feed: where the next read starts, taken as its walk
   -- starts so nothing after it is missed (NULL until then), and when it was
@@ -2710,7 +2710,7 @@ BEGIN
     ALTER TABLE workspace_users DROP COLUMN digest_unsubscribed_at;
   END IF;
 END $$;
--- Every agent Doco supports runs hooks, so nobody skips the hook any more.
+-- Every agent Braino supports runs hooks, so nobody skips the hook any more.
 ALTER TABLE workspace_onboarding DROP COLUMN IF EXISTS hook_done_at;
 -- When an owner ended (or skipped) inviting their colleagues
 -- (decision_01M4NJQXQZXFA74A7MCSYY9B6S).
@@ -2778,9 +2778,9 @@ ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS history_next_at timestam
 ALTER TABLE group_chat_mirrors ADD COLUMN IF NOT EXISTS replies_next_at timestamptz;
 ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS history_oldest_ts text;
 ALTER TABLE group_chat_channels ADD COLUMN IF NOT EXISTS decision_offers boolean NOT NULL DEFAULT false;
--- Quieting Señor Doco from Slack is gone: Manage under what he posts unasked
+-- Quieting Señor from Slack is gone: Manage under what he posts unasked
 -- opens the team's Slack settings on doco.to (Alexander, 2026-11-03: "No
--- management options in Slack other than the button to go to Doco."). A
+-- management options in Slack other than the button to go to Braino."). A
 -- channel someone quieted stays quiet through the switches there: the Times
 -- off where it was his channel, and no watching for decisions in it. What was
 -- quiet_at lives on only as a thread's closed_at.
@@ -2927,7 +2927,7 @@ CREATE TRIGGER google_drive_files_embeddings_drop
 -- that stopped reading and writing in a workspace for longer than its own
 -- history makes expected, or that keeps reading but stopped writing
 -- (silence-alerts.server.ts decides, every hour). A row is one episode: it
--- opens when the silence turns unexpected, its emails, and Señor Doco's
+-- opens when the silence turns unexpected, its emails, and Señor's
 -- Slack messages with them, go out along the schedule (email_step), and it is
 -- deleted when data or calls resume. An owner of the workspace can nudge an
 -- agent's person (nudged_at) or disregard its alert, just this time
@@ -2982,7 +2982,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
 
 -- Each person, by GitHub login, whose pull requests a workspace can't see:
--- they aren't a member, or their agent shipped without Doco (web:
+-- they aren't a member, or their agent shipped without Braino (web:
 -- lib/unseen-work-alerts.server.ts). The pull requests opened up to
 -- told_through were sent; an owner's Disregard hides those opened up to
 -- disregarded_through (just this time), or every one (always). The weekly
@@ -2998,20 +2998,20 @@ CREATE TABLE IF NOT EXISTS unseen_work_authors (
   PRIMARY KEY (workspace_id, login)
 );
 -- The pull requests imported before they carried labels (the agent that made
--- each and how Doco saw the work, web: lib/pull-request-provenance.ts) are
+-- each and how Braino saw the work, web: lib/pull-request-provenance.ts) are
 -- imported again once, in every workspace (decision_01M655E2KR8SD7C11QX823WKYV;
--- Alexander, 2026-10-30, "Spot agents committing without Doco"): each
+-- Alexander, 2026-10-30, "Spot agents committing without Braino"): each
 -- connected collection that brings pull requests from GitHub, last imported
 -- before labels shipped, is queued for the background import "Re-import all"
 -- starts, a running marker with no cursor, which the sweep picks up and the
 -- worker rebuilds from the collection's connections. Labels go on past the
 -- judge (labelPullRequest), so it costs no model call. Its import stamps the
 -- marker after then, so a later boot queues nothing. Moved on when a brief or
--- record of another workspace stopped counting as going through Doco, when
+-- record of another workspace stopped counting as going through Braino, when
 -- each pull request came to carry who opened it, for the alerts about someone
 -- who isn't a member, when only its author's records came to count as
 -- logging it (Alexander, 2026-11-02, "Find why no alert for Oki skipping
--- Doco"), and when Doco came to look in every workspace that tracks the
+-- Braino"), and when Braino came to look in every workspace that tracks the
 -- repository, as worder tracks The Voice Store's (Alexander, 2026-11-02), so
 -- the pull requests labeled before relabel too.
 -- The build applies this while the deploy before it still serves, and the
@@ -3058,7 +3058,7 @@ END $$;
 -- Notion the pages fetched so far, from Google Drive the files copied so far
 -- (folders aside). `at` is when an item happened in the source where the
 -- source says (a message posted, a page or file last changed; null when
--- Notion gave no time), else when Doco last wrote it (a code file, a pull
+-- Notion gave no time), else when Braino last wrote it (a code file, a pull
 -- request or issue). Each branch has an index on (collection_id, at), with its WHERE
 -- as a partial one's predicate where it filters.
 CREATE OR REPLACE VIEW imported_items AS
@@ -3282,7 +3282,7 @@ UPDATE policies p
    AND p.lifecycle = 'active'
    AND p.data->'predicate'->>'agent_instruction' = w.old;
 
--- Every workspace's constitution says what to record and where, since Doco's
+-- Every workspace's constitution says what to record and where, since Braino's
 -- agent instructions no longer name a collection (Alexander, 2026-10-21: "the
 -- instructions shouldn't make reference to it. The Constitutions should.";
 -- "Update all constitutions"). Each constitution loses the paragraphs a stock
@@ -3379,7 +3379,7 @@ $$ LANGUAGE sql;
 -- briefs said what they searched its searched_tokens: what the workspace's
 -- collections its asker could read held when the brief's UTC day began (a
 -- hook token reads as its maker, a member of its workspace), each item dated
--- when it reached Doco (a copied one no earlier than its copy), and without
+-- when it reached Braino (a copied one no earlier than its copy), and without
 -- code, which the brief doesn't search. Other past queries can't be told
 -- apart from reads that searched nothing, so they stay without. Then the
 -- rollup starts over, so its next run counts every day again, tokens and all.

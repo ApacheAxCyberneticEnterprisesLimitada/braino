@@ -1,6 +1,6 @@
-# Operating Doco
+# Operating Braino
 
-PostgreSQL is Doco's source of truth. Qdrant is a rebuildable search projection.
+PostgreSQL is Braino's source of truth. Qdrant is a rebuildable search projection.
 The supported Compose deployment keeps both in named volumes and provides one
 command for validation, backup, restore, and upgrades.
 
@@ -55,4 +55,4 @@ migration rolls back and leaves the application stopped rather than serving
 code against the wrong database shape.
 
 Official `v*` tags publish signed, SBOM-attested Linux AMD64 and ARM64 images at
-`ghcr.io/docoinc/doco`.
+`ghcr.io/apacheaxcyberneticenterpriseslimitada/braino`.

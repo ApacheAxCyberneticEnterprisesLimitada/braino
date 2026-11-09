@@ -168,7 +168,7 @@ describe("the supported self-hosted stack", () => {
   });
 
   it("reports and migrates the configured released app image", () => {
-    const image = "ghcr.io/docoinc/doco:0.1.0";
+    const image = "ghcr.io/apacheaxcyberneticenterpriseslimitada/braino:0.1.0";
     const result = runUpgradeWithImage(image);
 
     expect(result.status).toBe(0);

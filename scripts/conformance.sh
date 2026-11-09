@@ -21,7 +21,7 @@ pnpm --filter @doco/web exec vitest run \
   app/design-language.test.ts
 
 if [[ "${DOCO_CONFORMANCE_SKIP_DOCKER:-}" == "1" ]]; then
-  echo "Doco v0.1 logic conformance passed; Docker proof skipped by request."
+  echo "Braino v0.1 logic conformance passed; Docker proof skipped by request."
   exit 0
 fi
 
@@ -103,12 +103,12 @@ collection_handle=$(node -e '
 ' "$runtime/collections.json")
 curl --fail --silent --show-error -b "$cookies" \
   -H 'Content-Type: application/json' \
-  --data '{"operations":[{"op":"create","node_type":"reference","body":{"lifecycle":"drafting","prose":"Doco v0.1 conformance record"}}],"reason":"v0.1 clean-boot proof"}' \
+  --data '{"operations":[{"op":"create","node_type":"reference","body":{"lifecycle":"drafting","prose":"Braino v0.1 conformance record"}}],"reason":"v0.1 clean-boot proof"}' \
   "$origin/$collection_handle/api/changesets.json" >"$runtime/changeset.json"
 grep -q '"ok":true' "$runtime/changeset.json"
 curl --fail --silent --show-error -b "$cookies" \
   "$origin/api/v1/search.json?q=v0.1%20conformance" >"$runtime/search.json"
-grep -q 'Doco v0.1 conformance record' "$runtime/search.json"
+grep -q 'Braino v0.1 conformance record' "$runtime/search.json"
 docker compose exec -T app node --input-type=module -e '
   const response = await fetch("http://qdrant:6333/collections/doco_records");
   if (!response.ok) process.exit(1);
@@ -119,13 +119,13 @@ docker compose exec -T app node --input-type=module -e '
 ./doco doctor >/dev/null
 ./doco backup "$runtime/conformance-backup.tar.gz" >/dev/null
 docker compose exec -T postgres psql --username doco --dbname doco \
-  -c "DELETE FROM nodes WHERE prose = 'Doco v0.1 conformance record'" >/dev/null
+  -c "DELETE FROM nodes WHERE prose = 'Braino v0.1 conformance record'" >/dev/null
 deleted=$(docker compose exec -T postgres psql --username doco --dbname doco --tuples-only --no-align \
-  -c "SELECT count(*) FROM nodes WHERE prose = 'Doco v0.1 conformance record'")
+  -c "SELECT count(*) FROM nodes WHERE prose = 'Braino v0.1 conformance record'")
 [[ "$deleted" == "0" ]]
 ./doco restore "$runtime/conformance-backup.tar.gz" --force >/dev/null
 restored=$(docker compose exec -T postgres psql --username doco --dbname doco --tuples-only --no-align \
-  -c "SELECT count(*) FROM nodes WHERE prose = 'Doco v0.1 conformance record'")
+  -c "SELECT count(*) FROM nodes WHERE prose = 'Braino v0.1 conformance record'")
 [[ "$restored" == "1" ]]
 curl --fail --silent --show-error "$origin/healthz" >/dev/null
 
@@ -134,4 +134,4 @@ if (( elapsed >= 600 )); then
   echo "conformance: clean-machine proof took ${elapsed}s; the v0.1 limit is under 600s" >&2
   exit 1
 fi
-echo "Doco v0.1 conformance passed in ${elapsed}s."
+echo "Braino v0.1 conformance passed in ${elapsed}s."

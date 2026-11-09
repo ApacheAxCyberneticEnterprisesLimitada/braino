@@ -13,7 +13,7 @@ interface ActionData {
 }
 
 export function meta() {
-  return [{ title: "MCP connections · Doco" }];
+  return [{ title: "MCP connections · Braino" }];
 }
 
 export async function loader({ request }: { request: Request }) {
@@ -85,7 +85,7 @@ export default function McpTokensPage() {
         breadcrumb={
           <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
             <Link to="/" className="hover:underline">
-              Doco
+              Braino
             </Link>
             <span aria-hidden>›</span>
             <span>{data.workspace.handle}</span>

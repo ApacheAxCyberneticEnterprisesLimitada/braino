@@ -4,14 +4,14 @@ import { addWorkspaceByHandle } from "./host.js";
 
 export class SingleWorkspaceAlreadyInitializedError extends Error {
   constructor() {
-    super("This Doco deployment already has its workspace.");
+    super("This Braino deployment already has its workspace.");
     this.name = "SingleWorkspaceAlreadyInitializedError";
   }
 }
 
 export class SingleWorkspaceInvariantError extends Error {
   constructor(count: number) {
-    super(`A single-workspace Doco deployment cannot contain ${count} workspaces.`);
+    super(`A single-workspace Braino deployment cannot contain ${count} workspaces.`);
     this.name = "SingleWorkspaceInvariantError";
   }
 }

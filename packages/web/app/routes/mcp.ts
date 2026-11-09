@@ -7,7 +7,7 @@ const jsonHeaders = { "Content-Type": "application/json" };
 
 export function loader() {
   return Response.json(
-    { error: "Doco MCP uses stateless JSON-RPC over POST." },
+    { error: "Braino MCP uses stateless JSON-RPC over POST." },
     { status: 405, headers: { Allow: "POST" } },
   );
 }
@@ -27,8 +27,8 @@ export async function action({ request }: { request: Request }) {
     : null;
   if (!principal) {
     return Response.json(
-      { error: "A valid Doco MCP bearer token is required." },
-      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="Doco MCP"' } },
+      { error: "A valid Braino MCP bearer token is required." },
+      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="Braino MCP"' } },
     );
   }
   let message: unknown;

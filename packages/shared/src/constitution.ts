@@ -4,7 +4,7 @@
 // of the workspace's collections.
 //
 // It says what to record and where, naming the collections a new workspace
-// starts with, because Doco's agent instructions name none: a workspace may
+// starts with, because Braino's agent instructions name none: a workspace may
 // not have them, and its owner words its own (Alexander, 2026-10-21: "the
 // instructions shouldn't make reference to it. The Constitutions should.").
 // A decision goes where what was chosen belongs, not where the work happened

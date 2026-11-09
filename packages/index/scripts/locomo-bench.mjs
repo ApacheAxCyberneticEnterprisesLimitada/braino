@@ -29,7 +29,7 @@ const OMNIMEMEVAL_COMMIT = "7c79d46e31dd85f3da2509b430bba9406656dd28";
 const OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions";
 
 // Copied verbatim from OmniMemEval at OMNIMEMEVAL_COMMIT so the pilot's answer
-// and judge stages stay comparable even though Doco owns the retrieval stage.
+// and judge stages stay comparable even though Braino owns the retrieval stage.
 const ANSWER_PROMPT = `
     You are a knowledgeable and helpful AI assistant.
 

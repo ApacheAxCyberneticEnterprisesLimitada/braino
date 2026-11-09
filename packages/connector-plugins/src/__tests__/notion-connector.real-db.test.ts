@@ -42,7 +42,7 @@ function fakeNotion(state: NotionState): typeof fetch {
       return Response.json({
         object: "user",
         id: "bot_doco",
-        name: "Doco",
+        name: "Braino",
         type: "bot",
         bot: { workspace_id: "notion_acme", workspace_name: "Acme Wiki" },
       });

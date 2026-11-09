@@ -1,5 +1,5 @@
 /**
- * TypeScript types for Doco entities. The source of truth for entity
+ * TypeScript types for Braino entities. The source of truth for entity
  * shape — there is no parallel JSON Schema. Runtime validation checks
  * load + cross-reference resolution only.
  *

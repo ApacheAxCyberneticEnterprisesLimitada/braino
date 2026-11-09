@@ -2,7 +2,7 @@
  * Append-only history primitives shared across the DB, host, and web
  * layers.
  *
- * Doco's source of truth is the commit log + immutable version snapshots;
+ * Braino's source of truth is the commit log + immutable version snapshots;
  * the per-type node tables and the `edges` table are a rebuildable
  * projection (the "current state"). Nothing is ever deleted — removal is a
  * `retire` version.
