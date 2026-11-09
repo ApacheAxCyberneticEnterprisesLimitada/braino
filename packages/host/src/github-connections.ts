@@ -854,27 +854,39 @@ export async function syncGithubConnection(
     ]);
     await client.query("BEGIN");
     try {
+      const locked = await client.query<ConnectionRow>(
+        "SELECT * FROM github_connections WHERE id = $1 FOR UPDATE",
+        [connection.id],
+      );
+      const current = locked.rows[0];
+      if (!current || !current.active || !current.token_sealed) {
+        throw new GithubConnectionError(
+          "GitHub connection is not active.",
+          "connection_inactive",
+          409,
+        );
+      }
       const issueResult = await importItems(
         client,
-        connection,
-        connection.issues_collection_id,
+        current,
+        current.issues_collection_id,
         "eval",
-        connection.created_by_user_id,
+        current.created_by_user_id,
         issues.filter((item) => !item.pull_request),
         issueFields,
       );
       const pullResult = await importItems(
         client,
-        connection,
-        connection.pull_requests_collection_id,
+        current,
+        current.pull_requests_collection_id,
         "reference",
-        connection.created_by_user_id,
+        current.created_by_user_id,
         pulls,
         pullFields,
       );
       await client.query(
         "UPDATE github_connections SET last_synced_at = now(), last_error = NULL WHERE id = $1",
-        [connection.id],
+        [current.id],
       );
       await client.query("COMMIT");
       return {
