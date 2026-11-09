@@ -19,6 +19,15 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
+let activeScopes = 0;
+const scope = async <T>(operation: (client: PoolClient) => Promise<T>): Promise<T> => {
+  activeScopes += 1;
+  try {
+    return await operation(client());
+  } finally {
+    activeScopes -= 1;
+  }
+};
 const encryptionKey = "github-webhook-test-key-with-more-than-thirty-two-characters";
 const accessToken = "github_pat_webhook-test-never-store-plaintext";
 
@@ -41,6 +50,7 @@ function fakeGithub(capture: {
 }): typeof fetch {
   return (async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
+    expect(activeScopes).toBe(0);
     expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
     expect(init?.signal).toBeInstanceOf(AbortSignal);
     if (url.pathname === "/repos/acme/widgets" && (!init?.method || init.method === "GET")) {
@@ -110,7 +120,7 @@ describe("automatic GitHub sync", () => {
     const setup = await fixture();
     const capture: { webhookSecret?: string; webhookUrl?: string } = {};
     const fetcher = fakeGithub(capture);
-    const connection = await connectGithubRepository(client(), {
+    const connection = await connectGithubRepository(scope, {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
       repository: "acme/widgets",
@@ -119,7 +129,7 @@ describe("automatic GitHub sync", () => {
       fetcher,
     });
 
-    const configured = await configureGithubWebhook(client(), {
+    const configured = await configureGithubWebhook(scope, {
       connectionId: connection.id,
       userId: setup.owner.id,
       publicHost: "https://doco.example.test",
@@ -145,7 +155,7 @@ describe("automatic GitHub sync", () => {
     const signature = `sha256=${createHmac("sha256", capture.webhookSecret as string)
       .update(payload)
       .digest("hex")}`;
-    const first = await deliverGithubWebhook(client(), {
+    const first = await deliverGithubWebhook(scope, {
       connectionId: connection.id,
       deliveryId: "delivery-01",
       event: "issues",
@@ -164,7 +174,7 @@ describe("automatic GitHub sync", () => {
     });
     expect((await db.query("SELECT id FROM nodes")).rows).toHaveLength(2);
 
-    const replay = await deliverGithubWebhook(client(), {
+    const replay = await deliverGithubWebhook(scope, {
       connectionId: connection.id,
       deliveryId: "delivery-01",
       event: "issues",
@@ -177,7 +187,7 @@ describe("automatic GitHub sync", () => {
     expect((await db.query("SELECT entity_id FROM node_versions")).rows).toHaveLength(2);
 
     await expect(
-      deliverGithubWebhook(client(), {
+      deliverGithubWebhook(scope, {
         connectionId: connection.id,
         deliveryId: "delivery-02",
         event: "pull_request",
@@ -188,7 +198,7 @@ describe("automatic GitHub sync", () => {
       }),
     ).rejects.toMatchObject({ code: "signature_invalid", status: 401 });
 
-    await disconnectGithubRepository(client(), {
+    await disconnectGithubRepository(scope, {
       connectionId: connection.id,
       userId: setup.owner.id,
       encryptionKey,
@@ -225,7 +235,7 @@ describe("automatic GitHub sync", () => {
       deleteStatus?: number;
     } = { deleteStatus: 500 };
     const fetcher = fakeGithub(capture);
-    const connection = await connectGithubRepository(client(), {
+    const connection = await connectGithubRepository(scope, {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
       repository: "acme/widgets",
@@ -233,7 +243,7 @@ describe("automatic GitHub sync", () => {
       encryptionKey,
       fetcher,
     });
-    await configureGithubWebhook(client(), {
+    await configureGithubWebhook(scope, {
       connectionId: connection.id,
       userId: setup.owner.id,
       publicHost: "https://doco.example.test",
@@ -242,7 +252,7 @@ describe("automatic GitHub sync", () => {
     });
 
     await expect(
-      disconnectGithubRepository(client(), {
+      disconnectGithubRepository(scope, {
         connectionId: connection.id,
         userId: setup.owner.id,
         encryptionKey,

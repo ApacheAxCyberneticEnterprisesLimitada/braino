@@ -7,6 +7,7 @@ import {
   upsertNode,
 } from "@doco/db";
 import { generateUlid, makeEntityId } from "@doco/shared";
+import type { ClientScope } from "./client-scope.js";
 import { createCollectionInWorkspace } from "./host.js";
 import { openSecret, sealSecret } from "./secret-box.js";
 
@@ -54,8 +55,6 @@ export interface ConnectorAdapter {
     fetcher: ConnectorFetcher;
   }): AsyncIterable<ConnectorDocument>;
 }
-
-export type ConnectorClientScope = <T>(operation: (client: PoolClient) => Promise<T>) => Promise<T>;
 
 export interface ConnectorConnectionSummary {
   id: string;
@@ -281,7 +280,7 @@ async function connectionSummary(
 }
 
 export async function connectConnector(
-  withClient: ConnectorClientScope,
+  withClient: ClientScope,
   input: {
     workspaceId: string;
     userId: string;
@@ -600,7 +599,7 @@ async function retireMissing(
 }
 
 export async function syncConnectorConnection(
-  withClient: ConnectorClientScope,
+  withClient: ClientScope,
   input: {
     connectionId: string;
     encryptionKey: string;

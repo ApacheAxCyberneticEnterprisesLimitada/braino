@@ -210,22 +210,18 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_github") {
     try {
-      const connected = await withClient((client) =>
-        connectGithubRepository(client, {
-          workspaceId: state.workspace.id,
-          userId: user.id,
-          repository: text(form, "repository"),
-          accessToken: text(form, "access_token"),
-          encryptionKey: encryptionKey(),
-        }),
-      );
-      const synced = await withClient((client) =>
-        syncGithubConnection(client, {
-          connectionId: connected.id,
-          encryptionKey: encryptionKey(),
-          userId: user.id,
-        }),
-      );
+      const connected = await connectGithubRepository(withClient, {
+        workspaceId: state.workspace.id,
+        userId: user.id,
+        repository: text(form, "repository"),
+        accessToken: text(form, "access_token"),
+        encryptionKey: encryptionKey(),
+      });
+      const synced = await syncGithubConnection(withClient, {
+        connectionId: connected.id,
+        encryptionKey: encryptionKey(),
+        userId: user.id,
+      });
       const publicHost = (process.env.DOCO_PUBLIC_HOST ?? new URL(request.url).origin).replace(
         /\/$/,
         "",
@@ -233,14 +229,12 @@ export async function action({ request }: { request: Request }): Promise<ActionD
       let webhookError: string | undefined;
       if (publicHost.startsWith("https://")) {
         try {
-          await withClient((client) =>
-            configureGithubWebhook(client, {
-              connectionId: connected.id,
-              userId: user.id,
-              publicHost,
-              encryptionKey: encryptionKey(),
-            }),
-          );
+          await configureGithubWebhook(withClient, {
+            connectionId: connected.id,
+            userId: user.id,
+            publicHost,
+            encryptionKey: encryptionKey(),
+          });
         } catch (error) {
           webhookError = error instanceof Error ? error.message : "Automatic sync setup failed.";
         }
@@ -263,14 +257,12 @@ export async function action({ request }: { request: Request }): Promise<ActionD
         /\/$/,
         "",
       );
-      await withClient((client) =>
-        configureGithubWebhook(client, {
-          connectionId: text(form, "connection_id"),
-          userId: user.id,
-          publicHost,
-          encryptionKey: encryptionKey(),
-        }),
-      );
+      await configureGithubWebhook(withClient, {
+        connectionId: text(form, "connection_id"),
+        userId: user.id,
+        publicHost,
+        encryptionKey: encryptionKey(),
+      });
       return { message: "Automatic GitHub sync is enabled." };
     } catch (error) {
       return {
@@ -281,13 +273,11 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "sync_github") {
     try {
-      const synced = await withClient((client) =>
-        syncGithubConnection(client, {
-          connectionId: text(form, "connection_id"),
-          encryptionKey: encryptionKey(),
-          userId: user.id,
-        }),
-      );
+      const synced = await syncGithubConnection(withClient, {
+        connectionId: text(form, "connection_id"),
+        encryptionKey: encryptionKey(),
+        userId: user.id,
+      });
       return {
         message: `GitHub sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.unchanged} unchanged.`,
       };
@@ -298,13 +288,11 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "disconnect_github") {
     try {
-      await withClient((client) =>
-        disconnectGithubRepository(client, {
-          connectionId: text(form, "connection_id"),
-          userId: user.id,
-          encryptionKey: encryptionKey(),
-        }),
-      );
+      await disconnectGithubRepository(withClient, {
+        connectionId: text(form, "connection_id"),
+        userId: user.id,
+        encryptionKey: encryptionKey(),
+      });
       return { message: "GitHub disconnected. Imported records and history were kept." };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Could not disconnect GitHub." };
