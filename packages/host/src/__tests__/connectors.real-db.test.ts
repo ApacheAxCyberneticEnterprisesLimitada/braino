@@ -3,6 +3,7 @@ import type { PoolClient } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
 import {
+  type ConnectorAdapter,
   connectConnector,
   listConnectorConnections,
   syncConnectorConnection,
@@ -17,6 +18,7 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
+const scope = <T>(operation: (client: PoolClient) => Promise<T>) => operation(client());
 function recordingClient(statements: string[]): PoolClient {
   return {
     query: async (sql: string, params?: unknown[]) => {
@@ -25,6 +27,9 @@ function recordingClient(statements: string[]): PoolClient {
     },
   } as unknown as PoolClient;
 }
+const recordingScope = (statements: string[]) =>
+  (<T>(operation: (client: PoolClient) => Promise<T>) =>
+    operation(recordingClient(statements))) as typeof scope;
 const encryptionKey = "connector-test-key-with-more-than-thirty-two-characters";
 const accessToken = "xoxb-test-only-never-store-plaintext";
 
@@ -48,6 +53,7 @@ function fakeSlack(state: SlackState): typeof fetch {
   return (async (input, init) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
     expect(new Headers(init?.headers).get("authorization")).toBe(`Bearer ${accessToken}`);
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
     if (url.pathname.endsWith("/auth.test")) {
       return Response.json({
         ok: true,
@@ -143,7 +149,7 @@ describe("self-hosted connectors", () => {
   it("binds one Slack workspace, seals its token, and syncs public messages idempotently", async () => {
     const setup = await fixture();
     const state: SlackState = { edited: false, includeAnnouncement: true };
-    const connection = await connectConnector(client(), {
+    const connection = await connectConnector(scope, {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
       credential: accessToken,
@@ -169,7 +175,7 @@ describe("self-hosted connectors", () => {
     ]);
 
     const statements: string[] = [];
-    const first = await syncConnectorConnection(recordingClient(statements), {
+    const first = await syncConnectorConnection(recordingScope(statements), {
       connectionId: connection.id,
       encryptionKey,
       adapter: slackConnector,
@@ -196,7 +202,7 @@ describe("self-hosted connectors", () => {
     ).toBe(true);
     expect(nodes.rows.every((node) => node.extra.connector_provider === "slack")).toBe(true);
 
-    const replay = await syncConnectorConnection(client(), {
+    const replay = await syncConnectorConnection(scope, {
       connectionId: connection.id,
       encryptionKey,
       adapter: slackConnector,
@@ -205,7 +211,7 @@ describe("self-hosted connectors", () => {
     expect(replay).toEqual({ created: 0, updated: 0, retired: 0, unchanged: 3 });
 
     state.edited = true;
-    const changed = await syncConnectorConnection(client(), {
+    const changed = await syncConnectorConnection(scope, {
       connectionId: connection.id,
       encryptionKey,
       adapter: slackConnector,
@@ -217,7 +223,7 @@ describe("self-hosted connectors", () => {
     ).toMatchObject({ rows: [{ prose: expect.stringContaining("Launch moved to Tuesday") }] });
 
     state.includeAnnouncement = false;
-    const removed = await syncConnectorConnection(client(), {
+    const removed = await syncConnectorConnection(scope, {
       connectionId: connection.id,
       encryptionKey,
       adapter: slackConnector,
@@ -232,7 +238,7 @@ describe("self-hosted connectors", () => {
 
   it("rejects binding the same Slack source to a second workspace", async () => {
     const setup = await fixture();
-    await connectConnector(client(), {
+    await connectConnector(scope, {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
       credential: accessToken,
@@ -251,7 +257,7 @@ describe("self-hosted connectors", () => {
     );
 
     await expect(
-      connectConnector(client(), {
+      connectConnector(scope, {
         workspaceId: "workspace_second",
         userId: setup.owner.id,
         credential: accessToken,
@@ -260,5 +266,85 @@ describe("self-hosted connectors", () => {
         fetcher: fakeSlack({ edited: false, includeAnnouncement: true }),
       }),
     ).rejects.toMatchObject({ code: "source_already_connected", status: 409 });
+  });
+
+  it("rejects an overlapping pull without holding a database lock during provider I/O", async () => {
+    const setup = await fixture();
+    const connection = await connectConnector(scope, {
+      workspaceId: setup.workspace.id,
+      userId: setup.owner.id,
+      credential: accessToken,
+      encryptionKey,
+      adapter: slackConnector,
+      fetcher: fakeSlack({ edited: false, includeAnnouncement: true }),
+    });
+    await db.query(
+      `UPDATE connector_connections
+          SET sync_token = 'already-running', sync_started_at = now()
+        WHERE id = $1`,
+      [connection.id],
+    );
+
+    await expect(
+      syncConnectorConnection(scope, {
+        connectionId: connection.id,
+        encryptionKey,
+        adapter: slackConnector,
+        fetcher: fakeSlack({ edited: false, includeAnnouncement: true }),
+      }),
+    ).rejects.toMatchObject({ code: "sync_in_progress", status: 409 });
+  });
+
+  it("rejects an oversized streamed document before starting a write transaction", async () => {
+    const setup = await fixture();
+    const statements: string[] = [];
+    let activeScopes = 0;
+    const monitoredScope = async <T>(operation: (client: PoolClient) => Promise<T>): Promise<T> => {
+      activeScopes += 1;
+      try {
+        return await operation(recordingClient(statements));
+      } finally {
+        activeScopes -= 1;
+      }
+    };
+    const adapter = {
+      provider: "slack",
+      verify: async () => {
+        expect(activeScopes).toBe(0);
+        return { id: "T_LARGE", name: "Large source" };
+      },
+      async *documents() {
+        expect(activeScopes).toBe(0);
+        yield {
+          externalId: "too-large",
+          title: "Oversized",
+          content: "x".repeat(10 * 1024 * 1024 + 1),
+          url: "https://example.test/too-large",
+          updatedAt: new Date().toISOString(),
+        };
+      },
+    } satisfies ConnectorAdapter;
+    const connection = await connectConnector(monitoredScope, {
+      workspaceId: setup.workspace.id,
+      userId: setup.owner.id,
+      credential: accessToken,
+      encryptionKey,
+      adapter,
+      fetcher: (async () => Response.json({})) as typeof fetch,
+    });
+    statements.length = 0;
+
+    await expect(
+      syncConnectorConnection(monitoredScope, {
+        connectionId: connection.id,
+        encryptionKey,
+        adapter,
+        fetcher: (async () => Response.json({})) as typeof fetch,
+      }),
+    ).rejects.toMatchObject({ code: "source_too_large", status: 422 });
+    expect(statements.filter((statement) => statement === "BEGIN")).toHaveLength(1);
+    expect((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM nodes")).rows[0]?.n).toBe(
+      0,
+    );
   });
 });

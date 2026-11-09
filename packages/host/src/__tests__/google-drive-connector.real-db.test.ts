@@ -14,6 +14,7 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
+const scope = <T>(operation: (client: PoolClient) => Promise<T>) => operation(client());
 const encryptionKey = "drive-connector-test-key-with-more-than-thirty-two-characters";
 const privateKey = generateKeyPairSync("rsa", {
   modulusLength: 2048,
@@ -43,6 +44,7 @@ async function fixture() {
 interface DriveState {
   edited: boolean;
   includeFiles: boolean;
+  oversized?: boolean;
 }
 
 function fakeDrive(state: DriveState): typeof fetch {
@@ -125,6 +127,7 @@ function fakeDrive(state: DriveState): typeof fetch {
         state.edited
           ? "# Recovery\n\nRestore the latest verified backup."
           : "# Recovery\n\nRestore the latest backup.",
+        state.oversized ? { headers: { "content-length": String(11 * 1024 * 1024) } } : undefined,
       );
     }
     if (url.pathname === "/drive/v3/files/sheet_owners/export") {
@@ -142,7 +145,7 @@ describe("Google Drive connector", () => {
   it("uses a sealed service account to import searchable Workspace and text files", async () => {
     const setup = await fixture();
     const state: DriveState = { edited: false, includeFiles: true };
-    const connection = await connectConnector(client(), {
+    const connection = await connectConnector(scope, {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
       credential,
@@ -163,7 +166,7 @@ describe("Google Drive connector", () => {
     expect(stored.rows[0]?.credential_sealed).not.toContain("PRIVATE KEY");
 
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: googleDriveConnector,
@@ -180,7 +183,7 @@ describe("Google Drive connector", () => {
     expect(nodes.rows.every((node) => node.extra.connector_provider === "google_drive")).toBe(true);
 
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: googleDriveConnector,
@@ -189,7 +192,7 @@ describe("Google Drive connector", () => {
     ).toEqual({ created: 0, updated: 0, retired: 0, unchanged: 3 });
     state.edited = true;
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: googleDriveConnector,
@@ -199,12 +202,37 @@ describe("Google Drive connector", () => {
 
     state.includeFiles = false;
     expect(
-      await syncConnectorConnection(client(), {
+      await syncConnectorConnection(scope, {
         connectionId: connection.id,
         encryptionKey,
         adapter: googleDriveConnector,
         fetcher: fakeDrive(state),
       }),
     ).toEqual({ created: 0, updated: 0, retired: 3, unchanged: 0 });
+  });
+
+  it("rejects an exported file before buffering a declared oversized body", async () => {
+    const setup = await fixture();
+    const state: DriveState = { edited: false, includeFiles: true, oversized: true };
+    const connection = await connectConnector(scope, {
+      workspaceId: setup.workspace.id,
+      userId: setup.owner.id,
+      credential,
+      encryptionKey,
+      adapter: googleDriveConnector,
+      fetcher: fakeDrive(state),
+    });
+
+    await expect(
+      syncConnectorConnection(scope, {
+        connectionId: connection.id,
+        encryptionKey,
+        adapter: googleDriveConnector,
+        fetcher: fakeDrive(state),
+      }),
+    ).rejects.toMatchObject({ code: "source_too_large", status: 422 });
+    expect((await db.query<{ n: number }>("SELECT count(*)::int AS n FROM nodes")).rows[0]?.n).toBe(
+      0,
+    );
   });
 });

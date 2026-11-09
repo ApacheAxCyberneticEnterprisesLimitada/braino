@@ -13,6 +13,10 @@ import { openSecret, sealSecret } from "./secret-box.js";
 export const CONNECTOR_PROVIDERS = ["slack", "notion", "google_drive"] as const;
 export type ConnectorProvider = (typeof CONNECTOR_PROVIDERS)[number];
 export type ConnectorFetcher = typeof fetch;
+const CONNECTOR_REQUEST_TIMEOUT_MS = 30_000;
+const MAX_CONNECTOR_DOCUMENTS = 10_000;
+const MAX_CONNECTOR_DOCUMENT_BYTES = 10 * 1024 * 1024;
+const MAX_CONNECTOR_TOTAL_BYTES = 128 * 1024 * 1024;
 
 export class ConnectorError extends Error {
   constructor(
@@ -44,12 +48,14 @@ export interface ConnectorDocument {
 export interface ConnectorAdapter {
   provider: ConnectorProvider;
   verify(input: { credential: string; fetcher: ConnectorFetcher }): Promise<ConnectorSource>;
-  listDocuments(input: {
+  documents(input: {
     credential: string;
     source: ConnectorSource;
     fetcher: ConnectorFetcher;
-  }): Promise<ConnectorDocument[]>;
+  }): AsyncIterable<ConnectorDocument>;
 }
+
+export type ConnectorClientScope = <T>(operation: (client: PoolClient) => Promise<T>) => Promise<T>;
 
 export interface ConnectorConnectionSummary {
   id: string;
@@ -73,6 +79,8 @@ interface ConnectionRow {
   created_by_user_id: string;
   config: Record<string, unknown>;
   active: boolean;
+  sync_token: string | null;
+  sync_started_at: Date | string | null;
 }
 
 interface StoredNode {
@@ -155,6 +163,88 @@ function providerHandle(provider: ConnectorProvider): string {
   return provider.replaceAll("_", "-");
 }
 
+function boundedFetcher(fetcher: ConnectorFetcher): ConnectorFetcher {
+  return async (resource, init = {}) => {
+    const timeout = AbortSignal.timeout(CONNECTOR_REQUEST_TIMEOUT_MS);
+    const signal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
+    try {
+      return await fetcher(resource, { ...init, signal });
+    } catch (error) {
+      if (timeout.aborted && !init.signal?.aborted) {
+        throw new ConnectorError(
+          "The connector provider did not respond within 30 seconds.",
+          "connector_timeout",
+          504,
+        );
+      }
+      throw error;
+    }
+  };
+}
+
+function documentBytes(document: ConnectorDocument): number {
+  if (
+    !document.externalId.trim() ||
+    !document.title.trim() ||
+    !document.content.trim() ||
+    !document.url.trim()
+  ) {
+    throw new ConnectorError(
+      "The connector returned an incomplete document.",
+      "source_invalid",
+      502,
+    );
+  }
+  iso(document.updatedAt);
+  if (document.createdAt) iso(document.createdAt);
+  return Buffer.byteLength(
+    `${document.externalId}\n${document.title}\n${document.content}\n${document.url}\n${stable(document.metadata ?? {})}`,
+  );
+}
+
+async function collectDocuments(
+  documents: AsyncIterable<ConnectorDocument>,
+): Promise<ConnectorDocument[]> {
+  const collected: ConnectorDocument[] = [];
+  const ids = new Set<string>();
+  let totalBytes = 0;
+  for await (const document of documents) {
+    if (collected.length >= MAX_CONNECTOR_DOCUMENTS) {
+      throw new ConnectorError(
+        "A connector sync cannot exceed 10,000 documents.",
+        "source_too_large",
+        422,
+      );
+    }
+    if (ids.has(document.externalId)) {
+      throw new ConnectorError(
+        `The connector returned duplicate document ${document.externalId}.`,
+        "source_invalid",
+        502,
+      );
+    }
+    const bytes = documentBytes(document);
+    if (bytes > MAX_CONNECTOR_DOCUMENT_BYTES) {
+      throw new ConnectorError(
+        `Connector document ${document.externalId} exceeds 10 MB.`,
+        "source_too_large",
+        422,
+      );
+    }
+    totalBytes += bytes;
+    if (totalBytes > MAX_CONNECTOR_TOTAL_BYTES) {
+      throw new ConnectorError(
+        "A connector sync cannot exceed 128 MB of document content.",
+        "source_too_large",
+        422,
+      );
+    }
+    ids.add(document.externalId);
+    collected.push(document);
+  }
+  return collected;
+}
+
 async function connectionSummary(
   client: PoolClient,
   connectionId: string,
@@ -191,7 +281,7 @@ async function connectionSummary(
 }
 
 export async function connectConnector(
-  client: PoolClient,
+  withClient: ConnectorClientScope,
   input: {
     workspaceId: string;
     userId: string;
@@ -201,105 +291,108 @@ export async function connectConnector(
     fetcher?: ConnectorFetcher;
   },
 ): Promise<ConnectorConnectionSummary> {
-  await requireOwner(client, input.workspaceId, input.userId);
+  await withClient((client) => requireOwner(client, input.workspaceId, input.userId));
   const credential = input.credential.trim();
   if (!credential)
     throw new ConnectorError("A connector credential is required.", "credential_required");
-  const fetcher = input.fetcher ?? fetch;
+  const fetcher = boundedFetcher(input.fetcher ?? fetch);
   const source = await input.adapter.verify({ credential, fetcher });
   if (!source.id.trim() || !source.name.trim()) {
     throw new ConnectorError("The connector returned an invalid source.", "source_invalid", 502);
   }
-  const occupied = await client.query<{ workspace_id: string }>(
-    `SELECT workspace_id FROM connector_connections
-      WHERE provider = $1 AND source_id = $2 AND workspace_id <> $3`,
-    [input.adapter.provider, source.id, input.workspaceId],
-  );
-  if (occupied.rows[0]) {
-    throw new ConnectorError(
-      `This ${providerHandle(input.adapter.provider)} source is already connected to another workspace.`,
-      "source_already_connected",
-      409,
+  return withClient(async (client) => {
+    await requireOwner(client, input.workspaceId, input.userId);
+    const occupied = await client.query<{ workspace_id: string }>(
+      `SELECT workspace_id FROM connector_connections
+        WHERE provider = $1 AND source_id = $2 AND workspace_id <> $3`,
+      [input.adapter.provider, source.id, input.workspaceId],
     );
-  }
-  const current = await client.query<ConnectionRow>(
-    "SELECT * FROM connector_connections WHERE workspace_id = $1 AND provider = $2",
-    [input.workspaceId, input.adapter.provider],
-  );
-  const existing = current.rows[0];
-  const sealed = sealSecret(credential, input.encryptionKey);
-  if (existing) {
-    if (existing.source_id !== source.id) {
+    if (occupied.rows[0]) {
       throw new ConnectorError(
-        `Disconnect ${existing.source_name} before connecting another ${providerHandle(input.adapter.provider)} source.`,
-        "provider_already_connected",
+        `This ${providerHandle(input.adapter.provider)} source is already connected to another workspace.`,
+        "source_already_connected",
         409,
       );
     }
-    await client.query(
-      `UPDATE connector_connections
-          SET source_name = $2, credential_sealed = $3, config = $4::jsonb,
-              active = true, last_error = NULL
-        WHERE id = $1`,
-      [existing.id, source.name, sealed, JSON.stringify(source.config ?? {})],
+    const current = await client.query<ConnectionRow>(
+      "SELECT * FROM connector_connections WHERE workspace_id = $1 AND provider = $2",
+      [input.workspaceId, input.adapter.provider],
     );
-    return connectionSummary(client, existing.id);
-  }
+    const existing = current.rows[0];
+    const sealed = sealSecret(credential, input.encryptionKey);
+    if (existing) {
+      if (existing.source_id !== source.id) {
+        throw new ConnectorError(
+          `Disconnect ${existing.source_name} before connecting another ${providerHandle(input.adapter.provider)} source.`,
+          "provider_already_connected",
+          409,
+        );
+      }
+      await client.query(
+        `UPDATE connector_connections
+            SET source_name = $2, credential_sealed = $3, config = $4::jsonb,
+                active = true, last_error = NULL
+          WHERE id = $1`,
+        [existing.id, source.name, sealed, JSON.stringify(source.config ?? {})],
+      );
+      return connectionSummary(client, existing.id);
+    }
 
-  await client.query("BEGIN");
-  try {
-    const workspace = await client.query<{ handle: string }>(
-      "SELECT handle FROM workspaces WHERE id = $1",
-      [input.workspaceId],
-    );
-    const workspaceHandle = workspace.rows[0]?.handle;
-    if (!workspaceHandle)
-      throw new ConnectorError("Workspace not found.", "workspace_not_found", 404);
-    const provider = providerHandle(input.adapter.provider);
-    const collection = await createCollectionInWorkspace(
-      {
-        workspaceId: input.workspaceId,
-        requestedHandle: `${workspaceHandle}-${provider}`,
-        createdByUserId: input.userId,
-        visibility: "private",
-        templateHandle: "documents",
-        goal: `Read-only knowledge synchronized from ${source.name} through the ${provider} connector.`,
-      },
-      client,
-    );
-    const id = `connector_${generateUlid()}`;
-    await client.query(
-      `INSERT INTO connector_connections
-         (id, workspace_id, provider, source_id, source_name, credential_sealed,
-          collection_id, created_by_user_id, config)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
-      [
-        id,
-        input.workspaceId,
-        input.adapter.provider,
-        source.id,
-        source.name,
-        sealed,
-        collection.collectionId,
-        input.userId,
-        JSON.stringify(source.config ?? {}),
-      ],
-    );
-    await client.query(
-      `UPDATE collections
-          SET data = data || jsonb_build_object(
-            'connector_id', $2::text,
-            'connector_provider', $3::text
-          )
-        WHERE id = $1`,
-      [collection.collectionId, id, input.adapter.provider],
-    );
-    await client.query("COMMIT");
-    return connectionSummary(client, id);
-  } catch (error) {
-    await client.query("ROLLBACK");
-    throw error;
-  }
+    await client.query("BEGIN");
+    try {
+      const workspace = await client.query<{ handle: string }>(
+        "SELECT handle FROM workspaces WHERE id = $1",
+        [input.workspaceId],
+      );
+      const workspaceHandle = workspace.rows[0]?.handle;
+      if (!workspaceHandle)
+        throw new ConnectorError("Workspace not found.", "workspace_not_found", 404);
+      const provider = providerHandle(input.adapter.provider);
+      const collection = await createCollectionInWorkspace(
+        {
+          workspaceId: input.workspaceId,
+          requestedHandle: `${workspaceHandle}-${provider}`,
+          createdByUserId: input.userId,
+          visibility: "private",
+          templateHandle: "documents",
+          goal: `Read-only knowledge synchronized from ${source.name} through the ${provider} connector.`,
+        },
+        client,
+      );
+      const id = `connector_${generateUlid()}`;
+      await client.query(
+        `INSERT INTO connector_connections
+           (id, workspace_id, provider, source_id, source_name, credential_sealed,
+            collection_id, created_by_user_id, config)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb)`,
+        [
+          id,
+          input.workspaceId,
+          input.adapter.provider,
+          source.id,
+          source.name,
+          sealed,
+          collection.collectionId,
+          input.userId,
+          JSON.stringify(source.config ?? {}),
+        ],
+      );
+      await client.query(
+        `UPDATE collections
+            SET data = data || jsonb_build_object(
+              'connector_id', $2::text,
+              'connector_provider', $3::text
+            )
+          WHERE id = $1`,
+        [collection.collectionId, id, input.adapter.provider],
+      );
+      await client.query("COMMIT");
+      return connectionSummary(client, id);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
 }
 
 export async function listConnectorConnections(
@@ -507,7 +600,7 @@ async function retireMissing(
 }
 
 export async function syncConnectorConnection(
-  client: PoolClient,
+  withClient: ConnectorClientScope,
   input: {
     connectionId: string;
     encryptionKey: string;
@@ -516,80 +609,125 @@ export async function syncConnectorConnection(
     fetcher?: ConnectorFetcher;
   },
 ): Promise<{ created: number; updated: number; retired: number; unchanged: number }> {
-  const found = await client.query<ConnectionRow>(
-    "SELECT * FROM connector_connections WHERE id = $1",
-    [input.connectionId],
-  );
-  const connection = found.rows[0];
-  if (!connection || !connection.active || !connection.credential_sealed) {
-    throw new ConnectorError("Connector is not active.", "connection_inactive", 409);
-  }
-  if (connection.provider !== input.adapter.provider) {
-    throw new ConnectorError(
-      "The connector adapter does not match this connection.",
-      "adapter_mismatch",
-    );
-  }
-  if (input.userId) await requireOwner(client, connection.workspace_id, input.userId);
-  const credential = openSecret(connection.credential_sealed, input.encryptionKey);
-  const fetcher = input.fetcher ?? fetch;
-  try {
-    const documents = await input.adapter.listDocuments({
-      credential,
-      source: { id: connection.source_id, name: connection.source_name, config: connection.config },
-      fetcher,
-    });
-    const ids = new Set<string>();
-    for (const document of documents) {
-      if (ids.has(document.externalId)) {
-        throw new ConnectorError(
-          `The connector returned duplicate document ${document.externalId}.`,
-          "source_invalid",
-          502,
-        );
-      }
-      ids.add(document.externalId);
-    }
-    const runId = generateUlid();
-    const counts = { created: 0, updated: 0, retired: 0, unchanged: 0 };
-    let txId: number | null = null;
+  const syncToken = generateUlid();
+  const connection = await withClient(async (client) => {
     await client.query("BEGIN");
     try {
-      const locked = await client.query<ConnectionRow>(
+      const found = await client.query<ConnectionRow>(
         "SELECT * FROM connector_connections WHERE id = $1 FOR UPDATE",
-        [connection.id],
+        [input.connectionId],
       );
-      const current = locked.rows[0];
-      if (!current || !current.active || !current.credential_sealed) {
+      const row = found.rows[0];
+      if (!row || !row.active || !row.credential_sealed) {
         throw new ConnectorError("Connector is not active.", "connection_inactive", 409);
       }
-      for (const document of documents) {
-        const written = await writeDocument(client, {
-          connection: current,
-          document,
-          runId,
-          txId,
-        });
-        txId = written.txId;
-        counts[written.state] += 1;
+      if (row.provider !== input.adapter.provider) {
+        throw new ConnectorError(
+          "The connector adapter does not match this connection.",
+          "adapter_mismatch",
+        );
       }
-      const retired = await retireMissing(client, { connection: current, runId, txId });
-      counts.retired = retired.retired;
-      await client.query(
-        "UPDATE connector_connections SET last_synced_at = now(), last_error = NULL WHERE id = $1",
-        [current.id],
+      if (input.userId) await requireOwner(client, row.workspace_id, input.userId);
+      const claimed = await client.query<ConnectionRow>(
+        `UPDATE connector_connections
+            SET sync_token = $2, sync_started_at = now()
+          WHERE id = $1
+            AND (
+              sync_token IS NULL OR sync_started_at IS NULL
+              OR sync_started_at < now() - interval '30 minutes'
+            )
+        RETURNING *`,
+        [row.id, syncToken],
       );
+      const active = claimed.rows[0];
+      if (!active) {
+        throw new ConnectorError(
+          "This connector already has a sync in progress.",
+          "sync_in_progress",
+          409,
+        );
+      }
       await client.query("COMMIT");
-      return counts;
+      return active as ConnectionRow & { credential_sealed: string };
     } catch (error) {
       await client.query("ROLLBACK");
       throw error;
     }
+  });
+  try {
+    const credential = openSecret(connection.credential_sealed, input.encryptionKey);
+    const fetcher = boundedFetcher(input.fetcher ?? fetch);
+    const documents = await collectDocuments(
+      input.adapter.documents({
+        credential,
+        source: {
+          id: connection.source_id,
+          name: connection.source_name,
+          config: connection.config,
+        },
+        fetcher,
+      }),
+    );
+    return await withClient(async (client) => {
+      const runId = generateUlid();
+      const counts = { created: 0, updated: 0, retired: 0, unchanged: 0 };
+      let txId: number | null = null;
+      await client.query("BEGIN");
+      try {
+        const locked = await client.query<ConnectionRow>(
+          "SELECT * FROM connector_connections WHERE id = $1 FOR UPDATE",
+          [connection.id],
+        );
+        const current = locked.rows[0];
+        if (!current || !current.active || !current.credential_sealed) {
+          throw new ConnectorError("Connector is not active.", "connection_inactive", 409);
+        }
+        if (current.sync_token !== syncToken) {
+          throw new ConnectorError(
+            "This connector sync was superseded by a newer run.",
+            "sync_superseded",
+            409,
+          );
+        }
+        for (const document of documents) {
+          const written = await writeDocument(client, {
+            connection: current,
+            document,
+            runId,
+            txId,
+          });
+          txId = written.txId;
+          counts[written.state] += 1;
+        }
+        const retired = await retireMissing(client, { connection: current, runId, txId });
+        counts.retired = retired.retired;
+        await client.query(
+          `UPDATE connector_connections
+              SET last_synced_at = now(), last_error = NULL,
+                  sync_token = NULL, sync_started_at = NULL
+            WHERE id = $1 AND sync_token = $2`,
+          [current.id, syncToken],
+        );
+        await client.query("COMMIT");
+        return counts;
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      }
+    });
   } catch (error) {
-    await client.query("UPDATE connector_connections SET last_error = $2 WHERE id = $1", [
-      connection.id,
-      error instanceof Error ? error.message.slice(0, 500) : "Connector sync failed.",
-    ]);
+    await withClient(async (client) => {
+      await client.query(
+        `UPDATE connector_connections
+            SET last_error = $2, sync_token = NULL, sync_started_at = NULL
+          WHERE id = $1 AND sync_token = $3`,
+        [
+          connection.id,
+          error instanceof Error ? error.message.slice(0, 500) : "Connector sync failed.",
+          syncToken,
+        ],
+      );
+    });
     throw error;
   }
 }

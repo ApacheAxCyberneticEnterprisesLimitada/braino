@@ -201,8 +201,7 @@ async function verify(input: {
   };
 }
 
-async function listFiles(fetcher: ConnectorFetcher, token: string): Promise<DriveFile[]> {
-  const files: DriveFile[] = [];
+async function* files(fetcher: ConnectorFetcher, token: string): AsyncGenerator<DriveFile> {
   let pageToken: string | null = null;
   for (let page = 0; page < 1_000; page += 1) {
     const query = new URLSearchParams({
@@ -226,9 +225,9 @@ async function listFiles(fetcher: ConnectorFetcher, token: string): Promise<Driv
         502,
       );
     }
-    files.push(...value.files);
+    for (const file of value.files) yield file;
     pageToken = value.nextPageToken?.trim() || null;
-    if (!pageToken) return files;
+    if (!pageToken) return;
   }
   throw new ConnectorError(
     "Google Drive pagination exceeded 1,000,000 files.",
@@ -258,6 +257,32 @@ function downloadableText(mimeType: string): boolean {
   return mimeType.startsWith("text/") || TEXT_APPLICATION_TYPES.has(mimeType);
 }
 
+async function limitedText(response: Response, name: string): Promise<string> {
+  const declared = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declared) && declared > MAX_TEXT_BYTES) {
+    throw new ConnectorError(`${name} exceeds the 10 MB connector limit.`, "source_too_large", 422);
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  while (true) {
+    const next = await reader.read();
+    if (next.done) break;
+    bytes += next.value.byteLength;
+    if (bytes > MAX_TEXT_BYTES) {
+      await reader.cancel();
+      throw new ConnectorError(
+        `${name} exceeds the 10 MB connector limit.`,
+        "source_too_large",
+        422,
+      );
+    }
+    chunks.push(next.value);
+  }
+  return Buffer.concat(chunks).toString("utf8");
+}
+
 async function fileText(
   fetcher: ConnectorFetcher,
   token: string,
@@ -266,9 +291,10 @@ async function fileText(
   const exportType = EXPORT_TYPES[file.mimeType];
   if (exportType) {
     const query = new URLSearchParams({ mimeType: exportType });
-    return (
-      await driveResponse(fetcher, `/files/${encodeURIComponent(file.id)}/export?${query}`, token)
-    ).text();
+    return limitedText(
+      await driveResponse(fetcher, `/files/${encodeURIComponent(file.id)}/export?${query}`, token),
+      file.name,
+    );
   }
   if (!downloadableText(file.mimeType)) return null;
   const size = file.size ? Number(file.size) : 0;
@@ -279,20 +305,20 @@ async function fileText(
       422,
     );
   }
-  return (
-    await driveResponse(fetcher, `/files/${encodeURIComponent(file.id)}?alt=media`, token)
-  ).text();
+  return limitedText(
+    await driveResponse(fetcher, `/files/${encodeURIComponent(file.id)}?alt=media`, token),
+    file.name,
+  );
 }
 
-async function listDocuments(input: {
+async function* documents(input: {
   credential: string;
   source: ConnectorSource;
   fetcher: ConnectorFetcher;
-}): Promise<ConnectorDocument[]> {
+}): AsyncGenerator<ConnectorDocument> {
   const account = parseServiceAccount(input.credential);
   const token = await accessToken(input.fetcher, account);
-  const documents: ConnectorDocument[] = [];
-  for (const file of await listFiles(input.fetcher, token)) {
+  for await (const file of files(input.fetcher, token)) {
     if (
       !file.id ||
       !file.name ||
@@ -313,7 +339,7 @@ async function listDocuments(input: {
       },
     );
     if (content === null) continue;
-    documents.push({
+    yield {
       externalId: file.id,
       title: file.name,
       content: content.trim() || file.name,
@@ -321,13 +347,12 @@ async function listDocuments(input: {
       createdAt: file.createdTime,
       updatedAt: file.modifiedTime,
       metadata: { mime_type: file.mimeType },
-    });
+    };
   }
-  return documents.sort((left, right) => left.externalId.localeCompare(right.externalId));
 }
 
 export const googleDriveConnector: ConnectorAdapter = {
   provider: "google_drive",
   verify,
-  listDocuments,
+  documents,
 };
