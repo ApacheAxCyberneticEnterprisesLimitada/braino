@@ -6,4 +6,9 @@ node_modules
 **/build
 **/coverage
 **/*.tsbuildinfo
-.env
+.env*
+!.env.example
+backups
+**/backups
+*.tar.gz
+*.dump
