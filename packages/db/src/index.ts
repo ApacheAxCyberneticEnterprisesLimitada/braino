@@ -1,4 +1,4 @@
-// @doco/db — Postgres adapter for Doco source-of-truth storage.
+// @doco/db — Postgres adapter for Braino source-of-truth storage.
 // Phase 2 of decision_01KRKEVEE3RQGPWHAPMZ0MS9G9.
 
 export {

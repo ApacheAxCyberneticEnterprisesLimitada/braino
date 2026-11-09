@@ -342,7 +342,7 @@ export interface UserRow {
   name: string | null;
   github_login: string | null;
   email: string | null;
-  /** Whether they are the host superadmin, whom Doco's admin pages answer. */
+  /** Whether they are the host superadmin, whom Braino's admin pages answer. */
   superadmin: boolean;
   data: Record<string, unknown>;
 }
@@ -407,7 +407,7 @@ export async function getUserForSession(id: string): Promise<{
   });
 }
 
-/** The person with this Doco name, in any case. */
+/** The person with this Braino name, in any case. */
 export async function getUserByUsername(username: string): Promise<UserRow | null> {
   return findUser("lower(username) = lower($1)", username);
 }

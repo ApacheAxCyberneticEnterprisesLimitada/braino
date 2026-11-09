@@ -28,7 +28,7 @@ interface ActionData {
 }
 
 export function meta() {
-  return [{ title: "Collaborators · Doco" }];
+  return [{ title: "Collaborators · Braino" }];
 }
 
 export async function loader({ request }: { request: Request }): Promise<LoaderData | Response> {
@@ -127,7 +127,7 @@ function Breadcrumb({ handle }: { handle: string }) {
   return (
     <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
       <Link to="/" className="hover:underline">
-        Doco
+        Braino
       </Link>
       <span aria-hidden>›</span>
       <Link to="/" className="hover:underline">

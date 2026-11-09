@@ -1,7 +1,7 @@
 @import url("https://fonts.googleapis.com/css2?family=Merriweather:ital,wght@0,300..900;1,300..900&display=swap");
 @import "tailwindcss";
 
-/* The same locally served Ubuntu Mono faces used by hosted Doco. */
+/* The same locally served Ubuntu Mono faces used by hosted Braino. */
 @font-face {
   font-family: "Ubuntu Mono";
   src: url("/fonts/ubuntu-mono-400.woff2") format("woff2");
@@ -35,7 +35,7 @@
   size-adjust: 120%;
 }
 
-/* Doco's one-clay theme. Keep these tokens identical to hosted Doco. */
+/* Braino's one-clay theme. Keep these tokens identical to hosted Braino. */
 @theme {
   --font-serif: "Merriweather", Georgia, "Times New Roman", Times, serif;
   --font-mono: "Ubuntu Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -176,4 +176,58 @@ a:focus-visible {
   .neu-button.text-destructive {
     color: var(--color-destructive);
   }
+}
+
+@keyframes braino-mark-mist-cw {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes braino-mark-mist-ccw {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+.braino-mark-mist {
+  opacity: 0;
+  transition: opacity 220ms ease-out;
+}
+
+.braino-mark-mist-blob {
+  transform-origin: 90.59px 68.31px;
+}
+
+.braino-mark-active .braino-mark-mist {
+  opacity: 1;
+}
+
+.braino-mark-active .braino-mark-mist-1 {
+  animation: braino-mark-mist-cw 2s linear infinite;
+}
+
+.braino-mark-active .braino-mark-mist-2 {
+  animation: braino-mark-mist-ccw 1.4s linear infinite;
+}
+
+.braino-mark-active .braino-mark-mist-3 {
+  animation: braino-mark-mist-cw 2.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .braino-mark-active .braino-mark-mist-1,
+  .braino-mark-active .braino-mark-mist-2,
+  .braino-mark-active .braino-mark-mist-3 {
+    animation: none;
+  }
+
+  .braino-mark-active {
+    filter: drop-shadow(0 0 7px color-mix(in oklch, var(--color-primary) 42%, transparent));
+  }
+}
+
+.braino-mark-raised {
+  filter: drop-shadow(1px 2px 1px color-mix(in oklch, var(--color-foreground) 24%, transparent))
+    drop-shadow(7px 7px 16px var(--neu-shadow)) drop-shadow(-7px -7px 16px var(--neu-highlight));
 }

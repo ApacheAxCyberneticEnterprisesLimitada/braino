@@ -2,7 +2,7 @@
   "name": "@doco/connector-plugins",
   "version": "0.0.1",
   "type": "module",
-  "description": "Bundled provider adapters for Doco's connector runtime.",
+  "description": "Bundled provider adapters for Braino's connector runtime.",
   "license": "MPL-2.0",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

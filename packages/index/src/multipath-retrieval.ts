@@ -1,4 +1,4 @@
-// Falkor-style multi-path retrieval over Doco's rebuildable retrieval graph.
+// Falkor-style multi-path retrieval over Braino's rebuildable retrieval graph.
 // Candidate discovery spans lexical chunks/entities/facts, vector chunks/facts,
 // and entity mentions. Weighted reciprocal-rank fusion combines independent
 // paths while a vector-dominant rerank and protected direct head prevent graph

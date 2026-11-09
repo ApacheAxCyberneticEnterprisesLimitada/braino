@@ -64,7 +64,7 @@
   ],
   "queries": [
     {
-      "query": "which embedding model and dimensions does Doco use by default?",
+      "query": "which embedding model and dimensions does Braino use by default?",
       "relevant": ["decision_adr052_provider"]
     },
     {

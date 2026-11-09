@@ -1,4 +1,4 @@
-// Rebuildable retrieval graph over connector evidence. The authored Doco graph
+// Rebuildable retrieval graph over connector evidence. The authored Braino graph
 // remains the source of governance truth; these rows provide Falkor-style
 // document/chunk provenance, entity resolution, mentions, and relationship
 // traversal for retrieval.

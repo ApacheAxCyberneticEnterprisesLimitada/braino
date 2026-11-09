@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Doco">
-  <title>Doco</title>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="Braino">
+  <title>Braino</title>
   <defs>
-    <mask id="doco-shine" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+    <mask id="braino-shine" maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
       <rect x="0" y="0" width="200" height="200" fill="white"/>
       <polygon fill="black" points="86,18 89.96,32.04 104,36 89.96,39.96 86,54 82.04,39.96 68,36 82.04,32.04"/>
       <polygon fill="black" points="120,43 122.42,51.58 131,54 122.42,56.42 120,65 117.58,56.42 109,54 117.58,51.58"/>
@@ -10,6 +10,6 @@
   </defs>
   <g fill="#9945A1">
     <path d="M 56 182 L 144 182 L 130 158 L 70 158 Z"/>
-    <circle cx="100" cy="82" r="70" mask="url(#doco-shine)"/>
+    <circle cx="100" cy="82" r="70" mask="url(#braino-shine)"/>
   </g>
 </svg>

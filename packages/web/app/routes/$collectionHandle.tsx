@@ -118,7 +118,7 @@ export default function CollectionPage() {
         breadcrumb={
           <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
             <Link to="/" className="hover:underline">
-              Doco
+              Braino
             </Link>
             <span aria-hidden>›</span>
             <span>Collection</span>

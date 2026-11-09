@@ -41,7 +41,7 @@ export async function loader({
 
 export function meta({ data }: { data?: Awaited<ReturnType<typeof loader>> }) {
   const title = data?.record.prose.split("\n", 1)[0]?.trim();
-  return [{ title: title ? `${title} · Doco` : "Record · Doco" }];
+  return [{ title: title ? `${title} · Braino` : "Record · Braino" }];
 }
 
 export default function RecordPage() {
@@ -56,7 +56,7 @@ export default function RecordPage() {
         breadcrumb={
           <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
             <Link to="/" className="hover:underline">
-              Doco
+              Braino
             </Link>
             <span aria-hidden>›</span>
             <Link to={`/${data.collection.handle}`} className="hover:underline">

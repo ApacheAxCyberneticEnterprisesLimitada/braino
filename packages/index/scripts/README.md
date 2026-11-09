@@ -5,7 +5,7 @@
 `collection-relations-bench.mjs` measures OpenRouter models on the same
 sparse, directed graph inference task using increasingly large batches of
 evidence-linked collection digests. It is evaluation-only: it writes a JSON
-report and never writes collection relationships to Doco or Postgres.
+report and never writes collection relationships to Braino or Postgres.
 
 The committed fixture contains eight similar four-collection product groups.
 Nested batches add complete groups, so larger batches add both gold edges and
@@ -47,7 +47,7 @@ boundary means an edge is structurally admissible, not semantically true.
 
 ## EnterpriseRAG-Bench
 
-`enterprise-rag-bench.mjs` runs Doco's production chunking, embedding, and
+`enterprise-rag-bench.mjs` runs Braino's production chunking, embedding, and
 multi-path retrieval over the pinned EnterpriseRAG-Bench v1.0.0 exports. It
 streams documents directly from the release zip files, preserves each
 `dsid_…` identifier for official scoring, resumes an interrupted index, and
@@ -56,7 +56,7 @@ runner refuses ordinary database names.
 
 A complete v1.0.0 run needs the release's `all_documents.zip` and
 `questions.jsonl`, a dedicated Postgres database with roughly 40 GB of free
-space, `VOYAGE_API_KEY` for Doco's production embeddings, and
+space, `VOYAGE_API_KEY` for Braino's production embeddings, and
 `ANTHROPIC_API_KEY` when generating answers. The benchmark's separate official
 evaluator also needs its configured judge-model API key.
 
@@ -75,7 +75,7 @@ measure graph-assisted ranking. Without it, the runner uses the empty extractor
 as a direct-retrieval control. The summary records the extractor id and graph
 row counts so a graph run cannot be confused with an empty index.
 
-`--answers` uses `ANTHROPIC_API_KEY` and Doco's configured assistant model
+`--answers` uses `ANTHROPIC_API_KEY` and Braino's configured assistant model
 (`SENOR_DOCO_ANTHROPIC_MODEL`, default `claude-sonnet-4-6`). Omit it for a
 retrieval-only run. `--eligible-only` is only for partial-corpus calibration:
 it runs questions whose complete gold document set exists in the supplied
@@ -87,7 +87,7 @@ dataset version, model, corpus counts, retrieval metrics, and latency.
 
 ## LoCoMo pilot
 
-`locomo-bench.mjs` runs Doco's production ingestion, graph extraction,
+`locomo-bench.mjs` runs Braino's production ingestion, graph extraction,
 embedding, multi-path retrieval, and reranking over LoCoMo's ten isolated
 conversations. It selects a deterministic, category-stratified sample, then
 uses OmniMemEval's answer and judge prompts. The default 10% run contains 154
@@ -176,7 +176,7 @@ VOYAGE_API_KEY=… pnpm --filter @doco/index eval:retrieval -- \
 `relevant` may be a list of ids (binary relevance) or an object of
 `{ "id": gain }` for graded nDCG (e.g. `2` = perfect, `1` = related).
 
-The committed fixture is built from this repository's real Doco-domain content
+The committed fixture is built from this repository's real Braino-domain content
 (ADRs, the auth flow, workflow rules, the search architecture). Once the collection
 handle in `.doco/connections.md` resolves, export real nodes into the same
 shape (id, type, prose) and point `--fixture` at them to evaluate on live

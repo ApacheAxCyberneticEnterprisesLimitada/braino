@@ -956,7 +956,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     ],
   },
   {
-    // Documents written in Doco itself, edited like Notion pages
+    // Documents written in Braino itself, edited like Notion pages
     // (decision_01M66MV5A0GYFNMRT30YM65B24). A document is one Reference whose
     // prose IS the document: the first line is its title, the rest its body in
     // Markdown, so agents read and write a document as they do any node and it
@@ -966,7 +966,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     label: "Documents",
     icon: "📄",
     description:
-      "Write and keep documents in Doco: specs, plans, notes, anything a page says best, in Markdown, searchable alongside your other knowledge.",
+      "Write and keep documents in Braino: specs, plans, notes, anything a page says best, in Markdown, searchable alongside your other knowledge.",
     // Open on the documents, the one edited last first.
     perspectives: [{ slug: "documents", isDefault: true }],
     policies: [
@@ -1025,7 +1025,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     label: "GitHub codebase",
     icon: "🗂️",
     description:
-      "A copy of your GitHub repositories' code, kept in sync on every push, so it can be browsed and searched alongside your Doco knowledge.",
+      "A copy of your GitHub repositories' code, kept in sync on every push, so it can be browsed and searched alongside your Braino knowledge.",
     policies: [],
   },
   {
@@ -1038,7 +1038,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     label: "Slack workspace",
     icon: "💬",
     description:
-      "A read-only copy of a Slack workspace's public channels, kept in sync, so its conversations can be searched alongside your Doco knowledge.",
+      "A read-only copy of a Slack workspace's public channels, kept in sync, so its conversations can be searched alongside your Braino knowledge.",
     policies: [],
     perspectives: [{ slug: "slack", isDefault: true }],
   },
@@ -1052,7 +1052,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     label: "Notion workspace",
     icon: "📓",
     description:
-      "A read-only copy of the Notion pages and databases you share, kept in sync, so they can be searched alongside your Doco knowledge.",
+      "A read-only copy of the Notion pages and databases you share, kept in sync, so they can be searched alongside your Braino knowledge.",
     policies: [],
   },
   {
@@ -1066,7 +1066,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     label: "Google Drive",
     icon: "🗂️",
     description:
-      "A read-only copy of the Docs, Sheets, Slides and text files in the shared drives and folders you pick, kept in sync, so they can be searched alongside your Doco knowledge.",
+      "A read-only copy of the Docs, Sheets, Slides and text files in the shared drives and folders you pick, kept in sync, so they can be searched alongside your Braino knowledge.",
     policies: [],
   },
   {
@@ -1078,7 +1078,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     // by icon.
     //
     // The shape distills the durable best practices for documenting org
-    // charts onto Doco's primitives:
+    // charts onto Braino's primitives:
     //   - A box is a SEAT (a role), not a person. Name the Principal by its
     //     role and record the occupant (human / AI agent / vacant) separately,
     //     so a hire or departure updates one seat instead of redrawing the
@@ -1216,7 +1216,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     // AI test-eval log — document and track evaluations of AI systems. It
     // distills the durable two-layer shape every modern eval stack converges on
     // (OpenAI Evals, Anthropic's agent-eval and success-criteria guidance,
-    // Inspect, Braintrust, Langfuse, Evidently) onto Doco's existing primitives,
+    // Inspect, Braintrust, Langfuse, Evidently) onto Braino's existing primitives,
     // adding NO new node type:
     //
     //   Layer 1 — the eval DEFINITION (the stable spine): WHAT behaviour is
@@ -1483,7 +1483,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
         on_violation: "warn",
         predicate: {
           kind: "probabilistic",
-          spec: "A node belongs in a bug tracker when it documents a real software defect — a discrepancy between how the system is expected to behave and how it actually behaves. PASS when the candidate describes something the system does wrong (a crash, a wrong result, a broken interaction, a violated guarantee) against a clear expectation. FAIL when it is a feature request or enhancement (desired NEW behavior, not a malfunction), a how-to question, a support request, or a task with no expected-vs-actual discrepancy — those belong in a product, process, or decision Doco.",
+          spec: "A node belongs in a bug tracker when it documents a real software defect — a discrepancy between how the system is expected to behave and how it actually behaves. PASS when the candidate describes something the system does wrong (a crash, a wrong result, a broken interaction, a violated guarantee) against a clear expectation. FAIL when it is a feature request or enhancement (desired NEW behavior, not a malfunction), a how-to question, a support request, or a task with no expected-vs-actual discrepancy — those belong in a product, process, or decision Braino.",
           when_node_type: ["eval"],
         },
       },
@@ -1651,7 +1651,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     // crucially, CLOSE THE LOOP on whether each one worked. The shape distills
     // the durable consensus of modern product practice (Cagan / SVPG, Teresa
     // Torres' continuous discovery, Roman Pichler's GO roadmap, Melissa Perri,
-    // and ProdPad's Now/Next/Later) onto Doco's primitives:
+    // and ProdPad's Now/Next/Later) onto Braino's primitives:
     //   - OUTCOMES OVER OUTPUTS. A roadmap item is an Intent — a desired outcome
     //     (a change in user behavior or a business result) with the metric that
     //     tells you it happened — not a feature to ship. The widely-cited claim
@@ -1868,7 +1868,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     // Test scenarios for websites and apps — and the log of what happened
     // every time they ran. The shape distills the durable test-documentation
     // best practices (ISTQB / IEEE 829 test case + test log, BDD's
-    // Given/When/Then, and session-based exploratory testing) onto Doco's
+    // Given/When/Then, and session-based exploratory testing) onto Braino's
     // primitives, around one core split:
     //
     //   - A SCENARIO is an Eval — the durable spec: what behavior should hold,
@@ -2076,7 +2076,7 @@ export const DEFAULT_COLLECTION_TEMPLATES: CollectionTemplate[] = [
     // practice (Aha! / ProdPad / Ideawake-style funnels, Teresa Torres'
     // opportunity solution trees, Intercom's RICE and Sean Ellis' ICE scoring,
     // close-the-loop feedback practice, and Basecamp's Shape Up counterweight)
-    // onto Doco's primitives, around one deep abstraction:
+    // onto Braino's primitives, around one deep abstraction:
     //
     //   AN IDEA IS A CANDIDATE SOLUTION AWAITING AN HONEST VERDICT.
     //

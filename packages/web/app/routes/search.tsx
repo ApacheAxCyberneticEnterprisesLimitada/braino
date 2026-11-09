@@ -7,7 +7,7 @@ import { PageMain } from "~/components/page-main";
 import { getCurrentUser } from "~/lib/current-user.server";
 
 export function meta() {
-  return [{ title: "Search · Doco" }];
+  return [{ title: "Search · Braino" }];
 }
 
 export async function loader({ request }: { request: Request }) {
@@ -36,7 +36,7 @@ export default function SearchPage() {
         breadcrumb={
           <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
             <Link to="/" className="hover:underline">
-              Doco
+              Braino
             </Link>
             <span aria-hidden>›</span>
             <span>{data.workspace.handle}</span>

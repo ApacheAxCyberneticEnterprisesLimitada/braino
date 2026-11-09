@@ -19,7 +19,7 @@ interface RpcMessage {
 const TOOLS = [
   {
     name: "list_workspaces",
-    description: "List the one workspace this Doco deployment serves.",
+    description: "List the one workspace this Braino deployment serves.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
   },
   {
@@ -42,7 +42,7 @@ const TOOLS = [
   },
   {
     name: "doco_get",
-    description: "Read one workspace record by its full Doco id.",
+    description: "Read one workspace record by its full Braino id.",
     inputSchema: {
       type: "object",
       properties: { id: { type: "string" } },
@@ -80,7 +80,7 @@ const TOOLS = [
   },
   {
     name: "doco_feedback",
-    description: "Tell Doco whether a previous brief helped and, optionally, what was better.",
+    description: "Tell Braino whether a previous brief helped and, optionally, what was better.",
     inputSchema: {
       type: "object",
       properties: {
@@ -242,7 +242,7 @@ export async function handleMcpMessage(message: RpcMessage, principal: McpPrinci
         protocolVersion:
           typeof params.protocolVersion === "string" ? params.protocolVersion : "2025-03-26",
         capabilities: { tools: {} },
-        serverInfo: { name: "Doco", version: process.env.DOCO_VERSION ?? "local" },
+        serverInfo: { name: "Braino", version: process.env.DOCO_VERSION ?? "local" },
       },
     };
   }

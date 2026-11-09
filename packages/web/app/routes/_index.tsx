@@ -49,7 +49,7 @@ type LoaderData =
     };
 
 export function meta() {
-  return [{ title: "Doco" }, { name: "description", content: "Decisions that stay aligned." }];
+  return [{ title: "Braino" }, { name: "description", content: "Decisions that stay aligned." }];
 }
 
 export async function loader({ request }: { request: Request }): Promise<LoaderData> {
@@ -63,7 +63,7 @@ export async function loader({ request }: { request: Request }): Promise<LoaderD
       [state.workspace.id],
     );
     const workspace = workspaceResult.rows[0];
-    if (!workspace) throw new Error("The Doco workspace is missing.");
+    if (!workspace) throw new Error("The Braino workspace is missing.");
     const result = await client.query<DashboardCollection>(
       `SELECT c.id, c.handle, c.goal,
               coalesce(c.data->>'template_handle', '') AS template_handle,
@@ -106,7 +106,7 @@ export async function action({ request }: { request: Request }) {
   const state = await withClient(getSingleWorkspaceState);
   if (intent === "setup") {
     if (state.initialized)
-      return Response.json({ error: "Doco is already initialized." }, { status: 409 });
+      return Response.json({ error: "Braino is already initialized." }, { status: 409 });
     const invalidSetupToken = setupTokenError(text(form, "setup_token"));
     if (invalidSetupToken) return Response.json({ error: invalidSetupToken }, { status: 403 });
     const password = text(form, "password");
@@ -210,7 +210,7 @@ function Breadcrumb({ children }: { children: React.ReactNode }) {
   return (
     <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
       <Link to="/" className="hover:underline">
-        Doco
+        Braino
       </Link>
       <span aria-hidden>›</span>
       <span>{children}</span>
@@ -244,7 +244,7 @@ function ErrorMessage({ error }: { error?: string }) {
 function Setup({ error }: { error?: string }) {
   return (
     <PageMain className="space-y-4 py-6">
-      <PageHeader breadcrumb={<Breadcrumb>First run</Breadcrumb>} title="Set up Doco">
+      <PageHeader breadcrumb={<Breadcrumb>First run</Breadcrumb>} title="Set up Braino">
         <p className="text-xs text-muted-foreground">
           Create the owner and the one workspace served by this deployment.
         </p>
@@ -307,7 +307,7 @@ function SignIn({ workspaceName, error }: { workspaceName: string; error?: strin
       <Card>
         <CardHeader>
           <CardTitle>Sign in</CardTitle>
-          <CardDescription>Type the email and password of your Doco account.</CardDescription>
+          <CardDescription>Type the email and password of your Braino account.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form method="post" className="space-y-3">

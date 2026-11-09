@@ -20,7 +20,7 @@ describe("stateless MCP protocol", () => {
       id: 1,
       result: {
         protocolVersion: "2025-03-26",
-        serverInfo: { name: "Doco", version: expect.any(String) },
+        serverInfo: { name: "Braino", version: expect.any(String) },
         capabilities: { tools: {} },
       },
     });

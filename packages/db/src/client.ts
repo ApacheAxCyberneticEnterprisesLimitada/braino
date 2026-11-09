@@ -122,7 +122,7 @@ function verifyAppliedMigrations(rows: AppliedMigration[]): void {
     const migration = expected.get(row.version);
     if (!migration) {
       throw new Error(
-        `Database migration ${row.version} (${row.name}) is newer than this Doco image.`,
+        `Database migration ${row.version} (${row.name}) is newer than this Braino image.`,
       );
     }
     if (row.name !== migration.name || row.checksum !== migration.checksum) {
@@ -201,7 +201,7 @@ export async function assertMigrationsCurrent(c: QueryClient): Promise<void> {
     rows.length !== MIGRATIONS.length ||
     MIGRATIONS.some((migration, index) => rows[index]?.version !== migration.version)
   ) {
-    throw new Error("Doco database migrations are pending; run the migration command first.");
+    throw new Error("Braino database migrations are pending; run the migration command first.");
   }
 }
 

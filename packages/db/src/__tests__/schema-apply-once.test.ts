@@ -55,7 +55,7 @@ describe("versioned database migrations", () => {
     )`);
     const c = client(db);
 
-    expect(await applyMigrations(c)).toEqual(["001_github_operation_lease"]);
+    expect(await applyMigrations(c)).toEqual(MIGRATIONS.map((migration) => migration.name));
     expect(c.baselineApplications).toBe(0);
     expect(await applyMigrations(c)).toEqual([]);
     expect(c.statements).toContain(`SET LOCAL lock_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);

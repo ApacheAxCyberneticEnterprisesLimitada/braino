@@ -1,0 +1,134 @@
+import { useId } from "react";
+import { cn } from "../lib/cn";
+
+const VIEWBOX_WIDTH = 720;
+const VIEWBOX_HEIGHT = 180;
+const MARK_VIEWBOX_WIDTH = 180;
+const ASPECT = VIEWBOX_WIDTH / VIEWBOX_HEIGHT;
+
+interface BrainoMarkProps {
+  height: number;
+  className?: string;
+  active?: boolean;
+  ariaLabel?: string;
+  /** Neumorphic: solid purple standing out of the page like a key (`.braino-mark-raised`). */
+  raised?: boolean;
+  variant?: "logo" | "mark";
+}
+
+export function BrainoMark({
+  height,
+  className,
+  active = false,
+  ariaLabel = "Braino",
+  raised = false,
+  variant = "logo",
+}: BrainoMarkProps) {
+  const reactId = useId();
+  const maskId = `${reactId}-mask`;
+  const clipId = `${reactId}-orb-clip`;
+  const showWordmark = variant === "logo";
+  const viewBoxWidth = showWordmark ? VIEWBOX_WIDTH : MARK_VIEWBOX_WIDTH;
+  const width = height * (showWordmark ? ASPECT : MARK_VIEWBOX_WIDTH / VIEWBOX_HEIGHT);
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox={`0 0 ${viewBoxWidth} ${VIEWBOX_HEIGHT}`}
+      width={width}
+      height={height}
+      focusable="false"
+      className={cn(
+        "braino-mark block",
+        active && "braino-mark-active",
+        raised && "braino-mark-raised",
+        className,
+      )}
+      role="img"
+      aria-label={ariaLabel}
+    >
+      <title>{ariaLabel}</title>
+      <defs>
+        <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="200" height="200">
+          <rect x="0" y="0" width="200" height="200" fill="white" />
+          <polygon
+            className="braino-mark-spark braino-mark-spark-lg"
+            fill="black"
+            points="86,18 89.96,32.04 104,36 89.96,39.96 86,54 82.04,39.96 68,36 82.04,32.04"
+          />
+          <polygon
+            className="braino-mark-spark braino-mark-spark-md"
+            fill="black"
+            points="120,43 122.42,51.58 131,54 122.42,56.42 120,65 117.58,56.42 109,54 117.58,51.58"
+          />
+          <polygon
+            className="braino-mark-spark braino-mark-spark-sm"
+            fill="black"
+            points="68,70 69.76,76.24 76,78 69.76,79.76 68,86 66.24,79.76 60,78 66.24,76.24"
+          />
+        </mask>
+        {/* Orb circle in absolute viewBox coordinates — i.e. cx=100*0.8259+8,
+            cy=82*0.8259+0.588, r=70*0.8259 — so the clipped mist group
+            below can reference it without inheriting the glyph's inner
+            translate+scale. */}
+        <clipPath id={clipId} clipPathUnits="userSpaceOnUse">
+          <circle cx="90.59" cy="68.31" r="57.81" />
+        </clipPath>
+      </defs>
+      <g className="braino-mark-glyph-motion">
+        <g fill="#9945A1" transform="translate(8 0.588) scale(0.8259)">
+          <path d="M 56 182 L 144 182 L 130 158 L 70 158 Z" />
+          <circle cx="100" cy="82" r="70" mask={`url(#${maskId})`} />
+        </g>
+      </g>
+      {showWordmark ? (
+        // "Braino" in Chomsky (fonts/chomsky.ts), the blackletter after the New
+        // York Times nameplate, as outlines. The longer name widens the logo
+        // while the orb and the letter height keep their established scale.
+        <path
+          fill="#9945A1"
+          d="M213.9 88.8C215.6 88.8 217.3 88.8 219 88.8C219 92.6 219 96.3 219 100.1C219 114.1 218.1 124.8 208.9 130.1L210.4 134.1C226 130.2 240.5 119.9 240.5 99.3L240.6 57.9C240.6 51.7 242.5 48.5 246.1 45.6L270.7 26.3L271.7 22.6C267.9 25 262.7 26.7 256.8 26.7C249 26.7 242 23.6 234.1 23.6C219.5 23.6 209.4 34.2 205.2 44.3L209.1 44.3C210.8 39.9 215 36.9 220.7 36.9C228.3 36.9 233.6 40.9 241.3 40.9C241.9 40.9 242.5 40.8 243.2 40.8C238.5 43.8 233.8 46.8 229.1 49.7C223.5 53.3 219 56.6 219 65.8L219 70.1C215.4 70.6 211.8 71.2 208.5 72.8C202.9 75.4 198.7 80.7 198.7 88.6C198.7 92 199.6 95.5 201.2 98.4L204.4 98.4C203.2 92 207.9 88.8 213.9 88.8M282 129L282 123.9L306.3 111.6L306.3 130L292.6 136.3C289.5 133.6 286 131.1 282 129M282 78.7C289.9 81.5 297.4 85.4 303.9 90L282 101L282 78.7M277.2 126.8C271.1 124.3 264.1 122.8 256.3 122.8C255.2 122.8 254 122.8 252.9 122.9C261.8 115.4 270.6 107.8 270.6 91.6L270.6 48C270.7 42.8 273.5 38.6 277.2 35.8L277.2 126.8M282 106.4L306.3 94.1L306.3 106.3L282 118.5L282 106.4M282 34.9L304.1 61L282 77.5L282 34.9M305.3 67L326.1 52.4L299.1 20.8C278.3 27.7 260.9 40.7 248.5 56.6L248.5 108.7C248.5 115.3 246.8 120.1 244.1 124C225.3 127.7 210.3 139.9 201.5 155.3L205.5 155.3C213.5 147.6 224.9 142.4 239.9 142.4C251.2 142.4 262.4 145.4 272.4 150.6L328.1 121.8L328.1 80C321.6 74.7 313.9 70.1 305.3 67M385.7 129.1L376.7 135.3L370.2 130.1L370.2 80.9C375.5 86.1 381.4 87.8 385 87.8C390 87.8 399.7 85.2 401.6 64.5L396.6 64.5C395.2 66.7 392.6 68.6 389.1 68.6C386 68.6 383.2 67 381.6 64.5L379.9 64.5L368.3 77.7L356 64.6L333.7 79.7L336.1 82.9L342.5 78.9L348 86.1L348 130.1L337.7 137.3L340.1 140.4L345.7 136.5L364 150.8L388.8 132.8M425.7 78L445.3 90.1L445.3 105.8C434.2 103.2 416.6 98.7 416.6 88.1C416.6 83.7 420.8 80.6 425.7 78M428.6 150.8L446.2 138L458.9 150.8L482.1 134.9L481.3 131.7L474.1 136.5L466.1 128.5L466.1 86.4L474.8 79.4L471.9 75.8L465.1 81.2L440.5 65.3L422.2 74.9C417.2 77.5 411.8 81.7 411.8 89C411.8 96.7 417.7 101.6 425.4 104.9C413 111.5 406.1 120 406.1 128.9C406.1 141.3 418 149.5 428.6 150.8M445.3 110.7L445.3 135.9C444.2 136.3 443 136.5 441.9 136.5C431.5 136.5 426.3 123.2 426.3 113.7C426.3 110.5 427.3 107.7 428.4 106.1C433.9 108.1 440 109.5 445.3 110.7M531.3 130.9L524.1 135.7L518.5 130.1L518.5 79.7L505.7 64.6L483.3 79.7L485.7 82.9L492.1 78.9L497.7 86.1L497.7 130.1L487.3 137.3L489.7 140.4L495.3 136.5L511.3 150.8L535.3 134.1M492.4 42.1L506.6 58.2L522.5 44.3L508.3 28.1M622.3 130.9L616 135.7L608.8 129.3L608.8 85.7L616.8 79.2L613.9 75.5L606.9 81.2L588 65L569.7 79.3L556.8 65L533.7 81L536.1 84.2L542.5 80.2L548.8 87.4L548.8 131.7L542.5 137.3L561.6 152.4L577.6 138.1L570.4 131.7L570.4 85.9L577.6 80.2L589.6 90.6L589.6 131.7L584 137.3L600.8 152.4L625.5 135.7M658.3 124.5L658.3 76.5L677.4 89.3L677.4 137.3M631.1 138.7L638 133.1L661.5 150L698.2 127.7L698.2 82.1L674.2 63.8L636.7 85.3L636.7 128.2L628.2 135.1"
+        />
+      ) : null}
+      {/* "Crystal-ball mist" — only visible when the mark is .braino-mark-active.
+          Three soft tinted blobs rotate at different speeds and directions
+          inside the orb. Clipped to the orb circle. Sits in front of the
+          glyph so the swirl reads cleanly over the purple fill. */}
+      <g className="braino-mark-mist" clipPath={`url(#${clipId})`} aria-hidden>
+        <g className="braino-mark-mist-blob braino-mark-mist-1">
+          <ellipse
+            cx="73.27"
+            cy="53.86"
+            rx="31.80"
+            ry="20.23"
+            fill="#e3afff"
+            opacity="0.55"
+            filter="blur(3px)"
+          />
+        </g>
+        <g className="braino-mark-mist-blob braino-mark-mist-2">
+          <ellipse
+            cx="102.15"
+            cy="78.71"
+            rx="34.69"
+            ry="17.34"
+            fill="#ffd1f5"
+            opacity="0.45"
+            filter="blur(3px)"
+          />
+        </g>
+        <g className="braino-mark-mist-blob braino-mark-mist-3">
+          <ellipse
+            cx="90.59"
+            cy="72.93"
+            rx="26.01"
+            ry="14.45"
+            fill="#ffffff"
+            opacity="0.55"
+            filter="blur(3px)"
+          />
+        </g>
+      </g>
+    </svg>
+  );
+}

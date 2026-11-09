@@ -108,7 +108,7 @@ function padVector(vector: ArrayLike<number>, dimensions: number): number[] {
 }
 
 /**
- * Qdrant accepts integer or UUID point ids. Doco ids are neither, so derive a
+ * Qdrant accepts integer or UUID point ids. Braino ids are neither, so derive a
  * stable UUIDv5 from the same key as Postgres' embedding primary key.
  */
 export function qdrantPointId(

@@ -85,7 +85,7 @@ export interface RetrievalSourceIngestReport extends RetrievalIngestReport {
 }
 
 /**
- * Preserve Markdown heading context while using Doco's existing overlap-aware
+ * Preserve Markdown heading context while using Braino's existing overlap-aware
  * text chunker inside each section. Slack/plain-text documents naturally take
  * the single-section path.
  */

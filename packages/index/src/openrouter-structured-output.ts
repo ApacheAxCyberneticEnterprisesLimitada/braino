@@ -81,7 +81,7 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/** The one strict-schema model transport used by Doco's Gemini extraction flows. */
+/** The one strict-schema model transport used by Braino's Gemini extraction flows. */
 export class OpenRouterStructuredOutputClient {
   readonly id: string;
   private readonly model: string;

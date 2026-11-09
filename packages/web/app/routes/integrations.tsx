@@ -30,7 +30,7 @@ interface ActionData {
 }
 
 export function meta() {
-  return [{ title: "Integrations · Doco" }];
+  return [{ title: "Integrations · Braino" }];
 }
 
 export async function loader({ request }: { request: Request }) {
@@ -372,8 +372,8 @@ function GoogleDriveConnectionForm({ reconnect = false }: { reconnect?: boolean 
       </label>
       <p className="text-xs text-muted-foreground sm:col-span-2">
         Enable the Google Drive API, create a service-account key, and share the folders or files
-        with its client_email address. Doco imports Google Docs, Sheets, Slides, and text files; the
-        private key is encrypted at rest.
+        with its client_email address. Braino imports Google Docs, Sheets, Slides, and text files;
+        the private key is encrypted at rest.
       </p>
       <div className="sm:col-span-2 sm:text-right">
         <button
@@ -407,7 +407,7 @@ function SlackConnectionForm({ reconnect = false }: { reconnect?: boolean }) {
         />
       </label>
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        Use a bot token with channels:read, channels:history, and users:read. Doco copies public,
+        Use a bot token with channels:read, channels:history, and users:read. Braino copies public,
         non-shared channels only and encrypts the token with this deployment&apos;s encryption key.
       </p>
       <div className="sm:col-span-2 sm:text-right">
@@ -645,7 +645,7 @@ export default function IntegrationsPage() {
         breadcrumb={
           <nav className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
             <Link to="/" className="hover:underline">
-              Doco
+              Braino
             </Link>
             <span aria-hidden>›</span>
             <span>{data.workspace.handle}</span>
@@ -656,7 +656,7 @@ export default function IntegrationsPage() {
         title="Integrations"
       >
         <p className="text-xs text-muted-foreground">
-          Bring external systems into Doco through retry-safe, policy-checked changesets.
+          Bring external systems into Braino through retry-safe, policy-checked changesets.
         </p>
       </PageHeader>
 
@@ -687,8 +687,8 @@ export default function IntegrationsPage() {
         <CardHeader>
           <CardTitle>Slack</CardTitle>
           <CardDescription>
-            Copy one Slack workspace&apos;s public channels into a private Doco collection. Private,
-            archived, and Slack Connect channels are never imported.
+            Copy one Slack workspace&apos;s public channels into a private Braino collection.
+            Private, archived, and Slack Connect channels are never imported.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -708,7 +708,7 @@ export default function IntegrationsPage() {
         <CardHeader>
           <CardTitle>Notion</CardTitle>
           <CardDescription>
-            Copy the pages shared with one Notion integration into a private Doco collection,
+            Copy the pages shared with one Notion integration into a private Braino collection,
             including nested block content and page properties.
           </CardDescription>
         </CardHeader>
@@ -730,7 +730,7 @@ export default function IntegrationsPage() {
           <CardTitle>Google Drive</CardTitle>
           <CardDescription>
             Copy the Workspace documents and text files shared with one service account into a
-            private Doco collection. Binary files and folders are ignored.
+            private Braino collection. Binary files and folders are ignored.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -750,7 +750,7 @@ export default function IntegrationsPage() {
         <CardHeader>
           <CardTitle>GitHub</CardTitle>
           <CardDescription>
-            Import one repository&apos;s issues and pull requests into dedicated Doco collections.
+            Import one repository&apos;s issues and pull requests into dedicated Braino collections.
             Signed GitHub webhooks refresh changes automatically when DOCO_PUBLIC_HOST is public
             HTTPS; Sync now remains available as a fallback.
           </CardDescription>
