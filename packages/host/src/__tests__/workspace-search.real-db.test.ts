@@ -1,6 +1,8 @@
 import type { PoolClient } from "@doco/db";
+import type { RetrievalStore } from "@doco/index/qdrant-vector-store";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
+import { vi } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
 import { applyChangeset } from "../changesets.js";
 import { createCollectionInWorkspace } from "../host.js";
@@ -107,5 +109,78 @@ describe("deterministic workspace search", () => {
         query: "   ",
       }),
     ).resolves.toEqual([]);
+  });
+
+  it("uses the Qdrant projection to expand results inside the authorized workspace", async () => {
+    const { setup, collection, captured } = await fixture();
+    const target = {
+      upsert: vi.fn(async () => undefined),
+      deletePoints: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+      rank: vi.fn(async () => []),
+      rankLexical: vi.fn(async () => [
+        {
+          collection_id: collection.collectionId,
+          entity_id: String(captured.results[0]?.id),
+          chunk_text: "Incident response handbook",
+          score: 4.2,
+        },
+      ]),
+    } satisfies RetrievalStore;
+
+    const results = await searchWorkspaceRecords(
+      client(),
+      {
+        workspaceId: setup.workspace.id,
+        userId: setup.owner.id,
+        query: "operational continuity",
+      },
+      { retrievalStore: target },
+    );
+
+    expect(target.rankLexical).toHaveBeenCalledWith({
+      collectionIds: expect.arrayContaining([collection.collectionId]),
+      source: "node",
+      queryText: "operational continuity",
+      limit: 60,
+    });
+    expect(results).toEqual([
+      expect.objectContaining({
+        id: captured.results[0]?.id,
+        collection_handle: collection.handle,
+      }),
+    ]);
+  });
+
+  it("keeps PostgreSQL search available while Qdrant is unavailable", async () => {
+    const { setup, captured } = await fixture();
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const target = {
+      ensureCollection: vi.fn(async () => ({ created: false })),
+      upsert: vi.fn(async () => {
+        throw new Error("Qdrant unavailable");
+      }),
+      deletePoints: vi.fn(async () => undefined),
+      delete: vi.fn(async () => undefined),
+      rank: vi.fn(async () => []),
+      rankLexical: vi.fn(async () => []),
+    } satisfies RetrievalStore;
+
+    await expect(
+      searchWorkspaceRecords(
+        client(),
+        {
+          workspaceId: setup.workspace.id,
+          userId: setup.owner.id,
+          query: "Aurora incidents",
+        },
+        { retrievalStore: target },
+      ),
+    ).resolves.toEqual([expect.objectContaining({ id: captured.results[0]?.id })]);
+    expect(warning).toHaveBeenCalledWith(
+      "Qdrant search projection is unavailable; using PostgreSQL search.",
+      "Qdrant unavailable",
+    );
+    warning.mockRestore();
   });
 });

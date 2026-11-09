@@ -48,6 +48,9 @@ importers:
       '@doco/db':
         specifier: workspace:*
         version: link:../db
+      '@doco/index':
+        specifier: workspace:*
+        version: link:../index
       '@doco/shared':
         specifier: workspace:*
         version: link:../shared

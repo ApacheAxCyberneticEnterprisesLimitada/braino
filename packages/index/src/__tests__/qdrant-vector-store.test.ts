@@ -48,6 +48,28 @@ describe("QdrantVectorStore", () => {
     await expect(store.assertReady()).rejects.toThrow("Qdrant GET /readyz failed (503)");
   });
 
+  it("retries collection initialization after a transient Qdrant failure", async () => {
+    let collectionReads = 0;
+    const fetchMock = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+      if (!init?.method || init.method === "GET") {
+        collectionReads += 1;
+        return collectionReads === 1
+          ? new Response("starting", { status: 503 })
+          : json({ status: "not found" }, 404);
+      }
+      return json({ result: true, status: "ok" });
+    });
+    const store = new QdrantVectorStore({
+      url: "http://qdrant:6333",
+      dimensions: 2,
+      fetch: fetchMock as typeof fetch,
+    });
+
+    await expect(store.upsert([record()])).rejects.toThrow("failed (503)");
+    await expect(store.upsert([record()])).resolves.toBeUndefined();
+    expect(collectionReads).toBe(2);
+  });
+
   it("uses a stable UUID per collection/entity/chunk and replaces model changes in place", () => {
     const first = qdrantPointId(record());
     expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
@@ -98,6 +120,9 @@ describe("QdrantVectorStore", () => {
         },
       ],
     });
+    expect(requests.every((request) => request.init?.signal instanceof AbortSignal)).toBe(true);
+    await expect(store.ensureCollection()).resolves.toEqual({ created: true });
+    await expect(store.ensureCollection()).resolves.toEqual({ created: false });
   });
 
   it("ranks one best chunk per entity inside the authorized collections and model", async () => {

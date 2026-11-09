@@ -424,6 +424,62 @@ CREATE INDEX IF NOT EXISTS nodes_github_import_idx ON nodes (collection_id, upda
   WHERE node_type IN ('reference', 'eval')
     AND locator ~ '^https://github\.com/[^/]+/[^/]+/(pull|issues)/[0-9]+$';
 
+-- Qdrant is a rebuildable search projection; PostgreSQL remains authoritative.
+-- The singleton cursor keyset-backfills nodes that predate this projection.
+-- The outbox then captures every committed node mutation without making an
+-- authoring request depend on Qdrant availability.
+CREATE TABLE IF NOT EXISTS qdrant_record_projection_state (
+  singleton             boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+  initialized           boolean NOT NULL DEFAULT false,
+  cursor_collection_id  text,
+  cursor_node_id        text,
+  updated_at            timestamptz NOT NULL DEFAULT now()
+);
+INSERT INTO qdrant_record_projection_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS qdrant_record_queue (
+  collection_id  text NOT NULL,
+  node_id        text NOT NULL,
+  operation      text NOT NULL CHECK (operation IN ('upsert', 'delete')),
+  queued_at      timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (collection_id, node_id)
+);
+CREATE INDEX IF NOT EXISTS qdrant_record_queue_order_idx
+  ON qdrant_record_queue (queued_at, collection_id, node_id);
+
+CREATE OR REPLACE FUNCTION queue_qdrant_record_projection()
+RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    INSERT INTO qdrant_record_queue (collection_id, node_id, operation)
+    VALUES (OLD.collection_id, OLD.id, 'delete')
+    ON CONFLICT (collection_id, node_id) DO UPDATE
+      SET operation = EXCLUDED.operation, queued_at = now();
+    RETURN OLD;
+  END IF;
+
+  IF TG_OP = 'UPDATE' AND OLD.collection_id <> NEW.collection_id THEN
+    INSERT INTO qdrant_record_queue (collection_id, node_id, operation)
+    VALUES (OLD.collection_id, OLD.id, 'delete')
+    ON CONFLICT (collection_id, node_id) DO UPDATE
+      SET operation = EXCLUDED.operation, queued_at = now();
+  END IF;
+
+  INSERT INTO qdrant_record_queue (collection_id, node_id, operation)
+  VALUES (NEW.collection_id, NEW.id, 'upsert')
+  ON CONFLICT (collection_id, node_id) DO UPDATE
+    SET operation = EXCLUDED.operation, queued_at = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS nodes_qdrant_record_projection ON nodes;
+CREATE TRIGGER nodes_qdrant_record_projection
+AFTER INSERT OR UPDATE OR DELETE ON nodes
+FOR EACH ROW EXECUTE FUNCTION queue_qdrant_record_projection();
+
 -- Audit events: one row per mutation.
 
 CREATE TABLE IF NOT EXISTS audit_events (
