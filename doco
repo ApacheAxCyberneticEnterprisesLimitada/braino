@@ -31,6 +31,20 @@ doctor() {
   echo "Doco configuration is valid."
 }
 
+application_image() {
+  compose config --format json | awk '
+    /^    "app": \{$/ { app = 1; next }
+    app && /^    \}/ { exit }
+    app && /^      "image": "/ {
+      image = $0
+      sub(/^      "image": "/, "", image)
+      sub(/",?$/, "", image)
+      print image
+      exit
+    }
+  '
+}
+
 backup() {
   doctor >/dev/null
   local timestamp destination destination_directory
@@ -134,7 +148,8 @@ restore() {
 upgrade() {
   doctor >/dev/null
   local configured_image
-  configured_image=$(compose config --images | head -n 1)
+  configured_image=$(application_image)
+  [[ -n "$configured_image" ]] || fail "Could not resolve the application image from Compose."
   [[ "$configured_image" != "doco:local" ]] || fail "Set DOCO_IMAGE to a released ghcr.io/docoinc/doco tag before upgrading."
 
   backup "${1:-backups/pre-upgrade-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}"
