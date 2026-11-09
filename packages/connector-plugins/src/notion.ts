@@ -4,7 +4,7 @@ import {
   ConnectorError,
   type ConnectorFetcher,
   type ConnectorSource,
-} from "../connectors.js";
+} from "@doco/host";
 
 const API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2026-03-11";

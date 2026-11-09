@@ -1,3 +1,4 @@
+import { connectorPlugin } from "@doco/connector-plugins";
 import { withClient } from "@doco/db";
 import {
   type ConnectorConnectionSummary,
@@ -9,13 +10,10 @@ import {
   disconnectConnector,
   disconnectGithubRepository,
   getSingleWorkspaceState,
-  googleDriveConnector,
   listConnectorConnections,
   listGithubConnections,
   listIncomingWebhooks,
-  notionConnector,
   revokeIncomingWebhook,
-  slackConnector,
   syncConnectorConnection,
   syncGithubConnection,
 } from "@doco/host";
@@ -83,20 +81,6 @@ function encryptionKey(): string {
   return value;
 }
 
-function connectorAdapter(provider: string) {
-  if (provider === "slack") return slackConnector;
-  if (provider === "notion") return notionConnector;
-  if (provider === "google_drive") return googleDriveConnector;
-  throw new Error("Unknown connector provider.");
-}
-
-function connectorLabel(provider: string): string {
-  if (provider === "slack") return "Slack";
-  if (provider === "notion") return "Notion";
-  if (provider === "google_drive") return "Google Drive";
-  return "Connector";
-}
-
 export async function action({ request }: { request: Request }): Promise<ActionData | Response> {
   const user = await getCurrentUser(request);
   if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
@@ -107,18 +91,19 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_slack") {
     try {
+      const plugin = connectorPlugin("slack");
       const connected = await connectConnector(withClient, {
         workspaceId: state.workspace.id,
         userId: user.id,
         credential: text(form, "bot_token"),
         encryptionKey: encryptionKey(),
-        adapter: slackConnector,
+        adapter: plugin.adapter,
       });
       const synced = await syncConnectorConnection(withClient, {
         connectionId: connected.id,
         encryptionKey: encryptionKey(),
         userId: user.id,
-        adapter: slackConnector,
+        adapter: plugin.adapter,
       });
       return {
         message: `Connected ${connected.sourceName}. Imported ${synced.created} Slack messages.`,
@@ -130,18 +115,19 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_notion") {
     try {
+      const plugin = connectorPlugin("notion");
       const connected = await connectConnector(withClient, {
         workspaceId: state.workspace.id,
         userId: user.id,
         credential: text(form, "notion_token"),
         encryptionKey: encryptionKey(),
-        adapter: notionConnector,
+        adapter: plugin.adapter,
       });
       const synced = await syncConnectorConnection(withClient, {
         connectionId: connected.id,
         encryptionKey: encryptionKey(),
         userId: user.id,
-        adapter: notionConnector,
+        adapter: plugin.adapter,
       });
       return {
         message: `Connected ${connected.sourceName}. Imported ${synced.created} Notion pages.`,
@@ -153,18 +139,19 @@ export async function action({ request }: { request: Request }): Promise<ActionD
 
   if (intent === "connect_google_drive") {
     try {
+      const plugin = connectorPlugin("google_drive");
       const connected = await connectConnector(withClient, {
         workspaceId: state.workspace.id,
         userId: user.id,
         credential: text(form, "service_account_json"),
         encryptionKey: encryptionKey(),
-        adapter: googleDriveConnector,
+        adapter: plugin.adapter,
       });
       const synced = await syncConnectorConnection(withClient, {
         connectionId: connected.id,
         encryptionKey: encryptionKey(),
         userId: user.id,
-        adapter: googleDriveConnector,
+        adapter: plugin.adapter,
       });
       return {
         message: `Connected ${connected.sourceName}. Imported ${synced.created} Google Drive files.`,
@@ -177,14 +164,15 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   if (intent === "sync_connector") {
     try {
       const provider = text(form, "provider");
+      const plugin = connectorPlugin(provider);
       const synced = await syncConnectorConnection(withClient, {
         connectionId: text(form, "connection_id"),
         encryptionKey: encryptionKey(),
         userId: user.id,
-        adapter: connectorAdapter(provider),
+        adapter: plugin.adapter,
       });
       return {
-        message: `${connectorLabel(provider)} sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.retired} retired, ${synced.unchanged} unchanged.`,
+        message: `${plugin.label} sync complete: ${synced.created} created, ${synced.updated} updated, ${synced.retired} retired, ${synced.unchanged} unchanged.`,
       };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Could not sync connector." };
@@ -194,6 +182,7 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   if (intent === "disconnect_connector") {
     try {
       const provider = text(form, "provider");
+      const plugin = connectorPlugin(provider);
       await withClient((client) =>
         disconnectConnector(client, {
           connectionId: text(form, "connection_id"),
@@ -201,7 +190,7 @@ export async function action({ request }: { request: Request }): Promise<ActionD
         }),
       );
       return {
-        message: `${connectorLabel(provider)} disconnected. Imported records and history were kept.`,
+        message: `${plugin.label} disconnected. Imported records and history were kept.`,
       };
     } catch (error) {
       return { error: error instanceof Error ? error.message : "Could not disconnect connector." };

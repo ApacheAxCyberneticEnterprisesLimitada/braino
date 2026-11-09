@@ -4,7 +4,7 @@ import {
   ConnectorError,
   type ConnectorFetcher,
   type ConnectorSource,
-} from "../connectors.js";
+} from "@doco/host";
 
 const API = "https://slack.com/api";
 

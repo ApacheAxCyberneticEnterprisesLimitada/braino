@@ -30,6 +30,12 @@ importers:
         specifier: ^5.1.0
         version: 5.1.0(@types/node@22.20.5)(@vitest/coverage-v8@5.1.0)(happy-dom@21.0.4)(vite@6.4.5(@types/node@22.20.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.15)(yaml@2.9.1))
 
+  packages/connector-plugins:
+    dependencies:
+      '@doco/host':
+        specifier: workspace:*
+        version: link:../host
+
   packages/db:
     dependencies:
       '@doco/shared':
@@ -78,6 +84,9 @@ importers:
 
   packages/web:
     dependencies:
+      '@doco/connector-plugins':
+        specifier: workspace:*
+        version: link:../connector-plugins
       '@doco/db':
         specifier: workspace:*
         version: link:../db

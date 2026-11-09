@@ -13,6 +13,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@doco/connector-plugins": "workspace:*",
     "@doco/db": "workspace:*",
     "@doco/host": "workspace:*",
     "@doco/shared": "workspace:*",

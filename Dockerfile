@@ -8,6 +8,7 @@ RUN corepack enable && corepack prepare pnpm@10.33.2 --activate
 
 WORKDIR /source
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
+COPY packages/connector-plugins/package.json packages/connector-plugins/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/host/package.json packages/host/package.json
 COPY packages/index/package.json packages/index/package.json
