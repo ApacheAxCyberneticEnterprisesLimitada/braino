@@ -20,12 +20,14 @@ model provider.
 
 ```sh
 cp .env.example .env
-# Fill both secrets in .env with independent `openssl rand -base64 32` values.
+# Fill all three secrets in .env with independent `openssl rand -base64 32` values.
 docker compose up -d --build
 curl --fail http://localhost:3000/healthz
 ```
 
-Open `http://localhost:3000` and create the owner and sole workspace. Records
+Open `http://localhost:3000`, enter `DOCO_SETUP_TOKEN`, and create the owner and
+sole workspace. The application port binds to loopback; the optional Caddy
+profile is the supported way to expose Doco publicly. Records
 can be captured from a collection page or created, related, transitioned, and
 superseded through its compatible `/<collection-handle>/api/changesets.json`
 endpoint; the adjacent `api/authoring-contract.json` endpoint describes the

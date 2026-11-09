@@ -19,6 +19,7 @@ describe("the supported self-hosted stack", () => {
     expect(compose.services.app?.depends_on).toEqual(
       expect.objectContaining({ postgres: expect.any(Object), qdrant: expect.any(Object) }),
     );
+    expect(compose.services.app?.ports).toEqual(["127.0.0.1:${DOCO_HTTP_PORT:-3000}:3000"]);
     expect(compose.services.postgres?.ports).toBeUndefined();
     expect(compose.services.qdrant?.ports).toBeUndefined();
     expect(compose.services.caddy?.profiles).toEqual(["tls"]);
@@ -36,6 +37,7 @@ describe("the supported self-hosted stack", () => {
 
     expect(env).toContain("DOCO_ENCRYPTION_KEY=");
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
+    expect(env).toContain("DOCO_SETUP_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
     expect(dockerfile).toContain("USER node");
   });

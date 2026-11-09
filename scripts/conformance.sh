@@ -55,6 +55,7 @@ export COMPOSE_PROJECT_NAME="$project"
 export DOCO_IMAGE="$image"
 export DOCO_POSTGRES_PASSWORD="conformance-postgres-$project"
 export DOCO_ENCRYPTION_KEY="conformance-encryption-key-$project-000000000000"
+export DOCO_SETUP_TOKEN="conformance-setup-token-$project-000000000000000"
 export DOCO_HTTP_PORT="$port"
 export DOCO_PUBLIC_HOST="http://localhost:$port"
 
@@ -77,6 +78,7 @@ setup_status=$(curl --silent --show-error -o "$runtime/setup-response" -w '%{htt
   --data-urlencode 'owner_name=Conformance Owner' \
   --data-urlencode 'owner_username=conformance-owner' \
   --data-urlencode 'owner_email=owner@conformance.invalid' \
+  --data-urlencode "setup_token=$DOCO_SETUP_TOKEN" \
   --data-urlencode 'password=conformance-owner-password' \
   --data-urlencode 'password_confirmation=conformance-owner-password')
 [[ "$setup_status" == "302" || "$setup_status" == "303" ]]
