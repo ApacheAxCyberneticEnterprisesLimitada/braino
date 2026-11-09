@@ -9,7 +9,4 @@ export * from "./incoming-webhooks.js";
 export * from "./mcp-core.js";
 export * from "./github-connections.js";
 export * from "./connectors.js";
-export * from "./connectors/slack.js";
-export * from "./connectors/notion.js";
-export * from "./connectors/google-drive.js";
 export * from "./password-sign-in.js";

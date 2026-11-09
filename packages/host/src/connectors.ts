@@ -11,9 +11,8 @@ import type { ClientScope } from "./client-scope.js";
 import { createCollectionInWorkspace } from "./host.js";
 import { openSecret, sealSecret } from "./secret-box.js";
 
-export const CONNECTOR_PROVIDERS = ["slack", "notion", "google_drive"] as const;
-export type ConnectorProvider = (typeof CONNECTOR_PROVIDERS)[number];
 export type ConnectorFetcher = typeof fetch;
+const CONNECTOR_PROVIDER_PATTERN = /^[a-z][a-z0-9_]{0,49}$/;
 const CONNECTOR_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_CONNECTOR_DOCUMENTS = 10_000;
 const MAX_CONNECTOR_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -47,7 +46,7 @@ export interface ConnectorDocument {
 }
 
 export interface ConnectorAdapter {
-  provider: ConnectorProvider;
+  provider: string;
   verify(input: { credential: string; fetcher: ConnectorFetcher }): Promise<ConnectorSource>;
   documents(input: {
     credential: string;
@@ -58,7 +57,7 @@ export interface ConnectorAdapter {
 
 export interface ConnectorConnectionSummary {
   id: string;
-  provider: ConnectorProvider;
+  provider: string;
   sourceId: string;
   sourceName: string;
   collectionHandle: string;
@@ -70,7 +69,7 @@ export interface ConnectorConnectionSummary {
 interface ConnectionRow {
   id: string;
   workspace_id: string;
-  provider: ConnectorProvider;
+  provider: string;
   source_id: string;
   source_name: string;
   credential_sealed: string | null;
@@ -158,7 +157,10 @@ function sameNode(node: StoredNode, fields: Record<string, unknown>): boolean {
   );
 }
 
-function providerHandle(provider: ConnectorProvider): string {
+function providerHandle(provider: string): string {
+  if (!CONNECTOR_PROVIDER_PATTERN.test(provider)) {
+    throw new ConnectorError("The connector provider identifier is invalid.", "provider_invalid");
+  }
   return provider.replaceAll("_", "-");
 }
 
@@ -250,7 +252,7 @@ async function connectionSummary(
 ): Promise<ConnectorConnectionSummary> {
   const found = await client.query<{
     id: string;
-    provider: ConnectorProvider;
+    provider: string;
     source_id: string;
     source_name: string;
     collection_handle: string;
@@ -290,6 +292,7 @@ export async function connectConnector(
     fetcher?: ConnectorFetcher;
   },
 ): Promise<ConnectorConnectionSummary> {
+  const provider = providerHandle(input.adapter.provider);
   await withClient((client) => requireOwner(client, input.workspaceId, input.userId));
   const credential = input.credential.trim();
   if (!credential)
@@ -308,7 +311,7 @@ export async function connectConnector(
     );
     if (occupied.rows[0]) {
       throw new ConnectorError(
-        `This ${providerHandle(input.adapter.provider)} source is already connected to another workspace.`,
+        `This ${provider} source is already connected to another workspace.`,
         "source_already_connected",
         409,
       );
@@ -322,7 +325,7 @@ export async function connectConnector(
     if (existing) {
       if (existing.source_id !== source.id) {
         throw new ConnectorError(
-          `Disconnect ${existing.source_name} before connecting another ${providerHandle(input.adapter.provider)} source.`,
+          `Disconnect ${existing.source_name} before connecting another ${provider} source.`,
           "provider_already_connected",
           409,
         );
@@ -346,7 +349,6 @@ export async function connectConnector(
       const workspaceHandle = workspace.rows[0]?.handle;
       if (!workspaceHandle)
         throw new ConnectorError("Workspace not found.", "workspace_not_found", 404);
-      const provider = providerHandle(input.adapter.provider);
       const collection = await createCollectionInWorkspace(
         {
           workspaceId: input.workspaceId,
@@ -608,6 +610,7 @@ export async function syncConnectorConnection(
     fetcher?: ConnectorFetcher;
   },
 ): Promise<{ created: number; updated: number; retired: number; unchanged: number }> {
+  providerHandle(input.adapter.provider);
   const syncToken = generateUlid();
   const connection = await withClient(async (client) => {
     await client.query("BEGIN");

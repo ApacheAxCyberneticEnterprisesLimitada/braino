@@ -5,7 +5,7 @@ import {
   ConnectorError,
   type ConnectorFetcher,
   type ConnectorSource,
-} from "../connectors.js";
+} from "@doco/host";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const TOKEN_URI = "https://oauth2.googleapis.com/token";

@@ -1,0 +1,25 @@
+{
+  "name": "@doco/connector-plugins",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Bundled provider adapters for Doco's connector runtime.",
+  "license": "MPL-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@doco/host": "workspace:*"
+  }
+}

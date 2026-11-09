@@ -1,15 +1,15 @@
+import {
+  type ConnectorAdapter,
+  connectConnector,
+  initializeSingleWorkspace,
+  listConnectorConnections,
+  syncConnectorConnection,
+} from "@doco/host";
 import type { PGlite } from "@electric-sql/pglite";
 import type { PoolClient } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
-import {
-  type ConnectorAdapter,
-  connectConnector,
-  listConnectorConnections,
-  syncConnectorConnection,
-} from "../connectors.js";
-import { slackConnector } from "../connectors/slack.js";
-import { initializeSingleWorkspace } from "../single-workspace.js";
+import { slackConnector } from "../slack.js";
 
 let db: PGlite;
 
@@ -266,6 +266,30 @@ describe("self-hosted connectors", () => {
         fetcher: fakeSlack({ edited: false, includeAnnouncement: true }),
       }),
     ).rejects.toMatchObject({ code: "source_already_connected", status: 409 });
+  });
+
+  it("rejects an unsafe provider identifier before provider I/O", async () => {
+    const setup = await fixture();
+    let verified = false;
+    const adapter = {
+      provider: "../unsafe",
+      verify: async () => {
+        verified = true;
+        return { id: "unsafe", name: "Unsafe" };
+      },
+      async *documents() {},
+    } satisfies ConnectorAdapter;
+
+    await expect(
+      connectConnector(scope, {
+        workspaceId: setup.workspace.id,
+        userId: setup.owner.id,
+        credential: accessToken,
+        encryptionKey,
+        adapter,
+      }),
+    ).rejects.toMatchObject({ code: "provider_invalid", status: 400 });
+    expect(verified).toBe(false);
   });
 
   it("rejects an overlapping pull without holding a database lock during provider I/O", async () => {
