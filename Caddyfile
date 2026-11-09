@@ -9,5 +9,7 @@
 		Strict-Transport-Security "max-age=31536000"
 		-Server
 	}
-	reverse_proxy app:3000
+	reverse_proxy app:3000 {
+		header_up X-Forwarded-For {remote_host}
+	}
 }

@@ -42,6 +42,7 @@ export interface InitializedSingleWorkspace {
     email: string;
     username: string;
     name: string;
+    stamp: string;
   };
 }
 
@@ -85,11 +86,14 @@ export async function initializeSingleWorkspace(
     if (state.initialized) throw new SingleWorkspaceAlreadyInitializedError();
 
     const ownerId = makeEntityId("user", generateUlid());
-    await client.query(
+    const insertedOwner = await client.query<{ stamp: string }>(
       `INSERT INTO users (id, username, name, email, password_hash, data)
-       VALUES ($1, $2, $3, $4, $5, '{}'::jsonb)`,
+       VALUES ($1, $2, $3, $4, $5, '{}'::jsonb)
+       RETURNING stamp`,
       [ownerId, ownerUsername, ownerName, ownerEmail, ownerPasswordHash],
     );
+    const ownerStamp = insertedOwner.rows[0]?.stamp;
+    if (!ownerStamp) throw new Error("The owner session stamp was not created.");
 
     const created = await addWorkspaceByHandle(
       { handle: workspaceHandle, ownerUserId: ownerId },
@@ -108,6 +112,7 @@ export async function initializeSingleWorkspace(
         email: ownerEmail,
         username: ownerUsername,
         name: ownerName,
+        stamp: ownerStamp,
       },
     };
   } catch (error) {

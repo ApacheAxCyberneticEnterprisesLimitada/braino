@@ -11,3 +11,4 @@ export * from "./connectors.js";
 export * from "./connectors/slack.js";
 export * from "./connectors/notion.js";
 export * from "./connectors/google-drive.js";
+export * from "./password-sign-in.js";

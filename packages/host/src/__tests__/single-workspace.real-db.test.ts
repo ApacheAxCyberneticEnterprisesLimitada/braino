@@ -39,6 +39,7 @@ describe("single-workspace host", () => {
       email: "owner@example.com",
       username: "owner",
       name: "Acme Owner",
+      stamp: expect.any(String),
     });
 
     const collections = await db.query<{ handle: string }>(
