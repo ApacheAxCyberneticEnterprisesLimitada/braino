@@ -1,9 +1,56 @@
-import { readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { spawnSync } from "node:child_process";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
 const root = resolve(import.meta.dirname, "../../../../../");
+
+function runUpgradeWithImage(image: string) {
+  const runtime = mkdtempSync(join(tmpdir(), "doco-upgrade-test-"));
+  const docker = join(runtime, "docker");
+  const log = join(runtime, "docker.log");
+  writeFileSync(
+    docker,
+    `#!/bin/sh
+printf '%s\\n' "$*" >> "$DOCO_DOCKER_LOG"
+if [ "$*" = "compose config --images" ]; then
+  printf '%s\\n' qdrant/qdrant:v1.20.0 "$FAKE_APP_IMAGE" postgres:16.10-bookworm
+elif [ "$*" = "compose config --format json" ]; then
+  cat <<EOF
+{
+  "services": {
+    "app": {
+      "image": "$FAKE_APP_IMAGE"
+    }
+  }
+}
+EOF
+fi
+`,
+  );
+  chmodSync(docker, 0o755);
+
+  try {
+    const result = spawnSync(resolve(root, "doco"), ["upgrade"], {
+      cwd: runtime,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${runtime}:${process.env.PATH ?? ""}`,
+        DOCO_DOCKER_LOG: log,
+        FAKE_APP_IMAGE: image,
+        DOCO_ENCRYPTION_KEY: "test-encryption-key-with-thirty-two-characters",
+        DOCO_POSTGRES_PASSWORD: "test-postgres-password",
+        DOCO_SETUP_TOKEN: "test-setup-token",
+      },
+    });
+    return { ...result, calls: readFileSync(log, "utf8") };
+  } finally {
+    rmSync(runtime, { recursive: true, force: true });
+  }
+}
 
 describe("the supported self-hosted stack", () => {
   it("boots one app with durable PostgreSQL and Qdrant services", () => {
@@ -88,6 +135,25 @@ describe("the supported self-hosted stack", () => {
     expect(webPackage.scripts.start).toMatch(
       /^node node_modules\/@doco\/db\/dist\/migrate\.js && react-router-serve/,
     );
+  });
+
+  it("refuses to upgrade a local app image regardless of Compose image order", () => {
+    const result = runUpgradeWithImage("doco:local");
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Set DOCO_IMAGE to a released");
+    expect(result.stdout).not.toContain("Backup written");
+    expect(result.calls).not.toContain("compose pull");
+  });
+
+  it("reports and migrates the configured released app image", () => {
+    const image = "ghcr.io/docoinc/doco:0.1.0";
+    const result = runUpgradeWithImage(image);
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`Upgrade completed with ${image}`);
+    expect(result.calls).toContain("compose pull");
+    expect(result.calls).toContain("node_modules/@doco/db/dist/migrate.js");
   });
 
   it("publishes signed AMD64 and ARM64 images from version tags", () => {
