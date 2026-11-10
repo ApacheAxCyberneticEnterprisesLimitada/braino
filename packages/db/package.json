@@ -1,6 +1,6 @@
 {
   "name": "@doco/db",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "type": "module",
   "description": "Postgres adapter for Braino source-of-truth storage.",
   "license": "MPL-2.0",

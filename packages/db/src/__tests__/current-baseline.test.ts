@@ -31,9 +31,20 @@ describe("current database baseline", () => {
       "001_github_operation_lease.sql",
       "002_braino_product_identity.sql",
       "003_runtime_compatibility.sql",
+      "004_nps_surveys.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
+  });
+
+  it("owns the recommend-survey schema used by hosted Braino", () => {
+    const users = tableBlock("users");
+    const surveys = tableBlock("nps_surveys");
+
+    expect(users).toMatch(/\bnps_emails\b/);
+    expect(surveys).toMatch(/\buser_id\b/);
+    expect(surveys).toMatch(/\bscore\b[\s\S]*?BETWEEN\s+0\s+AND\s+10/i);
+    expect(schemaSql).toMatch(/\bnps_surveys_user_idx\b/);
   });
 
   it("keeps users as human OAuth identities, not agent-user records", () => {
