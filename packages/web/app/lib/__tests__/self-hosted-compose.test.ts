@@ -200,6 +200,7 @@ describe("the supported self-hosted stack", () => {
     expect(sharedPackage.version).toBe(rootPackage.version);
     expect(workflow).toContain("pnpm --filter @doco/shared pack");
     expect(workflow).toContain('gh release upload "$GITHUB_REF_NAME" release-packages/*.tgz');
+    expect(workflow).not.toContain("--clobber");
   });
 
   it("gates releases on the executable v0.1 conformance contract", () => {
