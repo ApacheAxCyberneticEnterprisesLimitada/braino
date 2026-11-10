@@ -13,6 +13,17 @@ const { Pool } = pg;
 
 let _pool: pg.Pool | null = null;
 let _schemaReady: Promise<void> | null = null;
+let _testClient: pg.PoolClient | null = null;
+
+/** Install an in-process query client for consumer tests. Not exported by the
+ * main package entry point; use `@doco/db/test-support`. */
+export function installTestDatabaseClient(client: unknown): () => void {
+  const previous = _testClient;
+  _testClient = client as pg.PoolClient;
+  return () => {
+    if (_testClient === client) _testClient = previous;
+  };
+}
 
 function pem(value: string | undefined): string | undefined {
   const normalized = value?.trim().replace(/\\n/g, "\n");
@@ -70,6 +81,7 @@ export async function closePool(): Promise<void> {
 }
 
 export async function withClient<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  if (_testClient) return fn(_testClient);
   await ensureSchema();
   const c = await getPool().connect();
   try {
@@ -166,6 +178,10 @@ export async function applyMigrations(c: QueryClient): Promise<string[]> {
 
     const rows = await appliedMigrations(c);
     if (rows.length === 0) {
+      if (!fresh) {
+        await c.query(BASELINE_SQL);
+        appliedNames.push("000_baseline");
+      }
       await c.query("DROP TABLE IF EXISTS schema_applied");
     }
 

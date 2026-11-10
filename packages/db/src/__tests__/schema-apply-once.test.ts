@@ -46,8 +46,9 @@ describe("versioned database migrations", () => {
     }
   });
 
-  it("adopts an existing baseline without replaying it, then runs only pending migrations", async () => {
+  it("reconciles an existing baseline once, then runs pending migrations", async () => {
     const db = await freshDb();
+    await db.exec("DROP TABLE password_sign_in_attempts");
     await db.exec(`CREATE TABLE schema_applied (
       one boolean PRIMARY KEY DEFAULT true CHECK (one),
       hash text NOT NULL,
@@ -55,8 +56,11 @@ describe("versioned database migrations", () => {
     )`);
     const c = client(db);
 
-    expect(await applyMigrations(c)).toEqual(MIGRATIONS.map((migration) => migration.name));
-    expect(c.baselineApplications).toBe(0);
+    expect(await applyMigrations(c)).toEqual([
+      "000_baseline",
+      ...MIGRATIONS.map((migration) => migration.name),
+    ]);
+    expect(c.baselineApplications).toBe(1);
     expect(await applyMigrations(c)).toEqual([]);
     expect(c.statements).toContain(`SET LOCAL lock_timeout = ${MIGRATION_LOCK_TIMEOUT_MS}`);
     expect(
@@ -66,6 +70,31 @@ describe("versioned database migrations", () => {
         )
       ).rows[0]?.present,
     ).toBe(false);
+    expect(
+      (
+        await db.query<{ present: boolean }>(
+          "SELECT to_regclass('public.password_sign_in_attempts') IS NOT NULL AS present",
+        )
+      ).rows[0]?.present,
+    ).toBe(true);
+    expect(
+      (
+        await db.query<{ table_name: string; column_name: string }>(`
+          SELECT table_name, column_name
+            FROM information_schema.columns
+           WHERE (table_name, column_name) IN (
+             ('passkeys', 'rp_id'),
+             ('group_chat_channels', 'history_until'),
+             ('feedback_reports', 'fixed_emailed_at')
+           )
+           ORDER BY table_name, column_name
+        `)
+      ).rows,
+    ).toEqual([
+      { table_name: "feedback_reports", column_name: "fixed_emailed_at" },
+      { table_name: "group_chat_channels", column_name: "history_until" },
+      { table_name: "passkeys", column_name: "rp_id" },
+    ]);
   });
 
   it("refuses an edited migration after its checksum was recorded", async () => {
