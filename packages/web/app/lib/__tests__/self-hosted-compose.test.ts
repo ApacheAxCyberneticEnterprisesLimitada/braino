@@ -187,6 +187,21 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain("cosign sign --yes");
   });
 
+  it("publishes the versioned shared SDK beside each release image", () => {
+    const rootPackage = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+      version: string;
+    };
+    const sharedPackage = JSON.parse(
+      readFileSync(resolve(root, "packages/shared/package.json"), "utf8"),
+    ) as { private?: boolean; version: string };
+    const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
+
+    expect(sharedPackage.private).not.toBe(true);
+    expect(sharedPackage.version).toBe(rootPackage.version);
+    expect(workflow).toContain("pnpm --filter @doco/shared pack");
+    expect(workflow).toContain('gh release upload "$GITHUB_REF_NAME" release-packages/*.tgz');
+  });
+
   it("gates releases on the executable v0.1 conformance contract", () => {
     const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
       scripts: Record<string, string>;
