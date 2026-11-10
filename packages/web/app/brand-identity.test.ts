@@ -45,6 +45,8 @@ describe("Braino's public identity", () => {
     expect(read(".github/workflows/release.yml")).toContain(
       'IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino"',
     );
+    expect(read(".env.example")).toContain("ghcr.io/brainoinc/braino:latest");
+    expect(read("docs/operations.md")).toContain("ghcr.io/brainoinc/braino");
   });
 
   it("moves existing display data forward without renaming machine contracts", () => {

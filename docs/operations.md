@@ -55,4 +55,4 @@ migration rolls back and leaves the application stopped rather than serving
 code against the wrong database shape.
 
 Official `v*` tags publish signed, SBOM-attested Linux AMD64 and ARM64 images at
-`ghcr.io/apacheaxcyberneticenterpriseslimitada/braino`.
+`ghcr.io/brainoinc/braino`.
