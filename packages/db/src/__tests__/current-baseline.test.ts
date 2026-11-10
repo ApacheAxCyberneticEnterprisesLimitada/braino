@@ -30,6 +30,7 @@ describe("current database baseline", () => {
     expect(migrations).toEqual([
       "001_github_operation_lease.sql",
       "002_braino_product_identity.sql",
+      "003_runtime_compatibility.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);

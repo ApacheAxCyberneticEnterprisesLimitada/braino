@@ -45,7 +45,7 @@ describe("single-workspace host", () => {
     const collections = await db.query<{ handle: string }>(
       "SELECT handle FROM collections ORDER BY handle",
     );
-    expect(collections.rows).toHaveLength(10);
+    expect(collections.rows).toHaveLength(9);
     expect(collections.rows).toContainEqual({ handle: "acme-agents-chats" });
     expect(collections.rows).toContainEqual({ handle: "acme-product-decisions" });
 

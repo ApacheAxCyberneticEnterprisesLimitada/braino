@@ -432,6 +432,18 @@ export async function setUserName(id: string, name: string): Promise<void> {
   );
 }
 
+/** Record the GitHub login GitHub just proved and release it from any account
+ * that claimed the same case-insensitive login before. */
+export async function setUserGitHubLogin(id: string, login: string): Promise<void> {
+  await withClient((client) =>
+    client.query(
+      `UPDATE users SET github_login = CASE WHEN id = $1 THEN $2 END, updated_at = now()
+        WHERE id = $1 OR lower(github_login) = lower($2)`,
+      [id, login],
+    ),
+  );
+}
+
 /** Makes a person's profile public, so anyone sees it signed out, or private again. */
 export async function setUserPublicProfile(id: string, on: boolean): Promise<void> {
   await withClient((c) =>

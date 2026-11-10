@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS passkeys (
   transports    text[] NOT NULL DEFAULT '{}',
   aaguid        text NOT NULL,
   created_at    timestamptz NOT NULL DEFAULT now(),
-  last_used_at  timestamptz
+  last_used_at  timestamptz,
+  rp_id         text
 );
 CREATE INDEX IF NOT EXISTS passkeys_user_idx ON passkeys (user_id);
 
@@ -1961,9 +1962,11 @@ CREATE TABLE IF NOT EXISTS group_chat_channels (
   joined_at        timestamptz,
   -- History backfill walks newest → oldest: Slack's `next_cursor`, the oldest
   -- message ts reached so far (the next page goes to the channel least far
-  -- back, so all channels fill newest-first together), and done.
+  -- back, so all channels fill newest-first together), the fixed upper bound
+  -- of the pass in progress, and the last completed pass.
   history_cursor   text,
   history_oldest_ts text,
+  history_until    timestamptz,
   history_done_at  timestamptz,
   created_at       timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (collection_id, channel_id)
@@ -2508,7 +2511,8 @@ CREATE TABLE IF NOT EXISTS feedback_reports (
   created_at            timestamptz NOT NULL DEFAULT now(),
   updated_at            timestamptz NOT NULL DEFAULT now(),
   reviewed_at           timestamptz,
-  reviewed_by           text REFERENCES users(id) ON DELETE SET NULL
+  reviewed_by           text REFERENCES users(id) ON DELETE SET NULL,
+  fixed_emailed_at      timestamptz
 );
 -- A report names its reporter through created_by, as they are called now; the
 -- copy of their username it kept went stale once usernames could change

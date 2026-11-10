@@ -11,6 +11,11 @@ This tree contains the supported single-workspace, self-hosted product:
 - `@doco/index` — retrieval, ranking, embeddings, and Qdrant integration
 - `@doco/web` — first-run setup, owner sign-in, workspace home, collection reader, and record authoring
 
+Each tagged release publishes the reusable packages above plus
+`@doco/connector-plugins` as immutable tarball assets beside the application
+image. Hosted Braino consumes those assets instead of carrying a second copy of
+the core implementation.
+
 The supported deployment is one application, one PostgreSQL source of truth,
 and one rebuildable Qdrant index. Core authoring, team access, deterministic
 search, MCP, generic webhooks, GitHub import, and operations work without a

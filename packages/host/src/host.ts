@@ -124,7 +124,6 @@ export async function findAvailableCollectionHandle(requestedHandle: string): Pr
 export const DEFAULT_WORKSPACE_COLLECTION_TEMPLATES = [
   "glossary",
   "ideas",
-  "product-roadmap",
   "product-decisions",
   "design-decisions",
   "architectural-decisions",

@@ -187,18 +187,22 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain("cosign sign --yes");
   });
 
-  it("publishes the versioned shared SDK beside each release image", () => {
+  it("publishes every versioned core package beside each release image", () => {
     const rootPackage = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
       version: string;
     };
-    const sharedPackage = JSON.parse(
-      readFileSync(resolve(root, "packages/shared/package.json"), "utf8"),
-    ) as { private?: boolean; version: string };
     const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
 
-    expect(sharedPackage.private).not.toBe(true);
-    expect(sharedPackage.version).toBe(rootPackage.version);
-    expect(workflow).toContain("pnpm --filter @doco/shared pack");
+    for (const name of ["shared", "db", "index", "host", "connector-plugins"]) {
+      const packageJson = JSON.parse(
+        readFileSync(resolve(root, `packages/${name}/package.json`), "utf8"),
+      ) as { name: string; private?: boolean; version: string };
+
+      expect(packageJson.private, packageJson.name).not.toBe(true);
+      expect(packageJson.version, packageJson.name).toBe(rootPackage.version);
+      expect(workflow).toContain(`pnpm --filter ${packageJson.name} pack`);
+    }
+    expect(workflow).toContain("node scripts/verify-release-packages.mjs release-packages");
     expect(workflow).toContain('gh release upload "$GITHUB_REF_NAME" release-packages/*.tgz');
     expect(workflow).not.toContain("--clobber");
   });
