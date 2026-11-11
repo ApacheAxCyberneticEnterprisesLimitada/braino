@@ -90,6 +90,7 @@ describe("self-hosted MCP core", () => {
     const brief = await createWorkspaceBrief(client(), {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
+      agentLabel: "Claude Code",
       about: "backup recovery",
       touching: ["PostgreSQL"],
     });
@@ -103,6 +104,13 @@ describe("self-hosted MCP core", () => {
       expect.objectContaining({ id: written.results[1]?.id, node_type: "rule" }),
     ]);
     expect(brief.model).toBe("none");
+    const activity = await db.query<{ source: string; metadata: Record<string, unknown> }>(
+      "SELECT source, metadata FROM query_events WHERE metadata ? 'brief_id'",
+    );
+    expect(activity.rows[0]).toEqual({
+      source: "mcp",
+      metadata: expect.objectContaining({ auth: "bearer", client: "Claude Code" }),
+    });
 
     await recordBriefFeedback(client(), {
       resultId: brief.result_id,

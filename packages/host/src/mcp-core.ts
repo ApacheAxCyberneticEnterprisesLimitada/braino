@@ -180,6 +180,7 @@ export async function createWorkspaceBrief(
   input: {
     workspaceId: string;
     userId: string;
+    agentLabel?: string | null;
     about: string;
     touching?: string[];
     limit?: number;
@@ -262,7 +263,16 @@ export async function createWorkspaceBrief(
   await client.query(
     `INSERT INTO query_events (actor, workspace_id, source, metadata)
      VALUES ($1, $2, 'mcp', $3::jsonb)`,
-    [input.userId, input.workspaceId, JSON.stringify({ brief_id: briefId, touching })],
+    [
+      input.userId,
+      input.workspaceId,
+      JSON.stringify({
+        auth: "bearer",
+        client: input.agentLabel?.trim() || "MCP client",
+        brief_id: briefId,
+        touching,
+      }),
+    ],
   );
   await client.query(
     `INSERT INTO agent_results
