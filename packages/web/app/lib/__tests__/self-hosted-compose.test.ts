@@ -43,7 +43,7 @@ fi
         FAKE_APP_IMAGE: image,
         DOCO_ENCRYPTION_KEY: "test-encryption-key-with-thirty-two-characters",
         DOCO_POSTGRES_PASSWORD: "test-postgres-password",
-        DOCO_SETUP_TOKEN: "test-setup-token",
+        BRAINO_SETUP_TOKEN: "test-setup-token",
       },
     });
     return { ...result, calls: readFileSync(log, "utf8") };
@@ -85,7 +85,7 @@ describe("the supported self-hosted stack", () => {
 
     expect(env).toContain("DOCO_ENCRYPTION_KEY=");
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
-    expect(env).toContain("DOCO_SETUP_TOKEN=");
+    expect(env).toContain("BRAINO_SETUP_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
     expect(dockerfile).toContain("USER node");
     expect(dockerignore).toContain(".env*");
