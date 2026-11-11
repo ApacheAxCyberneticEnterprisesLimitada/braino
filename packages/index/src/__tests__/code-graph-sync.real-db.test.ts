@@ -384,10 +384,10 @@ describe("configured code graph client", () => {
   it("is optional but rejects half-configured service credentials", () => {
     expect(configuredCodeGraphClient({})).toBeNull();
     expect(() =>
-      configuredCodeGraphClient({ DOCO_CODE_GRAPH_URL: "https://graph.example" }),
-    ).toThrow(/DOCO_CODE_GRAPH_API_TOKEN/);
-    expect(() => configuredCodeGraphClient({ DOCO_CODE_GRAPH_API_TOKEN: "secret" })).toThrow(
-      /DOCO_CODE_GRAPH_URL/,
+      configuredCodeGraphClient({ BRAINO_CODELINKER_URL: "https://graph.example" }),
+    ).toThrow(/BRAINO_CODELINKER_API_TOKEN/);
+    expect(() => configuredCodeGraphClient({ BRAINO_CODELINKER_API_TOKEN: "secret" })).toThrow(
+      /BRAINO_CODELINKER_URL/,
     );
   });
 

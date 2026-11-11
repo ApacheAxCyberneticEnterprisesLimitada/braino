@@ -27,6 +27,7 @@ interface DeploymentStatus {
   publicHost: string;
   postgres: "Connected";
   qdrant: "Configured" | "Not configured";
+  codeLinker: "Configured" | "Not configured";
   search: string;
   transport: "HTTPS" | "Loopback HTTP" | "HTTP";
 }
@@ -62,6 +63,10 @@ function deploymentStatus(request: Request): DeploymentStatus {
     publicHost,
     postgres: "Connected",
     qdrant: process.env.QDRANT_URL?.trim() ? "Configured" : "Not configured",
+    codeLinker:
+      process.env.BRAINO_CODELINKER_URL?.trim() && process.env.BRAINO_CODELINKER_API_TOKEN?.trim()
+        ? "Configured"
+        : "Not configured",
     search:
       embeddingProvider === "none" || (!embeddingProvider && !hasEmbeddingKey)
         ? "Keyword search"
@@ -413,6 +418,7 @@ export default function AdminPage() {
                 <StatusRow label="Public URL" value={deployment.publicHost} />
                 <StatusRow label="PostgreSQL" value={deployment.postgres} />
                 <StatusRow label="Qdrant" value={deployment.qdrant} />
+                <StatusRow label="CodeLinker" value={deployment.codeLinker} />
                 <StatusRow label="Search" value={deployment.search} />
                 <StatusRow label="Transport" value={deployment.transport} />
               </dl>

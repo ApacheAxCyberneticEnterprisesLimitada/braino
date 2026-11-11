@@ -43,34 +43,58 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Resolve the Braino image name
+      - name: Resolve the Braino image names
         run: |
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino"
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
-      - id: metadata
+          APP_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino"
+          CODELINKER_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino-codelinker"
+          echo "APP_IMAGE=$APP_IMAGE" >> "$GITHUB_ENV"
+          echo "CODELINKER_IMAGE=$CODELINKER_IMAGE" >> "$GITHUB_ENV"
+      - id: app_metadata
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
-          images: ${{ env.IMAGE }}
+          images: ${{ env.APP_IMAGE }}
           tags: |
             type=ref,event=tag
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-      - id: build
+      - id: app_build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ${{ steps.metadata.outputs.tags }}
-          labels: ${{ steps.metadata.outputs.labels }}
+          tags: ${{ steps.app_metadata.outputs.tags }}
+          labels: ${{ steps.app_metadata.outputs.labels }}
           build-args: DOCO_VERSION=${{ github.ref_name }}
           provenance: mode=max
           sbom: true
+      - id: codelinker_metadata
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.CODELINKER_IMAGE }}
+          tags: |
+            type=ref,event=tag
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+      - id: codelinker_build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: services/codelinker/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.codelinker_metadata.outputs.tags }}
+          labels: ${{ steps.codelinker_metadata.outputs.labels }}
+          provenance: mode=max
+          sbom: true
       - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
-      - name: Sign the immutable image digest
+      - name: Sign the immutable image digests
         env:
-          DIGEST: ${{ steps.build.outputs.digest }}
-        run: cosign sign --yes "${IMAGE}@${DIGEST}"
+          APP_DIGEST: ${{ steps.app_build.outputs.digest }}
+          CODELINKER_DIGEST: ${{ steps.codelinker_build.outputs.digest }}
+        run: |
+          cosign sign --yes "${APP_IMAGE}@${APP_DIGEST}"
+          cosign sign --yes "${CODELINKER_IMAGE}@${CODELINKER_DIGEST}"
       - name: Publish the Braino release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -23,5 +23,6 @@ export default [
     "routes/$collectionHandle.api.changesets[.]json.ts",
   ),
   route(":collectionHandle", "routes/$collectionHandle.tsx"),
+  route(":collectionHandle/code/*", "routes/$collectionHandle.code.$.tsx"),
   route(":collectionHandle/:nodeId", "routes/$collectionHandle.$nodeId.tsx"),
 ] satisfies RouteConfig;

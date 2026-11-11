@@ -5,6 +5,7 @@
     "ignore": [
       "dist",
       "build",
+      "target",
       ".react-router",
       "node_modules",
       "*.md",

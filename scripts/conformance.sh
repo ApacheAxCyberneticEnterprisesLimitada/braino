@@ -37,6 +37,7 @@ started_at=$(date +%s)
 runtime=$(mktemp -d "${TMPDIR:-/tmp}/doco-conformance.XXXXXX")
 project="doco-conformance-$$"
 image="doco:conformance-$$"
+codelinker_image="braino-codelinker:conformance-$$"
 port=${DOCO_CONFORMANCE_PORT:-3210}
 
 cleanup() {
@@ -46,6 +47,7 @@ cleanup() {
       docker compose down -v --remove-orphans >/dev/null 2>&1 || true
     )
     docker image rm "$image" >/dev/null 2>&1 || true
+    docker image rm "$codelinker_image" >/dev/null 2>&1 || true
     find "$runtime" -mindepth 1 -delete
     rmdir "$runtime"
   fi
@@ -57,19 +59,25 @@ cd "$runtime"
 
 export COMPOSE_PROJECT_NAME="$project"
 export DOCO_IMAGE="$image"
+export BRAINO_CODELINKER_IMAGE="$codelinker_image"
 export DOCO_POSTGRES_PASSWORD="conformance-postgres-$project"
 export DOCO_ENCRYPTION_KEY="conformance-encryption-key-$project-000000000000"
 export BRAINO_SETUP_TOKEN="conformance-setup-token-$project-000000000000000"
+export BRAINO_CODELINKER_API_TOKEN="conformance-codelinker-token-$project-000000000000"
 export DOCO_HTTP_PORT="$port"
 export DOCO_PUBLIC_HOST="http://localhost:$port"
 
-docker compose build app
+docker compose build app codelinker
 if [[ "${DOCO_CONFORMANCE_PRUNE_BUILD_CACHE:-}" == "1" ]]; then
   docker builder prune --force >/dev/null
 fi
 docker compose up -d --wait
 origin="http://localhost:$port"
 curl --fail --silent --show-error "$origin/healthz" >/dev/null
+docker compose exec -T app node --input-type=module -e '
+  const response = await fetch("http://codelinker:8080/healthz");
+  if (!response.ok) process.exit(1);
+'
 
 cookies="$runtime/cookies.txt"
 curl --fail --silent --show-error -c "$cookies" "$origin/" >/dev/null

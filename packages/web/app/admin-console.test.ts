@@ -23,6 +23,9 @@ describe("open Braino administration", () => {
     expect(admin).toContain("Agents and MCP");
     expect(admin).toContain("Deployment");
     expect(admin).toContain("Operations");
+    expect(admin).toContain("CodeLinker");
+    expect(admin).toContain("BRAINO_CODELINKER_URL");
+    expect(admin).toContain("BRAINO_CODELINKER_API_TOKEN");
     expect(admin).toContain('to="/collaborators"');
     expect(admin).toContain('to="/integrations"');
     expect(admin).toContain('to="/mcp-tokens"');

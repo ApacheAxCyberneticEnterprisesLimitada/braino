@@ -31,11 +31,11 @@ doctor() {
   echo "Doco configuration is valid."
 }
 
-application_image() {
-  compose config --format json | awk '
-    /^    "app": \{$/ { app = 1; next }
-    app && /^    \}/ { exit }
-    app && /^      "image": "/ {
+service_image() {
+  compose config --format json | awk -v service="$1" '
+    $0 == "    \"" service "\": {" { found = 1; next }
+    found && /^    \},?$/ { exit }
+    found && /^      "image": "/ {
       image = $0
       sub(/^      "image": "/, "", image)
       sub(/",?$/, "", image)
@@ -67,12 +67,14 @@ backup() {
 
   if [[ -f .env ]]; then
     cp .env "$working_directory/doco.env"
-  elif [[ -n "${DOCO_ENCRYPTION_KEY:-}" && -n "${DOCO_POSTGRES_PASSWORD:-}" && -n "${BRAINO_SETUP_TOKEN:-}" ]]; then
+  elif [[ -n "${DOCO_ENCRYPTION_KEY:-}" && -n "${DOCO_POSTGRES_PASSWORD:-}" && -n "${BRAINO_SETUP_TOKEN:-}" && -n "${BRAINO_CODELINKER_API_TOKEN:-}" ]]; then
     {
       printf 'DOCO_ENCRYPTION_KEY=%s\n' "$DOCO_ENCRYPTION_KEY"
       printf 'DOCO_POSTGRES_PASSWORD=%s\n' "$DOCO_POSTGRES_PASSWORD"
       printf 'BRAINO_SETUP_TOKEN=%s\n' "$BRAINO_SETUP_TOKEN"
+      printf 'BRAINO_CODELINKER_API_TOKEN=%s\n' "$BRAINO_CODELINKER_API_TOKEN"
       [[ -z "${DOCO_IMAGE:-}" ]] || printf 'DOCO_IMAGE=%s\n' "$DOCO_IMAGE"
+      [[ -z "${BRAINO_CODELINKER_IMAGE:-}" ]] || printf 'BRAINO_CODELINKER_IMAGE=%s\n' "$BRAINO_CODELINKER_IMAGE"
       [[ -z "${DOCO_PUBLIC_HOST:-}" ]] || printf 'DOCO_PUBLIC_HOST=%s\n' "$DOCO_PUBLIC_HOST"
       [[ -z "${DOCO_HTTP_PORT:-}" ]] || printf 'DOCO_HTTP_PORT=%s\n' "$DOCO_HTTP_PORT"
       [[ -z "${DOCO_HOST:-}" ]] || printf 'DOCO_HOST=%s\n' "$DOCO_HOST"
@@ -118,7 +120,7 @@ restore() {
   fi
 
   doctor >/dev/null
-  compose stop app qdrant >/dev/null 2>&1 || true
+  compose stop app codelinker qdrant >/dev/null 2>&1 || true
   compose up -d --wait postgres >/dev/null
   compose exec -T postgres psql \
     --username doco \
@@ -147,17 +149,20 @@ restore() {
 
 upgrade() {
   doctor >/dev/null
-  local configured_image
-  configured_image=$(application_image)
+  local configured_image configured_codelinker_image
+  configured_image=$(service_image app)
+  configured_codelinker_image=$(service_image codelinker)
   [[ -n "$configured_image" ]] || fail "Could not resolve the application image from Compose."
-  [[ "$configured_image" != "doco:local" ]] || fail "Set DOCO_IMAGE to a released ghcr.io/docoinc/doco tag before upgrading."
+  [[ -n "$configured_codelinker_image" ]] || fail "Could not resolve the CodeLinker image from Compose."
+  [[ "$configured_image" != "doco:local" ]] || fail "Set DOCO_IMAGE to a released ghcr.io/brainoinc/braino tag before upgrading."
+  [[ "$configured_codelinker_image" != "braino-codelinker:local" ]] || fail "Set BRAINO_CODELINKER_IMAGE to a released ghcr.io/brainoinc/braino-codelinker tag before upgrading."
 
   backup "${1:-backups/pre-upgrade-$(date -u +%Y%m%dT%H%M%SZ).tar.gz}"
   compose pull
   compose stop app
   compose run --rm --no-deps app node node_modules/@doco/db/dist/migrate.js
   compose up -d --wait
-  echo "Upgrade completed with $configured_image"
+  echo "Upgrade completed with $configured_image and $configured_codelinker_image"
 }
 
 help_text() {

@@ -66,7 +66,7 @@ function fakeGithub(capture: {
       capture.webhookUrl = body.config.url;
       expect(body).toMatchObject({
         config: { content_type: "json", insecure_ssl: "0" },
-        events: ["issues", "pull_request"],
+        events: ["issues", "pull_request", "push"],
         active: true,
       });
       return Response.json({ id: 4242, active: true }, { status: 201 });
@@ -110,6 +110,18 @@ function fakeGithub(capture: {
           base: { ref: "main" },
         },
       ]);
+    }
+    if (url.pathname === "/repos/acme/widgets/git/trees/main") {
+      return Response.json({
+        truncated: false,
+        tree: [{ path: "src/index.ts", type: "blob", sha: "code-sha", size: 24 }],
+      });
+    }
+    if (url.pathname === "/repos/acme/widgets/git/blobs/code-sha") {
+      return Response.json({
+        encoding: "base64",
+        content: Buffer.from("export const ready = true;\n").toString("base64"),
+      });
     }
     return new Response("not found", { status: 404 });
   }) as typeof fetch;
