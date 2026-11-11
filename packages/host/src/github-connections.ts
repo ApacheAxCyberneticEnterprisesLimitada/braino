@@ -7,6 +7,12 @@ import {
   nodeRowFromFields,
   upsertNode,
 } from "@doco/db";
+import {
+  type CodeGraphClient,
+  configuredCodeGraphClient,
+  syncCodeGraphCollection,
+  syncCodeGraphRepository,
+} from "@doco/index";
 import { generateUlid, makeEntityId } from "@doco/shared";
 import type { ClientScope } from "./client-scope.js";
 import { createCollectionInWorkspace } from "./host.js";
@@ -18,6 +24,8 @@ const GITHUB_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_GITHUB_PAGE_BYTES = 10 * 1024 * 1024;
 const MAX_GITHUB_SNAPSHOT_BYTES = 128 * 1024 * 1024;
 const MAX_GITHUB_ITEMS = 10_000;
+const MAX_CODE_FILE_BYTES = 200_000;
+const GITHUB_BLOB_CONCURRENCY = 20;
 
 export class GithubConnectionError extends Error {
   constructor(
@@ -35,6 +43,7 @@ export interface GithubConnectionSummary {
   repository: string;
   issuesCollectionHandle: string;
   pullRequestsCollectionHandle: string;
+  codeCollectionHandle: string;
   active: boolean;
   lastSyncedAt: string | null;
   lastError: string | null;
@@ -52,6 +61,7 @@ interface ConnectionRow {
   token_sealed: string | null;
   issues_collection_id: string;
   pull_requests_collection_id: string;
+  code_collection_id: string;
   created_by_user_id: string;
   active: boolean;
   webhook_id: string | number | null;
@@ -235,7 +245,7 @@ async function githubJson(
   if (!response.ok) {
     const message =
       response.status === 401 || response.status === 403
-        ? "GitHub rejected the token. Grant Metadata, Issues, and Pull requests read access."
+        ? "GitHub rejected the token. Grant Metadata, Contents, Issues, and Pull requests read access."
         : `GitHub returned ${response.status} while reading the repository.`;
     throw new GithubConnectionError(message, "github_request_failed", 502);
   }
@@ -293,7 +303,7 @@ async function verifyRepository(
   fetcher: Fetcher,
   repository: string,
   accessToken: string,
-): Promise<void> {
+): Promise<string> {
   const { value } = await githubJson(fetcher, `${API}/repos/${repository}`, accessToken);
   const fullName = (value as { full_name?: unknown })?.full_name;
   if (typeof fullName !== "string" || fullName.toLowerCase() !== repository) {
@@ -303,6 +313,15 @@ async function verifyRepository(
       502,
     );
   }
+  const defaultBranch = (value as { default_branch?: unknown })?.default_branch;
+  if (typeof defaultBranch !== "string" || !defaultBranch.trim()) {
+    throw new GithubConnectionError(
+      "GitHub returned no default branch for this repository.",
+      "github_response_invalid",
+      502,
+    );
+  }
+  return defaultBranch;
 }
 
 async function existingCollection(
@@ -326,7 +345,7 @@ async function ensureCollection(
     workspaceId: string;
     workspaceHandle: string;
     userId: string;
-    templateHandle: "github-issues" | "github-pull-requests";
+    templateHandle: "github-issues" | "github-pull-requests" | "codebase";
   },
 ): Promise<{ collectionId: string; handle: string }> {
   return (
@@ -349,6 +368,7 @@ async function summary(client: PoolClient, connectionId: string): Promise<Github
     repository: string;
     issues_handle: string;
     pulls_handle: string;
+    code_handle: string;
     active: boolean;
     last_synced_at: Date | string | null;
     last_error: string | null;
@@ -357,11 +377,13 @@ async function summary(client: PoolClient, connectionId: string): Promise<Github
     webhook_last_delivery_at: Date | string | null;
   }>(
     `SELECT g.id, g.repository, i.handle AS issues_handle, p.handle AS pulls_handle,
+            c.handle AS code_handle,
             g.active, g.last_synced_at, g.last_error, g.webhook_id, g.webhook_url,
             g.webhook_last_delivery_at
        FROM github_connections g
        JOIN collections i ON i.id = g.issues_collection_id
        JOIN collections p ON p.id = g.pull_requests_collection_id
+       JOIN collections c ON c.id = g.code_collection_id
       WHERE g.id = $1`,
     [connectionId],
   );
@@ -373,6 +395,7 @@ async function summary(client: PoolClient, connectionId: string): Promise<Github
     repository: row.repository,
     issuesCollectionHandle: row.issues_handle,
     pullRequestsCollectionHandle: row.pulls_handle,
+    codeCollectionHandle: row.code_handle,
     active: row.active,
     lastSyncedAt: row.last_synced_at ? new Date(row.last_synced_at).toISOString() : null,
     lastError: row.last_error,
@@ -481,7 +504,7 @@ export async function configureGithubWebhook(
         secret: webhookSecret,
         insecure_ssl: "0",
       },
-      events: ["issues", "pull_request"],
+      events: ["issues", "pull_request", "push"],
       active: true,
     };
     const remote = (await githubMutation(
@@ -636,7 +659,7 @@ export async function deliverGithubWebhook(
   });
   if ("replay" in reservation) return reservation.replay;
   try {
-    const supported = event === "issues" || event === "pull_request";
+    const supported = event === "issues" || event === "pull_request" || event === "push";
     const synced = supported
       ? await syncGithubConnection(withClient, {
           connectionId: reservation.connectionId,
@@ -738,12 +761,30 @@ export async function connectGithubRepository(
         userId: input.userId,
         templateHandle: "github-pull-requests",
       });
+      const code = await ensureCollection(client, {
+        workspaceId: input.workspaceId,
+        workspaceHandle,
+        userId: input.userId,
+        templateHandle: "codebase",
+      });
+      await client.query(
+        `UPDATE collections
+            SET data = jsonb_set(
+              data || '{"github_integration": {}}'::jsonb,
+              '{github_integration,connections}',
+              jsonb_build_array(jsonb_build_object('repo', $2::text)),
+              true
+            ),
+                updated_at = now()
+          WHERE id = $1`,
+        [code.collectionId, repository],
+      );
       const id = `github_${generateUlid()}`;
       await client.query(
         `INSERT INTO github_connections
            (id, workspace_id, repository, token_sealed, issues_collection_id,
-            pull_requests_collection_id, created_by_user_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            pull_requests_collection_id, code_collection_id, created_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           id,
           input.workspaceId,
@@ -751,6 +792,7 @@ export async function connectGithubRepository(
           tokenSealed,
           issues.collectionId,
           pulls.collectionId,
+          code.collectionId,
           input.userId,
         ],
       );
@@ -869,6 +911,177 @@ async function fetchPages(
       422,
     );
   return items;
+}
+
+interface GithubTreeEntry {
+  path?: unknown;
+  type?: unknown;
+  sha?: unknown;
+  size?: unknown;
+}
+
+interface CodeFileSnapshot {
+  path: string;
+  sha: string;
+  size: number;
+  content: string;
+  omitted: "binary" | "too_large" | "unavailable" | null;
+}
+
+interface CodeSnapshot {
+  paths: string[];
+  changed: CodeFileSnapshot[];
+}
+
+async function storedCodeShas(
+  withClient: ClientScope,
+  collectionId: string,
+  repository: string,
+): Promise<Map<string, string>> {
+  return withClient(async (client) => {
+    const found = await client.query<{ path: string; sha: string }>(
+      "SELECT path, sha FROM code_files WHERE collection_id = $1 AND repo = $2",
+      [collectionId, repository],
+    );
+    return new Map(found.rows.map((row) => [row.path, row.sha]));
+  });
+}
+
+function decodedBlob(value: unknown, path: string): { content: string; omitted: "binary" | null } {
+  if (!value || typeof value !== "object") {
+    throw new GithubConnectionError(
+      "GitHub returned an invalid code blob.",
+      "github_response_invalid",
+      502,
+    );
+  }
+  const blob = value as { encoding?: unknown; content?: unknown };
+  if (blob.encoding !== "base64" || typeof blob.content !== "string") {
+    throw new GithubConnectionError(
+      "GitHub returned an invalid code blob.",
+      "github_response_invalid",
+      502,
+    );
+  }
+  const bytes = Buffer.from(blob.content.replaceAll(/\s/g, ""), "base64");
+  if (bytes.includes(0)) return { content: "", omitted: "binary" };
+  try {
+    return {
+      content: new TextDecoder("utf-8", { fatal: true }).decode(bytes).replaceAll("\u0000", ""),
+      omitted: null,
+    };
+  } catch {
+    console.info(`[github] keeping binary file by name only: ${path}`);
+    return { content: "", omitted: "binary" };
+  }
+}
+
+async function fetchCodeSnapshot(
+  fetcher: Fetcher,
+  repository: string,
+  accessToken: string,
+  stored: Map<string, string>,
+): Promise<CodeSnapshot> {
+  const defaultBranch = await verifyRepository(fetcher, repository, accessToken);
+  const { value } = await githubJson(
+    fetcher,
+    `${API}/repos/${repository}/git/trees/${encodeURIComponent(defaultBranch)}?recursive=1`,
+    accessToken,
+  );
+  const tree = value as { truncated?: unknown; tree?: unknown };
+  if (!tree || tree.truncated === true || !Array.isArray(tree.tree)) {
+    throw new GithubConnectionError(
+      "GitHub could not provide a complete repository tree.",
+      "github_tree_incomplete",
+      422,
+    );
+  }
+  const files = (tree.tree as GithubTreeEntry[])
+    .filter((entry) => entry.type === "blob")
+    .map((entry) => {
+      if (
+        typeof entry.path !== "string" ||
+        typeof entry.sha !== "string" ||
+        typeof entry.size !== "number" ||
+        !Number.isInteger(entry.size) ||
+        entry.size < 0
+      ) {
+        throw new GithubConnectionError(
+          "GitHub returned an invalid repository tree.",
+          "github_response_invalid",
+          502,
+        );
+      }
+      return { path: entry.path, sha: entry.sha, size: entry.size };
+    });
+  if (files.length > MAX_GITHUB_ITEMS) {
+    throw new GithubConnectionError(
+      "GitHub repository exceeded 10,000 files.",
+      "github_too_large",
+      422,
+    );
+  }
+
+  const changed: CodeFileSnapshot[] = [];
+  const pending = files.filter((file) => stored.get(file.path) !== file.sha);
+  for (let offset = 0; offset < pending.length; offset += GITHUB_BLOB_CONCURRENCY) {
+    const batch = pending.slice(offset, offset + GITHUB_BLOB_CONCURRENCY);
+    const rows = await Promise.all(
+      batch.map(async (file): Promise<CodeFileSnapshot> => {
+        if (file.size > MAX_CODE_FILE_BYTES) {
+          return { ...file, content: "", omitted: "too_large" };
+        }
+        try {
+          const blob = await githubJson(
+            fetcher,
+            `${API}/repos/${repository}/git/blobs/${file.sha}`,
+            accessToken,
+          );
+          return { ...file, ...decodedBlob(blob.value, file.path) };
+        } catch (error) {
+          if (error instanceof GithubConnectionError) throw error;
+          return { ...file, content: "", omitted: "unavailable" };
+        }
+      }),
+    );
+    changed.push(...rows);
+  }
+  return { paths: files.map((file) => file.path), changed };
+}
+
+async function applyCodeSnapshot(
+  client: PoolClient,
+  connection: ConnectionRow,
+  snapshot: CodeSnapshot,
+): Promise<void> {
+  if (snapshot.changed.length > 0) {
+    await client.query(
+      `INSERT INTO code_files (collection_id, repo, path, sha, size, content, omitted, synced_at)
+       SELECT $1, $2, files.path, files.sha, files.size, files.content, files.omitted, now()
+         FROM unnest($3::text[], $4::text[], $5::int[], $6::text[], $7::text[])
+              AS files(path, sha, size, content, omitted)
+       ON CONFLICT (collection_id, repo, path) DO UPDATE
+          SET sha = EXCLUDED.sha,
+              size = EXCLUDED.size,
+              content = EXCLUDED.content,
+              omitted = EXCLUDED.omitted,
+              synced_at = EXCLUDED.synced_at`,
+      [
+        connection.code_collection_id,
+        connection.repository,
+        snapshot.changed.map((file) => file.path),
+        snapshot.changed.map((file) => file.sha),
+        snapshot.changed.map((file) => file.size),
+        snapshot.changed.map((file) => file.content),
+        snapshot.changed.map((file) => file.omitted),
+      ],
+    );
+  }
+  await client.query(
+    `DELETE FROM code_files
+      WHERE collection_id = $1 AND repo = $2 AND NOT (path = ANY($3::text[]))`,
+    [connection.code_collection_id, connection.repository, snapshot.paths],
+  );
 }
 
 function labels(item: GithubItem): string[] {
@@ -1052,7 +1265,13 @@ async function importItems(
 
 export async function syncGithubConnection(
   withClient: ClientScope,
-  input: { connectionId: string; encryptionKey: string; userId?: string; fetcher?: Fetcher },
+  input: {
+    connectionId: string;
+    encryptionKey: string;
+    userId?: string;
+    fetcher?: Fetcher;
+    codeGraphClient?: CodeGraphClient | null;
+  },
 ): Promise<{ created: number; updated: number; unchanged: number }> {
   const claimed = await claimGithubOperation(withClient, {
     connectionId: input.connectionId,
@@ -1061,7 +1280,12 @@ export async function syncGithubConnection(
   try {
     const accessToken = openSecret(claimed.connection.token_sealed, input.encryptionKey);
     const fetcher = input.fetcher ?? fetch;
-    const [issues, pulls] = await Promise.all([
+    const stored = await storedCodeShas(
+      withClient,
+      claimed.connection.code_collection_id,
+      claimed.connection.repository,
+    );
+    const [issues, pulls, codeSnapshot] = await Promise.all([
       fetchPages(
         fetcher,
         `${API}/repos/${claimed.connection.repository}/issues?state=all&per_page=100`,
@@ -1072,8 +1296,9 @@ export async function syncGithubConnection(
         `${API}/repos/${claimed.connection.repository}/pulls?state=all&per_page=100`,
         accessToken,
       ),
+      fetchCodeSnapshot(fetcher, claimed.connection.repository, accessToken, stored),
     ]);
-    return await withClient(async (client) => {
+    const result = await withClient(async (client) => {
       await client.query("BEGIN");
       try {
         const locked = await client.query<ConnectionRow>(
@@ -1113,13 +1338,7 @@ export async function syncGithubConnection(
           pulls,
           pullFields,
         );
-        await client.query(
-          `UPDATE github_connections
-              SET last_synced_at = now(), last_error = NULL,
-                  sync_token = NULL, sync_started_at = NULL
-            WHERE id = $1 AND sync_token = $2`,
-          [current.id, claimed.syncToken],
-        );
+        await applyCodeSnapshot(client, current, codeSnapshot);
         await client.query("COMMIT");
         return {
           created: issueResult.created + pullResult.created,
@@ -1131,6 +1350,39 @@ export async function syncGithubConnection(
         throw error;
       }
     });
+    const codeGraphClient =
+      input.codeGraphClient === undefined ? configuredCodeGraphClient() : input.codeGraphClient;
+    if (codeGraphClient) {
+      await withClient(async (client) => {
+        await syncCodeGraphRepository(client, {
+          collectionId: claimed.connection.code_collection_id,
+          repo: claimed.connection.repository,
+          client: codeGraphClient,
+        });
+        await syncCodeGraphCollection(client, {
+          collectionId: claimed.connection.code_collection_id,
+          client: codeGraphClient,
+        });
+      });
+    }
+    await withClient(async (client) => {
+      const finalized = await client.query(
+        `UPDATE github_connections
+            SET last_synced_at = now(), last_error = NULL,
+                sync_token = NULL, sync_started_at = NULL
+          WHERE id = $1 AND sync_token = $2
+        RETURNING id`,
+        [claimed.connection.id, claimed.syncToken],
+      );
+      if (!finalized.rows[0]) {
+        throw new GithubConnectionError(
+          "This GitHub operation was superseded by a newer run.",
+          "sync_superseded",
+          409,
+        );
+      }
+    });
+    return result;
   } catch (error) {
     await failGithubOperation(withClient, claimed, error);
     throw error;

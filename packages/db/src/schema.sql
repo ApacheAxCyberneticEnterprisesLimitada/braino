@@ -1594,6 +1594,7 @@ CREATE TABLE IF NOT EXISTS github_connections (
   token_sealed                 text,
   issues_collection_id         text NOT NULL REFERENCES collections(id),
   pull_requests_collection_id  text NOT NULL REFERENCES collections(id),
+  code_collection_id           text NOT NULL REFERENCES collections(id),
   created_by_user_id           text NOT NULL REFERENCES users(id),
   active                       boolean NOT NULL DEFAULT true,
   created_at                   timestamptz NOT NULL DEFAULT now(),

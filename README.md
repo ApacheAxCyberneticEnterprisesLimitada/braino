@@ -16,8 +16,8 @@ Each tagged release publishes the reusable packages above plus
 image. Hosted Braino consumes those assets instead of carrying a second copy of
 the core implementation.
 
-The supported deployment is one application, one PostgreSQL source of truth,
-and one rebuildable Qdrant index. Core authoring, team access, deterministic
+The supported deployment is one application, one stateless CodeLinker service,
+one PostgreSQL source of truth, and one rebuildable Qdrant index. Core authoring, team access, deterministic
 search, MCP, generic webhooks, GitHub import, and operations work without a
 model provider.
 
@@ -25,7 +25,7 @@ model provider.
 
 ```sh
 cp .env.example .env
-# Fill all three secrets in .env with independent `openssl rand -base64 32` values.
+# Fill all four secrets in .env with independent `openssl rand -base64 32` values.
 docker compose up -d --build
 curl --fail http://localhost:3000/healthz
 ```
@@ -74,12 +74,12 @@ and text files while ignoring binary files.
 
 Owners can also connect one GitHub repository from **Integrations** with a
 fine-grained personal access token scoped to that repository. Grant read access
-to Metadata, Issues, and Pull requests, plus Webhooks write access. Braino
+to Metadata, Contents, Issues, and Pull requests, plus Webhooks write access. Braino
 encrypts the token with `DOCO_ENCRYPTION_KEY`, imports into dedicated GitHub
-issues and pull-request collections, and records every source change in the
+codebase, issue, and pull-request collections, and records every source change in the
 same immutable history. When `DOCO_PUBLIC_HOST` is public HTTPS, Braino registers
 a signed repository webhook and refreshes automatically on issue and pull
-request events; delivery IDs make retries idempotent. **Sync now** remains the
+request and push events; delivery IDs make retries idempotent. **Sync now** remains the
 fallback, and unchanged items do not create versions.
 
 ## Operations
@@ -95,8 +95,9 @@ upgrade commands:
 ```
 
 PostgreSQL is the source of truth; Qdrant is cleared and rebuilt after a
-restore. Backups include deployment configuration and are written with mode
-`0600`. See [Operating Braino](docs/operations.md) for the full procedure.
+restore, while the stateless CodeLinker needs no backup. Backups include
+deployment configuration and are written with mode `0600`. See
+[Operating Braino](docs/operations.md) for the full procedure.
 
 The executable [v0.1 conformance contract](docs/v0.1-conformance.md) covers a
 clean Docker boot in under ten minutes, the core product surfaces, and a

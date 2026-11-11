@@ -97,7 +97,7 @@ function positiveInteger(value: string | undefined, fallback: number, name: stri
 function graphUrl(value: string): string {
   const parsed = new URL(value);
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new Error("DOCO_CODE_GRAPH_URL must use http or https");
+    throw new Error("BRAINO_CODELINKER_URL must use http or https");
   }
   return parsed.toString().replace(/\/$/, "");
 }
@@ -250,7 +250,7 @@ function repositoryLinksOutput(
 }
 
 export class HttpCodeGraphClient implements CodeGraphClient {
-  readonly id = "code-graph:tree-sitter-v1";
+  readonly id = "codelinker:tree-sitter-v1";
   readonly #url: string;
   readonly #apiToken: string;
   readonly #timeoutMs: number;
@@ -258,7 +258,7 @@ export class HttpCodeGraphClient implements CodeGraphClient {
   constructor(options: { url: string; apiToken: string; timeoutMs?: number }) {
     this.#url = graphUrl(options.url);
     this.#apiToken = options.apiToken.trim();
-    if (!this.#apiToken) throw new Error("DOCO_CODE_GRAPH_API_TOKEN cannot be blank");
+    if (!this.#apiToken) throw new Error("BRAINO_CODELINKER_API_TOKEN cannot be blank");
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
@@ -300,20 +300,20 @@ export class HttpCodeGraphClient implements CodeGraphClient {
 export function configuredCodeGraphClient(
   env: Record<string, string | undefined> = process.env,
 ): CodeGraphClient | null {
-  const url = env.DOCO_CODE_GRAPH_URL?.trim();
-  const apiToken = env.DOCO_CODE_GRAPH_API_TOKEN?.trim();
+  const url = env.BRAINO_CODELINKER_URL?.trim();
+  const apiToken = env.BRAINO_CODELINKER_API_TOKEN?.trim();
   if (!url && !apiToken) return null;
-  if (!url) throw new Error("DOCO_CODE_GRAPH_URL is required when code graph sync is configured");
+  if (!url) throw new Error("BRAINO_CODELINKER_URL is required when CodeLinker is configured");
   if (!apiToken) {
-    throw new Error("DOCO_CODE_GRAPH_API_TOKEN is required when code graph sync is configured");
+    throw new Error("BRAINO_CODELINKER_API_TOKEN is required when CodeLinker is configured");
   }
   return new HttpCodeGraphClient({
     url,
     apiToken,
     timeoutMs: positiveInteger(
-      env.DOCO_CODE_GRAPH_TIMEOUT_MS,
+      env.BRAINO_CODELINKER_TIMEOUT_MS,
       DEFAULT_TIMEOUT_MS,
-      "DOCO_CODE_GRAPH_TIMEOUT_MS",
+      "BRAINO_CODELINKER_TIMEOUT_MS",
     ),
   });
 }

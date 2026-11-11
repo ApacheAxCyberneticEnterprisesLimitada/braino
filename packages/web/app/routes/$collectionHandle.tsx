@@ -24,6 +24,9 @@ export async function loader({
   if (!user) throw redirect("/");
   const collection = await getCollectionForUser(params.collectionHandle ?? "", user.id);
   if (!collection) throw new Response("Collection not found", { status: 404 });
+  if (collection.template_handle === "codebase") {
+    throw redirect(`/${collection.handle}/code`);
+  }
   const data = await withClient(async (client) => {
     const nodes = await client.query<CollectionNode>(
       `SELECT id, node_type,

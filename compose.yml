@@ -15,9 +15,13 @@ services:
       BRAINO_SETUP_TOKEN: ${BRAINO_SETUP_TOKEN:?set BRAINO_SETUP_TOKEN in .env}
       DOCO_PUBLIC_HOST: ${DOCO_PUBLIC_HOST:-http://localhost:3000}
       QDRANT_URL: http://qdrant:6333
+      BRAINO_CODELINKER_URL: http://codelinker:8080
+      BRAINO_CODELINKER_API_TOKEN: ${BRAINO_CODELINKER_API_TOKEN:?set BRAINO_CODELINKER_API_TOKEN in .env}
     ports:
       - "127.0.0.1:${DOCO_HTTP_PORT:-3000}:3000"
     depends_on:
+      codelinker:
+        condition: service_healthy
       postgres:
         condition: service_healthy
       qdrant:
@@ -27,6 +31,33 @@ services:
       interval: 15s
       timeout: 10s
       start_period: 30s
+      retries: 4
+    networks: [private]
+
+  codelinker:
+    image: ${BRAINO_CODELINKER_IMAGE:-braino-codelinker:local}
+    build:
+      context: .
+      dockerfile: services/codelinker/Dockerfile
+    restart: unless-stopped
+    environment:
+      BRAINO_CODELINKER_API_TOKEN: ${BRAINO_CODELINKER_API_TOKEN:?set BRAINO_CODELINKER_API_TOKEN in .env}
+      BRAINO_CODELINKER_MAX_FILES: ${BRAINO_CODELINKER_MAX_FILES:-10000}
+      BRAINO_CODELINKER_MAX_FILE_BYTES: ${BRAINO_CODELINKER_MAX_FILE_BYTES:-200000}
+      BRAINO_CODELINKER_MAX_TOTAL_BYTES: ${BRAINO_CODELINKER_MAX_TOTAL_BYTES:-67108864}
+      PORT: 8080
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    expose: ["8080"]
+    healthcheck:
+      test: ["CMD", "braino-codelinker", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      start_period: 5s
       retries: 4
     networks: [private]
 

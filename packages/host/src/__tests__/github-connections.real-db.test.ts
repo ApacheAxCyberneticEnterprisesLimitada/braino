@@ -1,4 +1,5 @@
 import type { PoolClient } from "@doco/db";
+import type { CodeGraphClient } from "@doco/index";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
@@ -64,6 +65,18 @@ function fakeGithub(state: GithubState): typeof fetch {
     if (url === "https://api.github.com/repos/acme/widgets") {
       return Response.json({ full_name: "acme/widgets", default_branch: "main" });
     }
+    if (url === "https://api.github.com/repos/acme/widgets/git/trees/main?recursive=1") {
+      return Response.json({
+        truncated: false,
+        tree: [{ path: "app.py", type: "blob", sha: "code-sha", size: 24 }],
+      });
+    }
+    if (url === "https://api.github.com/repos/acme/widgets/git/blobs/code-sha") {
+      return Response.json({
+        encoding: "base64",
+        content: Buffer.from("from worker import run\nrun()\n").toString("base64"),
+      });
+    }
     if (url.includes("/issues?")) {
       return Response.json([
         {
@@ -125,6 +138,7 @@ describe("self-hosted GitHub connections", () => {
     expect(connection.repository).toBe("acme/widgets");
     expect(connection.issuesCollectionHandle).toBe("acme-github-issues");
     expect(connection.pullRequestsCollectionHandle).toBe("acme-github-pull-requests");
+    expect(connection.codeCollectionHandle).toBe("acme-codebase");
     const stored = await db.query<{ token_sealed: string }>(
       "SELECT token_sealed FROM github_connections WHERE id = $1",
       [connection.id],
@@ -135,10 +149,36 @@ describe("self-hosted GitHub connections", () => {
     ]);
 
     const statements: string[] = [];
+    const codeGraphClient: CodeGraphClient = {
+      id: "codelinker:test-v1",
+      createGraph: async (input) => ({
+        stats: {
+          language: input.language,
+          source_files: input.files.length,
+          parsed_files: input.files.length,
+          parse_errors: 0,
+          symbols: 0,
+          edges: 0,
+          build_ms: 1,
+        },
+        files: input.files.map((file) => ({ path: file.path, symbols: [] })),
+        edges: [],
+      }),
+      createRepositoryLinks: async (input) => ({
+        stats: {
+          repositories: input.repositories.length,
+          source_files: input.repositories.flatMap((repository) => repository.files).length,
+          links: 0,
+          build_ms: 1,
+        },
+        links: [],
+      }),
+    };
     const first = await syncGithubConnection(recordingScope(statements), {
       connectionId: connection.id,
       encryptionKey,
       fetcher: fakeGithub(state),
+      codeGraphClient,
     });
     expect(first).toEqual({ created: 2, updated: 0, unchanged: 0 });
     const transaction = statements.findIndex((sql) => sql === "BEGIN");
@@ -170,11 +210,32 @@ describe("self-hosted GitHub connections", () => {
       }),
     ]);
     expect(nodes.rows[0]?.extra.github_repository).toBe("acme/widgets");
+    expect(
+      (
+        await db.query<{ repo: string; path: string; content: string }>(
+          "SELECT repo, path, content FROM code_files",
+        )
+      ).rows,
+    ).toEqual([
+      {
+        repo: "acme/widgets",
+        path: "app.py",
+        content: "from worker import run\nrun()\n",
+      },
+    ]);
+    expect(
+      (
+        await db.query<{ source: string }>(
+          "SELECT source FROM retrieval_documents WHERE source = 'code_graph'",
+        )
+      ).rows,
+    ).toHaveLength(1);
 
     const replay = await syncGithubConnection(scope, {
       connectionId: connection.id,
       encryptionKey,
       fetcher: fakeGithub(state),
+      codeGraphClient,
     });
     expect(replay).toEqual({ created: 0, updated: 0, unchanged: 2 });
     const unchangedCounts = await db.query<{
@@ -196,6 +257,7 @@ describe("self-hosted GitHub connections", () => {
       connectionId: connection.id,
       encryptionKey,
       fetcher: fakeGithub(state),
+      codeGraphClient,
     });
     expect(changed).toEqual({ created: 0, updated: 2, unchanged: 0 });
     const lifecycles = await db.query<{ lifecycle: string }>(

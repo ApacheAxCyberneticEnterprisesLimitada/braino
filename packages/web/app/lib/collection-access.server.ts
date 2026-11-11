@@ -6,6 +6,7 @@ export interface AccessibleCollection {
   goal: string;
   workspace_id: string;
   default_node_lifecycle: string | null;
+  template_handle: string;
 }
 
 export async function getCollectionForUser(
@@ -14,7 +15,8 @@ export async function getCollectionForUser(
 ): Promise<AccessibleCollection | null> {
   return withClient(async (client) => {
     const result = await client.query<AccessibleCollection>(
-      `SELECT c.id, c.handle, c.goal, c.workspace_id, c.default_node_lifecycle
+      `SELECT c.id, c.handle, c.goal, c.workspace_id, c.default_node_lifecycle,
+              coalesce(c.data->>'template_handle', '') AS template_handle
          FROM collections c
         WHERE c.handle = $1
           AND c.deleted_at IS NULL

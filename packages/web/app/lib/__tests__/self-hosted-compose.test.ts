@@ -7,7 +7,10 @@ import { parse } from "yaml";
 
 const root = resolve(import.meta.dirname, "../../../../../");
 
-function runUpgradeWithImage(image: string) {
+function runUpgradeWithImages(
+  appImage: string,
+  codeLinkerImage = "ghcr.io/brainoinc/braino-codelinker:0.1.14",
+) {
   const runtime = mkdtempSync(join(tmpdir(), "doco-upgrade-test-"));
   const docker = join(runtime, "docker");
   const log = join(runtime, "docker.log");
@@ -16,13 +19,16 @@ function runUpgradeWithImage(image: string) {
     `#!/bin/sh
 printf '%s\\n' "$*" >> "$DOCO_DOCKER_LOG"
 if [ "$*" = "compose config --images" ]; then
-  printf '%s\\n' qdrant/qdrant:v1.20.0 "$FAKE_APP_IMAGE" postgres:16.10-bookworm
+  printf '%s\\n' qdrant/qdrant:v1.20.0 "$FAKE_APP_IMAGE" "$FAKE_CODELINKER_IMAGE" postgres:16.10-bookworm
 elif [ "$*" = "compose config --format json" ]; then
   cat <<EOF
 {
   "services": {
     "app": {
       "image": "$FAKE_APP_IMAGE"
+    },
+    "codelinker": {
+      "image": "$FAKE_CODELINKER_IMAGE"
     }
   }
 }
@@ -40,10 +46,12 @@ fi
         ...process.env,
         PATH: `${runtime}:${process.env.PATH ?? ""}`,
         DOCO_DOCKER_LOG: log,
-        FAKE_APP_IMAGE: image,
+        FAKE_APP_IMAGE: appImage,
+        FAKE_CODELINKER_IMAGE: codeLinkerImage,
         DOCO_ENCRYPTION_KEY: "test-encryption-key-with-thirty-two-characters",
         DOCO_POSTGRES_PASSWORD: "test-postgres-password",
         BRAINO_SETUP_TOKEN: "test-setup-token",
+        BRAINO_CODELINKER_API_TOKEN: "test-codelinker-token-with-thirty-two-characters",
       },
     });
     return { ...result, calls: readFileSync(log, "utf8") };
@@ -59,13 +67,29 @@ describe("the supported self-hosted stack", () => {
       volumes: Record<string, unknown>;
     };
 
-    expect(Object.keys(compose.services)).toEqual(["app", "postgres", "qdrant", "caddy"]);
+    expect(Object.keys(compose.services)).toEqual([
+      "app",
+      "codelinker",
+      "postgres",
+      "qdrant",
+      "caddy",
+    ]);
     expect(compose.services.app?.build).toEqual(
       expect.objectContaining({ dockerfile: "Dockerfile" }),
     );
     expect(compose.services.app?.depends_on).toEqual(
-      expect.objectContaining({ postgres: expect.any(Object), qdrant: expect.any(Object) }),
+      expect.objectContaining({
+        codelinker: expect.any(Object),
+        postgres: expect.any(Object),
+        qdrant: expect.any(Object),
+      }),
     );
+    expect(compose.services.codelinker?.build).toEqual(
+      expect.objectContaining({ dockerfile: "services/codelinker/Dockerfile" }),
+    );
+    expect(compose.services.codelinker?.read_only).toBe(true);
+    expect(compose.services.codelinker?.cap_drop).toEqual(["ALL"]);
+    expect(compose.services.codelinker?.ports).toBeUndefined();
     expect(compose.services.app?.ports).toEqual(["127.0.0.1:${DOCO_HTTP_PORT:-3000}:3000"]);
     expect(compose.services.postgres?.ports).toBeUndefined();
     expect(compose.services.qdrant?.ports).toBeUndefined();
@@ -87,6 +111,7 @@ describe("the supported self-hosted stack", () => {
     expect(env).toContain("DOCO_ENCRYPTION_KEY=");
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
     expect(env).toContain("BRAINO_SETUP_TOKEN=");
+    expect(env).toContain("BRAINO_CODELINKER_API_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
     expect(runtimeStage).toContain("ARG DOCO_VERSION");
     expect(runtimeStage).toContain("ENV DOCO_VERSION=$DOCO_VERSION");
@@ -141,6 +166,7 @@ describe("the supported self-hosted stack", () => {
     expect(command).not.toContain("--clean");
     expect(command).toContain("doctor)");
     expect(command).toContain("upgrade)");
+    expect(command).toContain("BRAINO_CODELINKER_API_TOKEN");
     expect(command.indexOf("compose stop app")).toBeLessThan(
       command.indexOf("node_modules/@doco/db/dist/migrate.js"),
     );
@@ -162,7 +188,7 @@ describe("the supported self-hosted stack", () => {
   });
 
   it("refuses to upgrade a local app image regardless of Compose image order", () => {
-    const result = runUpgradeWithImage("doco:local");
+    const result = runUpgradeWithImages("doco:local");
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Set DOCO_IMAGE to a released");
@@ -170,12 +196,25 @@ describe("the supported self-hosted stack", () => {
     expect(result.calls).not.toContain("compose pull");
   });
 
+  it("refuses to upgrade a local CodeLinker image", () => {
+    const result = runUpgradeWithImages(
+      "ghcr.io/brainoinc/braino:0.1.14",
+      "braino-codelinker:local",
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Set BRAINO_CODELINKER_IMAGE to a released");
+    expect(result.stdout).not.toContain("Backup written");
+    expect(result.calls).not.toContain("compose pull");
+  });
+
   it("reports and migrates the configured released app image", () => {
     const image = "ghcr.io/brainoinc/braino:0.1.0";
-    const result = runUpgradeWithImage(image);
+    const result = runUpgradeWithImages(image);
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`Upgrade completed with ${image}`);
+    expect(result.stdout).toContain("ghcr.io/brainoinc/braino-codelinker:0.1.14");
     expect(result.calls).toContain("compose pull");
     expect(result.calls).toContain("node_modules/@doco/db/dist/migrate.js");
   });
@@ -188,6 +227,27 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain("provenance: mode=max");
     expect(workflow).toContain("sbom: true");
     expect(workflow).toContain("cosign sign --yes");
+    expect(workflow).toContain("ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino-codelinker");
+    expect(workflow).toContain("services/codelinker/Dockerfile");
+    expect(workflow.match(/cosign sign --yes/g)).toHaveLength(2);
+  });
+
+  it("tests the separately versioned CodeLinker service in the required CI gate", () => {
+    const workflow = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8");
+    const manifest = readFileSync(resolve(root, "services/codelinker/Cargo.toml"), "utf8");
+    const releaseVersion = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
+      version: string;
+    };
+
+    expect(manifest).toContain('name = "braino-codelinker"');
+    expect(manifest).toContain(`version = "${releaseVersion.version}"`);
+    expect(workflow).toContain("cargo fmt --check --manifest-path services/codelinker/Cargo.toml");
+    expect(workflow).toContain(
+      "cargo test --locked --manifest-path services/codelinker/Cargo.toml",
+    );
+    expect(workflow).toContain(
+      "cargo clippy --locked --manifest-path services/codelinker/Cargo.toml",
+    );
   });
 
   it("publishes every versioned core package beside each release image", () => {
@@ -237,6 +297,7 @@ describe("the supported self-hosted stack", () => {
       expect(contract).toContain(proof);
     }
     expect(script).toContain("docker compose");
+    expect(script).toContain("http://codelinker:8080/healthz");
     expect(script).toContain("doco_records");
     expect(script).toContain("/collections/doco_records");
     expect(script).toContain('"$origin/admin"');

@@ -529,8 +529,8 @@ function GithubConnectionForm({
         />
       </label>
       <p className="text-xs text-muted-foreground sm:col-span-2">
-        Grant read access to Metadata, Issues, and Pull requests, plus Webhooks write access for
-        automatic sync. Scope the token to this repository only.
+        Grant read access to Metadata, Contents, Issues, and Pull requests, plus Webhooks write
+        access for automatic sync. Scope the token to this repository only.
       </p>
       <div className="sm:col-span-2 sm:text-right">
         <button
@@ -618,6 +618,12 @@ function GithubConnection({ connection }: { connection: GithubConnectionSummary 
           to={`/${connection.pullRequestsCollectionHandle}`}
         >
           GitHub pull requests
+        </Link>
+        <Link
+          className="neu-button rounded-md px-3 py-2 font-semibold"
+          to={`/${connection.codeCollectionHandle}`}
+        >
+          Codebase
         </Link>
       </div>
       {!connection.active ? (
@@ -754,9 +760,9 @@ export default function IntegrationsPage() {
         <CardHeader>
           <CardTitle>GitHub</CardTitle>
           <CardDescription>
-            Import one repository&apos;s issues and pull requests into dedicated Braino collections.
-            Signed GitHub webhooks refresh changes automatically when DOCO_PUBLIC_HOST is public
-            HTTPS; Sync now remains available as a fallback.
+            Import one repository&apos;s code, issues, and pull requests into dedicated Braino
+            collections. Signed GitHub webhooks refresh changes automatically when DOCO_PUBLIC_HOST
+            is public HTTPS; Sync now remains available as a fallback.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
