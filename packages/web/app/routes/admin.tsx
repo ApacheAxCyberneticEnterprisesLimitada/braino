@@ -191,12 +191,20 @@ export default function AdminPage() {
         </p>
       </PageHeader>
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5" aria-label="Workspace totals">
-        <Metric label="Collections" value={overview.counts.collections} />
-        <Metric label="Records" value={overview.counts.records} />
-        <Metric label="Collaborators" value={overview.counts.collaborators} />
-        <Metric label="Connections" value={overview.counts.connections} />
-        <Metric label="Active MCP tokens" value={overview.counts.mcpTokens} />
+      <section className="space-y-3" aria-labelledby="metrics-title">
+        <div>
+          <h2 id="metrics-title" className="text-lg font-semibold">
+            Metrics
+          </h2>
+          <p className="text-xs text-muted-foreground">Current totals for this workspace.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <Metric label="Collections" value={overview.counts.collections} />
+          <Metric label="Records" value={overview.counts.records} />
+          <Metric label="Collaborators" value={overview.counts.collaborators} />
+          <Metric label="Connections" value={overview.counts.connections} />
+          <Metric label="Active MCP tokens" value={overview.counts.mcpTokens} />
+        </div>
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
