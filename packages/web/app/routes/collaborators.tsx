@@ -134,6 +134,10 @@ function Breadcrumb({ handle }: { handle: string }) {
         {handle}
       </Link>
       <span aria-hidden>›</span>
+      <Link to="/admin" className="hover:underline">
+        Admin
+      </Link>
+      <span aria-hidden>›</span>
       <span>Collaborators</span>
     </nav>
   );

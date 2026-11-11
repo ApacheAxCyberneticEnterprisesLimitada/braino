@@ -20,6 +20,7 @@ describe("Braino's public identity", () => {
       "packages/web/app/routes/_index.tsx",
       "packages/web/app/routes/search.tsx",
       "packages/web/app/routes/integrations.tsx",
+      "packages/web/app/routes/admin.tsx",
       "packages/web/app/routes/collaborators.tsx",
       "packages/web/app/routes/$collectionHandle.tsx",
       "packages/web/app/routes/$collectionHandle.$nodeId.tsx",
