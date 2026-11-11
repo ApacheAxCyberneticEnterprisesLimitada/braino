@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const app = resolve(import.meta.dirname);
 const admin = readFileSync(resolve(app, "routes/admin.tsx"), "utf8");
+const routes = readFileSync(resolve(app, "routes.ts"), "utf8");
 const root = readFileSync(resolve(app, "root.tsx"), "utf8");
 const collaborators = readFileSync(resolve(app, "routes/collaborators.tsx"), "utf8");
 const integrations = readFileSync(resolve(app, "routes/integrations.tsx"), "utf8");
@@ -11,6 +12,7 @@ const mcpTokens = readFileSync(resolve(app, "routes/mcp-tokens.tsx"), "utf8");
 
 describe("open Braino administration", () => {
   it("has one owner console for the single workspace", () => {
+    expect(routes).toContain('route("admin", "routes/admin.tsx")');
     expect(admin).toContain("Workspace administration");
     expect(admin).toContain("Workspace settings");
     expect(admin).toContain("People and access");
