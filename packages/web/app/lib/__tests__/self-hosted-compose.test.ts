@@ -219,11 +219,27 @@ describe("the supported self-hosted stack", () => {
     expect(result.calls).toContain("node_modules/@doco/db/dist/migrate.js");
   });
 
-  it("publishes signed AMD64 and ARM64 images from version tags", () => {
+  // Alexander, 2026-11-11: agents can't push tags, so a version bump merged to
+  // main releases itself; nobody pushes a v* tag by hand.
+  it("releases each version bump merged to main, once", () => {
+    const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
+
+    expect(workflow).toMatch(/on:\n {2}push:\n {4}branches: \[main\]\n/);
+    expect(workflow).not.toMatch(/tags: \[/);
+    expect(workflow).toContain('TAG="v$(jq -r .version package.json)"');
+    expect(workflow).toContain('git ls-remote --exit-code --tags origin "refs/tags/$TAG"');
+    expect(workflow).toContain("if: needs.version.outputs.unreleased == 'true'");
+    expect(workflow).toContain('gh release create "$TAG" release-packages/*.tgz --target "$GITHUB_SHA"');
+    expect(workflow).toContain("cancel-in-progress: false");
+  });
+
+  it("publishes signed AMD64 and ARM64 images tagged with the release's version", () => {
     const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
 
     expect(workflow).toContain("linux/amd64,linux/arm64");
-    expect(workflow).toContain("type=ref,event=tag");
+    expect(workflow).toContain("type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}");
+    expect(workflow).toContain("type=raw,value=latest");
+    expect(workflow).toContain("DOCO_VERSION=${{ needs.version.outputs.tag }}");
     expect(workflow).toContain("provenance: mode=max");
     expect(workflow).toContain("sbom: true");
     expect(workflow).toContain("cosign sign --yes");
@@ -266,7 +282,7 @@ describe("the supported self-hosted stack", () => {
       expect(workflow).toContain(`pnpm --filter ${packageJson.name} pack`);
     }
     expect(workflow).toContain("node scripts/verify-release-packages.mjs release-packages");
-    expect(workflow).toContain('gh release upload "$GITHUB_REF_NAME" release-packages/*.tgz');
+    expect(workflow).toContain('gh release create "$TAG" release-packages/*.tgz');
     expect(workflow).not.toContain("--clobber");
   });
 

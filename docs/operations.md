@@ -56,5 +56,6 @@ migration exactly once, and only then starts the new application. A failed
 migration rolls back and leaves the application stopped rather than serving
 code against the wrong database shape.
 
-Official `v*` tags publish signed, SBOM-attested Linux AMD64 and ARM64 images at
+Each release, cut when a version bump merges to main and tagged `v<version>`,
+publishes signed, SBOM-attested Linux AMD64 and ARM64 images at
 `ghcr.io/brainoinc/braino` and `ghcr.io/brainoinc/braino-codelinker`.

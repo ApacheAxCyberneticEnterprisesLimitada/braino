@@ -1,8 +1,16 @@
 name: Release
 
+# A version bump merged to main is a release. When the version in main's
+# package.json has no v<version> tag yet, the commit is verified, its packages
+# and signed images are published, and the release is created, which tags it.
+# Every other push to main finds the tag and stops. Nobody pushes tags by hand.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -10,8 +18,33 @@ permissions:
   packages: write
 
 jobs:
-  verify-and-publish:
+  version:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      unreleased: ${{ steps.version.outputs.unreleased }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: version
+        name: Find whether this version is released
+        run: |
+          TAG="v$(jq -r .version package.json)"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null; then
+            echo "unreleased=false" >> "$GITHUB_OUTPUT"
+          else
+            status=$?
+            # 2 means no such tag; anything else is a failure to ask.
+            [ "$status" -eq 2 ] || exit "$status"
+            echo "unreleased=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  verify-and-publish:
+    needs: version
+    if: needs.version.outputs.unreleased == 'true'
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ needs.version.outputs.tag }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
@@ -54,9 +87,10 @@ jobs:
         with:
           images: ${{ env.APP_IMAGE }}
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.tag }}
+            type=raw,value=latest
       - id: app_build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -65,7 +99,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.app_metadata.outputs.tags }}
           labels: ${{ steps.app_metadata.outputs.labels }}
-          build-args: DOCO_VERSION=${{ github.ref_name }}
+          build-args: DOCO_VERSION=${{ needs.version.outputs.tag }}
           provenance: mode=max
           sbom: true
       - id: codelinker_metadata
@@ -73,9 +107,10 @@ jobs:
         with:
           images: ${{ env.CODELINKER_IMAGE }}
           tags: |
-            type=ref,event=tag
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.tag }}
+            type=raw,value=latest
       - id: codelinker_build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -99,7 +134,5 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || \
-            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes \
-              --title "Braino ${GITHUB_REF_NAME#v}"
-          gh release upload "$GITHUB_REF_NAME" release-packages/*.tgz
+          gh release create "$TAG" release-packages/*.tgz --target "$GITHUB_SHA" \
+            --generate-notes --title "Braino ${TAG#v}"
