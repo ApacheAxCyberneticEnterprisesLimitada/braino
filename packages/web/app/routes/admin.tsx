@@ -141,13 +141,35 @@ function Breadcrumb({ handle }: { handle: string }) {
   );
 }
 
-function Metric({ label, value }: { label: string; value: number }) {
+function Metric({
+  label,
+  value,
+  comparison,
+  note,
+}: {
+  label: string;
+  value: number;
+  comparison?: string;
+  note?: string;
+}) {
   return (
-    <div className="neu-surface rounded-lg bg-card px-4 py-3">
-      <p className="text-2xl font-semibold">{value}</p>
+    <div className="neu-surface space-y-2 rounded-lg bg-card px-4 py-3">
       <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="flex flex-wrap items-baseline gap-2">
+        <span className="text-2xl font-semibold leading-none">{value}</span>
+        {comparison ? (
+          <span className="text-[11px] font-semibold text-muted-foreground">{comparison}</span>
+        ) : null}
+      </p>
+      {note ? <p className="text-[11px] text-muted-foreground">{note}</p> : null}
     </div>
   );
+}
+
+function comparison(value: number, previous: number): string {
+  const difference = value - previous;
+  const change = difference > 0 ? `+${difference}` : difference < 0 ? `−${-difference}` : "±0";
+  return `${change} vs previous 24 hours`;
 }
 
 function AdminLink({
@@ -196,6 +218,48 @@ export default function AdminPage() {
           <h2 id="metrics-title" className="text-lg font-semibold">
             Metrics
           </h2>
+          <p className="text-xs text-muted-foreground">Rolling activity for this workspace.</p>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Metric
+            label="Active agents · last 24 hours"
+            value={overview.activity.activeAgents.last24Hours}
+            comparison={comparison(
+              overview.activity.activeAgents.last24Hours,
+              overview.activity.activeAgents.previous24Hours,
+            )}
+            note={`${overview.activity.activeAgents.last7Days} in the last 7 days · ${overview.activity.activeAgents.last30Days} in the last 30 days`}
+          />
+          <Metric
+            label="Queries · last 24 hours"
+            value={overview.activity.queries.last24Hours}
+            comparison={comparison(
+              overview.activity.queries.last24Hours,
+              overview.activity.queries.previous24Hours,
+            )}
+            note={`${overview.activity.queries.byAgentsLast24Hours} by agents`}
+          />
+          <Metric
+            label="Writes · last 24 hours"
+            value={overview.activity.writes.last24Hours}
+            comparison={comparison(
+              overview.activity.writes.last24Hours,
+              overview.activity.writes.previous24Hours,
+            )}
+            note={`${overview.activity.writes.byAgentsLast24Hours} by agents`}
+          />
+          <Metric
+            label="Imports · last 24 hours"
+            value={overview.activity.imports.last24Hours}
+            comparison={comparison(
+              overview.activity.imports.last24Hours,
+              overview.activity.imports.previous24Hours,
+            )}
+            note="What connected sources brought in"
+          />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold">Workspace totals</h3>
           <p className="text-xs text-muted-foreground">Current totals for this workspace.</p>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">

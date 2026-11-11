@@ -145,6 +145,7 @@ async function callTool(name: string, rawArguments: unknown, principal: McpPrinc
       createWorkspaceBrief(client, {
         workspaceId: principal.workspaceId,
         userId: principal.userId,
+        agentLabel: principal.label,
         about: string(args.about, "about"),
         touching,
       }),
@@ -187,7 +188,13 @@ async function callTool(name: string, rawArguments: unknown, principal: McpPrinc
         [
           principal.userId,
           principal.workspaceId,
-          JSON.stringify({ tool: "doco_search", query, result_ids: searched.map((row) => row.id) }),
+          JSON.stringify({
+            auth: "bearer",
+            client: principal.label ?? "MCP client",
+            tool: "doco_search",
+            query,
+            result_ids: searched.map((row) => row.id),
+          }),
         ],
       );
       return searched;

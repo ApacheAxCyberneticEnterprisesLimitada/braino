@@ -28,6 +28,17 @@ describe("open Braino administration", () => {
     expect(admin).toContain('to="/mcp-tokens"');
   });
 
+  it("shows rolling operational metrics with the required comparison context", () => {
+    expect(admin).toContain('label="Active agents · last 24 hours"');
+    expect(admin).toContain('label="Queries · last 24 hours"');
+    expect(admin).toContain('label="Writes · last 24 hours"');
+    expect(admin).toContain('label="Imports · last 24 hours"');
+    expect(admin).toContain("vs previous 24 hours");
+    expect(admin).toContain("in the last 7 days");
+    expect(admin).toContain("in the last 30 days");
+    expect(admin).toContain("by agents");
+  });
+
   it("keeps the hosted control plane out of the public console", () => {
     expect(admin).not.toMatch(/billing|waitlist|top workspaces|superadmin/i);
   });
