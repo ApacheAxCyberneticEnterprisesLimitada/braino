@@ -108,7 +108,7 @@ export async function findAvailableCollectionHandle(requestedHandle: string): Pr
       const taken = await c.query("SELECT 1 FROM collections WHERE handle = $1 LIMIT 1", [
         candidate,
       ]);
-      if (taken.rowCount === 0) return candidate;
+      if (taken.rows.length === 0) return candidate;
       candidate = `${base}-${n}`;
       n += 1;
       if (n > 1000) throw new Error("Could not find an available handle.");
@@ -236,7 +236,7 @@ export async function createCollectionInWorkspace(
       "SELECT id, handle FROM workspaces WHERE id = $1",
       [opts.workspaceId],
     );
-    if (workspaceRow.rowCount === 0) {
+    if (workspaceRow.rows.length === 0) {
       throw new Error(`Workspace "${opts.workspaceId}" not found.`);
     }
     const workspaceHandle = String(workspaceRow.rows[0]?.handle ?? "");
@@ -246,7 +246,7 @@ export async function createCollectionInWorkspace(
 
     let handle = baseHandle;
     const taken = await c.query("SELECT 1 FROM collections WHERE handle = $1 LIMIT 1", [handle]);
-    if ((taken.rowCount ?? 0) > 0) {
+    if (taken.rows.length > 0) {
       if (!opts.autoSuffix) {
         throw new Error(`Collection handle "${baseHandle}" is already taken.`);
       }
@@ -254,7 +254,7 @@ export async function createCollectionInWorkspace(
       while (true) {
         handle = `${baseHandle}-${n}`;
         const dup = await c.query("SELECT 1 FROM collections WHERE handle = $1 LIMIT 1", [handle]);
-        if ((dup.rowCount ?? 0) === 0) break;
+        if (dup.rows.length === 0) break;
         n += 1;
         if (n > 999) throw new Error(`Auto-suffix exhausted for "${baseHandle}".`);
       }
@@ -410,7 +410,7 @@ export async function updateCollectionMeta(opts: UpdateCollectionOptions): Promi
   const { withClient } = await import("@doco/db");
   await withClient(async (c) => {
     const cur = await c.query("SELECT 1 FROM collections WHERE handle = $1 LIMIT 1", [opts.handle]);
-    if ((cur.rowCount ?? 0) === 0) throw new Error(`Collection "${opts.handle}" not found.`);
+    if (cur.rows.length === 0) throw new Error(`Collection "${opts.handle}" not found.`);
     await c.query(
       `UPDATE collections
           SET visibility = COALESCE($2, visibility),

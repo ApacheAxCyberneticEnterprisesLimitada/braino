@@ -2,6 +2,7 @@ import type { PoolClient } from "@doco/db";
 import type { PGlite } from "@electric-sql/pglite";
 import { beforeEach, describe, expect, it } from "vitest";
 import { freshDb } from "../../../db/src/__tests__/fresh-db.js";
+import { createCollectionInWorkspace } from "../host.js";
 import {
   SingleWorkspaceAlreadyInitializedError,
   getSingleWorkspaceState,
@@ -82,5 +83,29 @@ describe("single-workspace host", () => {
          (SELECT count(*)::int FROM users) AS users`,
     );
     expect(counts.rows[0]).toEqual({ workspaces: 1, users: 1 });
+  });
+
+  it("suffixes a taken collection handle with a portable query client", async () => {
+    const initialized = await initializeSingleWorkspace(client(), {
+      workspaceHandle: "acme",
+      workspaceName: "Acme",
+      ownerEmail: "owner@example.com",
+      ownerUsername: "owner",
+      ownerName: "Acme Owner",
+      ownerPasswordHash: "scrypt$salt$key",
+    });
+
+    const collection = await createCollectionInWorkspace(
+      {
+        workspaceId: initialized.workspace.id,
+        requestedHandle: "acme-glossary",
+        createdByUserId: initialized.owner.id,
+        templateHandle: "glossary",
+        autoSuffix: true,
+      },
+      client(),
+    );
+
+    expect(collection.handle).toBe("acme-glossary-2");
   });
 });
