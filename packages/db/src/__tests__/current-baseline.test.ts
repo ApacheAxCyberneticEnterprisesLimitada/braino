@@ -32,6 +32,7 @@ describe("current database baseline", () => {
       "002_braino_product_identity.sql",
       "003_runtime_compatibility.sql",
       "004_nps_surveys.sql",
+      "005_leads.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
