@@ -62,13 +62,14 @@ fi
 
 describe("the supported self-hosted stack", () => {
   it("boots one app with durable PostgreSQL and Qdrant services", () => {
-    const compose = parse(readFileSync(resolve(root, "compose.yml"), "utf8")) as {
+    const compose = parse(readFileSync(resolve(root, "compose.yml"), "utf8"), { merge: true }) as {
       services: Record<string, Record<string, unknown>>;
       volumes: Record<string, unknown>;
     };
 
     expect(Object.keys(compose.services)).toEqual([
       "app",
+      "scheduler",
       "codelinker",
       "postgres",
       "qdrant",
@@ -77,6 +78,12 @@ describe("the supported self-hosted stack", () => {
     expect(compose.services.app?.build).toEqual(
       expect.objectContaining({ dockerfile: "Dockerfile" }),
     );
+    expect(compose.services.scheduler?.image).toBe(compose.services.app?.image);
+    expect(compose.services.scheduler?.build).toEqual(compose.services.app?.build);
+    expect(compose.services.scheduler?.command).toEqual(["node", "runtime/scheduler.mjs"]);
+    expect(compose.services.scheduler?.depends_on).toEqual({
+      app: { condition: "service_healthy" },
+    });
     expect(compose.services.app?.depends_on).toEqual(
       expect.objectContaining({
         codelinker: expect.any(Object),
@@ -171,6 +178,8 @@ describe("the supported self-hosted stack", () => {
       command.indexOf("node_modules/@doco/db/dist/migrate.js"),
     );
     expect(command).toContain("node_modules/@doco/db/dist/migrate.js");
+    expect(command).toContain("compose stop app scheduler codelinker qdrant");
+    expect(command).toContain("compose stop app scheduler");
     expect(command).toContain("/qdrant/storage");
     expect(readme).toContain("./doco backup");
     expect(readme).toContain("./doco restore");
@@ -302,6 +311,7 @@ describe("the supported self-hosted stack", () => {
     for (const proof of [
       "single-workspace.real-db.test.ts",
       "workspace-admin.real-db.test.ts",
+      "times.real-db.test.ts",
       "collaborators.real-db.test.ts",
       "changesets.real-db.test.ts",
       "workspace-search.real-db.test.ts",
@@ -321,6 +331,7 @@ describe("the supported self-hosted stack", () => {
     expect(script).toContain("doco_records");
     expect(script).toContain("/collections/doco_records");
     expect(script).toContain('"$origin/admin"');
+    expect(script).toContain('"$origin/times"');
     expect(script).toContain("./doco backup");
     expect(script).toContain("./doco restore");
     expect(script).toContain("600");

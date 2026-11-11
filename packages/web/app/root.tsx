@@ -115,6 +115,9 @@ function SiteHeader({ data }: { data: RootData }) {
                   Admin
                 </Link>
               ) : null}
+              <Link to="/times" className="neu-button rounded-md px-2.5 py-1.5 font-semibold">
+                Times
+              </Link>
               <Link
                 to="/"
                 className="neu-button neu-pressed rounded-md px-2.5 py-1.5 font-semibold"

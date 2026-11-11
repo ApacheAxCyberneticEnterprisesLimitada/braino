@@ -134,6 +134,8 @@ export async function action({ request }: { request: Request }): Promise<ActionD
         userId: user.id,
         name: text(form, "name"),
         constitution: text(form, "constitution"),
+        timesPublic: form.has("times_public"),
+        timesTimeZone: text(form, "times_timezone"),
       }),
     );
     return { saved: true };
@@ -353,6 +355,36 @@ export default function AdminPage() {
                   className="w-full rounded-md px-3 py-2 text-sm leading-6"
                 />
               </label>
+              <fieldset className="neu-well space-y-3 rounded-lg p-4">
+                <legend className="px-1 text-sm font-semibold">Braino Times</legend>
+                <p className="text-xs text-muted-foreground">
+                  Publish one local edition each calendar day. Use an IANA timezone such as
+                  Africa/Lagos or America/Los_Angeles.
+                </p>
+                <label className="block text-xs">
+                  <span className="mb-1 block text-muted-foreground">Publication timezone</span>
+                  <input
+                    name="times_timezone"
+                    defaultValue={overview.workspace.timesTimeZone}
+                    required
+                    className="w-full rounded-md px-3 py-2 font-mono text-sm"
+                  />
+                </label>
+                <label className="flex items-start gap-2 text-xs">
+                  <input
+                    type="checkbox"
+                    name="times_public"
+                    defaultChecked={overview.workspace.timesPublic}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    Make Times public. Signed-out readers see stories from public collections only.
+                  </span>
+                </label>
+                <Link to="/times" className="inline-block text-xs font-semibold hover:underline">
+                  View Braino Times
+                </Link>
+              </fieldset>
               {actionData?.error ? (
                 <p role="alert" className="text-xs text-destructive">
                   {actionData.error}

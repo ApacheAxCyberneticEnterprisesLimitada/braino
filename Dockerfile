@@ -31,6 +31,7 @@ ENV HOST=0.0.0.0
 ENV PORT=3000
 WORKDIR /app
 COPY --from=build --chown=node:node /opt/doco ./
+COPY --from=build --chown=node:node /source/runtime ./runtime
 
 USER node
 EXPOSE 3000

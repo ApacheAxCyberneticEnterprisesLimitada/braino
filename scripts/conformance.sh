@@ -11,6 +11,7 @@ pnpm --filter @doco/db exec vitest run \
 pnpm --filter @doco/host exec vitest run \
   src/__tests__/single-workspace.real-db.test.ts \
   src/__tests__/workspace-admin.real-db.test.ts \
+  src/__tests__/times.real-db.test.ts \
   src/__tests__/collaborators.real-db.test.ts \
   src/__tests__/changesets.real-db.test.ts \
   src/__tests__/workspace-search.real-db.test.ts \
@@ -121,6 +122,19 @@ grep -q '"ok":true' "$runtime/changeset.json"
 curl --fail --silent --show-error -b "$cookies" \
   "$origin/api/v1/search.json?q=v0.1%20conformance" >"$runtime/search.json"
 grep -q 'Braino v0.1 conformance record' "$runtime/search.json"
+docker compose exec -T app node --input-type=module -e '
+  import { withClient } from "@doco/db";
+  import { getSingleWorkspaceState, publishTimesEdition } from "@doco/host";
+  const state = await withClient(getSingleWorkspaceState);
+  if (!state.initialized) process.exit(1);
+  await withClient((client) => publishTimesEdition(client, {
+    workspaceId: state.workspace.id,
+    at: new Date(),
+    baseUrl: process.env.DOCO_PUBLIC_HOST,
+  }));
+'
+curl --fail --silent --show-error --location -b "$cookies" "$origin/times" >"$runtime/times"
+grep -q 'The Conformance Workspace Times' "$runtime/times"
 docker compose exec -T app node --input-type=module -e '
   const response = await fetch("http://qdrant:6333/collections/doco_records");
   if (!response.ok) process.exit(1);
