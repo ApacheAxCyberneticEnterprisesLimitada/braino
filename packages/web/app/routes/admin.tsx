@@ -1,5 +1,6 @@
 import { withClient } from "@doco/db";
 import {
+  type ActivityPeriod,
   WorkspaceAdminError,
   getSingleWorkspaceState,
   getWorkspaceAdminOverview,
@@ -28,6 +29,19 @@ interface DeploymentStatus {
   qdrant: "Configured" | "Not configured";
   search: string;
   transport: "HTTPS" | "Loopback HTTP" | "HTTP";
+}
+
+const METRIC_PERIODS = [
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+] as const satisfies readonly { value: ActivityPeriod; label: string }[];
+
+function metricPeriod(request: Request): ActivityPeriod {
+  const value = new URL(request.url).searchParams.get("period");
+  return METRIC_PERIODS.some((option) => option.value === value)
+    ? (value as ActivityPeriod)
+    : "24h";
 }
 
 export function meta() {
@@ -77,6 +91,7 @@ export async function loader({ request }: { request: Request }) {
       getWorkspaceAdminOverview(client, {
         workspaceId: state.workspace.id,
         userId: user.id,
+        period: metricPeriod(request),
       }),
     );
     return { overview, deployment: deploymentStatus(request) };
@@ -166,10 +181,10 @@ function Metric({
   );
 }
 
-function comparison(value: number, previous: number): string {
+function comparison(value: number, previous: number, period: string): string {
   const difference = value - previous;
   const change = difference > 0 ? `+${difference}` : difference < 0 ? `−${-difference}` : "±0";
-  return `${change} vs previous 24 hours`;
+  return `${change} vs previous ${period}`;
 }
 
 function AdminLink({
@@ -202,6 +217,8 @@ export default function AdminPage() {
   const data = useLoaderData() as Awaited<ReturnType<typeof loader>>;
   const actionData = useActionData() as ActionData | undefined;
   const { overview, deployment } = data;
+  const period =
+    METRIC_PERIODS.find((option) => option.value === overview.activity.period) ?? METRIC_PERIODS[0];
   return (
     <PageMain className="space-y-6 py-6">
       <PageHeader
@@ -214,46 +231,68 @@ export default function AdminPage() {
       </PageHeader>
 
       <section className="space-y-3" aria-labelledby="metrics-title">
-        <div>
-          <h2 id="metrics-title" className="text-lg font-semibold">
-            Metrics
-          </h2>
-          <p className="text-xs text-muted-foreground">Rolling activity for this workspace.</p>
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <h2 id="metrics-title" className="text-lg font-semibold">
+              Metrics
+            </h2>
+            <p className="text-xs text-muted-foreground">Rolling activity for this workspace.</p>
+          </div>
+          <nav aria-label="Metrics time period" className="flex flex-wrap gap-2">
+            {METRIC_PERIODS.map((option) => (
+              <Link
+                key={option.value}
+                to={`?period=${option.value}`}
+                aria-current={option.value === overview.activity.period ? "true" : undefined}
+                className={`neu-button rounded-md px-3 py-1.5 text-xs font-semibold ${
+                  option.value === overview.activity.period
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground"
+                }`}
+              >
+                {option.label}
+              </Link>
+            ))}
+          </nav>
         </div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Metric
-            label="Active agents · last 24 hours"
-            value={overview.activity.activeAgents.last24Hours}
+            label={`Active agents · last ${period.label}`}
+            value={overview.activity.activeAgents.current}
             comparison={comparison(
-              overview.activity.activeAgents.last24Hours,
-              overview.activity.activeAgents.previous24Hours,
+              overview.activity.activeAgents.current,
+              overview.activity.activeAgents.previous,
+              period.label,
             )}
-            note={`${overview.activity.activeAgents.last7Days} in the last 7 days · ${overview.activity.activeAgents.last30Days} in the last 30 days`}
+            note="Distinct agents that read or wrote"
           />
           <Metric
-            label="Queries · last 24 hours"
-            value={overview.activity.queries.last24Hours}
+            label={`Queries · last ${period.label}`}
+            value={overview.activity.queries.current}
             comparison={comparison(
-              overview.activity.queries.last24Hours,
-              overview.activity.queries.previous24Hours,
+              overview.activity.queries.current,
+              overview.activity.queries.previous,
+              period.label,
             )}
-            note={`${overview.activity.queries.byAgentsLast24Hours} by agents`}
+            note={`${overview.activity.queries.byAgents} by agents`}
           />
           <Metric
-            label="Writes · last 24 hours"
-            value={overview.activity.writes.last24Hours}
+            label={`Writes · last ${period.label}`}
+            value={overview.activity.writes.current}
             comparison={comparison(
-              overview.activity.writes.last24Hours,
-              overview.activity.writes.previous24Hours,
+              overview.activity.writes.current,
+              overview.activity.writes.previous,
+              period.label,
             )}
-            note={`${overview.activity.writes.byAgentsLast24Hours} by agents`}
+            note={`${overview.activity.writes.byAgents} by agents`}
           />
           <Metric
-            label="Imports · last 24 hours"
-            value={overview.activity.imports.last24Hours}
+            label={`Imports · last ${period.label}`}
+            value={overview.activity.imports.current}
             comparison={comparison(
-              overview.activity.imports.last24Hours,
-              overview.activity.imports.previous24Hours,
+              overview.activity.imports.current,
+              overview.activity.imports.previous,
+              period.label,
             )}
             note="What connected sources brought in"
           />

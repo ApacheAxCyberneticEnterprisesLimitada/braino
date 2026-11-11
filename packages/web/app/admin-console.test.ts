@@ -29,13 +29,16 @@ describe("open Braino administration", () => {
   });
 
   it("shows rolling operational metrics with the required comparison context", () => {
-    expect(admin).toContain('label="Active agents · last 24 hours"');
-    expect(admin).toContain('label="Queries · last 24 hours"');
-    expect(admin).toContain('label="Writes · last 24 hours"');
-    expect(admin).toContain('label="Imports · last 24 hours"');
-    expect(admin).toContain("vs previous 24 hours");
-    expect(admin).toContain("in the last 7 days");
-    expect(admin).toContain("in the last 30 days");
+    expect(admin).toContain("METRIC_PERIODS");
+    expect(admin).toContain('{ value: "24h", label: "24 hours"');
+    expect(admin).toContain('{ value: "7d", label: "7 days"');
+    expect(admin).toContain('{ value: "30d", label: "30 days"');
+    expect(admin).toContain('aria-label="Metrics time period"');
+    expect(admin).toContain("to={`?period=${option.value}`}");
+    expect(admin).toContain(
+      'aria-current={option.value === overview.activity.period ? "true" : undefined}',
+    );
+    expect(admin).toContain("vs previous ${period}");
     expect(admin).toContain("by agents");
   });
 

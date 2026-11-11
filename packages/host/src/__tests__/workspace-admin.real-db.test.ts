@@ -54,15 +54,11 @@ describe("single-workspace administration", () => {
         mcpTokens: 0,
       },
       activity: {
-        activeAgents: {
-          last24Hours: 0,
-          previous24Hours: 0,
-          last7Days: 0,
-          last30Days: 0,
-        },
-        queries: { last24Hours: 0, previous24Hours: 0, byAgentsLast24Hours: 0 },
-        writes: { last24Hours: 0, previous24Hours: 0, byAgentsLast24Hours: 0 },
-        imports: { last24Hours: 0, previous24Hours: 0 },
+        period: "24h",
+        activeAgents: { current: 0, previous: 0 },
+        queries: { current: 0, previous: 0, byAgents: 0 },
+        writes: { current: 0, previous: 0, byAgents: 0 },
+        imports: { current: 0, previous: 0 },
       },
     });
   });
@@ -83,6 +79,7 @@ describe("single-workspace administration", () => {
        ($1, $2, 'ui', '{}', $3::timestamptz - interval '3 hours'),
        ($1, $2, 'mcp', '{"client":"Gemini"}', $3::timestamptz - interval '30 hours'),
        ($1, $2, 'mcp', '{"client":"Cursor"}', $3::timestamptz - interval '3 days'),
+       ($1, $2, 'mcp', '{"client":"Previous week agent"}', $3::timestamptz - interval '10 days'),
        ($1, $2, 'mcp', '{"client":"Grok"}', $3::timestamptz - interval '15 days'),
        ($1, $2, 'mcp', '{"client":"Old agent"}', $3::timestamptz - interval '31 days')`,
       [initialized.owner.id, initialized.workspace.id, NOW.toISOString()],
@@ -106,7 +103,10 @@ describe("single-workspace administration", () => {
           $2::timestamptz - interval '6 hours'),
          ('reference_previous_import', $1, 'reference', 'active', 'Previous pull request',
           'https://github.com/acme/widgets/pull/2', $2::timestamptz - interval '32 hours',
-          $2::timestamptz - interval '32 hours')`,
+          $2::timestamptz - interval '32 hours'),
+         ('reference_previous_week_import', $1, 'reference', 'active', 'Previous week pull request',
+          'https://github.com/acme/widgets/pull/3', $2::timestamptz - interval '10 days',
+          $2::timestamptz - interval '10 days')`,
       [collectionId, NOW.toISOString()],
     );
 
@@ -117,15 +117,25 @@ describe("single-workspace administration", () => {
     });
 
     expect(overview.activity).toEqual({
-      activeAgents: {
-        last24Hours: 3,
-        previous24Hours: 2,
-        last7Days: 5,
-        last30Days: 7,
-      },
-      queries: { last24Hours: 3, previous24Hours: 1, byAgentsLast24Hours: 2 },
-      writes: { last24Hours: 2, previous24Hours: 1, byAgentsLast24Hours: 1 },
-      imports: { last24Hours: 1, previous24Hours: 1 },
+      period: "24h",
+      activeAgents: { current: 3, previous: 2 },
+      queries: { current: 3, previous: 1, byAgents: 2 },
+      writes: { current: 2, previous: 1, byAgents: 1 },
+      imports: { current: 1, previous: 1 },
+    });
+
+    const weekly = await getWorkspaceAdminOverview(client(), {
+      workspaceId: initialized.workspace.id,
+      userId: initialized.owner.id,
+      period: "7d",
+      now: NOW,
+    });
+    expect(weekly.activity).toEqual({
+      period: "7d",
+      activeAgents: { current: 5, previous: 1 },
+      queries: { current: 5, previous: 1, byAgents: 4 },
+      writes: { current: 4, previous: 0, byAgents: 3 },
+      imports: { current: 2, previous: 1 },
     });
   });
 
