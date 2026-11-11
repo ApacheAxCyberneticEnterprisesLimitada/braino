@@ -14,6 +14,9 @@ describe("open Braino administration", () => {
   it("has one owner console for the single workspace", () => {
     expect(routes).toContain('route("admin", "routes/admin.tsx")');
     expect(admin).toContain("Workspace administration");
+    expect(admin).toContain('id="metrics-title"');
+    expect(admin).toMatch(/<h2[^>]+id="metrics-title"[^>]*>\s*Metrics\s*<\/h2>/);
+    expect(admin).toContain("Current totals for this workspace.");
     expect(admin).toContain("Workspace settings");
     expect(admin).toContain("People and access");
     expect(admin).toContain("Connections");
