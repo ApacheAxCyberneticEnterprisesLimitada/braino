@@ -12,7 +12,7 @@ services:
     environment:
       DOCO_DATABASE_URL: postgresql://doco:${DOCO_POSTGRES_PASSWORD:?set DOCO_POSTGRES_PASSWORD in .env}@postgres:5432/doco
       DOCO_ENCRYPTION_KEY: ${DOCO_ENCRYPTION_KEY:?set DOCO_ENCRYPTION_KEY in .env}
-      DOCO_SETUP_TOKEN: ${DOCO_SETUP_TOKEN:?set DOCO_SETUP_TOKEN in .env}
+      BRAINO_SETUP_TOKEN: ${BRAINO_SETUP_TOKEN:?set BRAINO_SETUP_TOKEN in .env}
       DOCO_PUBLIC_HOST: ${DOCO_PUBLIC_HOST:-http://localhost:3000}
       QDRANT_URL: http://qdrant:6333
     ports:
