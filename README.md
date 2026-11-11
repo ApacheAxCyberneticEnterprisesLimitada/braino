@@ -11,9 +11,9 @@ This tree contains the supported single-workspace, self-hosted product:
 - `@doco/index` — retrieval, ranking, embeddings, and Qdrant integration
 - `@doco/web` — first-run setup, owner sign-in, workspace home, collection reader, and record authoring
 
-Each tagged release publishes the reusable packages above plus
-`@doco/connector-plugins` as immutable tarball assets beside the application
-image. Hosted Braino consumes those assets instead of carrying a second copy of
+A release is cut when a version bump merges to main. Each one publishes the
+reusable packages above plus `@doco/connector-plugins` as immutable tarball
+assets beside the application image. Hosted Braino consumes those assets instead of carrying a second copy of
 the core implementation.
 
 The supported deployment is one application, one stateless CodeLinker service,
@@ -101,8 +101,7 @@ deployment configuration and are written with mode `0600`. See
 
 The executable [v0.1 conformance contract](docs/v0.1-conformance.md) covers a
 clean Docker boot in under ten minutes, the core product surfaces, and a
-destructive backup/restore drill. Version-tag releases cannot publish until it
-passes.
+destructive backup/restore drill. A release cannot publish until it passes.
 
 ## Development
 
