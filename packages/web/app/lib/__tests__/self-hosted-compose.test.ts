@@ -218,6 +218,7 @@ describe("the supported self-hosted stack", () => {
     expect(packageJson.scripts.conformance).toBe("bash scripts/conformance.sh");
     for (const proof of [
       "single-workspace.real-db.test.ts",
+      "workspace-admin.real-db.test.ts",
       "collaborators.real-db.test.ts",
       "changesets.real-db.test.ts",
       "workspace-search.real-db.test.ts",
@@ -227,6 +228,7 @@ describe("the supported self-hosted stack", () => {
       "schema-apply-once.test.ts",
       "self-hosted-compose.test.ts",
       "design-language.test.ts",
+      "admin-console.test.ts",
     ]) {
       expect(script).toContain(proof);
       expect(contract).toContain(proof);
@@ -234,6 +236,7 @@ describe("the supported self-hosted stack", () => {
     expect(script).toContain("docker compose");
     expect(script).toContain("doco_records");
     expect(script).toContain("/collections/doco_records");
+    expect(script).toContain('"$origin/admin"');
     expect(script).toContain("./doco backup");
     expect(script).toContain("./doco restore");
     expect(script).toContain("600");

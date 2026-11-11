@@ -38,6 +38,12 @@ superseded through its compatible `/<collection-handle>/api/changesets.json`
 endpoint; the adjacent `api/authoring-contract.json` endpoint describes the
 supported operations and shapes.
 
+The owner opens **Admin** for the deployment overview and workspace settings,
+including its name and constitution. The same console is the single path to
+people and roles, source connections, webhooks, GitHub sync, and agent/MCP
+access. It reports configuration readiness without displaying secret values;
+privileged backup, restore, and upgrade commands stay on the host.
+
 Agents can connect over stateless MCP. Open **MCP** on the workspace page,
 create a named token, and copy the generated client configuration. The `/mcp`
 endpoint serves deterministic briefs and search, record reads, feedback, and atomic

@@ -1,5 +1,5 @@
 import { withClient } from "@doco/db";
-import { getSingleWorkspaceState } from "@doco/host";
+import { getSingleWorkspaceState, getWorkspaceRole } from "@doco/host";
 import {
   Form,
   Link,
@@ -21,13 +21,20 @@ import "./app.css";
 interface RootData {
   initialized: boolean;
   user: CurrentUser | null;
+  isOwner: boolean;
 }
 
 export async function loader({ request }: { request: Request }): Promise<RootData> {
   const state = await withClient(getSingleWorkspaceState);
+  if (!state.initialized) return { initialized: false, user: null, isOwner: false };
+  const user = await getCurrentUser(request);
   return {
-    initialized: state.initialized,
-    user: state.initialized ? await getCurrentUser(request) : null,
+    initialized: true,
+    user,
+    isOwner: user
+      ? (await withClient((client) => getWorkspaceRole(client, state.workspace.id, user.id))) ===
+        "owner"
+      : false,
   };
 }
 
@@ -103,12 +110,11 @@ function SiteHeader({ data }: { data: RootData }) {
         <div className={`${data.user ? "" : "ml-auto"} flex shrink-0 items-center gap-2 text-xs`}>
           {data.user ? (
             <>
-              <Link
-                to="/integrations"
-                className="neu-button rounded-md px-2.5 py-1.5 font-semibold"
-              >
-                Integrations
-              </Link>
+              {data.isOwner ? (
+                <Link to="/admin" className="neu-button rounded-md px-2.5 py-1.5 font-semibold">
+                  Admin
+                </Link>
+              ) : null}
               <Link
                 to="/"
                 className="neu-button neu-pressed rounded-md px-2.5 py-1.5 font-semibold"

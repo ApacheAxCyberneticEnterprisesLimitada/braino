@@ -650,6 +650,10 @@ export default function IntegrationsPage() {
             <span aria-hidden>›</span>
             <span>{data.workspace.handle}</span>
             <span aria-hidden>›</span>
+            <Link to="/admin" className="hover:underline">
+              Admin
+            </Link>
+            <span aria-hidden>›</span>
             <span>Integrations</span>
           </nav>
         }
