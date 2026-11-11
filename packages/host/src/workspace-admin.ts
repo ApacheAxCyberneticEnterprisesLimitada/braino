@@ -8,6 +8,8 @@ export interface WorkspaceAdminOverview {
     handle: string;
     name: string;
     constitution: string;
+    timesPublic: boolean;
+    timesTimeZone: string;
   };
   counts: {
     collections: number;
@@ -82,7 +84,9 @@ export async function getWorkspaceAdminOverview(
 ): Promise<WorkspaceAdminOverview> {
   await requireOwner(client, input.workspaceId, input.userId);
   const workspace = await client.query<WorkspaceAdminOverview["workspace"]>(
-    "SELECT id, handle, name, constitution FROM workspaces WHERE id = $1",
+    `SELECT id, handle, name, constitution,
+            times_public AS "timesPublic", times_timezone AS "timesTimeZone"
+       FROM workspaces WHERE id = $1`,
     [input.workspaceId],
   );
   const row = workspace.rows[0];
@@ -214,6 +218,8 @@ export async function updateWorkspaceSettings(
     userId: string;
     name: string;
     constitution: string;
+    timesPublic: boolean;
+    timesTimeZone: string;
   },
 ): Promise<WorkspaceAdminOverview["workspace"]> {
   await requireOwner(client, input.workspaceId, input.userId);
@@ -221,12 +227,23 @@ export async function updateWorkspaceSettings(
   if (!name) {
     throw new WorkspaceAdminError("Workspace name is required.", "name_required");
   }
+  const timesTimeZone = input.timesTimeZone.trim();
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: timesTimeZone }).format();
+  } catch {
+    throw new WorkspaceAdminError(
+      "Braino Times requires a valid IANA timezone.",
+      "invalid_times_timezone",
+    );
+  }
   const updated = await client.query<WorkspaceAdminOverview["workspace"]>(
     `UPDATE workspaces
-        SET name = $2, constitution = $3, updated_at = now()
+        SET name = $2, constitution = $3, times_public = $4,
+            times_timezone = $5, updated_at = now()
       WHERE id = $1
-      RETURNING id, handle, name, constitution`,
-    [input.workspaceId, name, input.constitution.trim()],
+      RETURNING id, handle, name, constitution,
+                times_public AS "timesPublic", times_timezone AS "timesTimeZone"`,
+    [input.workspaceId, name, input.constitution.trim(), input.timesPublic, timesTimeZone],
   );
   const row = updated.rows[0];
   if (!row) {

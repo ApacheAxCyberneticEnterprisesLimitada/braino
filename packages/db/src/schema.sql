@@ -186,7 +186,10 @@ CREATE TABLE IF NOT EXISTS workspaces (
   -- Whether anyone may read the web editions of its newspaper, The
   -- <Workspace> Times, with the stories from its public collections only.
   -- Members-only unless an owner turns it on.
-  times_public boolean NOT NULL DEFAULT false
+  times_public boolean NOT NULL DEFAULT false,
+  -- IANA timezone whose local calendar day determines when a new Times
+  -- edition is published. Kept with the workspace so every runtime agrees.
+  times_timezone text NOT NULL DEFAULT 'America/Los_Angeles'
 );
 
 -- Workspace users (per-workspace role grants).
@@ -1469,9 +1472,10 @@ CREATE TABLE IF NOT EXISTS github_authors (
 CREATE TABLE IF NOT EXISTS times_editions (
   workspace_id text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
   cadence      text NOT NULL CHECK (cadence IN ('daily', 'weekly')),
+  edition_day  date NOT NULL,
   published_at timestamptz NOT NULL,
   stories      jsonb NOT NULL DEFAULT '[]'::jsonb,
-  PRIMARY KEY (workspace_id, cadence, published_at)
+  PRIMARY KEY (workspace_id, cadence, edition_day)
 );
 
 -- Hook tokens: a person's read-only credential for one workspace, reading

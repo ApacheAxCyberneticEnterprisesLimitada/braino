@@ -1,6 +1,6 @@
 {
   "name": "@doco/index",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "type": "module",
   "description": "PG-backed search indexer, PageRank, and embedding provider.",
   "license": "MPL-2.0",

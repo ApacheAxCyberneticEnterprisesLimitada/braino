@@ -16,10 +16,11 @@ reusable packages above plus `@doco/connector-plugins` as immutable tarball
 assets beside the application image. Hosted Braino consumes those assets instead of carrying a second copy of
 the core implementation.
 
-The supported deployment is one application, one stateless CodeLinker service,
-one PostgreSQL source of truth, and one rebuildable Qdrant index. Core authoring, team access, deterministic
-search, MCP, generic webhooks, GitHub import, and operations work without a
-model provider.
+The supported deployment is one application image running the web process and
+the Braino Times scheduler, one stateless CodeLinker service, one PostgreSQL
+source of truth, and one rebuildable Qdrant index. Core authoring, team access,
+deterministic search, Braino Times, MCP, generic webhooks, GitHub import, and
+operations work without a model provider.
 
 ## Self-hosting
 
@@ -39,7 +40,10 @@ endpoint; the adjacent `api/authoring-contract.json` endpoint describes the
 supported operations and shapes.
 
 The owner opens **Admin** for the deployment overview and workspace settings,
-including its name and constitution. The same console is the single path to
+including its name, constitution, and Braino Times publication timezone and
+public visibility. The scheduler publishes at most one edition per local
+calendar day; PostgreSQL keeps every edition, and signed-out readers see only
+stories from public collections. The same console is the single path to
 people and roles, source connections, webhooks, GitHub sync, and agent/MCP
 access. It reports configuration readiness without displaying secret values;
 privileged backup, restore, and upgrade commands stay on the host.

@@ -45,6 +45,8 @@ describe("single-workspace administration", () => {
         handle: "acme",
         name: "Acme",
         constitution: expect.any(String),
+        timesPublic: false,
+        timesTimeZone: "America/Los_Angeles",
       },
       counts: {
         collections: 9,
@@ -168,22 +170,50 @@ describe("single-workspace administration", () => {
         userId: initialized.owner.id,
         name: "Acme Research",
         constitution: "Evidence before opinion.",
+        timesPublic: true,
+        timesTimeZone: "Africa/Lagos",
       }),
     ).resolves.toEqual({
       id: initialized.workspace.id,
       handle: "acme",
       name: "Acme Research",
       constitution: "Evidence before opinion.",
+      timesPublic: true,
+      timesTimeZone: "Africa/Lagos",
     });
 
-    const stored = await db.query<{ handle: string; name: string; constitution: string }>(
-      "SELECT handle, name, constitution FROM workspaces WHERE id = $1",
+    const stored = await db.query<{
+      handle: string;
+      name: string;
+      constitution: string;
+      times_public: boolean;
+      times_timezone: string;
+    }>(
+      `SELECT handle, name, constitution, times_public, times_timezone
+         FROM workspaces WHERE id = $1`,
       [initialized.workspace.id],
     );
     expect(stored.rows[0]).toEqual({
       handle: "acme",
       name: "Acme Research",
       constitution: "Evidence before opinion.",
+      times_public: true,
+      times_timezone: "Africa/Lagos",
     });
+  });
+
+  it("rejects an invalid Braino Times timezone", async () => {
+    const initialized = await initializedWorkspace();
+
+    await expect(
+      updateWorkspaceSettings(client(), {
+        workspaceId: initialized.workspace.id,
+        userId: initialized.owner.id,
+        name: "Acme",
+        constitution: "",
+        timesPublic: false,
+        timesTimeZone: "Mars/Olympus_Mons",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_times_timezone", status: 400 });
   });
 });

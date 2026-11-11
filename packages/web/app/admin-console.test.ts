@@ -9,15 +9,22 @@ const root = readFileSync(resolve(app, "root.tsx"), "utf8");
 const collaborators = readFileSync(resolve(app, "routes/collaborators.tsx"), "utf8");
 const integrations = readFileSync(resolve(app, "routes/integrations.tsx"), "utf8");
 const mcpTokens = readFileSync(resolve(app, "routes/mcp-tokens.tsx"), "utf8");
+const timesIndex = readFileSync(resolve(app, "routes/times._index.tsx"), "utf8");
 
 describe("open Braino administration", () => {
   it("has one owner console for the single workspace", () => {
     expect(routes).toContain('route("admin", "routes/admin.tsx")');
+    expect(routes).toContain('route("times", "routes/times._index.tsx")');
+    expect(routes).toContain('route("times/:day", "routes/times.$day.tsx")');
     expect(admin).toContain("Workspace administration");
     expect(admin).toContain('id="metrics-title"');
     expect(admin).toMatch(/<h2[^>]+id="metrics-title"[^>]*>\s*Metrics\s*<\/h2>/);
     expect(admin).toContain("Current totals for this workspace.");
     expect(admin).toContain("Workspace settings");
+    expect(admin).toContain("Braino Times");
+    expect(admin).toContain('name="times_timezone"');
+    expect(admin).toContain('name="times_public"');
+    expect(admin).toContain('to="/times"');
     expect(admin).toContain("People and access");
     expect(admin).toContain("Connections");
     expect(admin).toContain("Agents and MCP");
@@ -49,10 +56,16 @@ describe("open Braino administration", () => {
     expect(admin).not.toMatch(/billing|waitlist|top workspaces|superadmin/i);
   });
 
+  it("does not reveal a private Times edition through the latest-edition redirect", () => {
+    expect(timesIndex).toContain("loadTimesEdition");
+    expect(timesIndex).toContain('edition.kind === "hidden"');
+  });
+
   it("shows Admin in the global header only to workspace owners", () => {
     expect(root).toContain("isOwner");
     expect(root).toContain('to="/admin"');
     expect(root).toContain("Admin");
+    expect(root).toContain('to="/times"');
   });
 
   it("keeps each administration page connected to the console", () => {

@@ -3,6 +3,8 @@ import { type RouteConfig, index, route } from "@react-router/dev/routes";
 export default [
   index("routes/_index.tsx"),
   route("admin", "routes/admin.tsx"),
+  route("times", "routes/times._index.tsx"),
+  route("times/:day", "routes/times.$day.tsx"),
   route("collaborators", "routes/collaborators.tsx"),
   route("integrations", "routes/integrations.tsx"),
   route("mcp-tokens", "routes/mcp-tokens.tsx"),
