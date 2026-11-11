@@ -229,7 +229,9 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain('TAG="v$(jq -r .version package.json)"');
     expect(workflow).toContain('git ls-remote --exit-code --tags origin "refs/tags/$TAG"');
     expect(workflow).toContain("if: needs.version.outputs.unreleased == 'true'");
-    expect(workflow).toContain('gh release create "$TAG" release-packages/*.tgz --target "$GITHUB_SHA"');
+    expect(workflow).toContain(
+      'gh release create "$TAG" release-packages/*.tgz --target "$GITHUB_SHA"',
+    );
     expect(workflow).toContain("cancel-in-progress: false");
   });
 
@@ -237,7 +239,9 @@ describe("the supported self-hosted stack", () => {
     const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
 
     expect(workflow).toContain("linux/amd64,linux/arm64");
-    expect(workflow).toContain("type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}");
+    expect(workflow).toContain(
+      "type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}",
+    );
     expect(workflow).toContain("type=raw,value=latest");
     expect(workflow).toContain("DOCO_VERSION=${{ needs.version.outputs.tag }}");
     expect(workflow).toContain("provenance: mode=max");
