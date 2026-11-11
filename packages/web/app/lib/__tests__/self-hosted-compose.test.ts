@@ -82,11 +82,14 @@ describe("the supported self-hosted stack", () => {
     const env = readFileSync(resolve(root, ".env.example"), "utf8");
     const dockerfile = readFileSync(resolve(root, "Dockerfile"), "utf8");
     const dockerignore = readFileSync(resolve(root, ".dockerignore"), "utf8");
+    const runtimeStage = dockerfile.split(" AS runtime")[1] ?? "";
 
     expect(env).toContain("DOCO_ENCRYPTION_KEY=");
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
     expect(env).toContain("BRAINO_SETUP_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
+    expect(runtimeStage).toContain("ARG DOCO_VERSION");
+    expect(runtimeStage).toContain("ENV DOCO_VERSION=$DOCO_VERSION");
     expect(dockerfile).toContain("USER node");
     expect(dockerignore).toContain(".env*");
     expect(dockerignore).toContain("!.env.example");

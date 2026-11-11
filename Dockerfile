@@ -24,6 +24,8 @@ RUN pnpm --filter @doco/web deploy --prod --legacy /opt/doco
 
 FROM node:22-bookworm-slim AS runtime
 
+ARG DOCO_VERSION=local
+ENV DOCO_VERSION=$DOCO_VERSION
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
 ENV PORT=3000
