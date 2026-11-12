@@ -1056,9 +1056,13 @@ CREATE TABLE IF NOT EXISTS retrieval_relations (
   search_tsv       tsvector GENERATED ALWAYS AS (
     setweight(to_tsvector('english', relation_type), 'A') ||
     setweight(to_tsvector('english', fact), 'B')
-  ) STORED,
-  UNIQUE (source_chunk_id, from_entity_id, to_entity_id, relation_type, fact)
+  ) STORED
 );
+-- The id hashes the chunk, endpoints, type and fact, so the primary key keeps
+-- each relationship once; a unique key over the fact itself would fail on a
+-- fact past a btree entry's 2,704 bytes.
+CREATE INDEX IF NOT EXISTS retrieval_relations_source_chunk_idx
+  ON retrieval_relations (source_chunk_id);
 CREATE INDEX IF NOT EXISTS retrieval_relations_collection_from_idx
   ON retrieval_relations (collection_id, from_entity_id);
 CREATE INDEX IF NOT EXISTS retrieval_relations_collection_to_idx
