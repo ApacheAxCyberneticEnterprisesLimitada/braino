@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   getSingleWorkspaceState: vi.fn(),
   initializeSingleWorkspace: vi.fn(),
   hashPassword: vi.fn(),
+  passwordError: vi.fn(),
 }));
 
 vi.mock("@doco/db", () => ({
@@ -20,7 +21,7 @@ vi.mock("@doco/host", () => ({
 vi.mock("~/lib/current-user.server", () => ({ getCurrentUser: vi.fn() }));
 vi.mock("~/lib/password.server", () => ({
   hashPassword: mocks.hashPassword,
-  passwordError: () => null,
+  passwordError: mocks.passwordError,
   verifyPassword: vi.fn(),
 }));
 vi.mock("~/lib/session.server", () => ({
@@ -36,6 +37,7 @@ describe("first-run setup password", () => {
   it("creates the workspace from one password field", async () => {
     mocks.getSingleWorkspaceState.mockResolvedValue({ initialized: false });
     mocks.hashPassword.mockResolvedValue("scrypt$test");
+    mocks.passwordError.mockReturnValue(null);
     mocks.initializeSingleWorkspace.mockResolvedValue({
       owner: { id: "user_owner", stamp: "stamp_owner" },
       workspace: { id: "workspace_meta", handle: "meta-braino", name: "Meta Braino" },
@@ -64,8 +66,68 @@ describe("first-run setup password", () => {
       {},
       expect.objectContaining({ ownerPasswordHash: "scrypt$test" }),
     );
+    expect(response).toBeInstanceOf(Response);
+    if (!(response instanceof Response)) throw new Error("Expected setup to redirect.");
     expect(response.status).toBe(302);
     expect(response.headers.get("location")).toBe("/");
+  });
+
+  it("returns validation failures as inline action data", async () => {
+    mocks.getSingleWorkspaceState.mockResolvedValue({ initialized: false });
+    mocks.passwordError.mockReturnValue("Use at least 12 characters.");
+    const body = new URLSearchParams({
+      intent: "setup",
+      setup_token: "valid-setup-token",
+      password: "short",
+    });
+
+    const result = await action({
+      request: new Request("https://meta.braino.dev/?index", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      }),
+    });
+
+    expect(result).not.toBeInstanceOf(Response);
+    expect(result).toMatchObject({
+      type: "DataWithResponseInit",
+      data: { error: "Use at least 12 characters." },
+      init: { status: 400 },
+    });
+    expect(mocks.hashPassword).not.toHaveBeenCalled();
+  });
+
+  it("preserves password characters exactly", async () => {
+    mocks.getSingleWorkspaceState.mockResolvedValue({ initialized: false });
+    mocks.hashPassword.mockResolvedValue("scrypt$test");
+    mocks.passwordError.mockReturnValue(null);
+    mocks.initializeSingleWorkspace.mockResolvedValue({
+      owner: { id: "user_owner", stamp: "stamp_owner" },
+      workspace: { id: "workspace_meta", handle: "meta-braino", name: "Meta Braino" },
+    });
+    const password = "  generated password 123  ";
+    const body = new URLSearchParams({
+      intent: "setup",
+      workspace_name: "Meta Braino",
+      workspace_handle: "meta-braino",
+      owner_name: "Owner",
+      owner_username: "owner",
+      owner_email: "owner@example.com",
+      setup_token: "valid-setup-token",
+      password,
+    });
+
+    await action({
+      request: new Request("https://meta.braino.dev/?index", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body,
+      }),
+    });
+
+    expect(mocks.passwordError).toHaveBeenCalledWith(password);
+    expect(mocks.hashPassword).toHaveBeenCalledWith(password);
   });
 
   it("renders one password-manager-friendly setup field", () => {
