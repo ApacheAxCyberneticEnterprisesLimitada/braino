@@ -2998,11 +2998,18 @@ CREATE TABLE IF NOT EXISTS silence_alerts (
   -- check doesn't open it again, but no page shows it and nothing is sent
   -- until it closes.
   disregarded_at timestamptz,
+  -- On an agent's alert about its Braino setup, what is wrong with it: 'old',
+  -- a copy of the Braino hook's script that is not the one Braino serves
+  -- (hook_copies), or 'missing', an environment whose install script Braino
+  -- never heard from. Null on a silence alert. quiet_since is then since when.
+  setup         text CHECK (setup IS NULL OR (agent IS NOT NULL AND setup IN ('old', 'missing'))),
   CHECK ((collection_id IS NOT NULL) <> (user_id IS NOT NULL AND agent IS NOT NULL))
 );
 ALTER TABLE silence_alerts
   ADD COLUMN IF NOT EXISTS nudged_at timestamptz,
-  ADD COLUMN IF NOT EXISTS disregarded_at timestamptz;
+  ADD COLUMN IF NOT EXISTS disregarded_at timestamptz,
+  ADD COLUMN IF NOT EXISTS setup text
+    CHECK (setup IS NULL OR (agent IS NOT NULL AND setup IN ('old', 'missing')));
 -- The agents an owner of a workspace disregarded always: no alert opens about
 -- that person's agent in that workspace again.
 CREATE TABLE IF NOT EXISTS disregarded_agents (
@@ -3014,9 +3021,36 @@ CREATE TABLE IF NOT EXISTS disregarded_agents (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_collection_idx
   ON silence_alerts (collection_id) WHERE collection_id IS NOT NULL;
-CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
-  ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
+-- One alert of each kind per agent: it may have gone quiet and have an
+-- outdated setup at once.
+CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_setup_idx
+  ON silence_alerts (workspace_id, user_id, agent, coalesce(setup, ''))
+  WHERE agent IS NOT NULL;
+DROP INDEX IF EXISTS silence_alerts_agent_idx;
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
+
+-- The copies of the Braino hook's script that named themselves to Braino: one
+-- per workspace, person, agent and project. A copy names itself and its
+-- project on the standing orders it reads with its person's credential, at a
+-- session's start and when an environment's install script runs it (web:
+-- hook/doco-hook.mjs). The silence check alerts on a copy that stays old
+-- while it is still seen, and on an environment Braino never heard from
+-- (silence_alerts.setup).
+CREATE TABLE IF NOT EXISTS hook_copies (
+  workspace_id  text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+  -- The person whose credential it read with.
+  user_id       text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  -- The agent it runs under, named as silence_alerts.agent names one: the
+  -- connection it read with, as agentName names it, or its hook token's label.
+  agent         text NOT NULL,
+  -- The folder it is saved in, by name; '' when it didn't say.
+  project       text NOT NULL,
+  seen_at       timestamptz NOT NULL DEFAULT now(),
+  -- Since when it has been another copy than the one Braino serves; null
+  -- while it is that one.
+  old_since     timestamptz,
+  PRIMARY KEY (workspace_id, user_id, agent, project)
+);
 
 -- The pull requests imported before they carried labels (the agent that made
 -- each and how Braino saw the work, web: lib/pull-request-provenance.ts) are
