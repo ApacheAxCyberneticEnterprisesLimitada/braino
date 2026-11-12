@@ -31,6 +31,14 @@ docker compose up -d --build
 curl --fail http://localhost:3000/healthz
 ```
 
+`BRAINO_SETUP_TOKEN` is a per-deployment bootstrap secret, not a default
+embedded in the image or a Braino Cloud credential. Generate it yourself—or
+have deployment automation generate it—and keep it in the deployment's private
+environment; the Docker path above stores it in the host's uncommitted `.env`.
+It prevents the first visitor to a publicly reachable, uninitialized instance
+from claiming ownership. After the sole workspace is created, first-run setup
+is closed and the token cannot initialize another workspace.
+
 Open `http://localhost:3000`, enter `BRAINO_SETUP_TOKEN`, and create the owner and
 sole workspace. The application port binds to loopback; the optional Caddy
 profile is the supported way to expose Braino publicly. Records
