@@ -40,6 +40,9 @@ services:
   scheduler:
     <<: *braino-app
     command: ["node", "runtime/scheduler.mjs"]
+    # The image's healthcheck asks the web server, which the scheduler doesn't run.
+    healthcheck:
+      disable: true
     depends_on:
       app:
         condition: service_healthy
