@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { parse } from "yaml";
 
@@ -195,9 +196,47 @@ describe("the supported self-hosted stack", () => {
       readFileSync(resolve(root, "packages/web/package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
 
-    expect(webPackage.scripts.start).toMatch(
-      /^node node_modules\/@doco\/db\/dist\/migrate\.js && react-router-serve/,
+    expect(webPackage.scripts.start).toBe(
+      "node node_modules/@doco/db/dist/migrate.js && node server.mjs",
     );
+  });
+
+  it("preserves the public HTTPS origin behind the bundled reverse proxy", () => {
+    const serverModule = pathToFileURL(resolve(root, "packages/web/server.mjs")).href;
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--input-type=module",
+        "--eval",
+        `
+          import express from "express";
+          import { trustSingleProxy } from ${JSON.stringify(serverModule)};
+
+          const app = express();
+          trustSingleProxy(app);
+          app.post("/", (request, response) => {
+            response.send(new URL(request.originalUrl, \`${"${request.protocol}"}://${"${request.hostname}"}\`).origin);
+          });
+          const server = app.listen(0, "127.0.0.1", async () => {
+            const address = server.address();
+            const response = await fetch(\`http://127.0.0.1:${"${address.port}"}/\`, {
+              method: "POST",
+              headers: {
+                Host: "meta.braino.dev",
+                "X-Forwarded-Host": "meta.braino.dev",
+                "X-Forwarded-Proto": "https",
+              },
+            });
+            console.log(await response.text());
+            server.close();
+          });
+        `,
+      ],
+      { cwd: resolve(root, "packages/web"), encoding: "utf8" },
+    );
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("https://meta.braino.dev");
   });
 
   it("refuses to upgrade a local app image regardless of Compose image order", () => {
