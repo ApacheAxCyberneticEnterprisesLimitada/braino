@@ -89,12 +89,7 @@ describe("first-run setup password", () => {
       }),
     });
 
-    expect(result).not.toBeInstanceOf(Response);
-    expect(result).toMatchObject({
-      type: "DataWithResponseInit",
-      data: { error: "Use at least 12 characters." },
-      init: { status: 400 },
-    });
+    expect(result).toEqual({ error: "Use at least 12 characters." });
     expect(mocks.hashPassword).not.toHaveBeenCalled();
   });
 
