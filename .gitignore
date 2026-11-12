@@ -15,3 +15,6 @@ coverage/
 .env.*.local
 .env.before-restore.*
 backups/
+
+# Braino hook token. It reads the workspace as the person who saved it.
+.doco/hook-tokens.json

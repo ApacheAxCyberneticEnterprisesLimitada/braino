@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      {
+        "command": "node .doco/hook.mjs cursor",
+        "timeout": 15
+      }
+    ],
+    "beforeSubmitPrompt": [
+      {
+        "command": "node .doco/hook.mjs cursor",
+        "timeout": 15
+      }
+    ],
+    "postToolUse": [
+      {
+        "command": "node .doco/hook.mjs cursor",
+        "timeout": 15
+      }
+    ],
+    "stop": [
+      {
+        "command": "node .doco/hook.mjs cursor",
+        "timeout": 15
+      }
+    ]
+  }
+}
