@@ -24,6 +24,10 @@ const DROPPED_TABLES = [
   "group_chat_channel_intros",
   // The workspace-level collection-link abstraction was unshipped.
   "collection_edges",
+  // The alerts about pull requests a workspace couldn't see were removed;
+  // the block on a GitHub integration does their job.
+  "unseen_work_alerts",
+  "unseen_work_authors",
 ];
 
 function declaresTable(table: string): boolean {
