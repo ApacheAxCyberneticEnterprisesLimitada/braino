@@ -6,7 +6,7 @@ import {
   reservePasswordSignInAttempt,
   revokeUserSessions,
 } from "@doco/host";
-import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
+import { Form, Link, data, redirect, useActionData, useLoaderData } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/card";
 import { CollectionTypeIcon } from "~/components/collection-type-icon";
 import { PageHeader } from "~/components/page-header";
@@ -88,9 +88,13 @@ export async function loader({ request }: { request: Request }): Promise<LoaderD
   });
 }
 
-function text(form: FormData, name: string): string {
+function rawText(form: FormData, name: string): string {
   const value = form.get(name);
-  return typeof value === "string" ? value.trim() : "";
+  return typeof value === "string" ? value : "";
+}
+
+function text(form: FormData, name: string): string {
+  return rawText(form, name).trim();
 }
 
 export async function action({ request }: { request: Request }) {
@@ -99,7 +103,7 @@ export async function action({ request }: { request: Request }) {
     form = await readBoundedUrlEncodedForm(request, MAX_FORM_BODY_BYTES);
   } catch (error) {
     if (error instanceof RequestBodyError) {
-      return Response.json({ error: error.message }, { status: error.status });
+      return data({ error: error.message }, { status: error.status });
     }
     throw error;
   }
@@ -113,12 +117,12 @@ export async function action({ request }: { request: Request }) {
   const state = await withClient(getSingleWorkspaceState);
   if (intent === "setup") {
     if (state.initialized)
-      return Response.json({ error: "Braino is already initialized." }, { status: 409 });
+      return data({ error: "Braino is already initialized." }, { status: 409 });
     const invalidSetupToken = setupTokenError(text(form, "setup_token"));
-    if (invalidSetupToken) return Response.json({ error: invalidSetupToken }, { status: 403 });
-    const password = text(form, "password");
+    if (invalidSetupToken) return data({ error: invalidSetupToken }, { status: 403 });
+    const password = rawText(form, "password");
     const error = passwordError(password);
-    if (error) return Response.json({ error }, { status: 400 });
+    if (error) return data({ error }, { status: 400 });
     try {
       const ownerPasswordHash = await hashPassword(password);
       const initialized = await withClient((client) =>
@@ -140,7 +144,7 @@ export async function action({ request }: { request: Request }) {
         },
       });
     } catch (caught) {
-      return Response.json(
+      return data(
         { error: caught instanceof Error ? caught.message : "Setup failed." },
         { status: 400 },
       );
@@ -148,9 +152,9 @@ export async function action({ request }: { request: Request }) {
   }
 
   if (intent === "signin") {
-    if (!state.initialized) return Response.json({ error: "Finish setup first." }, { status: 409 });
+    if (!state.initialized) return data({ error: "Finish setup first." }, { status: 409 });
     const email = text(form, "email").toLowerCase();
-    const password = text(form, "password");
+    const password = rawText(form, "password");
     const attemptBuckets = passwordAttemptBuckets(request, email);
     const signIn = await withClient(async (client) => {
       const result = await client.query<{
@@ -171,7 +175,7 @@ export async function action({ request }: { request: Request }) {
       };
     });
     if (!signIn.reservation.allowed) {
-      return Response.json(
+      return data(
         { error: "Too many sign-in attempts. Try again later." },
         {
           status: 429,
@@ -183,7 +187,7 @@ export async function action({ request }: { request: Request }) {
       !(await verifyPassword(password, signIn.account?.password_hash ?? null)) ||
       !signIn.account
     ) {
-      return Response.json({ error: "Email or password is incorrect." }, { status: 400 });
+      return data({ error: "Email or password is incorrect." }, { status: 400 });
     }
     await withClient((client) => clearPasswordSignInAttempts(client, attemptBuckets));
     return redirect(safeReturnPath(text(form, "next")), {
@@ -196,7 +200,7 @@ export async function action({ request }: { request: Request }) {
     });
   }
 
-  return Response.json({ error: "Unknown action." }, { status: 400 });
+  return data({ error: "Unknown action." }, { status: 400 });
 }
 
 export default function Home() {
