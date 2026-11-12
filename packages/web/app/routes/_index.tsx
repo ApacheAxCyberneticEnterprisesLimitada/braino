@@ -119,9 +119,6 @@ export async function action({ request }: { request: Request }) {
     const password = text(form, "password");
     const error = passwordError(password);
     if (error) return Response.json({ error }, { status: 400 });
-    if (password !== text(form, "password_confirmation")) {
-      return Response.json({ error: "The passwords do not match." }, { status: 400 });
-    }
     try {
       const ownerPasswordHash = await hashPassword(password);
       const initialized = await withClient((client) =>
@@ -284,12 +281,13 @@ function Setup({ error }: { error?: string }) {
                 autoComplete="off"
                 required
               />
-              <Field label="Password" name="password" type="password" minLength={12} required />
               <Field
-                label="Confirm password"
-                name="password_confirmation"
+                label="Password"
+                name="password"
                 type="password"
                 minLength={12}
+                maxLength={200}
+                autoComplete="new-password"
                 required
               />
             </div>
