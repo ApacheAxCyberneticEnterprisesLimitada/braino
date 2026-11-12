@@ -97,8 +97,7 @@ setup_status=$(curl --silent --show-error -o "$runtime/setup-response" -w '%{htt
   --data-urlencode 'owner_username=conformance-owner' \
   --data-urlencode 'owner_email=owner@conformance.invalid' \
   --data-urlencode "setup_token=$BRAINO_SETUP_TOKEN" \
-  --data-urlencode 'password=conformance-owner-password' \
-  --data-urlencode 'password_confirmation=conformance-owner-password')
+  --data-urlencode 'password=conformance-owner-password')
 [[ "$setup_status" == "302" || "$setup_status" == "303" ]]
 
 curl --fail --silent --show-error -b "$cookies" "$origin/" >"$runtime/dashboard"
@@ -119,7 +118,8 @@ grep -q '"securitySchemes"' "$runtime/mcp-tools.json"
 second_setup_status=$(curl --silent --show-error -o "$runtime/second-setup-response" \
   -w '%{http_code}' -b "$cookies" -X POST "$origin/?index" \
   -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'intent=setup')
-[[ "$second_setup_status" == "409" ]]
+[[ "$second_setup_status" == "200" ]]
+grep -q 'Braino is already initialized.' "$runtime/second-setup-response"
 
 curl --fail --silent --show-error -b "$cookies" \
   "$origin/api/v1/collections.json" >"$runtime/collections.json"
