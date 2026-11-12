@@ -6,7 +6,7 @@ import {
   reservePasswordSignInAttempt,
   revokeUserSessions,
 } from "@doco/host";
-import { Form, Link, data, redirect, useActionData, useLoaderData } from "react-router";
+import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/components/card";
 import { CollectionTypeIcon } from "~/components/collection-type-icon";
 import { PageHeader } from "~/components/page-header";
@@ -97,13 +97,17 @@ function text(form: FormData, name: string): string {
   return rawText(form, name).trim();
 }
 
+function formError(error: string): { error: string } {
+  return { error };
+}
+
 export async function action({ request }: { request: Request }) {
   let form: FormData;
   try {
     form = await readBoundedUrlEncodedForm(request, MAX_FORM_BODY_BYTES);
   } catch (error) {
     if (error instanceof RequestBodyError) {
-      return data({ error: error.message }, { status: error.status });
+      return formError(error.message);
     }
     throw error;
   }
@@ -116,13 +120,12 @@ export async function action({ request }: { request: Request }) {
 
   const state = await withClient(getSingleWorkspaceState);
   if (intent === "setup") {
-    if (state.initialized)
-      return data({ error: "Braino is already initialized." }, { status: 409 });
+    if (state.initialized) return formError("Braino is already initialized.");
     const invalidSetupToken = setupTokenError(text(form, "setup_token"));
-    if (invalidSetupToken) return data({ error: invalidSetupToken }, { status: 403 });
+    if (invalidSetupToken) return formError(invalidSetupToken);
     const password = rawText(form, "password");
     const error = passwordError(password);
-    if (error) return data({ error }, { status: 400 });
+    if (error) return formError(error);
     try {
       const ownerPasswordHash = await hashPassword(password);
       const initialized = await withClient((client) =>
@@ -144,15 +147,12 @@ export async function action({ request }: { request: Request }) {
         },
       });
     } catch (caught) {
-      return data(
-        { error: caught instanceof Error ? caught.message : "Setup failed." },
-        { status: 400 },
-      );
+      return formError(caught instanceof Error ? caught.message : "Setup failed.");
     }
   }
 
   if (intent === "signin") {
-    if (!state.initialized) return data({ error: "Finish setup first." }, { status: 409 });
+    if (!state.initialized) return formError("Finish setup first.");
     const email = text(form, "email").toLowerCase();
     const password = rawText(form, "password");
     const attemptBuckets = passwordAttemptBuckets(request, email);
@@ -175,19 +175,13 @@ export async function action({ request }: { request: Request }) {
       };
     });
     if (!signIn.reservation.allowed) {
-      return data(
-        { error: "Too many sign-in attempts. Try again later." },
-        {
-          status: 429,
-          headers: { "Retry-After": String(signIn.reservation.retryAfterSeconds) },
-        },
-      );
+      return formError("Too many sign-in attempts. Try again later.");
     }
     if (
       !(await verifyPassword(password, signIn.account?.password_hash ?? null)) ||
       !signIn.account
     ) {
-      return data({ error: "Email or password is incorrect." }, { status: 400 });
+      return formError("Email or password is incorrect.");
     }
     await withClient((client) => clearPasswordSignInAttempts(client, attemptBuckets));
     return redirect(safeReturnPath(text(form, "next")), {
@@ -200,7 +194,7 @@ export async function action({ request }: { request: Request }) {
     });
   }
 
-  return data({ error: "Unknown action." }, { status: 400 });
+  return formError("Unknown action.");
 }
 
 export default function Home() {
