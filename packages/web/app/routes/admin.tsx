@@ -426,8 +426,8 @@ export default function AdminPage() {
               />
               <AdminLink
                 to="/mcp-tokens"
-                title="Agents and MCP"
-                description="Connect agents with revocable tokens."
+                title="Connect Señor Braino"
+                description="Connect ChatGPT directly with instance-local OAuth."
               />
               <AdminLink
                 to="/"

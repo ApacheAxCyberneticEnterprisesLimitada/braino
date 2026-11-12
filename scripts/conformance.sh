@@ -15,13 +15,18 @@ pnpm --filter @doco/host exec vitest run \
   src/__tests__/collaborators.real-db.test.ts \
   src/__tests__/changesets.real-db.test.ts \
   src/__tests__/workspace-search.real-db.test.ts \
+  src/__tests__/mcp-oauth.real-db.test.ts \
   src/__tests__/mcp-core.real-db.test.ts \
   src/__tests__/incoming-webhooks.real-db.test.ts \
   src/__tests__/github-connections.real-db.test.ts
 pnpm --filter @doco/web exec vitest run \
   app/lib/__tests__/self-hosted-compose.test.ts \
   app/design-language.test.ts \
-  app/admin-console.test.ts
+  app/admin-console.test.ts \
+  app/routes/oauth-metadata.test.ts \
+  app/routes/oauth-endpoints.test.ts \
+  app/routes/oauth-authorize.test.ts \
+  app/routes/mcp-route.test.ts
 
 if [[ "${DOCO_CONFORMANCE_SKIP_DOCKER:-}" == "1" ]]; then
   echo "Braino v0.1 logic conformance passed; Docker proof skipped by request."
@@ -100,6 +105,17 @@ curl --fail --silent --show-error -b "$cookies" "$origin/" >"$runtime/dashboard"
 grep -q 'Conformance Workspace' "$runtime/dashboard"
 curl --fail --silent --show-error -b "$cookies" "$origin/admin" >"$runtime/admin"
 grep -q 'Workspace administration' "$runtime/admin"
+grep -q 'Connect Señor Braino' "$runtime/admin"
+curl --fail --silent --show-error \
+  "$origin/.well-known/oauth-protected-resource/mcp" >"$runtime/oauth-resource.json"
+grep -q '"resource":"http://localhost:' "$runtime/oauth-resource.json"
+grep -q '"braino:mcp"' "$runtime/oauth-resource.json"
+curl --fail --silent --show-error \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' \
+  "$origin/mcp" >"$runtime/mcp-tools.json"
+grep -q '"get_profile"' "$runtime/mcp-tools.json"
+grep -q '"securitySchemes"' "$runtime/mcp-tools.json"
 second_setup_status=$(curl --silent --show-error -o "$runtime/second-setup-response" \
   -w '%{http_code}' -b "$cookies" -X POST "$origin/?index" \
   -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode 'intent=setup')

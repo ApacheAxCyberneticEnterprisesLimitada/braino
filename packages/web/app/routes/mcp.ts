@@ -1,6 +1,7 @@
 import { withClient } from "@doco/db";
 import { authenticateMcpToken } from "@doco/host";
 import { handleMcpMessage } from "~/lib/mcp-server";
+import { mcpResource, protectedResourceMetadataUrl } from "~/lib/public-origin.server";
 import { MAX_JSON_BODY_BYTES, RequestBodyError, readBoundedJson } from "~/lib/request-body.server";
 
 const jsonHeaders = { "Content-Type": "application/json" };
@@ -20,16 +21,6 @@ function bearer(request: Request): string | null {
 export async function action({ request }: { request: Request }) {
   if (request.method !== "POST") {
     return Response.json({ error: "Use POST." }, { status: 405, headers: { Allow: "POST" } });
-  }
-  const token = bearer(request);
-  const principal = token
-    ? await withClient((client) => authenticateMcpToken(client, token))
-    : null;
-  if (!principal) {
-    return Response.json(
-      { error: "A valid Braino MCP bearer token is required." },
-      { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="Braino MCP"' } },
-    );
   }
   let message: unknown;
   try {
@@ -57,7 +48,13 @@ export async function action({ request }: { request: Request }) {
       { status: 400, headers: jsonHeaders },
     );
   }
-  const response = await handleMcpMessage(message, principal);
+  const token = bearer(request);
+  const resource = mcpResource(request);
+  const principal = token
+    ? await withClient((client) => authenticateMcpToken(client, token, resource))
+    : null;
+  const challenge = `Bearer resource_metadata="${protectedResourceMetadataUrl(request)}", scope="braino:mcp", error="invalid_token", error_description="Sign in to this Braino instance"`;
+  const response = await handleMcpMessage(message, principal, challenge);
   if (!response) return new Response(null, { status: 202 });
   return new Response(JSON.stringify(response), { headers: jsonHeaders });
 }

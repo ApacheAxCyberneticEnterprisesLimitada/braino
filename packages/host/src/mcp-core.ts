@@ -78,6 +78,7 @@ export async function createMcpToken(
 export async function authenticateMcpToken(
   client: PoolClient,
   accessToken: string,
+  expectedResource?: string,
 ): Promise<McpPrincipal | null> {
   if (!accessToken.startsWith("doco_at_")) return null;
   const tokenId = digest(accessToken);
@@ -94,8 +95,12 @@ export async function authenticateMcpToken(
          ON wu.user_id = t.user_id
         AND wu.workspace_id = t.granted_workspace_ids[1]
       WHERE t.token = $1 AND NOT t.revoked AND t.expires_at > now()
-        AND cardinality(t.granted_workspace_ids) = 1`,
-    [tokenId],
+        AND cardinality(t.granted_workspace_ids) = 1
+        AND (
+          (t.client_id = $3 AND t.resource IS NULL AND t.scope IS NULL)
+          OR ($2::text IS NOT NULL AND t.resource = $2 AND t.scope = 'braino:mcp')
+        )`,
+    [tokenId, expectedResource ?? null, MCP_CLIENT_ID],
   );
   const row = found.rows[0];
   if (!row) return null;
@@ -122,11 +127,23 @@ export async function listMcpTokens(
     last_used_at: Date | string | null;
     revoked: boolean;
   }>(
-    `SELECT token, token_name, expires_at, created_at, last_used_at, revoked
-       FROM oauth_access_tokens
-      WHERE user_id = $1 AND $2 = ANY(granted_workspace_ids)
+    `WITH ranked AS (
+       SELECT token, token_name, expires_at, created_at, last_used_at, revoked,
+              row_number() OVER (
+                PARTITION BY CASE
+                  WHEN client_id = $3 THEN token
+                  ELSE client_id
+                END
+                ORDER BY created_at DESC
+              ) AS position
+         FROM oauth_access_tokens
+        WHERE user_id = $1 AND $2 = ANY(granted_workspace_ids)
+     )
+     SELECT token, token_name, expires_at, created_at, last_used_at, revoked
+       FROM ranked
+      WHERE position = 1
       ORDER BY created_at DESC`,
-    [input.userId, input.workspaceId],
+    [input.userId, input.workspaceId, MCP_CLIENT_ID],
   );
   const iso = (value: Date | string) =>
     value instanceof Date ? value.toISOString() : new Date(value).toISOString();
@@ -144,10 +161,33 @@ export async function revokeMcpToken(
   client: PoolClient,
   input: { tokenId: string; userId: string },
 ): Promise<void> {
-  await client.query(
-    "UPDATE oauth_access_tokens SET revoked = true WHERE token = $1 AND user_id = $2",
-    [input.tokenId, input.userId],
-  );
+  await client.query("BEGIN");
+  try {
+    const found = await client.query<{ client_id: string }>(
+      "SELECT client_id FROM oauth_access_tokens WHERE token = $1 AND user_id = $2",
+      [input.tokenId, input.userId],
+    );
+    const clientId = found.rows[0]?.client_id;
+    if (!clientId || clientId === MCP_CLIENT_ID) {
+      await client.query(
+        "UPDATE oauth_access_tokens SET revoked = true WHERE token = $1 AND user_id = $2",
+        [input.tokenId, input.userId],
+      );
+    } else {
+      await client.query(
+        "UPDATE oauth_access_tokens SET revoked = true WHERE client_id = $1 AND user_id = $2",
+        [clientId, input.userId],
+      );
+      await client.query(
+        "UPDATE oauth_refresh_tokens SET revoked = true WHERE client_id = $1 AND user_id = $2",
+        [clientId, input.userId],
+      );
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
 }
 
 export interface BriefRecord {

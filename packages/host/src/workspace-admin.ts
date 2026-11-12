@@ -108,7 +108,11 @@ export async function getWorkspaceAdminOverview(
         + (SELECT count(*)::int FROM incoming_webhooks h
              JOIN collections c ON c.id = h.collection_id
             WHERE c.workspace_id = $1 AND NOT h.revoked))::int AS connections,
-       (SELECT count(*)::int FROM oauth_access_tokens
+       (SELECT count(DISTINCT CASE
+                  WHEN client_id = 'doco_self_hosted_tokens' THEN token
+                  ELSE client_id
+                END)::int
+          FROM oauth_access_tokens
          WHERE $1 = ANY(granted_workspace_ids) AND NOT revoked AND expires_at > now()) AS "mcpTokens"`,
     [input.workspaceId],
   );

@@ -35,9 +35,20 @@ describe("current database baseline", () => {
       "005_leads.sql",
       "006_github_codebase.sql",
       "007_braino_times.sql",
+      "008_mcp_oauth_resource.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
+  });
+
+  it("binds OAuth authorization codes to one MCP resource", () => {
+    const codes = tableBlock("oauth_authorization_codes");
+    const accessTokens = tableBlock("oauth_access_tokens");
+    const refreshTokens = tableBlock("oauth_refresh_tokens");
+
+    expect(codes).toMatch(/\bresource\s+text\s+NOT NULL\b/);
+    expect(accessTokens).toMatch(/\bresource\s+text\b/);
+    expect(refreshTokens).toMatch(/\bresource\s+text\b/);
   });
 
   it("owns the recommend-survey schema used by hosted Braino", () => {

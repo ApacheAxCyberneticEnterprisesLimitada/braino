@@ -1,6 +1,6 @@
 {
   "name": "@doco/shared",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "type": "module",
   "description": "Shared types, ULID generation, time helpers used across all collection packages.",
   "license": "MPL-2.0",

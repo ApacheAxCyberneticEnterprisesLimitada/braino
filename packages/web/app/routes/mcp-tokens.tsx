@@ -5,6 +5,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "~/com
 import { PageHeader } from "~/components/page-header";
 import { PageMain } from "~/components/page-main";
 import { getCurrentUser } from "~/lib/current-user.server";
+import {
+  mcpResource,
+  protectedResourceMetadataUrl,
+  publicOrigin,
+} from "~/lib/public-origin.server";
+import {
+  MAX_FORM_BODY_BYTES,
+  RequestBodyError,
+  readBoundedUrlEncodedForm,
+} from "~/lib/request-body.server";
 
 interface ActionData {
   accessToken?: string;
@@ -24,11 +34,17 @@ export async function loader({ request }: { request: Request }) {
   const tokens = await withClient((client) =>
     listMcpTokens(client, { workspaceId: state.workspace.id, userId: user.id }),
   );
-  const publicHost = (process.env.DOCO_PUBLIC_HOST ?? new URL(request.url).origin).replace(
-    /\/$/,
-    "",
-  );
-  return { workspace: state.workspace, tokens, endpoint: `${publicHost}/mcp` };
+  const instance = publicOrigin(request);
+  return {
+    workspace: state.workspace,
+    tokens,
+    endpoint: mcpResource(request),
+    oauth: {
+      issuer: instance,
+      metadata: protectedResourceMetadataUrl(request),
+      secure: instance.startsWith("https://"),
+    },
+  };
 }
 
 function text(form: FormData, name: string) {
@@ -41,7 +57,15 @@ export async function action({ request }: { request: Request }): Promise<ActionD
   if (!user) return Response.json({ error: "Sign in first." }, { status: 401 });
   const state = await withClient(getSingleWorkspaceState);
   if (!state.initialized) return Response.json({ error: "Finish setup first." }, { status: 409 });
-  const form = await request.formData();
+  let form: FormData;
+  try {
+    form = await readBoundedUrlEncodedForm(request, MAX_FORM_BODY_BYTES);
+  } catch (caught) {
+    if (caught instanceof RequestBodyError) {
+      return Response.json({ error: caught.message }, { status: caught.status });
+    }
+    throw caught;
+  }
   const intent = text(form, "intent");
   if (intent === "create") {
     const created = await withClient((client) =>
@@ -69,7 +93,7 @@ export default function McpTokensPage() {
     ? JSON.stringify(
         {
           mcpServers: {
-            doco: {
+            braino: {
               url: data.endpoint,
               headers: { Authorization: `Bearer ${actionData.accessToken}` },
             },
@@ -104,6 +128,41 @@ export default function McpTokensPage() {
         </p>
       </PageHeader>
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Connect Señor Braino</CardTitle>
+          <CardDescription>
+            Add this deployment to ChatGPT as a custom MCP server and choose OAuth authentication.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <ol className="list-decimal space-y-2 pl-5 text-sm">
+            <li>Open ChatGPT Plugins and choose Add custom MCP server.</li>
+            <li>Paste this server URL and select OAuth.</li>
+            <li>Sign in here and approve access to this one workspace.</li>
+          </ol>
+          <label className="block text-xs">
+            <span className="mb-1 block text-muted-foreground">Server URL</span>
+            <input
+              readOnly
+              value={data.endpoint}
+              aria-label="Señor Braino MCP server URL"
+              className="w-full rounded-md px-3 py-2 font-mono text-sm"
+            />
+          </label>
+          <p className="text-xs text-muted-foreground">
+            This instance connects directly. OAuth credentials, MCP requests, and workspace data do
+            not pass through Braino production or another Braino installation.
+          </p>
+          {!data.oauth.secure ? (
+            <p role="alert" className="text-xs text-destructive">
+              ChatGPT requires a public HTTPS URL. Configure DOCO_PUBLIC_HOST with this instance's
+              HTTPS origin before connecting.
+            </p>
+          ) : null}
+        </CardContent>
+      </Card>
+
       {config ? (
         <Card>
           <CardHeader>
@@ -129,10 +188,10 @@ export default function McpTokensPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>New connection</CardTitle>
+          <CardTitle>New personal access token</CardTitle>
           <CardDescription>
-            Tokens inherit your live workspace access and stop working if your membership is
-            removed.
+            For MCP clients without OAuth. Tokens inherit your live workspace access and stop
+            working if your membership is removed.
           </CardDescription>
         </CardHeader>
         <CardContent>

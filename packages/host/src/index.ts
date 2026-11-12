@@ -7,6 +7,7 @@ export * from "./collaborators.js";
 export * from "./workspace-search.js";
 export * from "./incoming-webhooks.js";
 export * from "./mcp-core.js";
+export * from "./mcp-oauth.js";
 export * from "./github-connections.js";
 export * from "./connectors.js";
 export * from "./password-sign-in.js";

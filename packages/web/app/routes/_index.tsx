@@ -18,6 +18,7 @@ import {
   RequestBodyError,
   readBoundedUrlEncodedForm,
 } from "~/lib/request-body.server";
+import { safeReturnPath } from "~/lib/safe-return-path";
 import { clearSessionCookie, createSessionCookie } from "~/lib/session.server";
 import { setupTokenError } from "~/lib/setup-token.server";
 import { passwordAttemptBuckets } from "~/lib/sign-in.server";
@@ -40,7 +41,7 @@ interface WorkspaceView {
 
 type LoaderData =
   | { screen: "setup" }
-  | { screen: "signin"; workspaceName: string }
+  | { screen: "signin"; workspaceName: string; next: string }
   | {
       screen: "dashboard";
       workspace: WorkspaceView;
@@ -56,7 +57,13 @@ export async function loader({ request }: { request: Request }): Promise<LoaderD
   const state = await withClient(getSingleWorkspaceState);
   if (!state.initialized) return { screen: "setup" };
   const user = await getCurrentUser(request);
-  if (!user) return { screen: "signin", workspaceName: state.workspace.name };
+  if (!user) {
+    return {
+      screen: "signin",
+      workspaceName: state.workspace.name,
+      next: safeReturnPath(new URL(request.url).searchParams.get("next")),
+    };
+  }
   return withClient(async (client) => {
     const workspaceResult = await client.query<WorkspaceView>(
       "SELECT id, handle, name, constitution FROM workspaces WHERE id = $1",
@@ -182,7 +189,7 @@ export async function action({ request }: { request: Request }) {
       return Response.json({ error: "Email or password is incorrect." }, { status: 400 });
     }
     await withClient((client) => clearPasswordSignInAttempts(client, attemptBuckets));
-    return redirect("/", {
+    return redirect(safeReturnPath(text(form, "next")), {
       headers: {
         "Set-Cookie": createSessionCookie({
           userId: signIn.account.id,
@@ -201,7 +208,7 @@ export default function Home() {
 
   if (data.screen === "setup") return <Setup error={actionData?.error} />;
   if (data.screen === "signin") {
-    return <SignIn workspaceName={data.workspaceName} error={actionData?.error} />;
+    return <SignIn workspaceName={data.workspaceName} next={data.next} error={actionData?.error} />;
   }
   return <WorkspaceHome data={data} />;
 }
@@ -300,7 +307,15 @@ function Setup({ error }: { error?: string }) {
   );
 }
 
-function SignIn({ workspaceName, error }: { workspaceName: string; error?: string }) {
+function SignIn({
+  workspaceName,
+  next,
+  error,
+}: {
+  workspaceName: string;
+  next: string;
+  error?: string;
+}) {
   return (
     <NarrowPageMain className="space-y-4 py-10">
       <Breadcrumb>Sign in</Breadcrumb>
@@ -312,6 +327,7 @@ function SignIn({ workspaceName, error }: { workspaceName: string; error?: strin
         <CardContent>
           <Form method="post" className="space-y-3">
             <input type="hidden" name="intent" value="signin" />
+            <input type="hidden" name="next" value={next} />
             <Field label="Email" name="email" type="email" autoComplete="username" required />
             <Field
               label="Password"
