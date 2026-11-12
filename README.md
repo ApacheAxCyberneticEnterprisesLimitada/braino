@@ -48,11 +48,20 @@ people and roles, source connections, webhooks, GitHub sync, and agent/MCP
 access. It reports configuration readiness without displaying secret values;
 privileged backup, restore, and upgrade commands stay on the host.
 
-Agents can connect over stateless MCP. Open **MCP** on the workspace page,
-create a named token, and copy the generated client configuration. The `/mcp`
-endpoint serves deterministic briefs and search, record reads, feedback, and atomic
-changesets without requiring a model provider; tokens are stored only as
-SHA-256 digests and remain bound to their creator's live workspace membership.
+Señor Braino and other agents connect directly to the deployment over stateless
+MCP. Open **MCP** on the workspace page, copy this instance's `/mcp` URL, then
+add it in ChatGPT with **Add custom MCP server** and choose OAuth. The instance
+publishes its own protected-resource and authorization-server metadata, registers
+public clients dynamically, requires authorization-code PKCE, rotates refresh
+tokens, and binds every grant to this exact MCP resource. Its PostgreSQL database
+is the only token store: credentials, MCP requests, and workspace records never
+pass through Braino production or another installation.
+
+The endpoint serves a stable profile, deterministic briefs and search, record
+reads, feedback, and atomic changesets without requiring a model provider. MCP
+clients that do not support OAuth can instead create a named personal access
+token from the same page. All access tokens are stored only as SHA-256 digests
+and remain bound to their creator's live workspace membership.
 
 PostgreSQL and Qdrant use named volumes and are not exposed on host ports. Plain
 HTTP on port 3000 is the default. For a public DNS name with automatic HTTPS,

@@ -1,5 +1,6 @@
 import { withClient } from "@doco/db";
 import {
+  MCP_OAUTH_SCOPE,
   type McpPrincipal,
   applyChangeset,
   createWorkspaceBrief,
@@ -16,11 +17,35 @@ interface RpcMessage {
   params?: unknown;
 }
 
+const OAUTH_SECURITY = [{ type: "oauth2", scopes: [MCP_OAUTH_SCOPE] }] as const;
+const AUTH_META = { securitySchemes: OAUTH_SECURITY } as const;
+
 const TOOLS = [
+  {
+    name: "get_profile",
+    description:
+      "Return the signed-in Braino profile represented by this connection. Use it to identify the connected self-hosted instance and account.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    outputSchema: {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      type: "object",
+      properties: {
+        id: { type: "string", minLength: 1, pattern: "\\S" },
+        name: { type: "string" },
+        email: { type: "string" },
+        nickname: { type: "string" },
+      },
+      required: ["id"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    _meta: { ...AUTH_META, "openai/profile": true },
+  },
   {
     name: "list_workspaces",
     description: "List the one workspace this Braino deployment serves.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false },
+    _meta: AUTH_META,
   },
   {
     name: "doco_brief",
@@ -39,6 +64,7 @@ const TOOLS = [
       required: ["about"],
       additionalProperties: false,
     },
+    _meta: AUTH_META,
   },
   {
     name: "doco_get",
@@ -49,6 +75,7 @@ const TOOLS = [
       required: ["id"],
       additionalProperties: false,
     },
+    _meta: AUTH_META,
   },
   {
     name: "doco_search",
@@ -63,6 +90,7 @@ const TOOLS = [
       required: ["query"],
       additionalProperties: false,
     },
+    _meta: AUTH_META,
   },
   {
     name: "doco_changeset",
@@ -77,6 +105,7 @@ const TOOLS = [
       required: ["collection_handle", "operations"],
       additionalProperties: false,
     },
+    _meta: AUTH_META,
   },
   {
     name: "doco_feedback",
@@ -93,6 +122,7 @@ const TOOLS = [
       required: ["result_id", "relevant", "better_answer_found"],
       additionalProperties: false,
     },
+    _meta: AUTH_META,
   },
 ] as const;
 
@@ -124,6 +154,32 @@ function toolResult(value: unknown) {
 
 async function callTool(name: string, rawArguments: unknown, principal: McpPrincipal) {
   const args = object(rawArguments ?? {});
+  if (name === "get_profile") {
+    const profile = await withClient(async (client) => {
+      const found = await client.query<{
+        id: string;
+        name: string;
+        email: string;
+        workspace_name: string;
+      }>(
+        `SELECT u.id, coalesce(u.name, u.username) AS name, u.email,
+                w.name AS workspace_name
+           FROM users u
+           JOIN workspace_users wu ON wu.user_id = u.id
+           JOIN workspaces w ON w.id = wu.workspace_id
+          WHERE u.id = $1 AND w.id = $2`,
+        [principal.userId, principal.workspaceId],
+      );
+      return found.rows[0] ?? null;
+    });
+    if (!profile) throw new Error("Connected Braino profile not found.");
+    return toolResult({
+      id: profile.id,
+      name: profile.name,
+      email: profile.email,
+      nickname: `${profile.name} · ${profile.workspace_name}`,
+    });
+  }
   if (name === "list_workspaces") {
     const workspace = await withClient(async (client) => {
       const found = await client.query(
@@ -234,7 +290,11 @@ async function callTool(name: string, rawArguments: unknown, principal: McpPrinc
   throw new Error(`Unknown tool: ${name}`);
 }
 
-export async function handleMcpMessage(message: RpcMessage, principal: McpPrincipal) {
+export async function handleMcpMessage(
+  message: RpcMessage,
+  principal: McpPrincipal | null,
+  authenticationChallenge = 'Bearer error="invalid_token", error_description="Sign in to this Braino instance"',
+) {
   const id = message.id ?? null;
   if (message.jsonrpc !== "2.0" || typeof message.method !== "string") {
     return { jsonrpc: "2.0", id, error: { code: -32600, message: "Invalid Request" } };
@@ -258,6 +318,17 @@ export async function handleMcpMessage(message: RpcMessage, principal: McpPrinci
     return { jsonrpc: "2.0", id, result: { tools: TOOLS } };
   }
   if (message.method === "tools/call") {
+    if (!principal) {
+      return {
+        jsonrpc: "2.0",
+        id,
+        result: {
+          content: [{ type: "text", text: "Authentication required for this Braino tool." }],
+          _meta: { "mcp/www_authenticate": [authenticationChallenge] },
+          isError: true,
+        },
+      };
+    }
     try {
       const params = object(message.params);
       const name = string(params.name, "tool name");

@@ -1275,6 +1275,7 @@ CREATE TABLE IF NOT EXISTS oauth_authorization_codes (
   -- full live role (the original actor behavior). Ignored for 'regular'.
   actor_role            text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   scope                 text,
+  resource              text NOT NULL,
   expires_at            timestamptz NOT NULL,
   consumed_at           timestamptz,
   created_at            timestamptz NOT NULL DEFAULT now()
@@ -1308,6 +1309,7 @@ CREATE TABLE IF NOT EXISTS oauth_access_tokens (
                     CHECK (grant_type IN ('regular', 'actor')),
   actor_role        text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   expires_at        timestamptz NOT NULL,
+  resource          text,
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()
 );
@@ -1315,15 +1317,14 @@ CREATE INDEX IF NOT EXISTS oauth_access_tokens_user_idx ON oauth_access_tokens (
 CREATE INDEX IF NOT EXISTS oauth_access_tokens_expires_idx
   ON oauth_access_tokens (expires_at);
 
--- Refresh tokens (long-lived; 60-day default). Used by the runtime
+-- Refresh tokens (long-lived; 30-day default). Used by the runtime
 -- when the access token expires; one round-trip to /oauth/token with
 -- grant_type=refresh_token mints a fresh access token without
 -- re-prompting the user.
 --
--- Non-rotating: a refresh reissues only the access token and keeps the
--- same refresh token (expiry slid forward), so DOCO_REFRESH can be pinned
--- anywhere — a repo .env, cloud env vars, CI secrets — without going stale.
--- Revocation (from /tokens) is how a token is cut off.
+-- Every exchange rotates the refresh token. Reusing an exchanged token fails,
+-- which limits replay after a client-side credential leak. Revoking a connection
+-- revokes all of its access and refresh tokens together.
 CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   token             text PRIMARY KEY,             -- SHA-256 of the token, hex
   client_id         text NOT NULL REFERENCES oauth_clients(client_id) ON DELETE CASCADE,
@@ -1347,6 +1348,7 @@ CREATE TABLE IF NOT EXISTS oauth_refresh_tokens (
   -- = your full live role (the original actor behavior). Ignored for 'regular'.
   actor_role        text CHECK (actor_role IS NULL OR actor_role IN ('reader','writer','owner')),
   scope             text,
+  resource          text,
   expires_at        timestamptz NOT NULL,
   revoked           boolean NOT NULL DEFAULT false,
   created_at        timestamptz NOT NULL DEFAULT now()

@@ -27,7 +27,10 @@ describe("open Braino administration", () => {
     expect(admin).toContain('to="/times"');
     expect(admin).toContain("People and access");
     expect(admin).toContain("Connections");
-    expect(admin).toContain("Agents and MCP");
+    expect(admin).toContain("Connect Señor Braino");
+    expect(mcpTokens).toContain("Connect Señor Braino");
+    expect(mcpTokens).toContain("OAuth");
+    expect(mcpTokens).toContain("This instance connects directly");
     expect(admin).toContain("Deployment");
     expect(admin).toContain("Operations");
     expect(admin).toContain("CodeLinker");

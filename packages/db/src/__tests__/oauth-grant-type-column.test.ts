@@ -21,13 +21,13 @@ describe("oauth grant_type column (regular | actor)", () => {
   it("defaults authorization codes to 'regular' and accepts 'actor'", async () => {
     await db.query(
       `INSERT INTO oauth_authorization_codes
-         (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, expires_at)
-       VALUES ('c_reg', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['collection_1'], now() + interval '5 min')`,
+         (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, resource, expires_at)
+       VALUES ('c_reg', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['collection_1'], 'https://braino.test/mcp', now() + interval '5 min')`,
     );
     await db.query(
       `INSERT INTO oauth_authorization_codes
-         (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, grant_type, expires_at)
-       VALUES ('c_act', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY[]::text[], 'actor', now() + interval '5 min')`,
+         (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, grant_type, resource, expires_at)
+       VALUES ('c_act', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY[]::text[], 'actor', 'https://braino.test/mcp', now() + interval '5 min')`,
     );
 
     const rows = await db.query<{ code: string; grant_type: string }>(
@@ -64,8 +64,8 @@ describe("oauth grant_type column (regular | actor)", () => {
     await expect(
       db.query(
         `INSERT INTO oauth_authorization_codes
-           (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, grant_type, expires_at)
-         VALUES ('c_bad', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['collection_1'], 'superuser', now() + interval '5 min')`,
+           (code, client_id, user_id, redirect_uri, code_challenge, granted_collection_ids, grant_type, resource, expires_at)
+         VALUES ('c_bad', 'doco_client_x', 'user_alice', 'urn:x', 'ch', ARRAY['collection_1'], 'superuser', 'https://braino.test/mcp', now() + interval '5 min')`,
       ),
     ).rejects.toThrow();
   });
