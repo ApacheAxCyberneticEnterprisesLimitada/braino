@@ -38,6 +38,7 @@ describe("current database baseline", () => {
       "008_mcp_oauth_resource.sql",
       "009_retire_unseen_work.sql",
       "010_retrieval_relations_long_facts.sql",
+      "011_hook_copies.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
