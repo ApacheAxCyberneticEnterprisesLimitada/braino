@@ -38,7 +38,6 @@ export {
   listUsers,
   patchUserData,
   setUserName,
-  setUserGitHubLogin,
   setUserPublicProfile,
   type UserRow,
   // Principals (role-personas — node type)

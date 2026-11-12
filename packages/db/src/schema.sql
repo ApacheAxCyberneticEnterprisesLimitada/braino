@@ -3014,22 +3014,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS silence_alerts_agent_idx
   ON silence_alerts (workspace_id, user_id, agent) WHERE agent IS NOT NULL;
 CREATE INDEX IF NOT EXISTS silence_alerts_collections_idx ON silence_alerts USING gin (collection_ids);
 
--- Each person, by GitHub login, whose pull requests a workspace can't see:
--- they aren't a member, or their agent shipped without Braino (web:
--- lib/unseen-work-alerts.server.ts). The pull requests opened up to
--- told_through were sent; an owner's Disregard hides those opened up to
--- disregarded_through (just this time), or every one (always). The weekly
--- marker per author it replaces is gone (Alexander, 2026-11-02: "we should
--- not wait one week any longer").
-DROP TABLE IF EXISTS unseen_work_alerts;
-CREATE TABLE IF NOT EXISTS unseen_work_authors (
-  workspace_id        text NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-  login               text NOT NULL CHECK (login = lower(login)),
-  told_through        timestamptz,
-  disregarded_through timestamptz,
-  disregarded_always  boolean NOT NULL DEFAULT false,
-  PRIMARY KEY (workspace_id, login)
-);
 -- The pull requests imported before they carried labels (the agent that made
 -- each and how Braino saw the work, web: lib/pull-request-provenance.ts) are
 -- imported again once, in every workspace (decision_01M655E2KR8SD7C11QX823WKYV;

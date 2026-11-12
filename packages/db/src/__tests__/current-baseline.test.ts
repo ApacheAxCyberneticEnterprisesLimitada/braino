@@ -36,6 +36,7 @@ describe("current database baseline", () => {
       "006_github_codebase.sql",
       "007_braino_times.sql",
       "008_mcp_oauth_resource.sql",
+      "009_retire_unseen_work.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
