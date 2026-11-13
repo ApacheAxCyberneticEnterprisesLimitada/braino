@@ -39,9 +39,19 @@ describe("current database baseline", () => {
       "009_retire_unseen_work.sql",
       "010_retrieval_relations_long_facts.sql",
       "011_hook_copies.sql",
+      "012_plugin_installations.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
+  });
+
+  it("binds every plugin installation to one workspace and immutable artifact digest", () => {
+    const installations = tableBlock("plugin_installations");
+
+    expect(installations).toMatch(/workspace_id\s+text\s+NOT NULL/i);
+    expect(installations).toMatch(/manifest\s+jsonb\s+NOT NULL/i);
+    expect(installations).toMatch(/artifact_digest\s+text\s+NOT NULL/i);
+    expect(schemaSql).toMatch(/plugin_installations_workspace_plugin_idx/i);
   });
 
   it("binds OAuth authorization codes to one MCP resource", () => {
