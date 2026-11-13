@@ -11,6 +11,7 @@ const root = resolve(import.meta.dirname, "../../../../../");
 function runUpgradeWithImages(
   appImage: string,
   codeLinkerImage = "ghcr.io/brainoinc/braino-codelinker:0.1.14",
+  pluginHostImage = "ghcr.io/brainoinc/braino-plugin-host:0.1.14",
 ) {
   const runtime = mkdtempSync(join(tmpdir(), "doco-upgrade-test-"));
   const docker = join(runtime, "docker");
@@ -20,7 +21,7 @@ function runUpgradeWithImages(
     `#!/bin/sh
 printf '%s\\n' "$*" >> "$DOCO_DOCKER_LOG"
 if [ "$*" = "compose config --images" ]; then
-  printf '%s\\n' qdrant/qdrant:v1.20.0 "$FAKE_APP_IMAGE" "$FAKE_CODELINKER_IMAGE" postgres:16.10-bookworm
+  printf '%s\\n' qdrant/qdrant:v1.20.0 "$FAKE_APP_IMAGE" "$FAKE_CODELINKER_IMAGE" "$FAKE_PLUGIN_HOST_IMAGE" postgres:16.10-bookworm
 elif [ "$*" = "compose config --format json" ]; then
   cat <<EOF
 {
@@ -30,6 +31,9 @@ elif [ "$*" = "compose config --format json" ]; then
     },
     "codelinker": {
       "image": "$FAKE_CODELINKER_IMAGE"
+    },
+    "plugin-host": {
+      "image": "$FAKE_PLUGIN_HOST_IMAGE"
     }
   }
 }
@@ -49,10 +53,12 @@ fi
         DOCO_DOCKER_LOG: log,
         FAKE_APP_IMAGE: appImage,
         FAKE_CODELINKER_IMAGE: codeLinkerImage,
+        FAKE_PLUGIN_HOST_IMAGE: pluginHostImage,
         DOCO_ENCRYPTION_KEY: "test-encryption-key-with-thirty-two-characters",
         DOCO_POSTGRES_PASSWORD: "test-postgres-password",
         BRAINO_SETUP_TOKEN: "test-setup-token",
         BRAINO_CODELINKER_API_TOKEN: "test-codelinker-token-with-thirty-two-characters",
+        BRAINO_PLUGIN_HOST_API_TOKEN: "test-plugin-host-token-with-thirty-two-characters",
       },
     });
     return { ...result, calls: readFileSync(log, "utf8") };
@@ -72,6 +78,7 @@ describe("the supported self-hosted stack", () => {
       "app",
       "scheduler",
       "codelinker",
+      "plugin-host",
       "postgres",
       "qdrant",
       "caddy",
@@ -92,6 +99,7 @@ describe("the supported self-hosted stack", () => {
     expect(compose.services.app?.depends_on).toEqual(
       expect.objectContaining({
         codelinker: expect.any(Object),
+        "plugin-host": expect.any(Object),
         postgres: expect.any(Object),
         qdrant: expect.any(Object),
       }),
@@ -102,6 +110,12 @@ describe("the supported self-hosted stack", () => {
     expect(compose.services.codelinker?.read_only).toBe(true);
     expect(compose.services.codelinker?.cap_drop).toEqual(["ALL"]);
     expect(compose.services.codelinker?.ports).toBeUndefined();
+    expect(compose.services["plugin-host"]?.build).toEqual(
+      expect.objectContaining({ dockerfile: "services/plugin-host/Dockerfile" }),
+    );
+    expect(compose.services["plugin-host"]?.read_only).toBe(true);
+    expect(compose.services["plugin-host"]?.cap_drop).toEqual(["ALL"]);
+    expect(compose.services["plugin-host"]?.ports).toBeUndefined();
     expect(compose.services.app?.ports).toEqual(["127.0.0.1:${DOCO_HTTP_PORT:-3000}:3000"]);
     expect(compose.services.postgres?.ports).toBeUndefined();
     expect(compose.services.qdrant?.ports).toBeUndefined();
@@ -124,6 +138,7 @@ describe("the supported self-hosted stack", () => {
     expect(env).toContain("DOCO_POSTGRES_PASSWORD=");
     expect(env).toContain("BRAINO_SETUP_TOKEN=");
     expect(env).toContain("BRAINO_CODELINKER_API_TOKEN=");
+    expect(env).toContain("BRAINO_PLUGIN_HOST_API_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
     expect(runtimeStage).toContain("ARG DOCO_VERSION");
     expect(runtimeStage).toContain("ENV DOCO_VERSION=$DOCO_VERSION");
@@ -163,6 +178,15 @@ describe("the supported self-hosted stack", () => {
     expect(dependabot.updates).toContainEqual(
       expect.objectContaining({ "package-ecosystem": "github-actions", directory: "/" }),
     );
+    for (const directory of [
+      "/services/codelinker",
+      "/services/plugin-host",
+      "/services/plugin-host/fixtures/echo-plugin",
+    ]) {
+      expect(dependabot.updates).toContainEqual(
+        expect.objectContaining({ "package-ecosystem": "cargo", directory }),
+      );
+    }
   });
 
   it("ships executable backup, restore, preflight, and upgrade commands", () => {
@@ -179,11 +203,12 @@ describe("the supported self-hosted stack", () => {
     expect(command).toContain("doctor)");
     expect(command).toContain("upgrade)");
     expect(command).toContain("BRAINO_CODELINKER_API_TOKEN");
+    expect(command).toContain("BRAINO_PLUGIN_HOST_API_TOKEN");
     expect(command.indexOf("compose stop app")).toBeLessThan(
       command.indexOf("node_modules/@doco/db/dist/migrate.js"),
     );
     expect(command).toContain("node_modules/@doco/db/dist/migrate.js");
-    expect(command).toContain("compose stop app scheduler codelinker qdrant");
+    expect(command).toContain("compose stop app scheduler codelinker plugin-host qdrant");
     expect(command).toContain("compose stop app scheduler");
     expect(command).toContain("/qdrant/storage");
     expect(readme).toContain("./doco backup");
@@ -260,6 +285,19 @@ describe("the supported self-hosted stack", () => {
     expect(result.calls).not.toContain("compose pull");
   });
 
+  it("refuses to upgrade a local plugin host image", () => {
+    const result = runUpgradeWithImages(
+      "ghcr.io/brainoinc/braino:0.1.14",
+      "ghcr.io/brainoinc/braino-codelinker:0.1.14",
+      "braino-plugin-host:local",
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Set BRAINO_PLUGIN_HOST_IMAGE to a released");
+    expect(result.stdout).not.toContain("Backup written");
+    expect(result.calls).not.toContain("compose pull");
+  });
+
   it("reports and migrates the configured released app image", () => {
     const image = "ghcr.io/brainoinc/braino:0.1.0";
     const result = runUpgradeWithImages(image);
@@ -267,6 +305,7 @@ describe("the supported self-hosted stack", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(`Upgrade completed with ${image}`);
     expect(result.stdout).toContain("ghcr.io/brainoinc/braino-codelinker:0.1.14");
+    expect(result.stdout).toContain("ghcr.io/brainoinc/braino-plugin-host:0.1.14");
     expect(result.calls).toContain("compose pull");
     expect(result.calls).toContain("node_modules/@doco/db/dist/migrate.js");
   });
@@ -300,26 +339,37 @@ describe("the supported self-hosted stack", () => {
     expect(workflow).toContain("sbom: true");
     expect(workflow).toContain("cosign sign --yes");
     expect(workflow).toContain("ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino-codelinker");
+    expect(workflow).toContain("ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino-plugin-host");
     expect(workflow).toContain("services/codelinker/Dockerfile");
-    expect(workflow.match(/cosign sign --yes/g)).toHaveLength(2);
+    expect(workflow).toContain("services/plugin-host/Dockerfile");
+    expect(workflow.match(/cosign sign --yes/g)).toHaveLength(3);
   });
 
-  it("tests the separately versioned CodeLinker service in the required CI gate", () => {
+  it("tests the separately versioned Rust services in the required CI gate", () => {
     const workflow = readFileSync(resolve(root, ".github/workflows/ci.yml"), "utf8");
-    const manifest = readFileSync(resolve(root, "services/codelinker/Cargo.toml"), "utf8");
     const releaseVersion = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8")) as {
       version: string;
     };
 
-    expect(manifest).toContain('name = "braino-codelinker"');
-    expect(manifest).toContain(`version = "${releaseVersion.version}"`);
-    expect(workflow).toContain("cargo fmt --check --manifest-path services/codelinker/Cargo.toml");
-    expect(workflow).toContain(
-      "cargo test --locked --manifest-path services/codelinker/Cargo.toml",
-    );
-    expect(workflow).toContain(
-      "cargo clippy --locked --manifest-path services/codelinker/Cargo.toml",
-    );
+    for (const [service, name] of [
+      ["codelinker", "braino-codelinker"],
+      ["plugin-host", "braino-plugin-host"],
+    ]) {
+      const manifest = readFileSync(resolve(root, `services/${service}/Cargo.toml`), "utf8");
+      expect(manifest).toContain(`name = "${name}"`);
+      expect(manifest).toContain(`version = "${releaseVersion.version}"`);
+      expect(workflow).toContain(
+        `cargo fmt --check --manifest-path services/${service}/Cargo.toml`,
+      );
+      expect(workflow).toContain(
+        `cargo test --locked --manifest-path services/${service}/Cargo.toml`,
+      );
+      expect(workflow).toContain(
+        `cargo clippy --locked --manifest-path services/${service}/Cargo.toml`,
+      );
+    }
+    expect(workflow).toContain("rustup target add wasm32-wasip2");
+    expect(workflow).toContain("services/plugin-host/fixtures/echo-plugin/Cargo.toml");
   });
 
   it("publishes every versioned core package beside each release image", () => {
@@ -328,7 +378,7 @@ describe("the supported self-hosted stack", () => {
     };
     const workflow = readFileSync(resolve(root, ".github/workflows/release.yml"), "utf8");
 
-    for (const name of ["shared", "db", "index", "host", "connector-plugins"]) {
+    for (const name of ["shared", "plugin-runtime", "db", "index", "host", "connector-plugins"]) {
       const packageJson = JSON.parse(
         readFileSync(resolve(root, `packages/${name}/package.json`), "utf8"),
       ) as { name: string; private?: boolean; version: string };
@@ -371,6 +421,7 @@ describe("the supported self-hosted stack", () => {
     }
     expect(script).toContain("docker compose");
     expect(script).toContain("http://codelinker:8080/healthz");
+    expect(script).toContain("http://plugin-host:8080/healthz");
     expect(script).toContain("doco_records");
     expect(script).toContain("/collections/doco_records");
     expect(script).toContain('"$origin/admin"');

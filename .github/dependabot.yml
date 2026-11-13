@@ -7,3 +7,24 @@ updates:
     groups:
       workflow-actions:
         patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /services/codelinker
+    schedule:
+      interval: weekly
+    groups:
+      codelinker-rust:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /services/plugin-host
+    schedule:
+      interval: weekly
+    groups:
+      plugin-host-rust:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /services/plugin-host/fixtures/echo-plugin
+    schedule:
+      interval: weekly
+    groups:
+      plugin-fixture-rust:
+        patterns: ["*"]

@@ -33,4 +33,10 @@ jobs:
       - run: cargo fmt --check --manifest-path services/codelinker/Cargo.toml
       - run: cargo test --locked --manifest-path services/codelinker/Cargo.toml
       - run: cargo clippy --locked --manifest-path services/codelinker/Cargo.toml --all-targets -- -D warnings
+      - run: rustup target add wasm32-wasip2
+      - run: cargo fmt --check --manifest-path services/plugin-host/fixtures/echo-plugin/Cargo.toml
+      - run: cargo build --locked --release --target wasm32-wasip2 --manifest-path services/plugin-host/fixtures/echo-plugin/Cargo.toml
+      - run: cargo fmt --check --manifest-path services/plugin-host/Cargo.toml
+      - run: cargo test --locked --manifest-path services/plugin-host/Cargo.toml
+      - run: cargo clippy --locked --manifest-path services/plugin-host/Cargo.toml --all-targets -- -D warnings
       - run: pnpm verify

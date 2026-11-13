@@ -1,0 +1,29 @@
+package braino:plugin@0.1.0;
+
+interface host {
+  record http-request {
+    method: string,
+    url: string,
+    headers: list<tuple<string, string>>,
+    body: list<u8>,
+  }
+
+  record http-response {
+    status: u16,
+    headers: list<tuple<string, string>>,
+    body: list<u8>,
+  }
+
+  configuration: func(name: string) -> option<string>;
+  secret: func(name: string) -> result<string, string>;
+  request: func(request: http-request) -> result<http-response, string>;
+}
+
+interface handler {
+  invoke: func(capability: string, input-json: string) -> result<string, string>;
+}
+
+world plugin {
+  import host;
+  export handler;
+}

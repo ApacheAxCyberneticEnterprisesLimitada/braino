@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
   ConnectorError,
@@ -39,6 +40,19 @@ function sourcePlugin() {
 }
 
 describe("Braino plugin protocol", () => {
+  it("ships one canonical WASI component world with the runtime package", () => {
+    const packageJson = JSON.parse(
+      readFileSync(new URL("../../package.json", import.meta.url), "utf8"),
+    ) as { exports: Record<string, unknown>; files: string[] };
+    const wit = readFileSync(new URL("../../wit/plugin.wit", import.meta.url), "utf8");
+
+    expect(packageJson.files).toContain("wit");
+    expect(packageJson.exports).toHaveProperty("./wit/plugin.wit");
+    expect(wit).toContain("package braino:plugin@0.1.0;");
+    expect(wit).toContain("import host;");
+    expect(wit).toContain("export handler;");
+  });
+
   it("carries connector failures across the host boundary", () => {
     const error = new ConnectorError("Provider unavailable.", "provider_unavailable", 502);
 
