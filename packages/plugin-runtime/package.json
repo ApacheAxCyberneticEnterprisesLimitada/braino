@@ -1,0 +1,22 @@
+{
+  "name": "@doco/plugin-runtime",
+  "version": "0.1.22",
+  "type": "module",
+  "description": "Versioned capability protocol for isolated Braino plugins.",
+  "license": "MPL-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --coverage",
+    "test:watch": "vitest"
+  }
+}

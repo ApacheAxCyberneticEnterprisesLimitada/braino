@@ -1,10 +1,10 @@
 import {
-  type ConnectorAdapter,
   type ConnectorDocument,
   ConnectorError,
   type ConnectorFetcher,
   type ConnectorSource,
-} from "@doco/host";
+  type SourcePullCapability,
+} from "@doco/plugin-runtime";
 
 const API = "https://slack.com/api";
 
@@ -257,7 +257,7 @@ async function* documents(input: {
   }
 }
 
-export const slackConnector: ConnectorAdapter = {
+export const slackConnector: SourcePullCapability = {
   provider: "slack",
   verify,
   documents,

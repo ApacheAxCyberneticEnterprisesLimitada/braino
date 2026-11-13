@@ -20,6 +20,9 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@doco/plugin-runtime": "workspace:*"
+  },
+  "devDependencies": {
     "@doco/host": "workspace:*"
   }
 }
