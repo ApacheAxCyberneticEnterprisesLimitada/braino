@@ -1,6 +1,6 @@
 {
   "name": "@doco/plugin-runtime",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "type": "module",
   "description": "Versioned capability protocol for isolated Braino plugins.",
   "license": "MPL-2.0",
