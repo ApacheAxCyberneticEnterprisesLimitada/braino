@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { PoolClient } from "@doco/db";
 import type { PluginManifest } from "@doco/plugin-runtime";
 import type { PGlite } from "@electric-sql/pglite";
@@ -7,7 +8,6 @@ import {
   PluginInstallationError,
   installPlugin,
   listPluginInstallations,
-  resolvePluginInvocation,
   setPluginInstallationEnabled,
 } from "../plugin-installations.js";
 import { initializeSingleWorkspace } from "../single-workspace.js";
@@ -19,7 +19,9 @@ beforeEach(async () => {
 });
 
 const client = () => db as unknown as PoolClient;
-const digest = (character: string) => `sha256:${character.repeat(64)}`;
+const component = (version: string) => new TextEncoder().encode(`component:${version}`);
+const digest = (artifact: Uint8Array) =>
+  `sha256:${createHash("sha256").update(artifact).digest("hex")}`;
 const manifest = (version = "1.0.0"): PluginManifest => ({
   protocolVersion: 1,
   id: "acme.postmark",
@@ -60,27 +62,32 @@ async function fixture() {
 describe("workspace-bound plugin installations", () => {
   it("installs the same artifact independently in two workspaces", async () => {
     const first = await fixture();
+    const artifact = component("one");
     const firstInstallation = await installPlugin(client(), {
       workspaceId: first.workspace.id,
       userId: first.owner.id,
       manifest: manifest(),
-      artifactDigest: digest("a"),
+      component: artifact,
     });
     const secondInstallation = await installPlugin(client(), {
       workspaceId: "workspace_second",
       userId: "user_second_owner",
       manifest: manifest(),
-      artifactDigest: digest("a"),
+      component: artifact,
     });
 
     expect(firstInstallation).toMatchObject({
       workspaceId: first.workspace.id,
       manifest: { id: "acme.postmark", version: "1.0.0" },
-      artifactDigest: digest("a"),
+      artifactDigest: digest(artifact),
       enabled: true,
     });
     expect(secondInstallation.workspaceId).toBe("workspace_second");
     expect(secondInstallation.id).not.toBe(firstInstallation.id);
+    const artifacts = await db.query<{ count: number; bytes: number }>(
+      "SELECT count(*)::int AS count, sum(octet_length(component))::int AS bytes FROM plugin_artifacts",
+    );
+    expect(artifacts.rows[0]).toEqual({ count: 1, bytes: artifact.byteLength });
     await expect(
       listPluginInstallations(client(), {
         workspaceId: first.workspace.id,
@@ -95,73 +102,31 @@ describe("workspace-bound plugin installations", () => {
       workspaceId: first.workspace.id,
       userId: first.owner.id,
       manifest: manifest(),
-      artifactDigest: digest("a"),
+      component: component("one"),
     });
     const upgraded = await installPlugin(client(), {
       workspaceId: first.workspace.id,
       userId: first.owner.id,
       manifest: manifest("2.0.0"),
-      artifactDigest: digest("b"),
+      component: component("two"),
     });
 
     expect(upgraded).toMatchObject({
       id: installed.id,
       manifest: { id: "acme.postmark", version: "2.0.0" },
-      artifactDigest: digest("b"),
+      artifactDigest: digest(component("two")),
       enabled: true,
     });
   });
 
-  it("resolves an invocation only inside the installation workspace", async () => {
+  it("can disable only an installation from the owner's workspace", async () => {
     const first = await fixture();
     const installed = await installPlugin(client(), {
       workspaceId: first.workspace.id,
       userId: first.owner.id,
       manifest: manifest(),
-      artifactDigest: digest("a"),
+      component: component("one"),
     });
-
-    await expect(
-      resolvePluginInvocation(client(), {
-        workspaceId: first.workspace.id,
-        installationId: installed.id,
-        capability: "email.send",
-      }),
-    ).resolves.toEqual({
-      workspaceId: first.workspace.id,
-      installationId: installed.id,
-      pluginId: "acme.postmark",
-      pluginVersion: "1.0.0",
-      artifactDigest: digest("a"),
-      capability: "email.send",
-      networkHosts: ["api.postmarkapp.com"],
-    });
-
-    await expect(
-      resolvePluginInvocation(client(), {
-        workspaceId: "workspace_second",
-        installationId: installed.id,
-        capability: "email.send",
-      }),
-    ).rejects.toMatchObject({ code: "installation_unavailable", status: 404 });
-  });
-
-  it("rejects unapproved capabilities and disabled installations", async () => {
-    const first = await fixture();
-    const installed = await installPlugin(client(), {
-      workspaceId: first.workspace.id,
-      userId: first.owner.id,
-      manifest: manifest(),
-      artifactDigest: digest("a"),
-    });
-
-    await expect(
-      resolvePluginInvocation(client(), {
-        workspaceId: first.workspace.id,
-        installationId: installed.id,
-        capability: "source.pull",
-      }),
-    ).rejects.toMatchObject({ code: "capability_not_approved", status: 403 });
 
     await setPluginInstallationEnabled(client(), {
       workspaceId: first.workspace.id,
@@ -170,21 +135,20 @@ describe("workspace-bound plugin installations", () => {
       enabled: false,
     });
     await expect(
-      resolvePluginInvocation(client(), {
+      listPluginInstallations(client(), {
         workspaceId: first.workspace.id,
-        installationId: installed.id,
-        capability: "email.send",
+        userId: first.owner.id,
       }),
-    ).rejects.toMatchObject({ code: "installation_unavailable", status: 404 });
+    ).resolves.toEqual([expect.objectContaining({ id: installed.id, enabled: false })]);
   });
 
-  it("keeps installation management owner-only and validates artifact digests", async () => {
+  it("keeps installation management owner-only and rejects empty artifacts", async () => {
     const first = await fixture();
     const installed = await installPlugin(client(), {
       workspaceId: first.workspace.id,
       userId: first.owner.id,
       manifest: manifest(),
-      artifactDigest: digest("a"),
+      component: component("one"),
     });
 
     await expect(
@@ -192,7 +156,7 @@ describe("workspace-bound plugin installations", () => {
         workspaceId: first.workspace.id,
         userId: "user_writer",
         manifest: manifest(),
-        artifactDigest: digest("a"),
+        component: component("untrusted"),
       }),
     ).rejects.toMatchObject({ code: "owner_required", status: 403 });
     await expect(
@@ -200,9 +164,14 @@ describe("workspace-bound plugin installations", () => {
         workspaceId: first.workspace.id,
         userId: first.owner.id,
         manifest: manifest(),
-        artifactDigest: "latest",
+        component: new Uint8Array(),
       }),
-    ).rejects.toBeInstanceOf(PluginInstallationError);
+    ).rejects.toMatchObject({ code: "artifact_invalid" });
+    const artifacts = await db.query<{ digest: string }>(
+      "SELECT digest FROM plugin_artifacts WHERE digest = $1",
+      [digest(component("untrusted"))],
+    );
+    expect(artifacts.rows).toEqual([]);
     await expect(
       setPluginInstallationEnabled(client(), {
         workspaceId: "workspace_second",

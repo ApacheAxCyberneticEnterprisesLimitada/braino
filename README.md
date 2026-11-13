@@ -91,7 +91,11 @@ mismatched definitions before execution. When invoked, third-party code runs onl
 digest-pinned WebAssembly Component in a fresh Wasmtime sandbox. It receives no
 ambient WASI capabilities: configuration, secrets, and allowlisted HTTPS are
 mediated by the instance-local plugin host. No Braino-operated plugin relay is
-in the data path.
+in the data path. PostgreSQL stores the immutable component bytes by their
+computed SHA-256 digest. The application is the only invocation broker: it
+selects an enabled installation by workspace, validates the requested
+capability, opens only that installation's secrets, and sends one complete
+envelope to the private host.
 
 Each external source is bound to this Braino workspace, its credential is encrypted with
 `DOCO_ENCRYPTION_KEY`, and its read-only records land in a private collection

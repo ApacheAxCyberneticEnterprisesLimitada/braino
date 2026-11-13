@@ -41,15 +41,19 @@ describe("current database baseline", () => {
       "011_hook_copies.sql",
       "012_plugin_installations.sql",
       "013_plugin_secrets.sql",
+      "014_plugin_artifacts.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
   });
 
   it("binds every plugin installation to one workspace and immutable artifact digest", () => {
+    const artifacts = tableBlock("plugin_artifacts");
     const installations = tableBlock("plugin_installations");
     const secrets = tableBlock("plugin_installation_secrets");
 
+    expect(artifacts).toMatch(/digest\s+text\s+PRIMARY KEY/i);
+    expect(artifacts).toMatch(/component\s+bytea\s+NOT NULL/i);
     expect(installations).toMatch(/workspace_id\s+text\s+NOT NULL/i);
     expect(installations).toMatch(/manifest\s+jsonb\s+NOT NULL/i);
     expect(installations).toMatch(/artifact_digest\s+text\s+NOT NULL/i);
@@ -57,6 +61,7 @@ describe("current database baseline", () => {
     expect(secrets).toMatch(/installation_id\s+text\s+NOT NULL/i);
     expect(secrets).toMatch(/value_sealed\s+text\s+NOT NULL/i);
     expect(schemaSql).toMatch(/plugin_installations_workspace_plugin_idx/i);
+    expect(schemaSql).toMatch(/REFERENCES\s+plugin_artifacts\s*\(digest\)/i);
   });
 
   it("binds OAuth authorization codes to one MCP resource", () => {

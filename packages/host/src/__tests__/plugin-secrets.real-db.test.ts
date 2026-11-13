@@ -8,8 +8,6 @@ import {
   configurePluginInstallation,
   installPlugin,
   listPluginSecretNames,
-  resolvePluginSecret,
-  setPluginInstallationEnabled,
 } from "../plugin-installations.js";
 import { initializeSingleWorkspace } from "../single-workspace.js";
 
@@ -21,7 +19,7 @@ beforeEach(async () => {
 
 const client = () => db as unknown as PoolClient;
 const encryptionKey = "plugin-secret-test-key-with-more-than-thirty-two-characters";
-const digest = `sha256:${"a".repeat(64)}`;
+const component = new TextEncoder().encode("postmark component");
 const manifest: PluginManifest = {
   protocolVersion: 1,
   id: "acme.postmark",
@@ -70,7 +68,7 @@ async function fixture() {
     workspaceId: initialized.workspace.id,
     userId: initialized.owner.id,
     manifest,
-    artifactDigest: digest,
+    component,
   });
   return { ...initialized, installation };
 }
@@ -112,50 +110,6 @@ describe("workspace-bound plugin secrets", () => {
     expect(JSON.stringify(stored.rows)).not.toContain("postmark-webhook-secret");
   });
 
-  it("lets the trusted broker resolve only the exact enabled workspace installation", async () => {
-    const setup = await fixture();
-    await configurePluginInstallation(client(), {
-      workspaceId: setup.workspace.id,
-      userId: setup.owner.id,
-      installationId: setup.installation.id,
-      configuration: {},
-      secrets: { server_token: "postmark-server-token" },
-      encryptionKey,
-    });
-
-    await expect(
-      resolvePluginSecret(client(), {
-        workspaceId: setup.workspace.id,
-        installationId: setup.installation.id,
-        name: "server_token",
-        encryptionKey,
-      }),
-    ).resolves.toBe("postmark-server-token");
-    await expect(
-      resolvePluginSecret(client(), {
-        workspaceId: "workspace_second",
-        installationId: setup.installation.id,
-        name: "server_token",
-        encryptionKey,
-      }),
-    ).rejects.toMatchObject({ code: "secret_unavailable", status: 404 });
-
-    await setPluginInstallationEnabled(client(), {
-      workspaceId: setup.workspace.id,
-      userId: setup.owner.id,
-      installationId: setup.installation.id,
-      enabled: false,
-    });
-    await expect(
-      resolvePluginSecret(client(), {
-        workspaceId: setup.workspace.id,
-        installationId: setup.installation.id,
-        name: "server_token",
-        encryptionKey,
-      }),
-    ).rejects.toMatchObject({ code: "secret_unavailable", status: 404 });
-  });
-
   it("replaces and removes individual secrets without exposing another value", async () => {
     const setup = await fixture();
     await configurePluginInstallation(client(), {
@@ -169,6 +123,12 @@ describe("workspace-bound plugin secrets", () => {
       },
       encryptionKey,
     });
+    const original = await db.query<{ value_sealed: string }>(
+      `SELECT value_sealed
+         FROM plugin_installation_secrets
+        WHERE installation_id = $1 AND name = 'server_token'`,
+      [setup.installation.id],
+    );
     await configurePluginInstallation(client(), {
       workspaceId: setup.workspace.id,
       userId: setup.owner.id,
@@ -177,15 +137,14 @@ describe("workspace-bound plugin secrets", () => {
       secrets: { server_token: "new-token", webhook_secret: null },
       encryptionKey,
     });
+    const replaced = await db.query<{ value_sealed: string }>(
+      `SELECT value_sealed
+         FROM plugin_installation_secrets
+        WHERE installation_id = $1 AND name = 'server_token'`,
+      [setup.installation.id],
+    );
 
-    await expect(
-      resolvePluginSecret(client(), {
-        workspaceId: setup.workspace.id,
-        installationId: setup.installation.id,
-        name: "server_token",
-        encryptionKey,
-      }),
-    ).resolves.toBe("new-token");
+    expect(replaced.rows[0]?.value_sealed).not.toBe(original.rows[0]?.value_sealed);
     await expect(
       listPluginSecretNames(client(), {
         workspaceId: setup.workspace.id,
@@ -218,5 +177,20 @@ describe("workspace-bound plugin secrets", () => {
         encryptionKey,
       }),
     ).rejects.toBeInstanceOf(PluginInstallationError);
+  });
+
+  it("keeps runtime configuration string-valued like the component ABI", async () => {
+    const setup = await fixture();
+
+    await expect(
+      configurePluginInstallation(client(), {
+        workspaceId: setup.workspace.id,
+        userId: setup.owner.id,
+        installationId: setup.installation.id,
+        configuration: { from: 42 },
+        secrets: {},
+        encryptionKey,
+      }),
+    ).rejects.toMatchObject({ code: "configuration_value_invalid" });
   });
 });
