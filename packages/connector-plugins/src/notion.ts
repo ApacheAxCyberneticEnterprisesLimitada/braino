@@ -1,10 +1,10 @@
 import {
-  type ConnectorAdapter,
   type ConnectorDocument,
   ConnectorError,
   type ConnectorFetcher,
   type ConnectorSource,
-} from "@doco/host";
+  type SourcePullCapability,
+} from "@doco/plugin-runtime";
 
 const API = "https://api.notion.com/v1";
 const NOTION_VERSION = "2026-03-11";
@@ -379,7 +379,7 @@ async function* documents(input: {
   }
 }
 
-export const notionConnector: ConnectorAdapter = {
+export const notionConnector: SourcePullCapability = {
   provider: "notion",
   verify,
   documents,

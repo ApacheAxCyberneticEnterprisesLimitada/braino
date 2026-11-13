@@ -6,54 +6,29 @@ import {
   nodeRowFromFields,
   upsertNode,
 } from "@doco/db";
+import {
+  type ConnectorAdapter,
+  type ConnectorDocument,
+  ConnectorError,
+  type ConnectorFetcher,
+} from "@doco/plugin-runtime";
 import { generateUlid, makeEntityId } from "@doco/shared";
 import type { ClientScope } from "./client-scope.js";
 import { createCollectionInWorkspace } from "./host.js";
 import { openSecret, sealSecret } from "./secret-box.js";
 
-export type ConnectorFetcher = typeof fetch;
+export {
+  ConnectorError,
+  type ConnectorAdapter,
+  type ConnectorDocument,
+  type ConnectorFetcher,
+  type ConnectorSource,
+} from "@doco/plugin-runtime";
 const CONNECTOR_PROVIDER_PATTERN = /^[a-z][a-z0-9_]{0,49}$/;
 const CONNECTOR_REQUEST_TIMEOUT_MS = 30_000;
 const MAX_CONNECTOR_DOCUMENTS = 10_000;
 const MAX_CONNECTOR_DOCUMENT_BYTES = 10 * 1024 * 1024;
 const MAX_CONNECTOR_TOTAL_BYTES = 128 * 1024 * 1024;
-
-export class ConnectorError extends Error {
-  constructor(
-    message: string,
-    public readonly code: string,
-    public readonly status = 400,
-  ) {
-    super(message);
-    this.name = "ConnectorError";
-  }
-}
-
-export interface ConnectorSource {
-  id: string;
-  name: string;
-  config?: Record<string, unknown>;
-}
-
-export interface ConnectorDocument {
-  externalId: string;
-  title: string;
-  content: string;
-  url: string;
-  createdAt?: string;
-  updatedAt: string;
-  metadata?: Record<string, unknown>;
-}
-
-export interface ConnectorAdapter {
-  provider: string;
-  verify(input: { credential: string; fetcher: ConnectorFetcher }): Promise<ConnectorSource>;
-  documents(input: {
-    credential: string;
-    source: ConnectorSource;
-    fetcher: ConnectorFetcher;
-  }): AsyncIterable<ConnectorDocument>;
-}
 
 export interface ConnectorConnectionSummary {
   id: string;

@@ -22,6 +22,7 @@
   "dependencies": {
     "@doco/db": "workspace:*",
     "@doco/index": "workspace:*",
+    "@doco/plugin-runtime": "workspace:*",
     "@doco/shared": "workspace:*"
   }
 }

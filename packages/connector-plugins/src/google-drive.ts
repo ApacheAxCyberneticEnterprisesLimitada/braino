@@ -1,11 +1,11 @@
 import { createSign } from "node:crypto";
 import {
-  type ConnectorAdapter,
   type ConnectorDocument,
   ConnectorError,
   type ConnectorFetcher,
   type ConnectorSource,
-} from "@doco/host";
+  type SourcePullCapability,
+} from "@doco/plugin-runtime";
 
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
 const TOKEN_URI = "https://oauth2.googleapis.com/token";
@@ -351,7 +351,7 @@ async function* documents(input: {
   }
 }
 
-export const googleDriveConnector: ConnectorAdapter = {
+export const googleDriveConnector: SourcePullCapability = {
   provider: "google_drive",
   verify,
   documents,

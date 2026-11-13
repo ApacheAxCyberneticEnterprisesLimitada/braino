@@ -32,6 +32,10 @@ importers:
 
   packages/connector-plugins:
     dependencies:
+      '@doco/plugin-runtime':
+        specifier: workspace:*
+        version: link:../plugin-runtime
+    devDependencies:
       '@doco/host':
         specifier: workspace:*
         version: link:../host
@@ -57,6 +61,9 @@ importers:
       '@doco/index':
         specifier: workspace:*
         version: link:../index
+      '@doco/plugin-runtime':
+        specifier: workspace:*
+        version: link:../plugin-runtime
       '@doco/shared':
         specifier: workspace:*
         version: link:../shared
@@ -79,6 +86,8 @@ importers:
       pg:
         specifier: ^8.20.0
         version: 8.23.1
+
+  packages/plugin-runtime: {}
 
   packages/shared: {}
 

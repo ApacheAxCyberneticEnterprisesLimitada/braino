@@ -6,6 +6,7 @@ their relationships. This repository is the sole upstream for the open product.
 This tree contains the supported single-workspace, self-hosted product:
 
 - `@doco/shared` — entity types, identifiers, policies, and URL conventions
+- `@doco/plugin-runtime` — versioned manifests and capability contracts for plugins
 - `@doco/db` — PostgreSQL schema and source-of-truth storage
 - `@doco/host` — workspace, collection, person, and template services
 - `@doco/index` — retrieval, ranking, embeddings, and Qdrant integration
@@ -82,8 +83,14 @@ send a unique `Idempotency-Key` header. Deliveries use the same authoring
 policies, history, permissions, and changeset response as Braino's API; retrying
 the same key returns the original response without writing twice.
 
-Owners can connect Slack, Notion, and Google Drive from the same page. Each
-external source is bound to this Braino workspace, its credential is encrypted with
+Owners can connect Slack, Notion, and Google Drive from the same page. They are
+built-in `source.pull` plugins using the same versioned manifest and capability
+protocol that other plugin categories will use. The manifest declares each
+plugin's capabilities and network destinations; Braino rejects incompatible or
+mismatched definitions before execution. This release does not load arbitrary
+third-party code or contact a Braino-operated plugin relay.
+
+Each external source is bound to this Braino workspace, its credential is encrypted with
 `DOCO_ENCRYPTION_KEY`, and its read-only records land in a private collection
 with ordinary search, history, and audit behavior. For Slack, create a bot
 token with `channels:read`, `channels:history`, and `users:read`; only public,

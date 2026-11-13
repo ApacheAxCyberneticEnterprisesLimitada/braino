@@ -62,6 +62,7 @@ jobs:
         run: |
           mkdir -p release-packages
           pnpm --filter @doco/shared pack --pack-destination "$GITHUB_WORKSPACE/release-packages"
+          pnpm --filter @doco/plugin-runtime pack --pack-destination "$GITHUB_WORKSPACE/release-packages"
           pnpm --filter @doco/db pack --pack-destination "$GITHUB_WORKSPACE/release-packages"
           pnpm --filter @doco/index pack --pack-destination "$GITHUB_WORKSPACE/release-packages"
           pnpm --filter @doco/host pack --pack-destination "$GITHUB_WORKSPACE/release-packages"
