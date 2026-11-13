@@ -18,8 +18,8 @@ assets beside the application image. Hosted Braino consumes those assets instead
 the core implementation.
 
 The supported deployment is one application image running the web process and
-the Braino Times scheduler, one stateless CodeLinker service, one PostgreSQL
-source of truth, and one rebuildable Qdrant index. Core authoring, team access,
+the Braino Times scheduler, one stateless CodeLinker service, one stateless
+Wasmtime plugin host, one PostgreSQL source of truth, and one rebuildable Qdrant index. Core authoring, team access,
 deterministic search, Braino Times, MCP, generic webhooks, GitHub import, and
 operations work without a model provider.
 
@@ -27,7 +27,7 @@ operations work without a model provider.
 
 ```sh
 cp .env.example .env
-# Fill all four secrets in .env with independent `openssl rand -base64 32` values.
+# Fill all five secrets in .env with independent `openssl rand -base64 32` values.
 docker compose up -d --build
 curl --fail http://localhost:3000/healthz
 ```
@@ -87,8 +87,11 @@ Owners can connect Slack, Notion, and Google Drive from the same page. They are
 built-in `source.pull` plugins using the same versioned manifest and capability
 protocol that other plugin categories will use. The manifest declares each
 plugin's capabilities and network destinations; Braino rejects incompatible or
-mismatched definitions before execution. This release does not load arbitrary
-third-party code or contact a Braino-operated plugin relay.
+mismatched definitions before execution. When invoked, third-party code runs only as a
+digest-pinned WebAssembly Component in a fresh Wasmtime sandbox. It receives no
+ambient WASI capabilities: configuration, secrets, and allowlisted HTTPS are
+mediated by the instance-local plugin host. No Braino-operated plugin relay is
+in the data path.
 
 Each external source is bound to this Braino workspace, its credential is encrypted with
 `DOCO_ENCRYPTION_KEY`, and its read-only records land in a private collection
@@ -123,7 +126,7 @@ upgrade commands:
 ```
 
 PostgreSQL is the source of truth; Qdrant is cleared and rebuilt after a
-restore, while the stateless CodeLinker needs no backup. Backups include
+restore, while the stateless CodeLinker and plugin host need no backup. Backups include
 deployment configuration and are written with mode `0600`. See
 [Operating Braino](docs/operations.md) for the full procedure.
 

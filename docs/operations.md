@@ -1,7 +1,8 @@
 # Operating Braino
 
 PostgreSQL is Braino's source of truth. Qdrant is a rebuildable search projection,
-and CodeLinker is a stateless parser. The supported Compose deployment keeps
+CodeLinker is a stateless parser, and the plugin host is a stateless Wasmtime
+sandbox. The supported Compose deployment keeps
 only PostgreSQL and Qdrant in named volumes and provides one command for
 validation, backup, restore, and upgrades.
 
@@ -35,7 +36,7 @@ Restore into the checkout for the release you want to run:
 ./doco restore /secure/backups/doco-2026-11-08.tar.gz
 ```
 
-Restore stops the application and CodeLinker, replaces the PostgreSQL contents, clears the
+Restore stops the application and its stateless services, replaces the PostgreSQL contents, clears the
 rebuildable Qdrant projection, and starts the stack only after the database
 restore succeeds. If the archive's `.env` differs from the local file, restore
 refuses to continue. Review both files, then use `--force` to replace the local
@@ -43,7 +44,7 @@ configuration; the previous file is retained as `.env.before-restore.<time>`.
 
 ## Upgrade
 
-Set both `DOCO_IMAGE` and `BRAINO_CODELINKER_IMAGE` in `.env` to the exact,
+Set `DOCO_IMAGE`, `BRAINO_CODELINKER_IMAGE`, and `BRAINO_PLUGIN_HOST_IMAGE` in `.env` to the exact,
 matching release you intend to run, then:
 
 ```sh
@@ -58,4 +59,5 @@ code against the wrong database shape.
 
 Each release, cut when a version bump merges to main and tagged `v<version>`,
 publishes signed, SBOM-attested Linux AMD64 and ARM64 images at
-`ghcr.io/brainoinc/braino` and `ghcr.io/brainoinc/braino-codelinker`.
+`ghcr.io/brainoinc/braino`, `ghcr.io/brainoinc/braino-codelinker`, and
+`ghcr.io/brainoinc/braino-plugin-host`.

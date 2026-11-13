@@ -10,9 +10,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./wit/plugin.wit": "./wit/plugin.wit"
   },
-  "files": ["dist"],
+  "files": ["dist", "wit"],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -81,8 +81,10 @@ jobs:
         run: |
           APP_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino"
           CODELINKER_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino-codelinker"
+          PLUGIN_HOST_IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/braino-plugin-host"
           echo "APP_IMAGE=$APP_IMAGE" >> "$GITHUB_ENV"
           echo "CODELINKER_IMAGE=$CODELINKER_IMAGE" >> "$GITHUB_ENV"
+          echo "PLUGIN_HOST_IMAGE=$PLUGIN_HOST_IMAGE" >> "$GITHUB_ENV"
       - id: app_metadata
         uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
         with:
@@ -123,14 +125,36 @@ jobs:
           labels: ${{ steps.codelinker_metadata.outputs.labels }}
           provenance: mode=max
           sbom: true
+      - id: plugin_host_metadata
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ env.PLUGIN_HOST_IMAGE }}
+          tags: |
+            type=raw,value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{version}},value=${{ needs.version.outputs.tag }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.tag }}
+            type=raw,value=latest
+      - id: plugin_host_build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: services/plugin-host/Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.plugin_host_metadata.outputs.tags }}
+          labels: ${{ steps.plugin_host_metadata.outputs.labels }}
+          provenance: mode=max
+          sbom: true
       - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
       - name: Sign the immutable image digests
         env:
           APP_DIGEST: ${{ steps.app_build.outputs.digest }}
           CODELINKER_DIGEST: ${{ steps.codelinker_build.outputs.digest }}
+          PLUGIN_HOST_DIGEST: ${{ steps.plugin_host_build.outputs.digest }}
         run: |
           cosign sign --yes "${APP_IMAGE}@${APP_DIGEST}"
           cosign sign --yes "${CODELINKER_IMAGE}@${CODELINKER_DIGEST}"
+          cosign sign --yes "${PLUGIN_HOST_IMAGE}@${PLUGIN_HOST_DIGEST}"
       - name: Publish the Braino release
         env:
           GH_TOKEN: ${{ github.token }}

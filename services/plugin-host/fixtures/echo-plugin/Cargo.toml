@@ -1,0 +1,12 @@
+[package]
+name = "braino-echo-plugin"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+dlmalloc = { version = "0.2", features = ["global"] }
+wit-bindgen = { version = "0.63", default-features = false, features = ["macros", "realloc"] }
