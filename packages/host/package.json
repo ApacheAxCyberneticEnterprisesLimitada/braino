@@ -1,6 +1,6 @@
 {
   "name": "@doco/host",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "type": "module",
   "description": "Postgres-backed workspace, collection, user, and template services.",
   "license": "MPL-2.0",
