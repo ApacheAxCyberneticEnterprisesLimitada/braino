@@ -1,13 +1,10 @@
+import { createHash } from "node:crypto";
 import type { PoolClient } from "@doco/db";
-import {
-  type PluginCapabilityName,
-  type PluginManifest,
-  parsePluginManifest,
-} from "@doco/plugin-runtime";
+import { type PluginManifest, parsePluginManifest } from "@doco/plugin-runtime";
 import { generateUlid } from "@doco/shared";
-import { openSecret, sealSecret } from "./secret-box.js";
+import { sealSecret } from "./secret-box.js";
 
-const ARTIFACT_DIGEST = /^sha256:[0-9a-f]{64}$/;
+const MAX_COMPONENT_BYTES = 16 * 1024 * 1024;
 const SECRET_NAME = /^[a-z][a-z0-9_]{0,63}$/;
 const INSTALLATION_COLUMNS =
   "id, workspace_id, manifest, artifact_digest, configuration, enabled, created_at, updated_at";
@@ -39,20 +36,10 @@ export interface PluginInstallation {
   workspaceId: string;
   manifest: Readonly<PluginManifest>;
   artifactDigest: string;
-  configuration: Readonly<Record<string, unknown>>;
+  configuration: Readonly<Record<string, string>>;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
-}
-
-export interface PluginInvocationIdentity {
-  workspaceId: string;
-  installationId: string;
-  pluginId: string;
-  pluginVersion: string;
-  artifactDigest: string;
-  capability: PluginCapabilityName;
-  networkHosts: readonly string[];
 }
 
 function iso(value: Date | string): string {
@@ -67,18 +54,22 @@ function jsonObject(value: unknown, label: string): Record<string, unknown> {
 }
 
 function serializedConfiguration(value: unknown): {
-  configuration: Readonly<Record<string, unknown>>;
+  configuration: Readonly<Record<string, string>>;
   serialized: string;
 } {
   const configuration = jsonObject(value, "Plugin configuration");
-  try {
-    return { configuration, serialized: JSON.stringify(configuration) };
-  } catch {
-    throw new PluginInstallationError(
-      "Plugin configuration must contain JSON values.",
-      "configuration_invalid",
-    );
+  for (const value of Object.values(configuration)) {
+    if (typeof value !== "string") {
+      throw new PluginInstallationError(
+        "Plugin configuration values must be strings.",
+        "configuration_value_invalid",
+      );
+    }
   }
+  return {
+    configuration: configuration as Record<string, string>,
+    serialized: JSON.stringify(configuration),
+  };
 }
 
 function schemaKeys(schema: Readonly<Record<string, unknown>> | undefined): {
@@ -113,12 +104,22 @@ function requireDeclaredKeys(
 }
 
 function installation(row: InstallationRow): PluginInstallation {
+  const configuration = jsonObject(row.configuration, "Stored configuration");
+  for (const value of Object.values(configuration)) {
+    if (typeof value !== "string") {
+      throw new PluginInstallationError(
+        "Stored plugin configuration is invalid.",
+        "configuration_invalid",
+        500,
+      );
+    }
+  }
   return {
     id: row.id,
     workspaceId: row.workspace_id,
     manifest: parsePluginManifest(row.manifest),
     artifactDigest: row.artifact_digest,
-    configuration: Object.freeze({ ...jsonObject(row.configuration, "Stored configuration") }),
+    configuration: Object.freeze({ ...(configuration as Record<string, string>) }),
     enabled: row.enabled,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -150,37 +151,51 @@ export async function installPlugin(
     workspaceId: string;
     userId: string;
     manifest: unknown;
-    artifactDigest: string;
+    component: Uint8Array;
   },
 ): Promise<PluginInstallation> {
-  await requireOwner(client, input.workspaceId, input.userId);
   const manifest = parsePluginManifest(input.manifest);
-  if (!ARTIFACT_DIGEST.test(input.artifactDigest)) {
+  if (input.component.byteLength === 0 || input.component.byteLength > MAX_COMPONENT_BYTES) {
     throw new PluginInstallationError(
-      "Plugin artifacts must be pinned by a lowercase SHA-256 digest.",
-      "artifact_digest_invalid",
+      `Plugin artifacts must contain between 1 and ${MAX_COMPONENT_BYTES} bytes.`,
+      "artifact_invalid",
     );
   }
+  const artifactDigest = `sha256:${createHash("sha256").update(input.component).digest("hex")}`;
   const id = `plugin_installation_${generateUlid()}`;
-  const result = await client.query<InstallationRow>(
-    `INSERT INTO plugin_installations
-       (id, workspace_id, manifest, artifact_digest, enabled,
-        created_by_user_id, updated_by_user_id)
-     VALUES ($1, $2, $3::jsonb, $4, true, $5, $5)
-     ON CONFLICT (workspace_id, (manifest->>'id')) DO UPDATE
-       SET manifest = EXCLUDED.manifest,
-           artifact_digest = EXCLUDED.artifact_digest,
-           enabled = true,
-           updated_by_user_id = EXCLUDED.updated_by_user_id,
-           updated_at = now()
-     RETURNING ${INSTALLATION_COLUMNS}`,
-    [id, input.workspaceId, JSON.stringify(manifest), input.artifactDigest, input.userId],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    throw new PluginInstallationError("Plugin installation failed.", "installation_failed", 500);
+  await client.query("BEGIN");
+  try {
+    await requireOwner(client, input.workspaceId, input.userId);
+    await client.query(
+      `INSERT INTO plugin_artifacts (digest, component)
+       VALUES ($1, $2)
+       ON CONFLICT (digest) DO NOTHING`,
+      [artifactDigest, Buffer.from(input.component)],
+    );
+    const result = await client.query<InstallationRow>(
+      `INSERT INTO plugin_installations
+         (id, workspace_id, manifest, artifact_digest, enabled,
+          created_by_user_id, updated_by_user_id)
+       VALUES ($1, $2, $3::jsonb, $4, true, $5, $5)
+       ON CONFLICT (workspace_id, (manifest->>'id')) DO UPDATE
+         SET manifest = EXCLUDED.manifest,
+             artifact_digest = EXCLUDED.artifact_digest,
+             enabled = true,
+             updated_by_user_id = EXCLUDED.updated_by_user_id,
+             updated_at = now()
+       RETURNING ${INSTALLATION_COLUMNS}`,
+      [id, input.workspaceId, JSON.stringify(manifest), artifactDigest, input.userId],
+    );
+    const row = result.rows[0];
+    if (!row) {
+      throw new PluginInstallationError("Plugin installation failed.", "installation_failed", 500);
+    }
+    await client.query("COMMIT");
+    return installation(row);
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
   }
-  return installation(row);
 }
 
 export async function listPluginInstallations(
@@ -224,47 +239,6 @@ export async function setPluginInstallationEnabled(
     );
   }
   return installation(row);
-}
-
-export async function resolvePluginInvocation(
-  client: PoolClient,
-  input: {
-    workspaceId: string;
-    installationId: string;
-    capability: PluginCapabilityName;
-  },
-): Promise<PluginInvocationIdentity> {
-  const result = await client.query<InstallationRow>(
-    `SELECT ${INSTALLATION_COLUMNS}
-       FROM plugin_installations
-      WHERE workspace_id = $1 AND id = $2 AND enabled`,
-    [input.workspaceId, input.installationId],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    throw new PluginInstallationError(
-      "Plugin installation is unavailable.",
-      "installation_unavailable",
-      404,
-    );
-  }
-  const manifest = parsePluginManifest(row.manifest);
-  if (!manifest.capabilities.includes(input.capability)) {
-    throw new PluginInstallationError(
-      `Plugin installation is not approved for ${input.capability}.`,
-      "capability_not_approved",
-      403,
-    );
-  }
-  return Object.freeze({
-    workspaceId: row.workspace_id,
-    installationId: row.id,
-    pluginId: manifest.id,
-    pluginVersion: manifest.version,
-    artifactDigest: row.artifact_digest,
-    capability: input.capability,
-    networkHosts: Object.freeze([...manifest.permissions.network]),
-  });
 }
 
 export async function configurePluginInstallation(
@@ -376,27 +350,4 @@ export async function listPluginSecretNames(
     [input.workspaceId, input.installationId],
   );
   return found.rows.map((row) => row.name);
-}
-
-export async function resolvePluginSecret(
-  client: PoolClient,
-  input: {
-    workspaceId: string;
-    installationId: string;
-    name: string;
-    encryptionKey: string;
-  },
-): Promise<string> {
-  const found = await client.query<{ value_sealed: string }>(
-    `SELECT s.value_sealed
-       FROM plugin_installation_secrets s
-       JOIN plugin_installations i ON i.id = s.installation_id
-      WHERE i.workspace_id = $1 AND i.id = $2 AND i.enabled AND s.name = $3`,
-    [input.workspaceId, input.installationId, input.name],
-  );
-  const row = found.rows[0];
-  if (!row) {
-    throw new PluginInstallationError("Plugin secret is unavailable.", "secret_unavailable", 404);
-  }
-  return openSecret(row.value_sealed, input.encryptionKey);
 }

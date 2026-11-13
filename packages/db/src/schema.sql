@@ -1549,6 +1549,15 @@ CREATE TABLE IF NOT EXISTS incoming_webhook_deliveries (
   PRIMARY KEY (webhook_token, idempotency_key)
 );
 
+-- Component bytes are immutable and content-addressed. They may be reused by
+-- installations only when their SHA-256 digest is identical; all mutable
+-- authority remains on the workspace-bound installation below.
+CREATE TABLE IF NOT EXISTS plugin_artifacts (
+  digest      text PRIMARY KEY CHECK (digest ~ '^sha256:[0-9a-f]{64}$'),
+  component   bytea NOT NULL CHECK (octet_length(component) BETWEEN 1 AND 16777216),
+  created_at  timestamptz NOT NULL DEFAULT now()
+);
+
 -- A marketplace artifact becomes executable only through a workspace-bound
 -- installation. The manifest is the canonical permission declaration and the
 -- immutable digest pins exactly what the owner approved. Hosted Braino may
@@ -1560,8 +1569,7 @@ CREATE TABLE IF NOT EXISTS plugin_installations (
                         CHECK (jsonb_typeof(manifest) = 'object')
                         CHECK (jsonb_typeof(manifest->'id') = 'string')
                         CHECK (manifest->>'id' <> ''),
-  artifact_digest     text NOT NULL
-                        CHECK (artifact_digest ~ '^sha256:[0-9a-f]{64}$'),
+  artifact_digest     text NOT NULL REFERENCES plugin_artifacts(digest),
   configuration       jsonb NOT NULL DEFAULT '{}'::jsonb,
   enabled             boolean NOT NULL DEFAULT true,
   created_by_user_id  text NOT NULL REFERENCES users(id),

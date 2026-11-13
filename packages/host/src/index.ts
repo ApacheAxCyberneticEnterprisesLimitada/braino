@@ -14,3 +14,4 @@ export * from "./password-sign-in.js";
 export * from "./workspace-admin.js";
 export * from "./times.js";
 export * from "./plugin-installations.js";
+export * from "./plugin-invocation.js";

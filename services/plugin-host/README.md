@@ -18,7 +18,9 @@ wall time, component bytes, and response bytes.
 The HTTP service is private to the Braino Compose network and requires
 `BRAINO_PLUGIN_HOST_API_TOKEN`. It has no published host port. Self-hosted
 instances run their own host; plugin inputs, secrets, and provider responses do
-not pass through Braino Cloud or another Braino instance.
+not pass through Braino Cloud or another Braino instance. The application
+broker, not a browser or plugin, resolves the workspace installation and its
+content-addressed component from PostgreSQL before making this private call.
 
 ## Developing the host
 
