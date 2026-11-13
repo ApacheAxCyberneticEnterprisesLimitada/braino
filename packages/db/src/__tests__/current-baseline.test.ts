@@ -40,6 +40,7 @@ describe("current database baseline", () => {
       "010_retrieval_relations_long_facts.sql",
       "011_hook_copies.sql",
       "012_plugin_installations.sql",
+      "013_plugin_secrets.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
@@ -47,10 +48,14 @@ describe("current database baseline", () => {
 
   it("binds every plugin installation to one workspace and immutable artifact digest", () => {
     const installations = tableBlock("plugin_installations");
+    const secrets = tableBlock("plugin_installation_secrets");
 
     expect(installations).toMatch(/workspace_id\s+text\s+NOT NULL/i);
     expect(installations).toMatch(/manifest\s+jsonb\s+NOT NULL/i);
     expect(installations).toMatch(/artifact_digest\s+text\s+NOT NULL/i);
+    expect(installations).toMatch(/configuration\s+jsonb\s+NOT NULL/i);
+    expect(secrets).toMatch(/installation_id\s+text\s+NOT NULL/i);
+    expect(secrets).toMatch(/value_sealed\s+text\s+NOT NULL/i);
     expect(schemaSql).toMatch(/plugin_installations_workspace_plugin_idx/i);
   });
 

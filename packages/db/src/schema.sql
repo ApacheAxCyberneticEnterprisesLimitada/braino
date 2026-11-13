@@ -1562,6 +1562,7 @@ CREATE TABLE IF NOT EXISTS plugin_installations (
                         CHECK (manifest->>'id' <> ''),
   artifact_digest     text NOT NULL
                         CHECK (artifact_digest ~ '^sha256:[0-9a-f]{64}$'),
+  configuration       jsonb NOT NULL DEFAULT '{}'::jsonb,
   enabled             boolean NOT NULL DEFAULT true,
   created_by_user_id  text NOT NULL REFERENCES users(id),
   updated_by_user_id  text NOT NULL REFERENCES users(id),
@@ -1572,6 +1573,19 @@ CREATE UNIQUE INDEX IF NOT EXISTS plugin_installations_workspace_plugin_idx
   ON plugin_installations (workspace_id, (manifest->>'id'));
 CREATE INDEX IF NOT EXISTS plugin_installations_workspace_enabled_idx
   ON plugin_installations (workspace_id, enabled);
+
+-- Secret values are sealed independently so Admin can list configured names
+-- without ever selecting a plaintext value. The installation foreign key is
+-- the workspace boundary.
+CREATE TABLE IF NOT EXISTS plugin_installation_secrets (
+  installation_id    text NOT NULL REFERENCES plugin_installations(id) ON DELETE CASCADE,
+  name               text NOT NULL CHECK (name ~ '^[a-z][a-z0-9_]{0,63}$'),
+  value_sealed       text NOT NULL,
+  updated_by_user_id text NOT NULL REFERENCES users(id),
+  created_at         timestamptz NOT NULL DEFAULT now(),
+  updated_at         timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (installation_id, name)
+);
 
 -- Operator-managed knowledge connectors for the single-workspace host. Every
 -- provider has the same durable lifecycle: one encrypted credential, one
