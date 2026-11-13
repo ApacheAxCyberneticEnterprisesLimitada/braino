@@ -4,6 +4,7 @@ import {
   PLUGIN_PROTOCOL_VERSION,
   type SourcePullCapability,
   definePlugin,
+  parsePluginManifest,
   pluginCapability,
 } from "../index.js";
 
@@ -60,6 +61,56 @@ describe("Braino plugin protocol", () => {
     expect(pluginCapability(plugin, "source.pull")).toBe(sourcePull);
     expect(Object.isFrozen(plugin)).toBe(true);
     expect(Object.isFrozen(plugin.manifest)).toBe(true);
+  });
+
+  it("parses an untrusted marketplace manifest into the canonical immutable shape", () => {
+    const manifest = parsePluginManifest({
+      protocolVersion: 1,
+      id: "acme.private-plugin",
+      name: "Private plugin",
+      version: "2.3.4",
+      capabilities: ["email.send"],
+      permissions: { network: ["api.example.com:443"] },
+      configurationSchema: { type: "object" },
+      secretSchema: { type: "object" },
+    });
+
+    expect(manifest).toMatchObject({
+      id: "acme.private-plugin",
+      capabilities: ["email.send"],
+      permissions: { network: ["api.example.com:443"] },
+    });
+    expect(Object.isFrozen(manifest.capabilities)).toBe(true);
+    expect(Object.isFrozen(manifest.permissions.network)).toBe(true);
+  });
+
+  it.each([
+    [null, "object"],
+    [{}, "protocol version"],
+    [
+      {
+        protocolVersion: 1,
+        id: "braino.slack",
+        name: "Slack",
+        version: "1.0.0",
+        capabilities: "source.pull",
+        permissions: { network: ["slack.com"] },
+      },
+      "capabilities",
+    ],
+    [
+      {
+        protocolVersion: 1,
+        id: "braino.slack",
+        name: "Slack",
+        version: "1.0.0",
+        capabilities: ["source.pull"],
+        permissions: { network: "slack.com" },
+      },
+      "network permissions",
+    ],
+  ])("rejects malformed marketplace manifest input", (input, message) => {
+    expect(() => parsePluginManifest(input)).toThrow(message);
   });
 
   it("rejects a manifest whose implementation does not match its declaration", () => {

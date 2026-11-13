@@ -193,15 +193,73 @@ function immutableManifest(manifest: PluginManifest): Readonly<PluginManifest> {
     permissions: Object.freeze({
       network: Object.freeze([...manifest.permissions.network]),
     }),
+    ...(manifest.configurationSchema
+      ? { configurationSchema: Object.freeze({ ...manifest.configurationSchema }) }
+      : {}),
+    ...(manifest.secretSchema ? { secretSchema: Object.freeze({ ...manifest.secretSchema }) } : {}),
   });
+}
+
+function objectValue(value: unknown, label: string): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function optionalSchema(
+  value: unknown,
+  label: string,
+): Readonly<Record<string, unknown>> | undefined {
+  return value === undefined ? undefined : objectValue(value, label);
+}
+
+export function parsePluginManifest(value: unknown): Readonly<PluginManifest> {
+  const input = objectValue(value, "Plugin manifest");
+  if (input.protocolVersion !== PLUGIN_PROTOCOL_VERSION) {
+    throw new Error(`Unsupported plugin protocol version: ${input.protocolVersion}.`);
+  }
+  if (typeof input.id !== "string") throw new Error("Plugin identifier must be a string.");
+  if (typeof input.name !== "string") throw new Error("Plugin name must be a string.");
+  if (typeof input.version !== "string") throw new Error("Plugin version must be a string.");
+  if (
+    !Array.isArray(input.capabilities) ||
+    input.capabilities.some((item) => typeof item !== "string")
+  ) {
+    throw new Error("Plugin capabilities must be an array of strings.");
+  }
+  const permissions = objectValue(input.permissions, "Plugin permissions");
+  if (
+    !Array.isArray(permissions.network) ||
+    permissions.network.some((item) => typeof item !== "string")
+  ) {
+    throw new Error("Plugin network permissions must be an array of hosts.");
+  }
+  const configurationSchema = optionalSchema(
+    input.configurationSchema,
+    "Plugin configuration schema",
+  );
+  const secretSchema = optionalSchema(input.secretSchema, "Plugin secret schema");
+  const manifest = {
+    protocolVersion: input.protocolVersion,
+    id: input.id,
+    name: input.name,
+    version: input.version,
+    capabilities: input.capabilities,
+    permissions: { network: permissions.network },
+    ...(configurationSchema ? { configurationSchema } : {}),
+    ...(secretSchema ? { secretSchema } : {}),
+  } as PluginManifest;
+  validateManifest(manifest);
+  return immutableManifest(manifest);
 }
 
 export function definePlugin(input: {
   manifest: PluginManifest;
   capabilities: PluginImplementations;
 }): BrainoPlugin {
-  validateManifest(input.manifest);
-  const declared = new Set<string>(input.manifest.capabilities);
+  const manifest = parsePluginManifest(input.manifest);
+  const declared = new Set<string>(manifest.capabilities);
   const implemented = Object.keys(input.capabilities);
   for (const capability of declared) {
     if (!input.capabilities[capability as PluginCapabilityName]) {
@@ -214,7 +272,7 @@ export function definePlugin(input: {
     }
   }
   return Object.freeze({
-    manifest: immutableManifest(input.manifest),
+    manifest,
     capabilities: Object.freeze({ ...input.capabilities }),
   });
 }
