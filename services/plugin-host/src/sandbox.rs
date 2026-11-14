@@ -77,6 +77,7 @@ struct InvocationState {
     configuration: HashMap<String, String>,
     secrets: HashMap<String, String>,
     network_hosts: Vec<String>,
+    local_network_hosts: Vec<String>,
     max_response_bytes: usize,
     http_timeout: Duration,
     limits: StoreLimits,
@@ -101,6 +102,7 @@ impl bindings::braino::plugin::host::Host for InvocationState {
         mediated_request(
             request,
             &self.network_hosts,
+            &self.local_network_hosts,
             self.max_response_bytes,
             self.http_timeout,
         )
@@ -145,6 +147,7 @@ impl PluginHost {
                 configuration: invocation.configuration,
                 secrets: invocation.secrets,
                 network_hosts: invocation.network_hosts,
+                local_network_hosts: self.config.local_network_hosts.clone(),
                 max_response_bytes: self.config.max_response_bytes,
                 http_timeout: self.config.http_timeout,
                 limits,

@@ -9,6 +9,9 @@ WASI environment, filesystem, clocks, random source, or sockets. Its only host
 imports are configuration lookup, secret lookup, and an HTTPS request broker.
 The broker permits only manifest-approved hosts, pins DNS to a public address,
 blocks redirects and transport headers, and limits response bytes and time.
+An operator can expose one exact private service, such as `ollama:11434`, via
+`BRAINO_PLUGIN_LOCAL_NETWORK_HOSTS`; a plugin must independently declare the
+same host before local HTTP is permitted. No other private address is opened.
 
 Compiled components are cached by verified SHA-256 digest in a bounded cache.
 Guest memory, secrets, configuration, fuel, and writable state are never

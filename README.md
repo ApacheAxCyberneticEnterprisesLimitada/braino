@@ -57,6 +57,20 @@ people and roles, source connections, webhooks, GitHub sync, and agent/MCP
 access. It reports configuration readiness without displaying secret values;
 privileged backup, restore, and upgrade commands stay on the host.
 
+To keep embeddings on the same machine, start the optional model profile and
+install the bundled Ollama plugin from **Admin → Embedding model plugin**:
+
+```sh
+docker compose --profile models up -d
+```
+
+The profile pulls the 300M `embeddinggemma` model into its own local volume.
+The plugin runs as a digest-pinned WebAssembly Component and can reach only the
+operator-approved `ollama:11434` service on the private Compose network. The
+retrieval scheduler embeds pending source documents and projects the resulting
+vectors to Qdrant; workspace content, model input, and vectors do not pass
+through Braino Cloud or another Braino instance.
+
 Señor Braino and other agents connect directly to the deployment over stateless
 MCP. Open **MCP** on the workspace page, copy this instance's `/mcp` URL, then
 add it in ChatGPT with **Add custom MCP server** and choose OAuth. The instance
@@ -89,8 +103,9 @@ protocol that other plugin categories will use. The manifest declares each
 plugin's capabilities and network destinations; Braino rejects incompatible or
 mismatched definitions before execution. When invoked, third-party code runs only as a
 digest-pinned WebAssembly Component in a fresh Wasmtime sandbox. It receives no
-ambient WASI capabilities: configuration, secrets, and allowlisted HTTPS are
-mediated by the instance-local plugin host. No Braino-operated plugin relay is
+ambient WASI capabilities: configuration, secrets, allowlisted HTTPS, and
+explicit operator-approved local services are mediated by the instance-local
+plugin host. No Braino-operated plugin relay is
 in the data path. PostgreSQL stores the immutable component bytes by their
 computed SHA-256 digest. The application is the only invocation broker: it
 selects an enabled installation by workspace, validates the requested

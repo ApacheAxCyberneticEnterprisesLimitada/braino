@@ -152,9 +152,12 @@ export async function installPlugin(
     userId: string;
     manifest: unknown;
     component: Uint8Array;
+    configuration?: unknown;
   },
 ): Promise<PluginInstallation> {
   const manifest = parsePluginManifest(input.manifest);
+  const configured = serializedConfiguration(input.configuration ?? {});
+  requireDeclaredKeys(configured.configuration, manifest.configurationSchema, "configuration");
   if (input.component.byteLength === 0 || input.component.byteLength > MAX_COMPONENT_BYTES) {
     throw new PluginInstallationError(
       `Plugin artifacts must contain between 1 and ${MAX_COMPONENT_BYTES} bytes.`,
@@ -174,17 +177,25 @@ export async function installPlugin(
     );
     const result = await client.query<InstallationRow>(
       `INSERT INTO plugin_installations
-         (id, workspace_id, manifest, artifact_digest, enabled,
+         (id, workspace_id, manifest, artifact_digest, configuration, enabled,
           created_by_user_id, updated_by_user_id)
-       VALUES ($1, $2, $3::jsonb, $4, true, $5, $5)
+       VALUES ($1, $2, $3::jsonb, $4, $5::jsonb, true, $6, $6)
        ON CONFLICT (workspace_id, (manifest->>'id')) DO UPDATE
          SET manifest = EXCLUDED.manifest,
              artifact_digest = EXCLUDED.artifact_digest,
+             configuration = EXCLUDED.configuration,
              enabled = true,
              updated_by_user_id = EXCLUDED.updated_by_user_id,
              updated_at = now()
        RETURNING ${INSTALLATION_COLUMNS}`,
-      [id, input.workspaceId, JSON.stringify(manifest), artifactDigest, input.userId],
+      [
+        id,
+        input.workspaceId,
+        JSON.stringify(manifest),
+        artifactDigest,
+        configured.serialized,
+        input.userId,
+      ],
     );
     const row = result.rows[0];
     if (!row) {

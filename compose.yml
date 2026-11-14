@@ -93,6 +93,7 @@ services:
       BRAINO_PLUGIN_HTTP_TIMEOUT_MS: ${BRAINO_PLUGIN_HTTP_TIMEOUT_MS:-15000}
       BRAINO_PLUGIN_MAX_FUEL: ${BRAINO_PLUGIN_MAX_FUEL:-100000000}
       BRAINO_PLUGIN_MAX_CACHED_COMPONENTS: ${BRAINO_PLUGIN_MAX_CACHED_COMPONENTS:-16}
+      BRAINO_PLUGIN_LOCAL_NETWORK_HOSTS: ${BRAINO_PLUGIN_LOCAL_NETWORK_HOSTS:-ollama:11434}
       PORT: 8080
     read_only: true
     cap_drop: [ALL]
@@ -107,6 +108,35 @@ services:
       timeout: 5s
       start_period: 5s
       retries: 4
+    networks: [private]
+
+  ollama:
+    image: ${BRAINO_OLLAMA_IMAGE:-ollama/ollama:0.40.16}
+    profiles: ["models"]
+    restart: unless-stopped
+    environment:
+      OLLAMA_HOST: 0.0.0.0:11434
+    volumes:
+      - doco-ollama:/root/.ollama
+    expose: ["11434"]
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    networks: [private]
+
+  ollama-model:
+    image: ${BRAINO_OLLAMA_IMAGE:-ollama/ollama:0.40.16}
+    profiles: ["models"]
+    restart: "no"
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    entrypoint: ["ollama"]
+    command: ["pull", "${BRAINO_OLLAMA_EMBEDDING_MODEL:-embeddinggemma}"]
+    depends_on:
+      ollama:
+        condition: service_healthy
     networks: [private]
 
   postgres:
@@ -162,5 +192,6 @@ networks:
 volumes:
   doco-postgres:
   doco-qdrant:
+  doco-ollama:
   doco-caddy-data:
   doco-caddy-config:
