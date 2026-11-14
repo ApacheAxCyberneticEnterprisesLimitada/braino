@@ -16,6 +16,7 @@
     "@doco/connector-plugins": "workspace:*",
     "@doco/db": "workspace:*",
     "@doco/host": "workspace:*",
+    "@doco/index": "workspace:*",
     "@doco/shared": "workspace:*",
     "@react-router/express": "7.18.5",
     "@react-router/node": "7.18.5",

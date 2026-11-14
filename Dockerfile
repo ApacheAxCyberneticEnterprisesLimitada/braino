@@ -1,5 +1,14 @@
 # syntax=docker/dockerfile:1
 
+FROM rust:1.100-bookworm AS plugin-build
+
+RUN rustup target add wasm32-wasip2
+WORKDIR /source
+COPY packages/plugin-runtime/wit packages/plugin-runtime/wit
+COPY plugins/ollama-embedding plugins/ollama-embedding
+RUN cargo build --locked --release --target wasm32-wasip2 \
+  --manifest-path plugins/ollama-embedding/Cargo.toml
+
 FROM node:22-bookworm-slim AS build
 
 ENV PNPM_HOME=/pnpm
@@ -33,6 +42,12 @@ ENV PORT=3000
 WORKDIR /app
 COPY --from=build --chown=node:node /opt/doco ./
 COPY --from=build --chown=node:node /source/runtime ./runtime
+COPY --from=plugin-build --chown=node:node \
+  /source/plugins/ollama-embedding/target/wasm32-wasip2/release/braino_ollama_embedding.wasm \
+  /app/plugins/braino_ollama_embedding.wasm
+COPY --from=plugin-build --chown=node:node \
+  /source/plugins/ollama-embedding/manifest.json \
+  /app/plugins/braino_ollama_embedding.manifest.json
 
 USER node
 EXPOSE 3000

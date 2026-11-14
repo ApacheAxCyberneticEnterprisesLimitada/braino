@@ -32,6 +32,13 @@ describe("open Braino administration", () => {
     expect(mcpTokens).toContain("OAuth");
     expect(mcpTokens).toContain("This instance connects directly");
     expect(admin).toContain("Deployment");
+    expect(admin).toContain("Embedding model plugin");
+    expect(admin).toContain('name="embedding_model"');
+    expect(admin).toContain('name="embedding_dimensions"');
+    expect(admin).toContain('"install_ollama_embedding"');
+    expect(admin).toContain("listPluginInstallations");
+    expect(admin).toContain("installPlugin");
+    expect(admin).toContain("configurePluginInstallation");
     expect(admin).toContain("Operations");
     expect(admin).toContain("CodeLinker");
     expect(admin).toContain("BRAINO_CODELINKER_URL");

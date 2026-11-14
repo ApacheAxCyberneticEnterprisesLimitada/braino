@@ -79,6 +79,8 @@ describe("the supported self-hosted stack", () => {
       "scheduler",
       "codelinker",
       "plugin-host",
+      "ollama",
+      "ollama-model",
       "postgres",
       "qdrant",
       "caddy",
@@ -116,6 +118,15 @@ describe("the supported self-hosted stack", () => {
     expect(compose.services["plugin-host"]?.read_only).toBe(true);
     expect(compose.services["plugin-host"]?.cap_drop).toEqual(["ALL"]);
     expect(compose.services["plugin-host"]?.ports).toBeUndefined();
+    expect(compose.services["plugin-host"]?.environment).toMatchObject({
+      BRAINO_PLUGIN_LOCAL_NETWORK_HOSTS: "${BRAINO_PLUGIN_LOCAL_NETWORK_HOSTS:-ollama:11434}",
+    });
+    expect(compose.services.ollama?.profiles).toEqual(["models"]);
+    expect(compose.services.ollama?.ports).toBeUndefined();
+    expect(compose.services["ollama-model"]?.profiles).toEqual(["models"]);
+    expect(compose.services["ollama-model"]?.depends_on).toEqual({
+      ollama: { condition: "service_healthy" },
+    });
     expect(compose.services.app?.ports).toEqual(["127.0.0.1:${DOCO_HTTP_PORT:-3000}:3000"]);
     expect(compose.services.postgres?.ports).toBeUndefined();
     expect(compose.services.qdrant?.ports).toBeUndefined();
@@ -123,6 +134,7 @@ describe("the supported self-hosted stack", () => {
     expect(Object.keys(compose.volumes)).toEqual([
       "doco-postgres",
       "doco-qdrant",
+      "doco-ollama",
       "doco-caddy-data",
       "doco-caddy-config",
     ]);
@@ -140,6 +152,8 @@ describe("the supported self-hosted stack", () => {
     expect(env).toContain("BRAINO_CODELINKER_API_TOKEN=");
     expect(env).toContain("BRAINO_PLUGIN_HOST_API_TOKEN=");
     expect(dockerfile).toContain("pnpm --filter @doco/web build");
+    expect(dockerfile).toContain("plugins/ollama-embedding");
+    expect(runtimeStage).toContain("/app/plugins/braino_ollama_embedding.wasm");
     expect(runtimeStage).toContain("ARG DOCO_VERSION");
     expect(runtimeStage).toContain("ENV DOCO_VERSION=$DOCO_VERSION");
     expect(dockerfile).toContain("USER node");
@@ -147,6 +161,16 @@ describe("the supported self-hosted stack", () => {
     expect(dockerignore).toContain("!.env.example");
     expect(dockerignore).toContain("backups");
     expect(dockerignore).toContain("*.tar.gz");
+  });
+
+  it("runs installed embedding plugins through the durable retrieval scheduler", () => {
+    const scheduler = readFileSync(resolve(root, "runtime/scheduler.mjs"), "utf8");
+
+    expect(scheduler).toContain("resolveWorkspaceEmbeddingProvider");
+    expect(scheduler).toContain("syncRetrievalSourceBatch");
+    expect(scheduler).toContain("syncQueuedEmbeddings");
+    expect(scheduler).toContain("BRAINO_PLUGIN_HOST_URL");
+    expect(scheduler).toContain("DOCO_ENCRYPTION_KEY");
   });
 
   it("fails CI on high or critical dependency advisories", () => {
@@ -182,6 +206,7 @@ describe("the supported self-hosted stack", () => {
       "/services/codelinker",
       "/services/plugin-host",
       "/services/plugin-host/fixtures/echo-plugin",
+      "/plugins/ollama-embedding",
     ]) {
       expect(dependabot.updates).toContainEqual(
         expect.objectContaining({ "package-ecosystem": "cargo", directory }),
@@ -370,6 +395,7 @@ describe("the supported self-hosted stack", () => {
     }
     expect(workflow).toContain("rustup target add wasm32-wasip2");
     expect(workflow).toContain("services/plugin-host/fixtures/echo-plugin/Cargo.toml");
+    expect(workflow).toContain("plugins/ollama-embedding/Cargo.toml");
   });
 
   it("publishes every versioned core package beside each release image", () => {

@@ -1,9 +1,15 @@
+import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { withClient } from "@doco/db";
 import {
   type ActivityPeriod,
+  PluginInstallationError,
   WorkspaceAdminError,
+  configurePluginInstallation,
   getSingleWorkspaceState,
   getWorkspaceAdminOverview,
+  installPlugin,
+  listPluginInstallations,
   updateWorkspaceSettings,
 } from "@doco/host";
 import { Form, Link, redirect, useActionData, useLoaderData } from "react-router";
@@ -19,8 +25,11 @@ import {
 
 interface ActionData {
   saved?: boolean;
+  message?: string;
   error?: string;
 }
+
+const OLLAMA_PLUGIN_ID = "braino.ollama-embedding";
 
 interface DeploymentStatus {
   version: string;
@@ -49,7 +58,7 @@ export function meta() {
   return [{ title: "Workspace administration · Braino" }];
 }
 
-function deploymentStatus(request: Request): DeploymentStatus {
+function deploymentStatus(request: Request, embeddingPluginInstalled: boolean): DeploymentStatus {
   const publicHost = (process.env.DOCO_PUBLIC_HOST ?? new URL(request.url).origin).replace(
     /\/$/,
     "",
@@ -67,8 +76,9 @@ function deploymentStatus(request: Request): DeploymentStatus {
       process.env.BRAINO_CODELINKER_URL?.trim() && process.env.BRAINO_CODELINKER_API_TOKEN?.trim()
         ? "Configured"
         : "Not configured",
-    search:
-      embeddingProvider === "none" || (!embeddingProvider && !hasEmbeddingKey)
+    search: embeddingPluginInstalled
+      ? "Plugin embeddings"
+      : embeddingProvider === "none" || (!embeddingProvider && !hasEmbeddingKey)
         ? "Keyword search"
         : `${embeddingProvider || "automatic"} embeddings`,
     transport: publicHost.startsWith("https://")
@@ -92,14 +102,27 @@ export async function loader({ request }: { request: Request }) {
   const state = await withClient(getSingleWorkspaceState);
   if (!state.initialized) throw redirect("/");
   try {
-    const overview = await withClient((client) =>
-      getWorkspaceAdminOverview(client, {
+    const loaded = await withClient(async (client) => ({
+      overview: await getWorkspaceAdminOverview(client, {
         workspaceId: state.workspace.id,
         userId: user.id,
         period: metricPeriod(request),
       }),
-    );
-    return { overview, deployment: deploymentStatus(request) };
+      plugins: await listPluginInstallations(client, {
+        workspaceId: state.workspace.id,
+        userId: user.id,
+      }),
+    }));
+    return {
+      overview: loaded.overview,
+      embeddingPlugin: loaded.plugins.find((plugin) => plugin.manifest.id === OLLAMA_PLUGIN_ID),
+      deployment: deploymentStatus(
+        request,
+        loaded.plugins.some(
+          (plugin) => plugin.enabled && plugin.manifest.capabilities.includes("embedding.embed"),
+        ),
+      ),
+    };
   } catch (error) {
     adminResponse(error);
   }
@@ -108,6 +131,23 @@ export async function loader({ request }: { request: Request }) {
 function text(form: FormData, name: string): string {
   const value = form.get(name);
   return typeof value === "string" ? value : "";
+}
+
+function encryptionKey(): string {
+  const value = process.env.DOCO_ENCRYPTION_KEY?.trim();
+  if (!value || value.length < 32) {
+    throw new Error("DOCO_ENCRYPTION_KEY must contain at least 32 characters.");
+  }
+  return value;
+}
+
+async function bundledOllamaPlugin() {
+  const directory = process.env.BRAINO_PLUGIN_BUNDLE_DIR?.trim() || "/app/plugins";
+  const [manifest, component] = await Promise.all([
+    readFile(resolve(directory, "braino_ollama_embedding.manifest.json"), "utf8"),
+    readFile(resolve(directory, "braino_ollama_embedding.wasm")),
+  ]);
+  return { manifest: JSON.parse(manifest) as unknown, component };
 }
 
 export async function action({ request }: { request: Request }): Promise<ActionData | Response> {
@@ -124,10 +164,43 @@ export async function action({ request }: { request: Request }): Promise<ActionD
     }
     throw error;
   }
-  if (text(form, "intent") !== "update_workspace") {
-    return Response.json({ error: "Unknown admin action." }, { status: 400 });
-  }
+  const intent = text(form, "intent");
   try {
+    if (intent === "install_ollama_embedding") {
+      const bundled = await bundledOllamaPlugin();
+      await withClient((client) =>
+        installPlugin(client, {
+          workspaceId: state.workspace.id,
+          userId: user.id,
+          manifest: bundled.manifest,
+          component: bundled.component,
+          configuration: {
+            model: text(form, "embedding_model"),
+            dimensions: text(form, "embedding_dimensions"),
+          },
+        }),
+      );
+      return { message: "Ollama embedding plugin installed." };
+    }
+    if (intent === "configure_ollama_embedding") {
+      await withClient((client) =>
+        configurePluginInstallation(client, {
+          workspaceId: state.workspace.id,
+          userId: user.id,
+          installationId: text(form, "installation_id"),
+          configuration: {
+            model: text(form, "embedding_model"),
+            dimensions: text(form, "embedding_dimensions"),
+          },
+          secrets: {},
+          encryptionKey: encryptionKey(),
+        }),
+      );
+      return { message: "Embedding model configuration saved." };
+    }
+    if (intent !== "update_workspace") {
+      return Response.json({ error: "Unknown admin action." }, { status: 400 });
+    }
     await withClient((client) =>
       updateWorkspaceSettings(client, {
         workspaceId: state.workspace.id,
@@ -143,6 +216,7 @@ export async function action({ request }: { request: Request }): Promise<ActionD
     if (error instanceof WorkspaceAdminError) {
       return Response.json({ error: error.message }, { status: error.status });
     }
+    if (error instanceof PluginInstallationError) return { error: error.message };
     throw error;
   }
 }
@@ -223,7 +297,7 @@ function StatusRow({ label, value }: { label: string; value: string }) {
 export default function AdminPage() {
   const data = useLoaderData() as Awaited<ReturnType<typeof loader>>;
   const actionData = useActionData() as ActionData | undefined;
-  const { overview, deployment } = data;
+  const { overview, embeddingPlugin, deployment } = data;
   const period =
     METRIC_PERIODS.find((option) => option.value === overview.activity.period) ?? METRIC_PERIODS[0];
   return (
@@ -458,6 +532,59 @@ export default function AdminPage() {
           </Card>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Embedding model plugin</CardTitle>
+          <CardDescription>
+            Run embeddings inside this deployment with Ollama. Content and vectors stay on this
+            Braino instance.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Form method="post" className="grid gap-3 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
+            <input
+              type="hidden"
+              name="intent"
+              value={embeddingPlugin ? "configure_ollama_embedding" : "install_ollama_embedding"}
+            />
+            {embeddingPlugin ? (
+              <input type="hidden" name="installation_id" value={embeddingPlugin.id} />
+            ) : null}
+            <label className="block text-xs">
+              <span className="mb-1 block text-muted-foreground">Ollama model</span>
+              <input
+                name="embedding_model"
+                defaultValue={embeddingPlugin?.configuration.model ?? "embeddinggemma"}
+                required
+                className="w-full rounded-md px-3 py-2 font-mono text-sm"
+              />
+            </label>
+            <label className="block text-xs">
+              <span className="mb-1 block text-muted-foreground">Dimensions</span>
+              <input
+                name="embedding_dimensions"
+                type="number"
+                min="1"
+                defaultValue={embeddingPlugin?.configuration.dimensions ?? "768"}
+                required
+                className="w-full rounded-md px-3 py-2 font-mono text-sm"
+              />
+            </label>
+            <button
+              type="submit"
+              className="neu-button rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+            >
+              {embeddingPlugin ? "Save model" : "Install plugin"}
+            </button>
+          </Form>
+          {actionData?.message ? (
+            <output className="mt-3 block text-xs text-muted-foreground">
+              {actionData.message}
+            </output>
+          ) : null}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

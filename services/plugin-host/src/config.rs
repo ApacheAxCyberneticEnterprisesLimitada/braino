@@ -9,6 +9,11 @@ pub struct PluginHostConfig {
     pub http_timeout: Duration,
     pub max_fuel: u64,
     pub max_cached_components: usize,
+    /// Exact host:port pairs that an operator exposes to plugins on the
+    /// instance-private network. Guests still have to declare the same host
+    /// in their manifest; this second gate is what permits plain HTTP and a
+    /// private address without weakening public-provider SSRF protection.
+    pub local_network_hosts: Vec<String>,
 }
 
 impl Default for PluginHostConfig {
@@ -21,6 +26,7 @@ impl Default for PluginHostConfig {
             http_timeout: Duration::from_secs(15),
             max_fuel: 100_000_000,
             max_cached_components: 16,
+            local_network_hosts: Vec::new(),
         }
     }
 }
@@ -78,9 +84,33 @@ impl AppConfig {
                     "BRAINO_PLUGIN_MAX_CACHED_COMPONENTS",
                     defaults.max_cached_components,
                 )?,
+                local_network_hosts: env_hosts("BRAINO_PLUGIN_LOCAL_NETWORK_HOSTS")?,
             },
         })
     }
+}
+
+fn env_hosts(name: &str) -> Result<Vec<String>, String> {
+    let Ok(value) = std::env::var(name) else {
+        return Ok(Vec::new());
+    };
+    value
+        .split(',')
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| {
+            let Some((host, port)) = value.rsplit_once(':') else {
+                return Err(format!("{name} entries must be exact host:port pairs"));
+            };
+            if host.is_empty()
+                || host.contains(['*', '/', '@'])
+                || port.parse::<u16>().ok().filter(|port| *port > 0).is_none()
+            {
+                return Err(format!("{name} contains an invalid host:port pair"));
+            }
+            Ok(format!("{}:{port}", host.to_ascii_lowercase()))
+        })
+        .collect()
 }
 
 fn duration_millis(duration: Duration) -> u64 {

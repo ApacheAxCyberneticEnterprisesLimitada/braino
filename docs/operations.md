@@ -3,8 +3,10 @@
 PostgreSQL is Braino's source of truth. Qdrant is a rebuildable search projection,
 CodeLinker is a stateless parser, and the plugin host is a stateless Wasmtime
 sandbox. The supported Compose deployment keeps
-only PostgreSQL and Qdrant in named volumes and provides one command for
-validation, backup, restore, and upgrades.
+PostgreSQL, Qdrant, and the optional Ollama model cache in named volumes and
+provides one command for validation, backup, restore, and upgrades. The Ollama
+volume is a rebuildable cache: `docker compose --profile models up -d` pulls
+the configured model again when necessary.
 
 ## Preflight
 

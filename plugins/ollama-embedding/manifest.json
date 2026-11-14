@@ -1,0 +1,16 @@
+{
+  "protocolVersion": 1,
+  "id": "braino.ollama-embedding",
+  "name": "Ollama embeddings",
+  "version": "0.1.0",
+  "capabilities": ["embedding.embed"],
+  "permissions": { "network": ["ollama:11434"] },
+  "configurationSchema": {
+    "type": "object",
+    "properties": {
+      "model": { "type": "string", "default": "embeddinggemma" },
+      "dimensions": { "type": "string", "default": "768" }
+    },
+    "additionalProperties": false
+  }
+}

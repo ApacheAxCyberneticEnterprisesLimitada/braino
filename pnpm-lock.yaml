@@ -102,6 +102,9 @@ importers:
       '@doco/host':
         specifier: workspace:*
         version: link:../host
+      '@doco/index':
+        specifier: workspace:*
+        version: link:../index
       '@doco/shared':
         specifier: workspace:*
         version: link:../shared

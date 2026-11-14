@@ -9,26 +9,28 @@ use tokio::net::lookup_host;
 pub(crate) async fn mediated_request(
     request: HttpRequest,
     allowed_hosts: &[String],
+    local_hosts: &[String],
     max_response_bytes: usize,
     timeout: Duration,
 ) -> Result<HttpResponse, String> {
     let url = Url::parse(&request.url).map_err(|_| "request URL is invalid".to_string())?;
-    if url.scheme() != "https" || !url.username().is_empty() || url.password().is_some() {
-        return Err("only credential-free HTTPS URLs are allowed".to_string());
-    }
+    let local = request_is_local(&request.url, allowed_hosts, local_hosts)?;
     let host = url
         .host_str()
         .ok_or_else(|| "request URL has no host".to_string())?
         .to_ascii_lowercase();
     let port = url.port_or_known_default().unwrap_or(443);
-    if !host_allowed(&host, port, allowed_hosts) {
-        return Err("request host is not approved by the plugin manifest".to_string());
-    }
     let address = lookup_host((host.as_str(), port))
         .await
         .map_err(|_| "request host could not be resolved".to_string())?
-        .find(|address| public_address(address.ip()))
-        .ok_or_else(|| "request host does not resolve to a public address".to_string())?;
+        .find(|address| local || public_address(address.ip()))
+        .ok_or_else(|| {
+            if local {
+                "local request host could not be resolved".to_string()
+            } else {
+                "request host does not resolve to a public address".to_string()
+            }
+        })?;
     let client = reqwest::Client::builder()
         .redirect(Policy::none())
         .timeout(timeout)
@@ -92,6 +94,36 @@ pub(crate) async fn mediated_request(
         headers,
         body,
     })
+}
+
+fn request_is_local(
+    request_url: &str,
+    allowed_hosts: &[String],
+    local_hosts: &[String],
+) -> Result<bool, String> {
+    let url = Url::parse(request_url).map_err(|_| "request URL is invalid".to_string())?;
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("request URL must not contain credentials".to_string());
+    }
+    let host = url
+        .host_str()
+        .ok_or_else(|| "request URL has no host".to_string())?
+        .to_ascii_lowercase();
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| "request URL has no port".to_string())?;
+    if !host_allowed(&host, port, allowed_hosts) {
+        return Err("request host is not approved by the plugin manifest".to_string());
+    }
+    let local = host_allowed(&host, port, local_hosts);
+    match (url.scheme(), local) {
+        ("https", _) => Ok(local),
+        ("http", true) => Ok(true),
+        _ => Err(
+            "public provider requests require HTTPS; local HTTP requires operator approval"
+                .to_string(),
+        ),
+    }
 }
 
 fn host_allowed(host: &str, port: u16, allowed_hosts: &[String]) -> bool {
@@ -159,7 +191,7 @@ fn public_v6(address: Ipv6Addr) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{host_allowed, prohibited_header, public_address};
+    use super::{host_allowed, prohibited_header, public_address, request_is_local};
     use reqwest::header::HeaderName;
     use std::net::{IpAddr, Ipv4Addr};
 
@@ -195,5 +227,36 @@ mod tests {
         assert!(!prohibited_header(&HeaderName::from_static(
             "authorization"
         )));
+    }
+
+    #[test]
+    fn local_http_requires_both_manifest_and_operator_approval() {
+        let manifest = vec!["ollama:11434".into()];
+        let operator = vec!["ollama:11434".into()];
+
+        assert!(request_is_local("http://ollama:11434/api/embed", &manifest, &operator).unwrap());
+        assert!(request_is_local("http://ollama:11434/api/embed", &manifest, &[]).is_err());
+        assert!(request_is_local(
+            "http://postgres:5432/",
+            &["postgres:5432".into()],
+            &operator
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn public_provider_requests_remain_https_only() {
+        assert!(!request_is_local(
+            "https://api.openai.com/v1/embeddings",
+            &["api.openai.com".into()],
+            &[]
+        )
+        .unwrap());
+        assert!(request_is_local(
+            "http://api.openai.com/v1/embeddings",
+            &["api.openai.com:80".into()],
+            &[]
+        )
+        .is_err());
     }
 }
