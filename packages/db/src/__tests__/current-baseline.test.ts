@@ -42,6 +42,7 @@ describe("current database baseline", () => {
       "012_plugin_installations.sql",
       "013_plugin_secrets.sql",
       "014_plugin_artifacts.sql",
+      "015_unretire_rewritten_logs.sql",
     ]);
     expect(schemaSql).not.toMatch(/\bapplied_migrations\b/);
     expect(schemaSql).not.toMatch(/\bschema_applied\b/);
